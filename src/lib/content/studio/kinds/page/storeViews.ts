@@ -41,6 +41,9 @@
 //   France EUR       en 17 fr 18                     Poland EUR       en 33  pl 36
 //   Italy EUR        en 19 it 20
 //
+// Content v11 (SARCLA 10.11.2026): "take out completely China and Czech Republic" - their store views are not in the
+// list any more (their Magento codes were china_eur_en, czech_republic_eur_en / _cs). International CS stays, id unknown.
+//
 // A CMS page written for several store views carries them all in its store_id (./cmsPage.ts): a store view whose id is not
 // known cannot be put in - the last step says so, and it is ticked in Magento by hand.
 
@@ -77,8 +80,6 @@ const COUNTRIES: Country[] = [
   { cc: "FR", name: "France", code: "france", currencies: ["EUR"] },
   { cc: "IT", name: "Italy", code: "italy", currencies: ["EUR"] },
   { cc: "NL", name: "Netherlands", code: "netherlands", currencies: ["EUR"] },
-  { cc: "CZ", name: "Czech Republic", code: "czech_republic", currencies: ["EUR"] },
-  { cc: "CN", name: "China", code: "china", currencies: ["EUR"] },
   { cc: "INT", name: "International", code: "international", currencies: ["EUR"] },
   { cc: "PL", name: "Poland", code: "poland", currencies: ["EUR"] },
 ];
@@ -93,8 +94,6 @@ const WEBSITES: { cc: string; currency: Currency; views: { lang: string; id: num
   { cc: "FR", currency: "EUR", views: [{ lang: "en", id: 17 }, { lang: "fr", id: 18 }] },
   { cc: "IT", currency: "EUR", views: [{ lang: "en", id: 19 }, { lang: "it", id: 20 }] },
   { cc: "NL", currency: "EUR", views: [{ lang: "en", id: 21 }, { lang: "nl", id: 22 }] },
-  { cc: "CZ", currency: "EUR", views: [{ lang: "en", id: null, hidden: true }, { lang: "cs", id: null, hidden: true }] },
-  { cc: "CN", currency: "EUR", views: [{ lang: "en", id: null, hidden: true }] },
   { cc: "INT", currency: "EUR", views: [{ lang: "en", id: 26 }, { lang: "de", id: 27 }, { lang: "fr", id: 28 }, { lang: "it", id: 29 }, { lang: "nl", id: 30 }, { lang: "cs", id: null, hidden: true }] },
   { cc: "PL", currency: "EUR", views: [{ lang: "en", id: 33 }, { lang: "pl", id: 36 }] },
 ];

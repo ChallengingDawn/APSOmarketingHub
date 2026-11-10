@@ -299,7 +299,7 @@ export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl", "cs"] as const;
 /** @deprecated the four the studio offered before 08.11.2026 - the shop's languages come from its store views now */
 export const LANGS = ["de", "fr", "it", "en"] as const;
 /** Each language's own store view: the Swiss one where the shop has it, English the international one (x-default). */
-const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", cs: "cs-CZ", es: "es-ES" };
+const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", cs: "cs-INT", es: "es-ES" };
 const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", cs: "Czech", es: "Spanish" };
 
 /**
@@ -612,7 +612,7 @@ export function shopViews(stores: readonly string[], mainStore: string): StoreGr
   });
 }
 
-/** "German, French · 9 of 29 store views" - the page's languages and the store views they go to, in one line (Content
+/** "German, French · 9 of 26 store views" - the page's languages and the store views they go to, in one line (Content
  * v10: a version is a language going to several store views); one store view alone is named. */
 export function viewsLine(d: PageDoc, groups: StoreGroup[]): string {
   const langs = languagesOf(d);

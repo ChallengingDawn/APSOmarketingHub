@@ -11,7 +11,8 @@
 // A category, a product or the home page is not a CMS page: the last step stays the hand-over for dotSource.
 // Content v10 (SARCLA 10.11.2026, point 6): a row is a LANGUAGE - "English · 11 store views" - with its store views as
 // Magento's Store View lists them, each saying what the write does there (put in, already in, left out and why, "id ?"
-// where the hub does not know Magento's id); a new page is ONE Magento page for all of them (store_id = their ids).
+// where the hub does not know Magento's id). Content v11: Magento's API takes no store views in a page ("StoreId" is not
+// supported), so the same page is written into each ticked store view - one Magento page each, kept together here.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -92,11 +93,12 @@ function planLine(p: PlanOut | undefined, e: EnvState): { text: string; tone: "o
   if (!e.key) return { text: "waiting for its key", tone: "wait" };
   if (!p) return { text: "reading Magento…", tone: "wait" };
   if (isShared(p) && p.action !== "none") {
-    // ONE page for the version's store views (Content v10)
+    // the same page in each of the version's store views (Content v11)
     const n = p.storeIds.length;
     const put = p.targets.filter((t) => t.state === "new").map((t) => t.view);
-    const more = [put.length && p.action === "update" ? `puts in ${put.join(", ")}` : "", p.out.length ? `takes out ${p.out.join(", ")}` : "", p.more.length ? `and the earlier page${p.more.length === 1 ? "" : "s"} #${p.more.join(", #")}` : ""].filter(Boolean).join(" · ");
-    return { text: `${p.action === "create" ? "creates ONE page" : `updates page #${p.pageId}`} for ${n} store view${n === 1 ? "" : "s"}${more ? ` - ${more}` : ""}`, tone: "ok" };
+    const upd = p.targets.filter((t) => t.state === "has").length;
+    const more = [put.length && upd ? `creates it in ${put.join(", ")}` : "", p.out.length ? `switches it off in ${p.out.join(", ")}` : ""].filter(Boolean).join(" · ");
+    return { text: `${upd ? `updates the page in ${upd} store view${upd === 1 ? "" : "s"}` : `creates the page in ${n} store view${n === 1 ? "" : "s"} - one Magento page each`}${more ? ` - ${more}` : ""}`, tone: "ok" };
   }
   if (p.action === "create") return { text: "creates a new page", tone: "ok" };
   if (p.action === "update") {
@@ -119,7 +121,7 @@ function pickLine(plans: PlanOut[], stores: string[], e: EnvState): { text: stri
 }
 
 const CHIP: Record<string, { c: string; w: string }> = {
-  new: { c: GREEN, w: "put in" }, has: { c: GREEN, w: "in it" }, other: { c: BLUE, w: "earlier page" }, taken: { c: "#a14b12", w: "left out" }, unknown: { c: AMBER, w: "id ?" }, out: { c: MUTED, w: "taken out" },
+  new: { c: GREEN, w: "created" }, has: { c: GREEN, w: "updated" }, other: { c: BLUE, w: "updated" }, taken: { c: "#a14b12", w: "left out" }, unknown: { c: AMBER, w: "id ?" }, out: { c: MUTED, w: "switched off" },
 };
 
 /** The version's store views as Magento's Store View lists them, each with what the write does there (one target). */
@@ -439,7 +441,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
           );
         })}
       </Box>
-      <Hint mt={0.75}>{doc.source === "new" ? "One Magento page per language, for every store view ticked (its Store View field). A click on a row shows the exact page Magento gets; nothing is written until you press Publish." : "The changes go into the page of each store view the language goes to. A click on a row shows what Magento gets; nothing is written until you press Publish."}</Hint>
+      <Hint mt={0.75}>{doc.source === "new" ? "One page per language, written into every store view ticked - Magento keeps one copy of it in each. A click on a row shows the exact page Magento gets; nothing is written until you press Publish." : "The changes go into the page of each store view the language goes to. A click on a row shows what Magento gets; nothing is written until you press Publish."}</Hint>
 
       <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
         {envs.filter((e) => on.includes(e.env)).map((e, i) => {

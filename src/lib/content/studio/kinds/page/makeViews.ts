@@ -19,7 +19,7 @@ import { STORE_VIEWS, shopOrder } from "./storeViews";
 export type MakeStep = { key: string; how: "copy" | "translate" | "tick"; from: string; stores?: string[] };
 
 /** Each language's own store view first, where it is among the ones ticked (de-CH, fr-CH, it-CH, en-INT, nl-NL, pl-PL). */
-const HOME: Record<string, string[]> = { de: ["de-CH"], fr: ["fr-CH"], it: ["it-CH"], en: ["en-INT", "en-CH"], nl: ["nl-NL"], pl: ["pl-PL"], cs: ["cs-CZ"] };
+const HOME: Record<string, string[]> = { de: ["de-CH"], fr: ["fr-CH"], it: ["it-CH"], en: ["en-INT", "en-CH"], nl: ["nl-NL"], pl: ["pl-PL"], cs: ["cs-INT"] };
 
 /**
  * The steps that make the store views asked, in order (the page's own language first, then the shop's): a store view of a

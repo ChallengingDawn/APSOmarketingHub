@@ -22,11 +22,11 @@ import { magentoRequest, planShared, writeShared, type Backups, type FetchLike, 
 
 /* ── point 6: Magento's real store view list ─────────────────────────── */
 
-test("Magento's store views, by website as its CMS page form lists them - with Czech Republic, China and International CS", () => {
-  assert.equal(STORE_VIEWS.length, 29);
+test("Magento's store views, by website as its CMS page form lists them - China and Czech Republic taken out (Content v11)", () => {
+  assert.equal(STORE_VIEWS.length, 26);
   assert.deepEqual(countryGroups().map((g) => g.label), [
     "Switzerland · EUR", "Switzerland · CHF", "Germany · EUR", "Austria · EUR", "France · EUR", "Italy · EUR", "Netherlands · EUR",
-    "Czech Republic · EUR", "China · EUR", "International · EUR", "Poland · EUR",
+    "International · EUR", "Poland · EUR",
   ]);
   assert.deepEqual(countryGroups()[2].stores, ["en-DE", "de-DE"], "Germany EUR > EN, DE - as the form shows it");
   // the ids read from each front page on 10.11.2026 - the same on production and ACC
@@ -34,19 +34,12 @@ test("Magento's store views, by website as its CMS page form lists them - with C
   assert.equal(storeIdOf("en-CH"), 5);
   assert.equal(storeIdOf("en-INT"), 26);
   assert.equal(storeIdOf("pl-PL"), 36);
-  // the four the shop never showed: in the list, their id said unknown - never guessed; their codes read from ACC's
-  // Magento (Content v11)
-  const codes: Record<string, string> = { "en-CZ": "czech_republic_eur_en", "cs-CZ": "czech_republic_eur_cs", "en-CN": "china_eur_en", "cs-INT": "international_eur_cs" };
-  for (const k of ["en-CZ", "cs-CZ", "en-CN", "cs-INT"]) {
-    const v = storeViewOf(k)!;
-    assert.ok(v, k);
-    assert.equal(v.id, null, `${k}: id unknown`);
-    assert.equal(v.code, codes[k], `${k}: Magento's code`);
-    assert.equal(v.open, false, `${k}: its front page leads to en-INT`);
-  }
-  assert.equal(storeCodeOf("cs-CZ"), "czech_republic_eur_cs");
-  assert.equal(storeViewOf("en-CZ")!.website, "Czech Republic EUR");
-  assert.deepEqual(storesInLanguage("cs"), ["cs-CZ", "cs-INT"]);
+  // SARCLA 10.11.2026: "take out completely China and Czech Republic" - International CS stays, its id unknown, never guessed
+  for (const k of ["en-CZ", "cs-CZ", "en-CN"]) assert.equal(storeViewOf(k), null, `${k} is out`);
+  assert.equal(storeViewOf("cs-INT")!.id, null);
+  assert.equal(storeViewOf("cs-INT")!.code, "international_eur_cs");
+  assert.equal(storeViewOf("cs-INT")!.open, false, "its front page leads to en-INT");
+  assert.deepEqual(storesInLanguage("cs"), ["cs-INT"]);
 });
 
 /* ── point 6: one page per language ──────────────────────────────────── */
@@ -58,19 +51,19 @@ test("a new page goes to every store view of its language - ticked, untickable, 
   let d = pageDoc(raw);
   assert.equal(d.store, "en-INT");
   assert.deepEqual(storesOfView(d, "en-INT"), ["en-INT", ...storesInLanguage("en").filter((k) => k !== "en-INT")]);
-  assert.equal(storesOfView(d, "en-INT").length, 11);
-  assert.equal(versionLabel(d, "en-INT"), "English · 11 store views");
+  assert.equal(storesOfView(d, "en-INT").length, 9);
+  assert.equal(versionLabel(d, "en-INT"), "English · 9 store views");
   assert.equal(versionOfStore(d, "en-CH/eur"), "en-INT", "en-CH in EUR gets the English page");
   // unticked: it gets no page; its own store view never goes
-  d = tickStore(d, "en-CN", false);
-  assert.equal(versionOfStore(d, "en-CN"), null);
+  d = tickStore(d, "en-NL", false);
+  assert.equal(versionOfStore(d, "en-NL"), null);
   assert.equal(tickStore(d, "en-INT", false), d, "the page's own store view stays");
-  d = tickStore(d, "en-CN", true);
-  assert.equal(versionOfStore(d, "en-CN"), "en-INT");
+  d = tickStore(d, "en-NL", true);
+  assert.equal(versionOfStore(d, "en-NL"), "en-INT");
   // kept as ticked: a saved document reads back the same
   const back = pageDoc(JSON.parse(JSON.stringify(tickStore(d, "en-PL", false))));
   assert.equal(versionOfStore(back, "en-PL"), null);
-  assert.equal(storesOfView(back, "en-INT").length, 10);
+  assert.equal(storesOfView(back, "en-INT").length, 8);
 });
 
 test("its own words for one store view: split off as a copy, joined back - a store view goes to one version only", () => {
@@ -136,24 +129,26 @@ test("a page moved to another store view's language goes to all of its new langu
 test("the plan: a store view of the page's language goes to its page at once; a new language is one translation for its ticked", () => {
   const d = pageDoc({ ...emptyPage("EN"), source: "new", fields: fieldsOf("Seals") });
   const off = tickStore(d, "en-PL", false);
-  const steps = planViews(off, ["en-PL", "fr-FR", "fr-CH", "cs-CZ", "en-INT"]);
+  const steps = planViews(off, ["en-PL", "fr-FR", "fr-CH", "cs-INT", "en-INT"]);
   assert.deepEqual(steps, [
     { key: "en-PL", how: "tick", from: "en-INT" },
     { key: "fr-CH", how: "translate", from: "en-INT", stores: ["fr-CH", "fr-FR"] },
-    { key: "cs-CZ", how: "translate", from: "en-INT", stores: ["cs-CZ"] },
+    { key: "cs-INT", how: "translate", from: "en-INT", stores: ["cs-INT"] },
   ]);
   assert.equal(planSummary(steps), "4 store views: 1 to the page's language (no AI), French and Czech translated - 2 AI calls, one at a time");
 });
 
-/* ── point 6: the last step - ONE Magento page for the version's store views ── */
+/* ── point 6: the last step - the same page in each of the version's store views (Content v11) ── */
 
 type FakePage = { id: number; identifier: string; title: string; content: string; active: boolean; stores: number[] };
-/** A Magento in memory. `takesList`: it honours the page's store_id list (else it puts a new page in the store of the request). */
-function fakeMagento(pages: FakePage[], takesList = true) {
+/** A Magento in memory, as ACC's answered on 10.11.2026: a page's store_id is refused ('"StoreId" is not supported'), a
+ * new page is put in the store of the request, an update keeps the page's store views. */
+function fakeMagento(pages: FakePage[]) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   let next = 700;
   const strip = ({ stores: _s, ...p }: FakePage) => p;
-  const CODE_ID: Record<string, number> = { international_eur_en: 26, switzerland_chf_en: 5, germany_eur_en: 9 };
+  const CODE_ID: Record<string, number> = { international_eur_en: 26, switzerland_chf_en: 5, germany_eur_en: 9, poland_eur_en: 33 };
+  const refused = { status: 400, text: async () => JSON.stringify({ message: '"%fieldName" is not supported. Correct the field name and try again.', parameters: { fieldName: "StoreId" } }) };
   const fetch: FetchLike = async (url, init) => {
     const u = new URL(url);
     const body = init.body ? JSON.parse(init.body) : undefined;
@@ -167,16 +162,15 @@ function fakeMagento(pages: FakePage[], takesList = true) {
       return ok({ items: pages.filter((p) => p.identifier === ident && p.stores.includes(sid)).map(strip) });
     }
     if (init.method === "GET" && rest) { const p = pages.find((x) => x.id === Number(rest)); return p ? ok(strip(p)) : { status: 404, text: async () => "{}" }; }
+    if (body?.page && "store_id" in body.page) return refused;
     if (init.method === "POST") {
-      const { store_id, ...page } = body.page;
-      const p: FakePage = { ...page, id: next++, stores: takesList && Array.isArray(store_id) ? store_id : [CODE_ID[store] ?? 0] };
+      const p: FakePage = { ...body.page, id: next++, stores: [CODE_ID[store] ?? 0] };
       pages.push(p);
       return ok(strip(p));
     }
     if (init.method === "PUT") {
       const i = pages.findIndex((x) => x.id === Number(rest));
-      const { store_id, ...page } = body.page;
-      pages[i] = { ...pages[i], ...page, id: pages[i].id, stores: takesList && Array.isArray(store_id) ? store_id : pages[i].stores };
+      pages[i] = { ...pages[i], ...body.page, id: pages[i].id, stores: pages[i].stores };
       return ok(strip(pages[i]));
     }
     return { status: 400, text: async () => "{}" };
@@ -185,50 +179,48 @@ function fakeMagento(pages: FakePage[], takesList = true) {
 }
 const memBackups = (): Backups & { rows: string[] } => {
   const rows: string[] = [];
-  return { rows, add: async (b) => { rows.push(`${b.action}:${b.pageId ?? "-"}`); return String(rows.length); }, written: async () => undefined, failed: async () => undefined };
+  return { rows, add: async (b) => { rows.push(`${b.action}:${b.view}:${b.pageId ?? "-"}`); return String(rows.length); }, written: async () => undefined, failed: async () => undefined };
 };
 const ref = (view: string, code: string, id: number): StoreRef => ({ view, code, id });
 const EN = [ref("en-INT", "international_eur_en", 26), ref("en-CH", "switzerland_chf_en", 5), ref("en-DE", "germany_eur_en", 9), ref("en-PL", "poland_eur_en", 33)];
 const want: Extract<Want, { kind: "page" }> = { kind: "page", identifier: "kalrez-alternatives", title: "Kalrez alternatives", metaTitle: "Kalrez alternatives", metaDescription: "", content: "<p>x</p>", active: true };
 const targets = (views: string[]): Target[] => views.map((v) => ({ view: v, ref: EN.find((r) => r.view === v) ?? null }));
 
-test("a new page for three store views: ONE page created, store_id = their ids, in the store of its own store view", async () => {
+test("a new page for three store views: the same page created in each, by its own store code - never a store_id", async () => {
   const f = fakeMagento([]);
-  const t = targets(["en-INT", "en-CH", "en-DE", "en-CZ"]);
+  const t = targets(["en-INT", "en-CH", "en-DE", "en-XX"]);
   const plan = await planShared(f.m, { env: "acc", view: "en-INT", targets: t, want, language: EN, ours: () => false });
   assert.equal(plan.action, "create");
   assert.deepEqual(plan.storeIds, [26, 5, 9]);
-  assert.deepEqual(plan.targets.map((x) => [x.view, x.state]), [["en-INT", "new"], ["en-CH", "new"], ["en-DE", "new"], ["en-CZ", "unknown"]]);
-  assert.match(plan.targets[3].why!, /does not know en-CZ's Magento id/);
+  assert.deepEqual(plan.targets.map((x) => [x.view, x.state]), [["en-INT", "new"], ["en-CH", "new"], ["en-DE", "new"], ["en-XX", "unknown"]]);
+  assert.match(plan.targets[3].why!, /does not know en-XX's Magento id/);
   assert.equal(f.writes().length, 0, "a plan writes nothing");
   const b = memBackups();
   const w = await writeShared(f.m, { env: "acc", view: "en-INT", targets: t, want, language: EN, ours: () => false, by: "sarcla", backups: b });
   assert.equal(w.action, "created");
-  assert.equal(f.writes().length, 1, "one write for three store views");
-  assert.equal(f.writes()[0].url, "/rest/international_eur_en/V1/cmsPage", "in the store of its own store view - never All Store Views");
-  assert.deepEqual((f.writes()[0].body as { page: { store_id: number[] } }).page.store_id, [26, 5, 9]);
+  assert.deepEqual(f.writes().map((c) => `${c.method} ${c.url}`), ["POST /rest/international_eur_en/V1/cmsPage", "POST /rest/switzerland_chf_en/V1/cmsPage", "POST /rest/germany_eur_en/V1/cmsPage"]);
+  for (const c of f.writes()) assert.ok(!("store_id" in (c.body as { page: object }).page), "Magento refuses a page's store_id");
+  assert.deepEqual(f.pages.map((p) => p.stores), [[26], [5], [9]], "one page in each store view");
+  assert.deepEqual(f.pages.map((p) => p.identifier), ["kalrez-alternatives", "kalrez-alternatives", "kalrez-alternatives"], "the same URL key");
   assert.deepEqual(w.missing, []);
-  assert.deepEqual(b.rows, ["create:-"], "backed up first");
+  assert.equal(w.pageId, "700", "the page of its own store view");
+  assert.deepEqual(b.rows, ["create:en-INT:-", "create:en-CH:-", "create:en-DE:-"], "each backed up first");
 });
 
-test("a Magento that does not take the list: the page lands in its own store view, the others are said", async () => {
-  const f = fakeMagento([], false);
-  const w = await writeShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH"]), want, language: EN, ours: () => false, by: "sarcla", backups: memBackups() });
-  assert.deepEqual(f.pages[0].stores, [26]);
-  assert.deepEqual(w.missing, ["en-CH"]);
-});
-
-test("written again: the page this to-do made is updated once - a store view unticked is taken out of it, one ticked put in", async () => {
-  const f = fakeMagento([{ id: 41, identifier: "kalrez-alternatives", title: "Old", content: "<p>old</p>", active: true, stores: [26, 5, 33] }]);
-  const plan = await planShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH", "en-DE"]), want, language: EN, ours: (id) => id === "41" });
+test("written again: this to-do's pages updated, a store view newly ticked gets its page, one ticked off has its page switched off", async () => {
+  const old = (id: number, store: number): FakePage => ({ id, identifier: "kalrez-alternatives", title: "Old", content: "<p>old</p>", active: true, stores: [store] });
+  const f = fakeMagento([old(41, 26), old(42, 5), old(43, 33)]);
+  const ours = (id: string) => ["41", "42", "43"].includes(id);
+  const plan = await planShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH", "en-DE"]), want, language: EN, ours });
   assert.equal(plan.action, "update");
   assert.equal(plan.pageId, "41");
+  assert.deepEqual(plan.more, ["42"]);
   assert.deepEqual(plan.storeIds, [26, 5, 9]);
   assert.deepEqual(plan.out, ["en-PL"], "en-PL is no longer ticked");
-  await writeShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH", "en-DE"]), want, language: EN, ours: (id) => id === "41", by: "sarcla", backups: memBackups() });
-  assert.deepEqual(f.pages[0].stores, [26, 5, 9]);
-  assert.equal(f.pages[0].content, "<p>x</p>");
-  assert.equal(f.writes().length, 1);
+  const w = await writeShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH", "en-DE"]), want, language: EN, ours, by: "sarcla", backups: memBackups() });
+  assert.deepEqual(f.writes().map((c) => `${c.method} ${c.url}`), ["PUT /rest/all/V1/cmsPage/41", "PUT /rest/all/V1/cmsPage/42", "POST /rest/germany_eur_en/V1/cmsPage", "PUT /rest/all/V1/cmsPage/43"]);
+  assert.deepEqual(f.pages.map((p) => [p.id, p.stores.join(), p.content, p.active]), [[41, "26", "<p>x</p>", true], [42, "5", "<p>x</p>", true], [43, "33", "<p>old</p>", false], [700, "9", "<p>x</p>", true]]);
+  assert.deepEqual(w.missing, []);
 });
 
 test("somebody else's page under the URL key in one store view: that one is left out; All Store Views stops it", async () => {
@@ -237,6 +229,8 @@ test("somebody else's page under the URL key in one store view: that one is left
   assert.equal(plan.action, "create");
   assert.deepEqual(plan.storeIds, [26]);
   assert.equal(plan.targets[1].state, "taken");
+  await writeShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH"]), want, language: EN, ours: () => false, by: "sarcla", backups: memBackups() });
+  assert.equal(f.pages.find((p) => p.id === 12)!.title, "Theirs", "never touched");
   const all = fakeMagento([{ id: 3, identifier: "kalrez-alternatives", title: "All", content: "", active: true, stores: [0] }]);
   const stop = await planShared(all.m, { env: "acc", view: "en-INT", targets: targets(["en-INT"]), want, language: EN, ours: () => false });
   assert.equal(stop.action, "none");

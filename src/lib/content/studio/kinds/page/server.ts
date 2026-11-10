@@ -1045,7 +1045,7 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   for (const v of viewsIn(doc, input)) {
     const m = await magentoOf(raw, v);
     if (!m.cms || !m.want || m.why) continue;
-    // a new page: ONE Magento page for the version's store views (Content v10, SARCLA point 6) - its plan names each one
+    // a new page: the same page in each of the version's store views (Content v10 point 6, v11) - its plan names each one
     if (m.want.kind === "page") shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
     // a page of the shop: its page in each store view the version goes to, the same changes (one tag: a write again
     // replaces its own work, also where two store views share one Magento page)
@@ -1069,7 +1069,7 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
     const m = await magentoOf(raw, v);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     const want = m.want;
-    // a new page: ONE Magento page for all the store views its version goes to (Content v10, SARCLA point 6)
+    // a new page: the same page in each of the store views its version goes to, one Magento page each (Content v11)
     if (want.kind === "page") {
       try {
         const w = await cmsSharedWrite(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want }, ctx.me.username);
@@ -1077,9 +1077,10 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
         const left = w.plan.targets.filter((t) => t.state === "taken" || t.state === "unknown").map((t) => t.view);
         results.push({
           view: v, ok: true, action: w.action, pageId: w.pageId, stores: put,
-          ...(w.missing.length || left.length ? { note: [w.missing.length ? `Magento did not put it in ${w.missing.join(", ")} - tick ${w.missing.length === 1 ? "it" : "them"} in the page's Store View there` : "", left.length ? `left out: ${left.join(", ")}` : ""].filter(Boolean).join("; ") } : {}),
+          ...(w.missing.length || left.length ? { note: [w.missing.length ? `Magento did not put it in ${w.missing.join(", ")} - read Magento again before writing once more` : "", left.length ? `left out: ${left.join(", ")}` : ""].filter(Boolean).join("; ") } : {}),
         });
-        for (const x of put.length ? put : [v]) records.push({ env, store: x, pageId: w.pageId, identifier: want.identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${x}/${want.identifier}` });
+        // each store view its own Magento page and backup (Content v11: one copy of the page in each store view)
+        for (const pg of w.pages.filter((y) => !w.missing.includes(y.view))) records.push({ env, store: pg.view, pageId: pg.pageId, identifier: want.identifier, action: pg.action, at: new Date().toISOString(), by: ctx.me.username, backupId: pg.backupId, url: `${ENVS[env].base}/${pg.view}/${want.identifier}` });
       } catch (e) {
         results.push({ view: v, ok: false, error: (e as Error).message });
       }
