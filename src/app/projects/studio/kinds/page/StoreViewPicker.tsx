@@ -1,13 +1,21 @@
 "use client";
-// "+ STORE VIEW": EVERY STORE VIEW OF THE SHOP, AS MAGENTO GROUPS THEM (Content v6, 10.11.2026). SARCLA 09.11.2026: "store
-// views are still missing - e.g. the international ones and the EUR versions of the store". The shop's own 25 (its
-// country / language switcher: src/lib/content/studio/kinds/page/storeViews.ts), a country in a currency per group -
-// "Switzerland · CHF", "Switzerland · EUR", "Germany · EUR" ... "International · EUR" - each language a row that says what
-// a click does: opens it (made), makes a copy (a language the page has, no AI) or has the AI translate it.
-// Content v7 (SARCLA 10.11.2026: "you should be able to multiselect store view"): each store view not made yet has a
-// tick, a country's header ticks all of it, two quick rows tick all of a language or all of a country; the foot says the
-// plan - copies (no AI), translations and how many AI calls - and ONE button makes them, one at a time, each row showing
-// its progress (./MakeViews.tsx). A click on the row itself still opens that one store view.
+// THE PAGE'S STORE VIEWS, AS MAGENTO LISTS THEM (Content v6 -> v10). SARCLA 09.11.2026: "store views are still missing";
+// 10.11.2026 (Content v7): "you should be able to multiselect store view"; and that afternoon (Content v10, point 6): "one
+// page should be able to work to multiple locales directly by language association, for example de-en ch-en it's the same
+// page but we should be able to see the locale and select as now on Store views" - with two photos of Magento's own CMS
+// page form, its "Store View" multi-select.
+//
+// One page per LANGUAGE now: the English page goes to en-INT, en-CH, en-DE ... Every store view of the shop is a row,
+// grouped by website as that form lists them (Switzerland EUR, Switzerland CHF, Germany ... Czech Republic, China,
+// International, Poland - lib/content/studio/kinds/page/storeViews.ts), each with:
+//   its tick       ticked = it gets the page of its language. A store view of a language the page has is ticked or
+//                  unticked at once (no AI, no copy); one of a language the page does not have is ticked for the plan,
+//                  and ONE translation makes that language for all of them (the foot says it, with its AI calls)
+//   whose words    "English page" (the language's page), "Own words" (a store view split off), "Shown here" (the store
+//                  view a page is shown and previewed in), "Not ticked"
+//   its id         Magento's store id the write puts in store_id - "id ?" where the hub does not know it (never guessed)
+//   one action     "Own words" (split it off: a copy of its language's page, then its own) / "Same words" (join it back)
+// A click on a ticked row opens its page; on another, ticks it.
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -15,11 +23,12 @@ import Button from "@mui/material/Button";
 import Popover from "@mui/material/Popover";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import CallSplitIcon from "@mui/icons-material/CallSplit";
 import CheckIcon from "@mui/icons-material/Check";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import MergeIcon from "@mui/icons-material/Merge";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { howToAdd, langName, shopCountries, viewName, viewState, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
-import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, toggleAll, viewsOfCountry, viewsOfLanguage, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
+import { langName, leadOf, shopCountries, storeKnown, storeState, viewName, viewsOf, versionOfStore, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
+import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, viewsOfCountry, viewsOfLanguage, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
 import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, mainBtn } from "../../parts";
 import { RunLine, StepTag, useMakeViewsCtx, type Run } from "./MakeViews";
@@ -27,83 +36,100 @@ import { RunLine, StepTag, useMakeViewsCtx, type Run } from "./MakeViews";
 const BLUE = "#2459d1";
 const GREEN = "#1b7a55";
 
-/** The tick of a store view not made yet - squared, as every choice. `part`: some of a group ticked. */
-function Tick({ on, part, disabled, label, onClick }: { on: boolean; part?: boolean; disabled?: boolean; label: string; onClick: () => void }) {
-  return (
+/** A tick - squared, as every choice. `part`: some of a group ticked. */
+function Tick({ on, part, disabled, label, onClick, tip }: { on: boolean; part?: boolean; disabled?: boolean; label: string; onClick: () => void; tip?: string }) {
+  const box = (
     <Box component="button" type="button" role="checkbox" aria-checked={part ? "mixed" : on} aria-label={label} disabled={disabled}
       onClick={(e: React.MouseEvent) => { e.stopPropagation(); onClick(); }} sx={{
         all: "unset", cursor: disabled ? "default" : "pointer", width: 15, height: 15, borderRadius: "3px", boxSizing: "border-box", flexShrink: 0, display: "grid", placeItems: "center",
-        border: `1.5px solid ${on || part ? PINK : "#9aa5b8"}`, bgcolor: on ? PINK : "#fff", opacity: disabled ? 0.35 : 1,
+        border: `1.5px solid ${on || part ? PINK : "#9aa5b8"}`, bgcolor: on ? PINK : "#fff", opacity: disabled && !on ? 0.35 : 1,
         "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 2 },
       }}>
       {on && <CheckIcon sx={{ fontSize: 12, color: "#fff" }} />}
       {part && !on && <Box sx={{ width: 7, height: 2, bgcolor: PINK, borderRadius: 1 }} />}
     </Box>
   );
+  return tip ? <Tooltip title={tip} placement="left" enterDelay={300}><span style={{ display: "inline-flex" }}>{box}</span></Tooltip> : box;
 }
 
-/** One store view as a row: its tick (not made yet), its address, its language, what a click does - or, in a run, how far. */
-function ViewRow({ d, k, on, presence, onPick, tick, run, step }: {
-  d: PageDoc; k: string; on: boolean; presence: Record<string, Presence>; onPick: (k: string) => void;
-  /** ticked: how the plan makes it (a copy of the one translated just before, say) */
-  step?: MakeStep;
-  /** undefined: no ticks in this panel; null: this one cannot be ticked (made already) */
-  tick?: { on: boolean; disabled: boolean; toggle: () => void } | null; run?: Run | null;
-}) {
-  const st = viewState(d, k);
-  const made = viewsOf(d).includes(k);
-  const off = d.source !== "new" && presence[k]?.exists === false && !made;
-  const how = made ? null : howToAdd(d, k);
-  const tag = step ? (step.how === "copy" ? `Copy of ${step.from}` : "Translate · AI") : st === "main" ? "Its own" : st === "done" ? "Made" : st === "stale" ? "Out of date" : how?.how === "copy" ? "Copy" : "Translate";
-  const tip = st === "main" ? `${viewName(k)} - the page's own store view`
-    : made ? `${viewName(k)} - open it${st === "stale" ? " (the store view it was made from changed since)" : ""}`
-      : `${viewName(k)} - ${how?.how === "copy" ? `a copy of ${how.from}, no AI` : `the AI translates the page from ${how?.from}`}${off ? ` · the shop's index has no such page in ${k}` : ""}`;
+/** Whose words a store view gets, as a small squared tag. */
+function Whose({ d, k, picked, step }: { d: PageDoc; k: string; picked: boolean; step?: MakeStep }) {
+  const st = storeState(d, k);
+  const lead = st.version ? leadOf(d, k.slice(0, 2)) : null;
+  const t = step ? (step.how === "translate" ? { c: PINK, w: "Translate · AI" } : { c: PINK, w: `${langName(k)} page` })
+    : st.lead ? { c: PINK, w: "Shown here" }
+      : st.own ? { c: "#8a3ffc", w: "Own words" }
+        : st.version ? { c: BLUE, w: lead === st.version ? `${langName(k)} page` : `${st.version} words` }
+          : picked ? { c: PINK, w: "Translate · AI" } : { c: MUTED, w: leadOf(d, k.slice(0, 2)) ? "Not ticked" : "No page yet" };
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, pl: tick !== undefined ? 0.75 : 0, borderRadius: "4px", bgcolor: tick?.on ? "rgba(194,44,110,.06)" : "transparent" }}>
-      {tick !== undefined && (tick ? <Tick on={tick.on} disabled={tick.disabled} label={`Tick ${viewName(k)}`} onClick={tick.toggle} /> : <Box sx={{ width: 15, flexShrink: 0 }} />)}
-      <Tooltip title={tip} placement="right" enterDelay={400}>
-        <Box component="button" type="button" onClick={() => onPick(k)} aria-label={viewName(k)} sx={{
-          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, flex: 1, minWidth: 0, px: 1, py: 0.6, borderRadius: "4px",
-          bgcolor: on ? "rgba(36,89,209,.09)" : "transparent", "&:hover": { bgcolor: on ? "rgba(36,89,209,.12)" : "rgba(36,89,209,.05)" },
-          "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
+    <Box component="span" sx={{ flexShrink: 0, fontSize: "0.66rem", fontWeight: 700, px: 0.55, py: 0.1, borderRadius: "3px", color: t.c, bgcolor: `${t.c}12`, whiteSpace: "nowrap" }}>{t.w}</Box>
+  );
+}
+
+/** One store view: its tick, its address, its language, whose words it gets, its Magento id, and its one action. */
+function ViewRow({ d, k, shown, presence, onOpen, tick, step, run, act }: {
+  d: PageDoc; k: string; shown: boolean; presence: Record<string, Presence>; onOpen: (k: string) => void;
+  tick: { on: boolean; disabled: boolean; tip?: string; toggle: () => void } | null; step?: MakeStep; run?: Run | null;
+  /** split it off / join it back (null: neither) */
+  act: { icon: "split" | "join"; tip: string; run: () => void } | null;
+}) {
+  const st = storeState(d, k);
+  const known = storeKnown(k);
+  const off = d.source !== "new" && presence[k]?.exists === false && !st.version;
+  const covered = !!st.version;
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, pl: 0.75, pr: 0.25, borderRadius: "4px", bgcolor: shown ? "rgba(36,89,209,.07)" : tick?.on && !covered ? "rgba(194,44,110,.06)" : "transparent" }}>
+      {tick ? <Tick on={tick.on} disabled={tick.disabled} tip={tick.tip} label={`${tick.on ? "Untick" : "Tick"} ${viewName(k)}`} onClick={tick.toggle} /> : <Box sx={{ width: 15, flexShrink: 0 }} />}
+      <Tooltip title={`${viewName(k)}${covered ? ` - gets ${st.own ? "its own words" : `the ${st.version} page`}; a click opens it` : ""}${!known.open ? " · not open on the shop yet" : ""}${off ? ` · the shop's index has no such page in ${k}` : ""}`} placement="right" enterDelay={400}>
+        <Box component="button" type="button" onClick={() => (covered ? onOpen(st.version!) : tick && !tick.disabled ? tick.toggle() : undefined)} aria-label={viewName(k)} sx={{
+          all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, flex: 1, minWidth: 0, px: 0.75, py: 0.55, borderRadius: "4px",
+          "&:hover": { bgcolor: "rgba(36,89,209,.05)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
         }}>
-          <Typography component="span" sx={{ width: 50, flexShrink: 0, fontSize: "0.76rem", fontWeight: 800, letterSpacing: ".02em", color: off ? "#9aa5b8" : INK, fontVariantNumeric: "tabular-nums" }}>{k.split("/")[0].toUpperCase()}</Typography>
-          <Typography component="span" sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", color: off ? "#9aa5b8" : INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{langName(k)}</Typography>
-          {run?.state[k] ? <StepTag run={run} k={k} /> : (
-            <Box component="span" sx={{
-              display: "inline-flex", alignItems: "center", gap: 0.35, flexShrink: 0, fontSize: "0.68rem", fontWeight: 700, px: 0.6, py: 0.1, borderRadius: "3px",
-              color: step || st === "main" ? PINK : st === "done" ? GREEN : st === "stale" ? AMBER : MUTED,
-              bgcolor: step || st === "main" ? "rgba(194,44,110,.08)" : st === "done" ? "rgba(27,122,85,.08)" : st === "stale" ? "rgba(183,121,31,.1)" : "rgba(21,34,58,.05)",
-            }}>
-              {st === "done" && <CheckIcon sx={{ fontSize: 12 }} />}
-              {st === "stale" && <WarningAmberIcon sx={{ fontSize: 12 }} />}
-              {tag}
-            </Box>
-          )}
+          <Typography component="span" sx={{ width: 64, flexShrink: 0, fontSize: "0.76rem", fontWeight: 800, letterSpacing: ".02em", color: off || !covered ? "#7d8799" : INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+            {k.split("/")[0].toUpperCase()}{k.includes("/") && <Box component="span" sx={{ fontSize: "0.6rem", fontWeight: 800, color: BLUE, ml: 0.4 }}>{k.split("/")[1].toUpperCase()}</Box>}
+          </Typography>
+          <Typography component="span" sx={{ flex: 1, minWidth: 0, fontSize: "0.78rem", color: off ? "#9aa5b8" : INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{langName(k)}</Typography>
+          {/* Magento's id the write puts in store_id - said, never guessed */}
+          <Typography component="span" title={known.id ? `Magento store id ${known.id}` : "Magento has this store view; the hub does not know its id (its front page is not open on the shop)"}
+            sx={{ width: 30, flexShrink: 0, textAlign: "right", fontSize: "0.68rem", color: known.id ? MUTED : AMBER, fontVariantNumeric: "tabular-nums", fontWeight: known.id ? 500 : 700 }}>
+            {known.id ? `#${known.id}` : "id ?"}
+          </Typography>
+          {run?.state[k] ? <StepTag run={run} k={k} /> : <Whose d={d} k={k} picked={!!tick?.on && !covered} step={step} />}
         </Box>
       </Tooltip>
+      <Box sx={{ width: 24, flexShrink: 0, display: "grid", placeItems: "center" }}>
+        {act && (
+          <Tooltip title={act.tip}>
+            <Box component="button" type="button" aria-label={act.tip} onClick={act.run} sx={{
+              all: "unset", cursor: "pointer", width: 22, height: 22, borderRadius: "4px", display: "grid", placeItems: "center", color: MUTED,
+              "&:hover": { bgcolor: "rgba(138,63,252,.1)", color: "#8a3ffc" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: 0 },
+            }}>
+              {act.icon === "split" ? <CallSplitIcon sx={{ fontSize: 15 }} /> : <MergeIcon sx={{ fontSize: 15 }} />}
+            </Box>
+          </Tooltip>
+        )}
+      </Box>
     </Box>
   );
 }
 
 /** A squared row of quick ticks ("all of a language", "all of a country"), each filled when all of it is ticked. */
-function QuickTicks({ label, items, picked, onToggle, disabled }: {
-  label: string; items: { key: string; label: string; set: string[] }[]; picked: string[]; onToggle: (set: string[]) => void; disabled: boolean;
+function QuickTicks({ label, items, isOn, onToggle, disabled }: {
+  label: string; items: { key: string; label: string; set: string[] }[]; isOn: (k: string) => boolean; onToggle: (set: string[], on: boolean) => void; disabled: boolean;
 }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
       <Typography component="span" sx={{ width: 128, flexShrink: 0, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: MUTED, whiteSpace: "nowrap" }}>{label}</Typography>
       <Box sx={{ display: "inline-flex", flexWrap: "wrap", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
         {items.map((o, i) => {
-          const on = o.set.length > 0 && o.set.every((k) => picked.includes(k));
-          const some = !on && o.set.some((k) => picked.includes(k));
-          const dead = disabled || !o.set.length;
+          const on = o.set.length > 0 && o.set.every(isOn);
+          const some = !on && o.set.some(isOn);
           return (
-            <Box key={o.key} component="button" type="button" aria-pressed={on} disabled={dead} onClick={() => onToggle(o.set)}
-              title={o.set.length ? `${o.set.length} not made yet: ${o.set.join(", ")}` : "Every one is made"} sx={{
-                all: "unset", cursor: dead ? "default" : "pointer", px: 0.9, py: 0.4, fontSize: "0.76rem", fontWeight: 650, whiteSpace: "nowrap",
-                borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : !o.set.length ? "#b3bccb" : INK, bgcolor: on ? PINK : some ? "rgba(194,44,110,.08)" : "transparent",
-                "&:hover": on || dead ? {} : { bgcolor: "rgba(194,44,110,.1)", color: PINK }, "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: -2 },
+            <Box key={o.key} component="button" type="button" aria-pressed={on} disabled={disabled} onClick={() => onToggle(o.set, !on)}
+              title={`${o.set.length} store view${o.set.length === 1 ? "" : "s"}: ${o.set.join(", ")}`} sx={{
+                all: "unset", cursor: disabled ? "default" : "pointer", px: 0.9, py: 0.4, fontSize: "0.76rem", fontWeight: 650, whiteSpace: "nowrap",
+                borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : INK, bgcolor: on ? PINK : some ? "rgba(194,44,110,.08)" : "transparent",
+                "&:hover": on || disabled ? {} : { bgcolor: "rgba(194,44,110,.1)", color: PINK }, "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: -2 },
               }}>{o.label}</Box>
           );
         })}
@@ -112,93 +138,126 @@ function QuickTicks({ label, items, picked, onToggle, disabled }: {
   );
 }
 
-/** Every store view of the shop in a panel of country groups - three columns, nothing to scroll for at 1480 px. A run of
- * several keeps it open (its rows show their progress); a click on one row opens that store view and closes it. */
+/** Every store view of the shop in a panel of Magento's websites - three columns, nothing to scroll for at 1480 px. */
 export function StoreViewPicker({ anchor, onClose, ...rest }: {
   anchor: HTMLElement | null; onClose: () => void; d: PageDoc; lang: string; onPick: (k: string) => void;
-  /** the shop's store views by language (the studio's list) - every one of them is shown here, by country */
+  /** the shop's store views by language (the studio's list) - every one of them is shown here, by website */
   groups: StoreGroup[]; presence: Record<string, Presence>;
 }) {
   return (
     <Popover open={!!anchor} anchorEl={anchor} onClose={onClose} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} transformOrigin={{ vertical: "top", horizontal: "left" }}
-      slotProps={{ paper: { sx: { mt: 0.75, borderRadius: "8px", width: 820, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 120px)", boxShadow: "0 18px 50px rgba(21,34,58,.18)" } } }}>
+      slotProps={{ paper: { sx: { mt: 0.75, borderRadius: "8px", width: 1000, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 120px)", boxShadow: "0 18px 50px rgba(21,34,58,.18)" } } }}>
       <StoreViewPanel {...rest} onPick={(k) => { onClose(); rest.onPick(k); }} />
     </Popover>
   );
 }
 
-/** The panel itself: a header, the quick ticks, the country groups, and the foot - the plan and its one button, the run's
- * progress, or how a store view is made. */
+/** The panel itself: a header, the quick ticks, the websites, and the foot - the plan for new languages and its one button,
+ * the run's progress, or how it works. */
 export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicked = [] }: {
   d: PageDoc; lang: string; onPick: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence>;
-  /** ticked as it opens (a static check draws the plan's foot with it) */
+  /** ticked as it opens - store views of languages the page does not have yet (a static check draws the plan's foot) */
   initialPicked?: string[];
 }) {
   const mv = useMakeViewsCtx();
   const [picked, setPicked] = useState<string[]>(initialPicked);
+  const [said, setSaid] = useState<string | null>(null);
   const countries = shopCountries(groups.flatMap((g) => g.stores), d);
   const all = countries.flatMap((g) => g.stores);
-  const have = viewsOf(d);
   const run = mv?.current ?? null;
   const running = !!run && !run.done;
-  // only a store view not made yet is ticked (one made is opened - or translated again from its own view)
-  const open = all.filter((k) => !have.includes(k));
   const canTick = !!mv?.canMake;
-  const haveKey = have.join();
-  // a store view the run made drops out of the ticks
-  useEffect(() => { setPicked((p) => p.filter((k) => !have.includes(k))); }, [haveKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const flip = (set: string[]) => setPicked((p) => toggleAll(p, set.filter((k) => open.includes(k))));
+  const covered = all.filter((k) => versionOfStore(d, k));
+  const shownVersion = versionOfStore(d, lang) ?? lang;
+  const haveLangs = new Set(viewsOf(d).map((k) => k.slice(0, 2)));
+  // a store view the run made drops out of the plan's ticks
+  const coveredKey = covered.join();
+  useEffect(() => { setPicked((p) => p.filter((k) => !versionOfStore(d, k))); }, [coveredKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const isOn = (k: string) => !!versionOfStore(d, k) || picked.includes(k);
+  /** ticks a set on or off: the page's languages at once, the others for the plan */
+  const flip = (set: string[], on: boolean) => {
+    if (!mv || running) return;
+    setSaid(null);
+    const now = set.filter((k) => haveLangs.has(k.slice(0, 2)));
+    const later = set.filter((k) => !haveLangs.has(k.slice(0, 2)));
+    for (const k of now) { if (isOn(k) !== on && !storeState(d, k).own) { const m = mv.tick(k, on); if (m) setSaid(m); } }
+    setPicked((p) => (on ? [...new Set([...p, ...later])] : p.filter((k) => !later.includes(k))));
+  };
   const steps = mv && picked.length ? mv.plan(picked) : [];
-  const tickOf = (k: string) => (!canTick ? undefined : open.includes(k) ? { on: picked.includes(k), disabled: running, toggle: () => flip([k]) } : null);
+  const tickOf = (k: string) => {
+    if (!canTick) return null;
+    const st = storeState(d, k);
+    if (st.own) return { on: true, disabled: true, tip: st.lead ? `The ${langName(k)} page is shown in ${k} - it always goes there` : `${k} has its own words - "Same words" puts it back in the ${langName(k)} page`, toggle: () => undefined };
+    return { on: isOn(k), disabled: running, toggle: () => flip([k], !isOn(k)) };
+  };
+  const actOf = (k: string) => {
+    if (!canTick || running) return null;
+    const st = storeState(d, k);
+    if (st.own && !st.lead && k !== viewsOf(d)[0]) return { icon: "join" as const, tip: `Same words as the ${langName(k)} page - ${k}'s own words go (they stay in Versions)`, run: () => setSaid(mv!.join(k)) };
+    if (st.version && !st.own) return { icon: "split" as const, tip: `Its own words for ${k} - a copy of the ${st.version} page, then changed on its own`, run: () => { const m = mv!.split(k); setSaid(m); if (!m) onPick(k); } };
+    return null;
+  };
+  const langs = SHOP_LANGUAGES.filter((l) => all.some((k) => k.startsWith(`${l.lang}-`)));
   return (
     <>
       <Box sx={{ px: 2, pt: 1.5, pb: 1, display: "flex", alignItems: "baseline", gap: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 750, color: INK, flex: 1 }}>Store views</Typography>
-        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{have.length} of {all.length} made · every store view of the shop, as Magento has them</Typography>
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 750, color: INK }}>Store views</Typography>
+        <Typography sx={{ fontSize: "0.78rem", color: MUTED, flex: 1 }}>One page per language - tick the store views it goes to, as in Magento&apos;s Store View</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{covered.length} of {all.length} get the page</Typography>
       </Box>
       {canTick && (
         <Box sx={{ px: 2, pt: 1.1, pb: 0.25, display: "grid", gap: 0.75 }}>
-          <QuickTicks label="All of a language" disabled={running} picked={picked} onToggle={flip}
-            items={SHOP_LANGUAGES.map((l) => ({ key: l.lang, label: l.name, set: viewsOfLanguage(l.lang, all).filter((k) => open.includes(k)) }))} />
-          <QuickTicks label="All of a country" disabled={running} picked={picked} onToggle={flip}
-            items={SHOP_COUNTRIES.map((c) => ({ key: c.cc, label: c.name, set: viewsOfCountry(c.cc, all).filter((k) => open.includes(k)) }))} />
+          <QuickTicks label="All of a language" disabled={running} isOn={isOn} onToggle={flip}
+            items={langs.map((l) => ({ key: l.lang, label: l.name, set: viewsOfLanguage(l.lang, all).filter((k) => !storeState(d, k).own) }))} />
+          <QuickTicks label="All of a country" disabled={running} isOn={isOn} onToggle={flip}
+            items={SHOP_COUNTRIES.map((c) => ({ key: c.cc, label: c.name, set: viewsOfCountry(c.cc, all).filter((k) => !storeState(d, k).own) }))} />
         </Box>
       )}
       <Box sx={{ p: 1.25, columnCount: { xs: 1, sm: 3 }, columnGap: "10px" }}>
         {countries.map((g) => {
-          const free = g.stores.filter((k) => open.includes(k));
-          const on = free.length > 0 && free.every((k) => picked.includes(k));
-          const part = !on && free.some((k) => picked.includes(k));
+          const free = g.stores.filter((k) => !storeState(d, k).own);
+          const on = free.length > 0 && free.every(isOn);
+          const part = !on && free.some(isOn);
           return (
             <Box key={g.key} sx={{ breakInside: "avoid", mb: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", p: 0.5, bgcolor: "#fff" }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: canTick ? 0.75 : 1, pt: 0.5, pb: 0.25 }}>
-                {canTick && <Tick on={on} part={part} disabled={running || !free.length} label={`Tick all of ${g.country}${g.currency ? ` · ${g.currency}` : ""}`} onClick={() => flip(free)} />}
+                {canTick && <Tick on={on} part={part} disabled={running || !free.length} label={`Tick all of ${g.country}${g.currency ? ` ${g.currency}` : ""}`} onClick={() => flip(free, !on)} />}
                 <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>
-                  {g.country}{g.currency ? <Box component="span" sx={{ color: g.currency === "EUR" && g.country === "Switzerland" ? BLUE : MUTED }}> · {g.currency}</Box> : null}
+                  {g.country}{g.currency ? <Box component="span" sx={{ color: g.currency === "EUR" && g.country === "Switzerland" ? BLUE : MUTED }}> {g.currency}</Box> : null}
                 </Typography>
               </Box>
-              {g.stores.map((k) => <ViewRow key={k} d={d} k={k} on={k === lang} presence={presence} onPick={onPick} tick={tickOf(k)} run={run} step={steps.find((s) => s.key === k)} />)}
+              {g.stores.map((k) => (
+                <ViewRow key={k} d={d} k={k} shown={versionOfStore(d, k) === shownVersion} presence={presence} onOpen={onPick}
+                  tick={tickOf(k)} run={run} step={steps.find((s) => s.key === k || s.stores?.includes(k))} act={actOf(k)} />
+              ))}
             </Box>
           );
         })}
       </Box>
+      {said && <Typography role="status" sx={{ px: 2, pb: 1, fontSize: "0.78rem", color: "#c5221f" }}>{said}</Typography>}
       {mv && run ? (
         <Box sx={{ px: 2, pb: 1.5, pt: 0.25 }}><RunLine mv={mv} /></Box>
       ) : picked.length > 0 && mv ? (
         <Box sx={{ mx: 1.25, mb: 1.25, px: 1.25, py: 1, display: "flex", alignItems: "center", gap: 1.25, borderRadius: "8px", bgcolor: "rgba(194,44,110,.06)", border: "1px solid rgba(194,44,110,.22)" }}>
           <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", color: INK, fontWeight: 600 }}>
             {planSummary(steps)}
-            {steps.some((s) => s.how === "translate") && !mv.canAi && <Box component="span" sx={{ color: "#c5221f" }}> · the AI is not set up on this hub - only the copies can be made</Box>}
+            {steps.some((s) => s.how === "translate") && !mv.canAi && <Box component="span" sx={{ color: "#c5221f" }}> · the AI is not set up on this hub</Box>}
           </Typography>
           <Button size="small" onClick={() => setPicked([])} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0 }}>Clear</Button>
-          <Button variant="contained" disableElevation disabled={!steps.length} onClick={() => void mv.run(picked)} sx={{ ...mainBtn, borderRadius: "6px", px: 1.75, flexShrink: 0 }}>
-            Make {steps.length === 1 ? "it" : `these ${steps.length}`}
+          <Button variant="contained" disableElevation disabled={!steps.length || !mv.canAi} onClick={() => void mv.run(picked)} sx={{ ...mainBtn, borderRadius: "6px", px: 1.75, flexShrink: 0 }}>
+            {(() => { const n = steps.filter((s) => s.how === "translate").length; return n === 1 ? `Translate into ${langName(steps.find((s) => s.how === "translate")!.key)}` : `Translate into these ${n}`; })()}
           </Button>
         </Box>
       ) : (
-        <Typography sx={{ px: 2, pb: 1.5, fontSize: "0.74rem", color: MUTED }}>
-          Each store view is its own page in Magento. A language the page has starts as a copy (no AI); another language is translated by the AI.{canTick ? " Tick several to make them in one go." : ""}
-        </Typography>
+        <Box sx={{ px: 2, pb: 1.5, display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, flex: 1, minWidth: 260 }}>
+            Magento gets one page per language, for all its ticked store views. A store view that needs other words:{" "}
+            <CallSplitIcon sx={{ fontSize: 13, verticalAlign: "-2px" }} /> Own words. Another language is translated by the AI once, for all of its store views.
+          </Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: GREEN, display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+            <Box component="span" sx={{ fontSize: "0.68rem", color: AMBER, fontWeight: 700 }}>id ?</Box> Magento has it; its id is not known to the hub
+          </Typography>
+        </Box>
       )}
     </>
   );

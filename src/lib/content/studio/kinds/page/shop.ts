@@ -29,9 +29,22 @@ import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, sty
 import { fieldPictures } from "./fields";
 import {
   INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, countryStore, pathIn, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
-  styleBlock, unwritten, leftoversOf, urlKeyOf, viewName, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
+  styleBlock, storesOfView, unwritten, leftoversOf, urlKeyOf, versionLabel, viewName, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
 import { renderNewPage, type InsertHtml } from "./newpage";
+import { moduleLinks, relinkHtml, shopLinkOf } from "./links";
+
+/**
+ * A version's content with its links to the shop in its own store view (Content v10, SARCLA point 9): the page goes to one
+ * store view - its address there; to several - Magento's {{store direct_url}}, each visitor's own store view. A link of
+ * another language is said (it needs that language's page - the translation's relink finds them).
+ */
+function linked(html: string, doc: PageDoc, view: string, warnings?: string[]): string {
+  const stores = storesOfView(doc, view);
+  const r = relinkHtml(html, viewOf(doc, view).store, stores.length);
+  if (warnings && r.foreign.length) warnings.push(`${r.foreign.length} link${r.foreign.length === 1 ? " goes" : "s go"} to another language's page (${r.foreign.slice(0, 2).join(", ")}) - pick ${r.foreign.length === 1 ? "its" : "their"} ${viewName(view).split(" · ")[1] ?? ""} page${r.foreign.length === 1 ? "" : "s"} in the page's settings.`);
+  return r.html;
+}
 
 /* ── reading the page ─────────────────────────────────────────────────── */
 
@@ -204,7 +217,7 @@ export async function previewOf(raw: unknown, side: "before" | "after" | "shell"
     if (side === "shell") return { ok: true, html: shell.html, url: shell.url, side, hits: [], body: null, problems: [], notes, inserts };
     const final = finalChanges(d);
     const body = isLegacyBody(d) ? (final.changes.find((c) => c.op === "html") as { html?: string } | undefined)?.html ?? "" : (() => {
-      const r = renderNewPage(d.fields, { inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.html })) });
+      const r = renderNewPage(d.fields, { store: d.store, inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.html })) });
       return `<style>${r.css}</style>${r.html}`;
     })();
     const rest = final.changes.filter((c) => !(c.op === "html" && c.selector === "#maincontent"));
@@ -272,15 +285,24 @@ export async function relinkOf(raw: unknown, lang: string): Promise<{ map: Recor
   const store = d.store;
   // the key is a store view now ("fr-CH"): its language finds the links' counterparts
   lang = langOfStore(store);
-  const urls = [...new Set([f.hero.button.url, f.cta.button.url, ...f.links.map((l) => l.url)].filter((u) => /^\/[a-z]{2}-[A-Z]{2,3}\//.test(u) &&!u.startsWith(`/${store}/`)))].slice(0, 16);
+  // Content v10 (SARCLA point 9): its modules' products and categories too - never a de-CH address in an English page
+  const modLinks = (f.modules ?? []).flatMap((m) => moduleLinks(m.module.settings));
+  const urls = [...new Set([f.hero.button.url, f.cta.button.url, ...f.links.map((l) => l.url), ...modLinks].filter((u) => {
+    const l = shopLinkOf(u);
+    // another language's page only: one of the same language is put in this store view by the renderer (./links.ts)
+    return !!l && l.store.slice(0, 2) !== store.slice(0, 2);
+  }))].slice(0, 40);
   const map: Record<string, string> = {};
   const missing: string[] = [];
   for (const u of urls) {
-    const r = await readPath(doc.env, u, false);
+    const l = shopLinkOf(u)!;
+    const path = `/${l.store}/${l.rest}`;
+    const r = await readPath(doc.env, path, false);
     // a store view in its second currency (fr-CH/eur): the same page under its own prefix (pathIn)
     const found = r.ok ? counterpartIn(r.page.html, lang, store, store) : null;
     const to = pathIn(found, store) ?? found;
-    if (to) map[u] = to; else missing.push(u);
+    // an address kept whole (a module's card) stays whole
+    if (to) map[u] = /^https:/i.test(u) ? `${ENVS.prod.base}${to}` : to; else missing.push(u);
   }
   return { map, missing };
 }
@@ -453,8 +475,11 @@ async function pictureFiles(urls: string[]): Promise<Map<string, { file: string;
 /** What a person pastes into Magento, with where it goes - one store view (each store view is its own version since
  * 09.11.2026: SARCLA "we select by store view"). Nothing is written to Magento from here. */
 export async function pasteOf(raw: unknown, lang: string | null = null, _shopStores: readonly string[] = []): Promise<PasteOut> {
-  const d = viewOf(pageDoc(raw), lang);
-  const storeLine = `Store View: ${d.store} (${languageOfStore(d.store) ?? d.store}) - its other store views are their own versions`;
+  const doc = pageDoc(raw);
+  const d = viewOf(doc, lang);
+  // one page per language (Content v10): every store view it goes to is ticked in Magento's Store View field
+  const goes = storesOfView(doc, d.store);
+  const storeLine = `Store View: tick ${goes.join(", ")} (${versionLabel(doc, d.store)})`;
   const final = finalChanges(d);
   const warnings = [...final.problems];
   const open = unwritten(d).length;
@@ -472,11 +497,12 @@ export async function pasteOf(raw: unknown, lang: string | null = null, _shopSto
     if (!f.hero.title.trim()) return { ok: false, error: "Give the page its title first (the hero's title)." };
     const files = await pictureFiles(fieldPictures(f).map((p) => p.pic.url));
     const body = renderNewPage(f, {
+      store: d.store,
       inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })),
       picture: (u) => { const p = files.get(u); return p ? `{{media url="wysiwyg/content/${p.file}"}}` : u; },
     });
     const rest = final.changes;
-    const code = `<style>\n${body.css}\n</style>\n${styleBlock(rest)}${body.html}`;
+    const code = linked(`<style>\n${body.css}\n</style>\n${styleBlock(rest)}${body.html}`, doc, d.store, warnings);
     const blocks: PasteBlock[] = [
       {
         key: "fields", label: "The page's fields", lang: "text",
@@ -549,7 +575,7 @@ export async function pasteOf(raw: unknown, lang: string | null = null, _shopSto
           "Save & Duplicate it first and keep the copy disabled - Magento keeps no earlier version.",
           "In the original, remove the content rows, drag one HTML Code element (Elements) in, paste this and Save.",
         ],
-        code: `${styleBlock(final.changes)}${strip(main)}`,
+        code: linked(`${styleBlock(final.changes)}${strip(main)}`, doc, d.store, warnings),
       }, ...seo],
     };
   }
@@ -623,7 +649,8 @@ export type MagentoView = {
 const bytesOf = (s: string) => new TextEncoder().encode(s).length;
 
 export async function magentoOf(raw: unknown, view: string): Promise<MagentoView> {
-  const d = viewOf(pageDoc(raw), view);
+  const doc = pageDoc(raw);
+  const d = viewOf(doc, view);
   const base: MagentoView = { view: d.store, cms: false, why: null, blocked: null, sent: null, want: null, path: null };
   const left = leftoversOf(d);
   const open = unwritten(d).length;
@@ -643,10 +670,12 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
     if (!f.hero.title.trim()) return { ...base, cms: true, why: "Give the page its title first (the hero's title)." };
     const files = await pictureFiles(fieldPictures(f).map((p) => p.pic.url));
     const body = renderNewPage(f, {
+      store: d.store,
       inserts: inserts.map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })),
       picture: (u) => { const p = files.get(u); return p ? `{{media url="wysiwyg/content/${p.file}"}}` : u; },
     });
-    const content = `<style>\n${body.css}\n</style>\n${styleBlock(finalChanges(d).changes)}${body.html}`;
+    // its links in each visitor's own store view (Content v10, point 9) - one page for all the store views it goes to
+    const content = linked(`<style>\n${body.css}\n</style>\n${styleBlock(finalChanges(d).changes)}${body.html}`, doc, d.store);
     const identifier = f.seo.urlKey.trim() || urlKeyOf(f.hero.title);
     const want: Want = {
       kind: "page", identifier, title: f.hero.title.trim(), metaTitle: f.seo.title.trim() || f.hero.title.trim(), metaDescription: f.seo.description.trim(), content, active: true,
@@ -668,7 +697,9 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
   // the hub's own pictures in the changes (a banner put on the page from the banner studio, Content v7): named in Magento's
   // media as a new page's are - uploaded there by hand first, the hand-over lists them; the hub is not public
   const files = await pictureFiles([...new Set(final.changes.flatMap((ch) => ("html" in ch ? (ch.html.match(/\/api\/content\/picture\/\d+-[\w-]+/g) ?? []) : [])))]);
-  const changes = files.size ? final.changes.map((ch) => ("html" in ch ? { ...ch, html: [...files].reduce((h, [u, f]) => h.split(u).join(`{{media url='wysiwyg/content/${f.file}'}}`), ch.html) } : ch)) : final.changes;
+  const pics = files.size ? final.changes.map((ch) => ("html" in ch ? { ...ch, html: [...files].reduce((h, [u, f]) => h.split(u).join(`{{media url='wysiwyg/content/${f.file}'}}`), ch.html) } : ch)) : final.changes;
+  // its blocks' links in each visitor's own store view (Content v10, point 9) - the same changes go to every one it is for
+  const changes = pics.map((ch) => ("html" in ch && typeof ch.html === "string" ? { ...ch, html: linked(ch.html, doc, d.store) } : ch));
   const want: Want = {
     kind: "changes", identifier: target.identifier, changes, tag: `content-${view}`,
     inserts: {

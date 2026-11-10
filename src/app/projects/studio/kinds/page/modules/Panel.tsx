@@ -34,6 +34,8 @@ import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { ICON_LABEL } from "@/lib/content/studio/kinds/page/modules/kit";
+import { inStore, shopLinkOf } from "@/lib/content/studio/kinds/page/links";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { ICONS, kindOf, moduleGap, normalizeModule, shopAddress, wordsFor, type Card, type ModuleRef, type ModuleSettings, type Point } from "@/lib/content/studio/kinds/page/modules/model";
 import { MODULE_MAX, fitModule, renderModule } from "@/lib/content/studio/kinds/page/modules/render";
 import { categoryOf, countFor, modulesIn, thumbOf } from "@/lib/content/studio/kinds/page/modules/registry";
@@ -355,7 +357,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop }: {
               )}
             </Box>
           )}
-          <ItemList items={s.items} canEdit={ctl.canEdit} onMove={moveItem} onDrop={dropItem} />
+          <ItemList items={s.items} canEdit={ctl.canEdit} onMove={moveItem} onDrop={dropItem} store={ctl.store} />
         </>
       )}
 
@@ -559,11 +561,21 @@ function PickRow({ name, note, img, onOpen, onUse, useLabel, busy, strong }: { n
   );
 }
 
-function ItemList({ items, canEdit, onMove, onDrop }: { items: Card[]; canEdit: boolean; onMove: (i: number, by: -1 | 1) => void; onDrop: (i: number) => void }) {
+/**
+ * The module's products or categories, each with its number and its link AS THE PAGE WRITES IT - in the store view shown
+ * (Content v10, SARCLA 10.11.2026 point 9: "product bento since more technical put it wider so we can also see the link
+ * because the link should lead to correct locale based on locale"). A link of another language is marked: it needs that
+ * language's page (filling it again in this store view gives it).
+ */
+function ItemList({ items, canEdit, onMove, onDrop, store }: { items: Card[]; canEdit: boolean; onMove: (i: number, by: -1 | 1) => void; onDrop: (i: number) => void; store: string }) {
   if (!items.length) return <Hint mt={0.5}>Nothing in it yet - fill it above.</Hint>;
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden" }}>
-      {items.map((c, i) => (
+      {items.map((c, i) => {
+        const path = inStore(c.url, store);
+        const l = shopLinkOf(c.url);
+        const other = !!l && l.store.slice(0, 2) !== store.slice(0, 2);
+        return (
         <Box key={`${c.url}-${i}`} sx={{ display: "flex", alignItems: "center", gap: 1, px: 1, py: 0.6, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
           <Typography sx={{ width: 16, fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{i + 1}</Typography>
           <Box sx={{ width: 34, height: 34, borderRadius: "5px", overflow: "hidden", bgcolor: c.kind === "category" ? "#eef1f3" : "#fff", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
@@ -571,10 +583,21 @@ function ItemList({ items, canEdit, onMove, onDrop }: { items: Card[]; canEdit: 
             {c.img ? <img src={c.img} alt="" style={{ width: "100%", height: "100%", objectFit: c.kind === "category" ? "cover" : "contain", display: "block" }} /> : null}
           </Box>
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography component="a" href={c.url} target="_blank" rel="noreferrer" sx={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: INK, textDecoration: "none", "&:hover": { color: PINK } }} noWrap title={c.name}>{c.name}</Typography>
-            <Typography sx={{ fontSize: "0.7rem", color: MUTED }} noWrap>
-              {[c.number, c.meta, c.children.length ? `${c.children.length} ${c.children[0].kind === "product" ? "products" : "subcategories"} inside` : ""].filter(Boolean).join(" · ") || (c.kind === "category" ? "category" : "product")}
-            </Typography>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, minWidth: 0 }}>
+              <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", fontWeight: 600, color: INK }} noWrap title={c.name}>{c.name}</Typography>
+              {c.number && <Typography component="span" title="Its product number" sx={{ flexShrink: 0, fontSize: "0.7rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace" }}>{c.number}</Typography>}
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
+              <Typography component="a" href={`https://www.apsoparts.com${path.startsWith("/") ? path : `/${path}`}`} target="_blank" rel="noreferrer" title={other ? `${path} - another language's page than ${store}'s: fill it again in ${store}` : `${path} - in ${store}, as the page links it`}
+                sx={{ flex: 1, minWidth: 0, fontSize: "0.7rem", color: other ? "#a14b12" : MUTED, textDecoration: "none", fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", "&:hover": { color: PINK } }}>
+                {path}
+              </Typography>
+              <OpenInNewIcon sx={{ fontSize: 11, color: MUTED, flexShrink: 0 }} />
+              <Typography component="span" sx={{ flexShrink: 0, fontSize: "0.68rem", color: MUTED, whiteSpace: "nowrap" }}>
+                {[c.meta, c.children.length ? `${c.children.length} ${c.children[0].kind === "product" ? "products" : "subcategories"} inside` : ""].filter(Boolean).join(" · ") || (c.kind === "category" ? "category" : "product")}
+              </Typography>
+            </Box>
+            {other && <Typography sx={{ fontSize: "0.68rem", color: "#a14b12" }}>Another language&apos;s page - fill the module again in {store}</Typography>}
           </Box>
           {canEdit && (
             <Box sx={{ display: "flex", flexShrink: 0 }}>
@@ -584,7 +607,8 @@ function ItemList({ items, canEdit, onMove, onDrop }: { items: Card[]; canEdit: 
             </Box>
           )}
         </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }

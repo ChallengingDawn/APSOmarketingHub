@@ -20,8 +20,26 @@
 //
 // A store view's KEY is its address on the shop: "<lang>-<COUNTRY>", and "/eur" after it for the Swiss shop's second
 // currency (the shop's own spelling: www.apsoparts.com/de-CH/eur/). Its Magento store code is <country>_<currency>_<lang>
-// - the code a CMS page is created under (POST /rest/<code>/V1/cmsPage). The ids differ between production and ACC, so
-// they are always read from the store view's own front page (./cms.ts storeRefOf), never kept here.
+// - the code a CMS page is created under (POST /rest/<code>/V1/cmsPage). A write still reads the code and id from the
+// store view's own front page first (./cms.ts storeRefOf); since Content v10 the list keeps the ids too (below).
+//
+// Content v10 (10.11.2026, SARCLA point 6, with two photos of Magento's own CMS page form - its "Store View" multi-select,
+// "the store views we face each time we create a page"): the list is MAGENTO'S, by website as that form shows them -
+// Switzerland EUR, Switzerland CHF, Germany, Austria, France, Italy, Netherlands, Czech Republic, China, International,
+// Poland - with the four the shop's pages never showed: Czech Republic EUR (EN, CS), China EUR (EN) and International's
+// CS. Their front pages are not open (www.apsoparts.com/cs-CZ/, /en-CZ/, /en-CN/ and /cs-INT/ all lead to /en-INT/, read
+// 10.11.2026), so their store CODE and ID are not known to the hub - the list says so instead of guessing. The ids of the
+// other 25 were read that day from each front page ("storeId"), on production AND on ACC: the same on both.
+//
+//   Switzerland EUR  de 1  en 2  fr 3  it 4          Netherlands EUR  en 21  nl 22
+//   Switzerland CHF  de 6  en 5  fr 7  it 8          Czech Rep. EUR   en ?   cs ?
+//   Germany EUR      en 9  de 10                     China EUR        en ?
+//   Austria EUR      en 11 de 12                     International    en 26  de 27  fr 28  it 29  nl 30  cs ?
+//   France EUR       en 17 fr 18                     Poland EUR       en 33  pl 36
+//   Italy EUR        en 19 it 20
+//
+// A CMS page written for several store views carries them all in its store_id (./cmsPage.ts): a store view whose id is not
+// known cannot be put in - the last step says so, and it is ticked in Magento by hand.
 
 export type Currency = "CHF" | "EUR";
 
@@ -35,35 +53,64 @@ export type StoreView = {
   /** "Switzerland" */
   country: string;
   currency: Currency;
-  /** Magento's store code: "switzerland_eur_de" */
-  code: string;
+  /** Magento's store code: "switzerland_eur_de" - null where the shop has never shown it (Czech Republic, China, CS) */
+  code: string | null;
+  /** Magento's store id (the same on production and ACC, read 10.11.2026) - null where it is not known */
+  id: number | null;
+  /** its front page answers on the shop (false: it leads to /en-INT/ - the store view is not open yet) */
+  open: boolean;
+  /** Magento's website it belongs to, as its forms name it: "Switzerland EUR" */
+  website: string;
 };
 
-type Country = { cc: string; name: string; code: string; currencies: Currency[]; langs: string[] };
+type Country = { cc: string; name: string; code: string; currencies: Currency[] };
 
-/** The countries in the shop's own order (its country switcher), each with its languages (its language switcher). */
+/** The countries: their address's code, their name, Magento's code for them and their currencies (the first is the plain
+ * address: de-CH is the Swiss shop in CHF, de-CH/eur its EUR one). */
 const COUNTRIES: Country[] = [
-  { cc: "CH", name: "Switzerland", code: "switzerland", currencies: ["CHF", "EUR"], langs: ["de", "fr", "it", "en"] },
-  { cc: "DE", name: "Germany", code: "germany", currencies: ["EUR"], langs: ["de", "en"] },
-  { cc: "AT", name: "Austria", code: "austria", currencies: ["EUR"], langs: ["de", "en"] },
-  { cc: "FR", name: "France", code: "france", currencies: ["EUR"], langs: ["fr", "en"] },
-  { cc: "IT", name: "Italy", code: "italy", currencies: ["EUR"], langs: ["it", "en"] },
-  { cc: "NL", name: "Netherlands", code: "netherlands", currencies: ["EUR"], langs: ["nl", "en"] },
-  { cc: "INT", name: "International", code: "international", currencies: ["EUR"], langs: ["en", "de", "fr", "it", "nl"] },
-  { cc: "PL", name: "Poland", code: "poland", currencies: ["EUR"], langs: ["pl", "en"] },
+  { cc: "CH", name: "Switzerland", code: "switzerland", currencies: ["CHF", "EUR"] },
+  { cc: "DE", name: "Germany", code: "germany", currencies: ["EUR"] },
+  { cc: "AT", name: "Austria", code: "austria", currencies: ["EUR"] },
+  { cc: "FR", name: "France", code: "france", currencies: ["EUR"] },
+  { cc: "IT", name: "Italy", code: "italy", currencies: ["EUR"] },
+  { cc: "NL", name: "Netherlands", code: "netherlands", currencies: ["EUR"] },
+  { cc: "CZ", name: "Czech Republic", code: "", currencies: ["EUR"] },
+  { cc: "CN", name: "China", code: "", currencies: ["EUR"] },
+  { cc: "INT", name: "International", code: "international", currencies: ["EUR"] },
+  { cc: "PL", name: "Poland", code: "poland", currencies: ["EUR"] },
 ];
 
-export const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };
+/** Magento's websites in the order its CMS page form lists them, each with its store views in that form's order and their
+ * ids (null: not known - never guessed). `hidden`: its code was never shown by the shop (the store view is not open). */
+const WEBSITES: { cc: string; currency: Currency; views: { lang: string; id: number | null; hidden?: true }[] }[] = [
+  { cc: "CH", currency: "EUR", views: [{ lang: "de", id: 1 }, { lang: "en", id: 2 }, { lang: "fr", id: 3 }, { lang: "it", id: 4 }] },
+  { cc: "CH", currency: "CHF", views: [{ lang: "de", id: 6 }, { lang: "en", id: 5 }, { lang: "fr", id: 7 }, { lang: "it", id: 8 }] },
+  { cc: "DE", currency: "EUR", views: [{ lang: "en", id: 9 }, { lang: "de", id: 10 }] },
+  { cc: "AT", currency: "EUR", views: [{ lang: "en", id: 11 }, { lang: "de", id: 12 }] },
+  { cc: "FR", currency: "EUR", views: [{ lang: "en", id: 17 }, { lang: "fr", id: 18 }] },
+  { cc: "IT", currency: "EUR", views: [{ lang: "en", id: 19 }, { lang: "it", id: 20 }] },
+  { cc: "NL", currency: "EUR", views: [{ lang: "en", id: 21 }, { lang: "nl", id: 22 }] },
+  { cc: "CZ", currency: "EUR", views: [{ lang: "en", id: null, hidden: true }, { lang: "cs", id: null, hidden: true }] },
+  { cc: "CN", currency: "EUR", views: [{ lang: "en", id: null, hidden: true }] },
+  { cc: "INT", currency: "EUR", views: [{ lang: "en", id: 26 }, { lang: "de", id: 27 }, { lang: "fr", id: 28 }, { lang: "it", id: 29 }, { lang: "nl", id: 30 }, { lang: "cs", id: null, hidden: true }] },
+  { cc: "PL", currency: "EUR", views: [{ lang: "en", id: 33 }, { lang: "pl", id: 36 }] },
+];
+
+export const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", cs: "Czech", es: "Spanish" };
 
 const keyOf = (lang: string, c: Country, cur: Currency) => `${lang}-${c.cc}${cur === c.currencies[0] ? "" : `/${cur.toLowerCase()}`}`;
 
-/** Every store view of the shop, by country and currency in the shop's order, each country's languages in its order. */
-export const STORE_VIEWS: StoreView[] = COUNTRIES.flatMap((c) => c.currencies.flatMap((cur) => c.langs.map((lang): StoreView => ({
-  key: keyOf(lang, c, cur), lang, cc: c.cc, country: c.name, currency: cur, code: `${c.code}_${cur.toLowerCase()}_${lang}`,
-}))));
+/** Every store view of the shop, by website in Magento's order, each website's store views in its form's order. */
+export const STORE_VIEWS: StoreView[] = WEBSITES.flatMap((w) => {
+  const c = COUNTRIES.find((x) => x.cc === w.cc)!;
+  return w.views.map((v): StoreView => ({
+    key: keyOf(v.lang, c, w.currency), lang: v.lang, cc: c.cc, country: c.name, currency: w.currency,
+    code: v.hidden || !c.code ? null : `${c.code}_${w.currency.toLowerCase()}_${v.lang}`, id: v.id, open: !v.hidden, website: `${c.name} ${w.currency}`,
+  }));
+});
 
 const BY_KEY = new Map(STORE_VIEWS.map((v) => [v.key, v]));
-const BY_CODE = new Map(STORE_VIEWS.map((v) => [v.code, v]));
+const BY_CODE = new Map(STORE_VIEWS.filter((v) => v.code).map((v) => [v.code!, v]));
 
 /**
  * A store view as the shop writes it, its currency kept where the shop has a second one: "de-ch/EUR" -> "de-CH/eur",
@@ -93,6 +140,9 @@ export const storeViewOf = (raw: string | null | undefined): StoreView | null =>
 export const storeCodeOf = (raw: string | null | undefined): string | null => storeViewOf(raw)?.code ?? null;
 /** The store view a Magento store code names ("international_eur_nl" -> nl-INT), or null. */
 export const storeViewByCode = (code: string | null | undefined): StoreView | null => BY_CODE.get(String(code ?? "").toLowerCase()) ?? null;
+
+/** Magento's store id of a store view (the same on production and ACC), or null when the hub does not know it. */
+export const storeIdOf = (raw: string | null | undefined): number | null => storeViewOf(raw)?.id ?? null;
 
 /** Its currency: the list's, else the one in its key, else the country's own (CHF in Switzerland, EUR elsewhere). */
 export function currencyOf(raw: string | null | undefined): Currency | null {

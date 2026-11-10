@@ -306,6 +306,153 @@ export async function writePage(m: MagentoRequest, x: {
   }
 }
 
+/* ── one page for several store views (Content v10) ───────────────────── */
+
+// SARCLA 10.11.2026 (point 6): one page per LANGUAGE going to several store views, as Magento's own form does it - its
+// "Store View" multi-select. A new page of the studio is ONE Magento page for all the store views its version is ticked
+// for: created once, its store_id = their ids (Magento's REST cmsPage takes store_id as a list), in the store of the
+// request too (the address carries one of their codes - so a Magento that does not take the list still puts it in that
+// one, never in "All Store Views"); after a write the hub reads each store view again and says where Magento did NOT put
+// it. Updated once: the page this to-do made (its backups say so) gets the new content and the ticked store views - a
+// store view ticked off is taken out of it, one ticked on is put in. Store views the hub knows no id of are said, never
+// guessed; one where somebody else's page has the URL key is left out (with why); a page set for All Store Views stops it.
+
+/** A ticked store view as the write knows it: its code and id when the hub has read them, else null. */
+export type Target = { view: string; ref: StoreRef | null };
+
+/** What the write does in one ticked store view. */
+export type TargetPlan = {
+  view: string; id: number | null;
+  /** put in (new), already served by the page (has), left out (taken: another page has the URL key there; unknown: no id;
+   * other: a page of an earlier write of this to-do serves it - it is updated too) */
+  state: "new" | "has" | "taken" | "unknown" | "other";
+  pageId: string | null; why: string | null;
+};
+
+export type SharedPlan = PagePlan & {
+  /** every ticked store view, what happens there */
+  targets: TargetPlan[];
+  /** the store ids the page gets (the main page's) */
+  storeIds: number[];
+  /** store views the page serves now that are no longer ticked - taken out of it */
+  out: string[];
+  /** other pages of this to-do's earlier writes (one per store view, before Content v10): updated with the same content */
+  more: string[];
+};
+
+/**
+ * What one write of a version does - ONE page for its ticked store views - read from Magento, without writing.
+ * `language`: every store view of the version's language the hub knows the id of, to find what the page serves now.
+ */
+export async function planShared(m: MagentoRequest, x: {
+  env: MagentoEnv; view: string; targets: Target[]; want: Extract<Want, { kind: "page" }>; language?: StoreRef[]; ours: (pageId: string) => boolean;
+}): Promise<SharedPlan> {
+  const { want } = x;
+  const lead = x.targets.find((t) => t.view === x.view)?.ref ?? x.targets.find((t) => t.ref)?.ref ?? null;
+  const base: SharedPlan = {
+    view: x.view, env: x.env, action: "none", why: null, store: lead, pageId: null, identifier: want.identifier, now: null,
+    title: want.title, size: bytes(want.content), shared: [], placed: null, targets: [], storeIds: [], out: [], more: [],
+  };
+  if (!want.identifier) return { ...base, why: "The page has no URL key yet (Search engine fields)." };
+  if (!x.targets.length) return { ...base, why: "No store view is ticked for it." };
+  if (!lead) return { ...base, why: `The hub could not read the store code of ${x.targets.map((t) => t.view).join(", ")} from the shop - try again in a moment.` };
+  // a page set for All Store Views under the URL key: writing would collide with every store view
+  if (await pageIn(m, want.identifier, 0)) {
+    return { ...base, why: `Magento's page "${want.identifier}" is set for All Store Views - writing it for some store views would change every one. In Magento, give the page its store views first (Content > Pages > Page in Websites).` };
+  }
+  const targets: TargetPlan[] = [];
+  for (const t of x.targets) {
+    if (!t.ref) { targets.push({ view: t.view, id: null, state: "unknown", pageId: null, why: `The hub does not know ${t.view}'s Magento id (its front page is not open on the shop) - tick it in Magento's Store View after the write.` }); continue; }
+    const p = await pageIn(m, want.identifier, t.ref.id);
+    if (!p) { targets.push({ view: t.view, id: t.ref.id, state: "new", pageId: null, why: null }); continue; }
+    const id = String(p.id);
+    if (!x.ours(id)) targets.push({ view: t.view, id: t.ref.id, state: "taken", pageId: id, why: `Magento has a page "${want.identifier}" in ${t.view} already (#${id} "${String(p.title ?? "")}") that this to-do did not make - it is left out.` });
+    else targets.push({ view: t.view, id: t.ref.id, state: "has", pageId: id, why: null });
+  }
+  const ours = [...new Set(targets.filter((t) => t.state === "has").map((t) => t.pageId!))];
+  // the page that is updated: the one serving the version's own store view, else the first of this to-do's
+  const main = targets.find((t) => t.view === x.view && t.state === "has")?.pageId ?? ours[0] ?? null;
+  for (const t of targets) if (t.state === "has" && t.pageId !== main) { t.state = "other"; t.why = `Page #${t.pageId} of an earlier write serves it - it gets the same content.`; }
+  const more = [...new Set(targets.filter((t) => t.state === "other").map((t) => t.pageId!))];
+  const ids = targets.filter((t) => t.state === "new" || (t.state === "has" && t.pageId === main)).map((t) => t.id!);
+  const plan = { ...base, targets, more, storeIds: [...new Set(ids)] };
+  if (!main) {
+    if (!plan.storeIds.length) return { ...plan, why: "None of its store views can take it - see each one." };
+    return { ...plan, action: "create" };
+  }
+  // what the page serves now, of its language: a store view no longer ticked is taken out of it
+  const ticked = new Set(x.targets.map((t) => t.view));
+  const out: string[] = [];
+  for (const r of x.language ?? []) {
+    if (ticked.has(r.view)) continue;
+    const p = await pageIn(m, want.identifier, r.id);
+    if (p && String(p.id) === main) out.push(r.view);
+  }
+  const page = await call<MagentoPage>(m, "GET", "all", `/cmsPage/${encodeURIComponent(main)}`);
+  return {
+    ...plan, action: "update", pageId: main, out,
+    now: { title: String(page.title ?? ""), active: page.active !== false, size: bytes(String(page.content ?? "")) },
+    shared: targets.filter((t) => t.state === "has" && t.view !== x.view).map((t) => t.view),
+  };
+}
+
+export type SharedWritten = { action: "created" | "updated"; pageId: string; backupId: string; plan: SharedPlan;
+  /** store views Magento did not put the page in, read again after the write - ticked by hand there */
+  missing: string[] };
+
+/** One version written into Magento - ONE page for its ticked store views, pressed by a person: read again, backed up, then
+ * written; its store views read once more afterwards. */
+export async function writeShared(m: MagentoRequest, x: {
+  env: MagentoEnv; view: string; targets: Target[]; want: Extract<Want, { kind: "page" }>; language?: StoreRef[]; ours: (pageId: string) => boolean; by: string; backups: Backups;
+}): Promise<SharedWritten> {
+  const plan = await planShared(m, x);
+  if (plan.action === "none") throw new MagentoError(plan.why ?? "This page cannot be written.", 409);
+  const fields: Record<string, unknown> = { ...pageAfter(x.want, null).fields, store_id: plan.storeIds };
+  let pageId: string;
+  let backupId: string;
+  if (plan.action === "create") {
+    backupId = await x.backups.add({ env: x.env, view: x.view, identifier: x.want.identifier, pageId: null, title: null, page: null, before: "", after: String(fields.content ?? ""), action: "create", by: x.by });
+    try {
+      // in the store of the request too: a Magento that does not take the list puts it there, never in All Store Views
+      const made = await call<MagentoPage>(m, "POST", plan.store!.code, "/cmsPage", { page: fields });
+      pageId = String(made?.id ?? "");
+      if (!pageId) throw new MagentoError("Magento did not say which page it made.");
+      await x.backups.written(backupId, pageId);
+    } catch (e) {
+      await x.backups.failed(backupId, (e as Error).message.slice(0, 500));
+      throw e;
+    }
+  } else {
+    pageId = plan.pageId!;
+    const now = await call<MagentoPage>(m, "GET", "all", `/cmsPage/${encodeURIComponent(pageId)}`);
+    const { content: before, ...rest } = now;
+    backupId = await x.backups.add({ env: x.env, view: x.view, identifier: x.want.identifier, pageId, title: String(now.title ?? ""), page: rest, before: String(before ?? ""), after: String(fields.content ?? ""), action: "update", by: x.by });
+    try {
+      await call(m, "PUT", "all", `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...fields } });
+      await x.backups.written(backupId, pageId);
+    } catch (e) {
+      await x.backups.failed(backupId, (e as Error).message.slice(0, 500));
+      throw e;
+    }
+    // the pages of earlier writes (one per store view, before one page per language): the same content
+    for (const other of plan.more) {
+      const o = await call<MagentoPage>(m, "GET", "all", `/cmsPage/${encodeURIComponent(other)}`);
+      const { content: ob, ...orest } = o;
+      const ob2 = await x.backups.add({ env: x.env, view: x.view, identifier: x.want.identifier, pageId: other, title: String(o.title ?? ""), page: orest, before: String(ob ?? ""), after: String(fields.content ?? ""), action: "update", by: x.by });
+      const { store_id: _ids, ...same } = fields;
+      try { await call(m, "PUT", "all", `/cmsPage/${encodeURIComponent(other)}`, { page: { ...o, ...same } }); await x.backups.written(ob2, other); }
+      catch (e) { await x.backups.failed(ob2, (e as Error).message.slice(0, 500)); throw e; }
+    }
+  }
+  // where did Magento put it? each store view it should serve, read again
+  const missing: string[] = [];
+  for (const t of plan.targets.filter((y) => y.state === "new" || y.state === "has")) {
+    const p = await pageIn(m, x.want.identifier, t.id!).catch(() => null);
+    if (!p || String(p.id) !== pageId) missing.push(t.view);
+  }
+  return { action: plan.action === "create" ? "created" : "updated", pageId, backupId, plan: { ...plan, pageId }, missing };
+}
+
 /** A backup as it is kept. */
 export type Backup = {
   id: string; env: MagentoEnv; view: string; identifier: string; pageId: string; action: "create" | "update" | "restore";

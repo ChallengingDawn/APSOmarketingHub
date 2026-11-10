@@ -5,6 +5,8 @@
 // copies where the page has the language (no AI), a translation otherwise - how many AI calls is said before it starts -
 // then one store view at a time, each with its progress (waiting, copying, translating, made, or why not), and a stop.
 // The plan itself is pure: lib/content/studio/kinds/page/makeViews.ts.
+// Content v10 (SARCLA point 6): a version is a language - a store view of a language the page has is ticked into that
+// language's page at once (no copy, no AI); a new language is translated once and goes to the store views ticked of it.
 
 import { createContext, useContext, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -17,7 +19,7 @@ import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { planSummary, planViews, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
-import { copyView, langOfStore, mainView, pageDoc, viewName, viewState, viewsLine, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
+import { copyView, joinStore, langName, langOfStore, leadOf, mainView, pageDoc, splitStore, storesInLanguage, tickStore, versionOfStore, viewState, viewsLine, viewsOf, withStores, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
 import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -36,6 +38,11 @@ export type MakeViews = {
   /** the run going on (or the last one, until it is cleared) */
   current: Run | null;
   clear: () => void;
+  /** Content v10 - a store view ticked on or off for its language's page (no AI), given its own words, or joined back;
+   * each returns what to say when it could not be done */
+  tick: (store: string, on: boolean) => string | null;
+  split: (store: string) => string | null;
+  join: (store: string) => string | null;
 };
 
 const Ctx = createContext<MakeViews | null>(null);
@@ -82,7 +89,19 @@ export function useMakeViews(o: {
     if (!steps.length) return;
     stopRef.current = false;
     setCurrent({ steps, state: Object.fromEntries(steps.map((s) => [s.key, { s: "waiting" as StepState }])), at: 0, stopping: false, done: false });
+    // the store views of the page's languages: into their language's page at once - one change, no AI
+    const ticks = steps.filter((s) => s.how === "tick");
+    if (ticks.length) {
+      const cur = latest();
+      let next = cur;
+      for (const t of ticks) next = tickStore(next, t.key, true);
+      o.record(`Ticked ${ticks.map((t) => t.key).join(", ")}`, cur);
+      o.api.setDoc(next);
+      for (const t of ticks) mark(t.key, versionOfStore(next, t.key) ? "done" : "failed", versionOfStore(next, t.key) ? undefined : "Its language has no page yet.");
+      await new Promise((r) => setTimeout(r, 120));
+    }
     for (const [i, step] of steps.entries()) {
+      if (step.how === "tick") continue;
       if (stopRef.current) break;
       setCurrent((c) => (c ? { ...c, at: i } : c));
       mark(step.key, "doing");
@@ -100,6 +119,8 @@ export function useMakeViews(o: {
       const said = await o.translate(step.key).catch((e: unknown) => (e instanceof Error ? e.message : String(e)));
       const after = latest().langs[step.key];
       const made = !!after && after.at !== before && after.made === "translate";
+      // the new language goes to the store views ticked of it (all of them from "Translate the whole page into")
+      if (made && step.stores?.length) { const cur = latest(); o.api.setDoc(withStores(cur, step.key, step.stores)); }
       mark(step.key, made ? "done" : "failed", made ? undefined : said ?? "It was not translated - try it alone.");
     }
     setCurrent((c) => (c ? { ...c, done: true, stopping: false } : c));
@@ -109,6 +130,37 @@ export function useMakeViews(o: {
     canMake: o.canEdit, canAi: o.canAi, plan, run, current,
     stop: () => { stopRef.current = true; setCurrent((c) => (c ? { ...c, stopping: true } : c)); },
     clear: () => { if (!busy) setCurrent(null); },
+    tick: (store, on) => {
+      if (!o.canEdit) return "For the project's editors.";
+      const cur = latest();
+      const next = tickStore(cur, store, on);
+      if (next === cur) return on && !leadOf(cur, langOfStore(store)) ? `The page has no ${langName(store)} yet - tick it and translate.` : null;
+      const v = versionOfStore(on ? next : cur, store);
+      o.record(on ? `Ticked ${store} for the ${langName(store)} page` : `Took ${store} out of ${v ?? "the page"}`, cur);
+      o.api.setDoc(next);
+      return null;
+    },
+    split: (store) => {
+      if (!o.canEdit) return "For the project's editors.";
+      const cur = latest();
+      const there = o.presence()[store];
+      // a page of the shop: its own words go onto ITS page in that store view - when the shop has one there
+      if (cur.source !== "new" && !there?.path) return there?.exists === false ? `The shop has no such page in ${store}.` : `Its page in ${store} is not known yet - open it and pick it.`;
+      const next = splitStore(cur, store, cur.source === "new" ? "" : there?.path ?? "");
+      if (next === cur) return null;
+      o.record(`${store} got its own words (a copy of ${versionOfStore(cur, store) ?? "its language's page"})`, cur);
+      o.api.setDoc(next);
+      return null;
+    },
+    join: (store) => {
+      if (!o.canEdit) return "For the project's editors.";
+      const cur = latest();
+      const next = joinStore(cur, store);
+      if (next === cur) return null;
+      o.record(`${store} has the ${langName(store)} page's words again`, cur);
+      o.api.setDoc(next);
+      return null;
+    },
   };
 }
 
@@ -119,7 +171,7 @@ export function StepTag({ run, k }: { run: Run | null; k: string }) {
   const st = run?.state[k];
   if (!st) return null;
   const step = run!.steps.find((x) => x.key === k);
-  const doing = step?.how === "translate" ? "Translating…" : "Copying…";
+  const doing = step?.how === "translate" ? "Translating…" : step?.how === "tick" ? "Adding…" : "Copying…";
   const look = st.s === "done" ? { c: GREEN, t: "Made" } : st.s === "failed" ? { c: "#c5221f", t: "Not made" } : st.s === "doing" ? { c: PINK, t: doing } : { c: MUTED, t: "Waiting" };
   const tag = (
     <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.35, flexShrink: 0, fontSize: "0.68rem", fontWeight: 700, px: 0.6, py: 0.1, borderRadius: "3px", color: look.c, bgcolor: `${look.c}14` }}>
@@ -149,7 +201,7 @@ export function RunLine({ mv }: { mv: MakeViews }) {
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flexWrap: "wrap", rowGap: 0.25 }}>
         <Typography role="status" sx={{ flex: "1 1 180px", minWidth: 0, fontSize: "0.8rem", color: INK, fontWeight: 600 }}>
           {!r.done
-            ? <>{r.stopping ? "Stopping after this one - " : ""}Making {Math.min(r.at + 1, r.steps.length)} of {r.steps.length} · <Box component="span" sx={{ color: PINK, whiteSpace: "nowrap" }}>{now?.how === "translate" ? "translating" : "copying"} {now?.key}</Box></>
+            ? <>{r.stopping ? "Stopping after this one - " : ""}Making {Math.min(r.at + 1, r.steps.length)} of {r.steps.length} · <Box component="span" sx={{ color: PINK, whiteSpace: "nowrap" }}>{now?.how === "translate" ? `translating into ${langName(now.key)}` : now?.how === "tick" ? "adding" : "copying"} {now?.how === "translate" ? "" : now?.key}</Box></>
             : `${done} made${failed.length ? `, ${failed.length} not` : ""}${done + failed.length < r.steps.length ? `, ${r.steps.length - done - failed.length} stopped` : ""}`}
         </Typography>
         {!r.done && !r.stopping && <Button size="small" onClick={mv.stop} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0, px: 0.75, whiteSpace: "nowrap", ml: "auto" }}>Stop after this one</Button>}
@@ -168,42 +220,39 @@ export function RunLine({ mv }: { mv: MakeViews }) {
 /* ── the assistant's row: translate the whole page into several, ticked ─────────────────────────────────────────── */
 
 /**
- * "Translate the whole page into" (Content v7: tick several). The other languages' store views - the page's own, else each
- * language's own (FR-CH, IT-CH, EN-INT ...) - each a squared tick; one button makes the ticked ones, the plan said under it.
+ * "Translate the whole page into" (Content v7: tick several; Content v10: by LANGUAGE). The languages the shop has besides
+ * the page's own - each a squared tick; one button translates the ticked ones, each once, going to every store view of its
+ * language (the store view panel unticks any). A language made already says so (open it to translate it again).
  */
 export function TranslateMany({ doc, groups, enabled, initialPicked = [] }: { doc: PageDoc; groups: StoreGroup[]; enabled: boolean; initialPicked?: string[] }) {
   const mv = useMakeViewsCtx();
   const [picked, setPicked] = useState<string[]>(initialPicked);
   const main = mainView(doc);
-  const made = viewsOf(doc);
-  const list = groups.filter((g) => g.lang !== langOfStore(main)).flatMap((g) => {
-    const have = g.stores.filter((s) => made.includes(s));
-    return (have.length ? have : g.stores.slice(0, 1)).map((store) => ({ store, name: g.name }));
-  });
+  const list = groups.filter((g) => g.lang !== langOfStore(main)).map((g) => ({ lang: g.lang, name: g.name, lead: leadOf(doc, g.lang), stores: storesInLanguage(g.lang) }));
   if (!list.length || !mv) return null;
   const running = !!mv.current && !mv.current.done;
-  // a store view made already is translated AGAIN only on its own (its row's tooltip says so) - the plan makes new ones
-  const steps = mv.plan(picked);
-  const again = picked.filter((k) => made.includes(k));
-  const toggle = (k: string) => setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+  const ofPicked = picked.filter((l) => !list.find((x) => x.lang === l)?.lead);
+  const steps = mv.plan(ofPicked.flatMap((l) => storesInLanguage(l)));
+  const again = picked.filter((l) => list.find((x) => x.lang === l)?.lead);
+  const toggle = (l: string) => setPicked((p) => (p.includes(l) ? p.filter((x) => x !== l) : [...p, l]));
   return (
     <Box sx={{ mt: 2 }}>
       <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Translate the whole page into</Typography>
       <Box role="group" aria-label="Translate into" sx={{ display: "inline-flex", flexWrap: "wrap", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
         {list.map((o, i) => {
-          const st = viewState(doc, o.store);
-          const on = picked.includes(o.store);
-          const runSt = mv.current?.state[o.store]?.s;
+          const st = o.lead ? viewState(doc, o.lead) : "empty";
+          const on = picked.includes(o.lang);
+          const runSt = o.lead ? undefined : steps.find((x) => x.how === "translate" && langOfStore(x.key) === o.lang) && mv.current?.state[steps.find((x) => langOfStore(x.key) === o.lang)!.key]?.s;
           return (
-            <Tooltip key={o.store} title={`${o.name} · ${viewName(o.store)}${st === "done" ? " - made" : st === "stale" ? " - out of date" : ""}`}>
-              <Box component="button" type="button" aria-pressed={on} disabled={!enabled || running} onClick={() => toggle(o.store)} sx={{
+            <Tooltip key={o.lang} title={`${o.name} · ${o.stores.length} store view${o.stores.length === 1 ? "" : "s"}: ${o.stores.join(", ")}${st === "done" ? " - made" : st === "stale" ? " - out of date" : ""}`}>
+              <Box component="button" type="button" aria-pressed={on} disabled={!enabled || running} onClick={() => toggle(o.lang)} sx={{
                 all: "unset", cursor: !enabled || running ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 0.5, px: 1, py: 0.6, fontSize: "0.8rem", fontWeight: 700,
                 borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: on ? "#fff" : !enabled ? "#b3bccb" : INK, bgcolor: on ? PINK : "transparent", transition: "background-color .12s",
                 "&:hover": on || !enabled || running ? {} : { bgcolor: "rgba(194,44,110,.07)", color: PINK },
               }}>
                 {runSt === "doing" ? <CircularProgress size={11} sx={{ color: on ? "#fff" : PINK }} />
                   : <Box component="span" sx={{ width: 10, height: 10, borderRadius: "2px", border: `1.5px solid ${on ? "#fff" : "#9aa5b8"}`, display: "grid", placeItems: "center", boxSizing: "border-box" }}>{on && <CheckIcon sx={{ fontSize: 9 }} />}</Box>}
-                {o.store.toUpperCase()}
+                {o.name}
                 {!on && runSt !== "doing" && st === "done" && <CheckIcon sx={{ fontSize: 13, color: GREEN }} />}
                 {!on && runSt !== "doing" && st === "stale" && <WarningAmberIcon sx={{ fontSize: 13, color: AMBER }} />}
               </Box>
@@ -215,14 +264,14 @@ export function TranslateMany({ doc, groups, enabled, initialPicked = [] }: { do
         <Box sx={{ mt: 1 }}><RunLine mv={mv} /></Box>
       ) : picked.length > 0 ? (
         <Box sx={{ mt: 1, display: "grid", gap: 0.75 }}>
-          <Typography sx={{ fontSize: "0.76rem", color: INK }}>{steps.length ? planSummary(steps) : "Nothing new to make."}{again.length ? ` ${again.join(", ")} ${again.length === 1 ? "is" : "are"} made already - open ${again.length === 1 ? "it" : "each"} to translate it again.` : ""}</Typography>
-          <Button variant="contained" disableElevation disabled={!enabled || !steps.length} onClick={() => { void mv.run(picked).then(() => setPicked([])); }}
+          <Typography sx={{ fontSize: "0.76rem", color: INK }}>{steps.length ? planSummary(steps) : "Nothing new to make."}{again.length ? ` ${again.map(langName).join(", ")} ${again.length === 1 ? "is" : "are"} made already - open ${again.length === 1 ? "it" : "each"} to translate it again.` : ""}</Typography>
+          <Button variant="contained" disableElevation disabled={!enabled || !steps.length} onClick={() => { void mv.run(ofPicked.flatMap((l) => storesInLanguage(l))).then(() => setPicked([])); }}
             sx={{ ...mainBtn, borderRadius: "6px", justifySelf: "start", px: 1.75 }}>
-            {steps.some((s) => s.how === "translate") ? `Translate ${steps.length === 1 ? "it" : `these ${steps.length}`}` : `Make ${steps.length === 1 ? "it" : `these ${steps.length}`}`}
+            {`Translate ${steps.length === 1 ? "it" : `into these ${steps.length}`}`}
           </Button>
         </Box>
       ) : (
-        <Typography sx={{ mt: 0.75, fontSize: "0.74rem", color: MUTED }}>{viewsLine(doc, groups)} · tick one or several</Typography>
+        <Typography sx={{ mt: 0.75, fontSize: "0.74rem", color: MUTED }}>{viewsLine(doc, groups)} · one page per language, for all its store views</Typography>
       )}
     </Box>
   );

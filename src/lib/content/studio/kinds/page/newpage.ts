@@ -12,6 +12,7 @@
 import { blockOrder, type BlockBg, type ButtonLook, type Fields, type Look, type Pic } from "./fields";
 import { moduleGap } from "./modules/model";
 import { renderModule, renderSkeleton } from "./modules/render";
+import { inStore } from "./links";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -20,6 +21,8 @@ export type RenderOpts = {
   /** a picture's address as it is written (the preview makes the hub's own absolute; the paste names Magento's media) */
   picture?: (url: string) => string;
   link?: (url: string) => string;
+  /** the store view the page is drawn for (Content v10, point 9): every link of its language goes there, its modules' too */
+  store?: string;
   /** the preview only (`marks`): what the AI is writing now - those blocks and fields shimmer - and the pictures being
    * made (SARCLA 08.11.2026: "an AI animation as soon as it starts working") */
   busy?: { blocks?: string[]; fields?: string[]; pictures?: string[]; tuning?: string[]; modules?: Record<string, string>; moduleWhy?: Record<string, string> };
@@ -63,7 +66,7 @@ const DEFAULT_BG: Record<string, BlockBg> = { hero: "grey", cta: "petrol" };
 export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; html: string } {
   const m = !!o.marks;
   const pic = o.picture ?? ((u: string) => u);
-  const link = o.link ?? ((u: string) => u);
+  const link = o.link ?? ((u: string) => (o.store ? inStore(u, o.store) : u));
   const lk = (path: string): Look => f.looks[path] ?? {};
   const busyB = new Set(m ? o.busy?.blocks ?? [] : []);
   const busyF = new Set(m ? o.busy?.fields ?? [] : []);
@@ -184,7 +187,7 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
       if (filling) return `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { busy: filling })}</div>`;
       const gap = moduleGap(x.module);
       if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: o.busy?.moduleWhy?.[x.id] ?? `${gap} - in its settings (click it).` })}</div>` : "";
-      const h = renderModule(x.module, o.picture ? { picture: o.picture } : {});
+      const h = renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}) });
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
     }).join("\n");
   const parts: string[] = [];

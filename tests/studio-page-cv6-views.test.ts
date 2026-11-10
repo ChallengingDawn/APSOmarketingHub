@@ -18,9 +18,11 @@ import { magentoRequest, planPage, seoFieldsOf, writePage, type Backups, type Fe
 
 /* ── point 1: every store view, as the shop's switcher has them ───────── */
 
-test("the shop's 25 store views, each with its Magento store code - the Swiss shop in CHF AND in EUR", () => {
-  assert.equal(STORE_VIEWS.length, 25);
-  assert.equal(new Set(STORE_VIEWS.map((v) => v.key)).size, 25, "each key once");
+test("the shop's store views, each with its Magento store code - the Swiss shop in CHF AND in EUR", () => {
+  // 25 the shop's pages show, and since Content v10 the four only Magento's form lists (Czech Republic EN/CS, China EN,
+  // International CS) - 29
+  assert.equal(STORE_VIEWS.length, 29);
+  assert.equal(new Set(STORE_VIEWS.map((v) => v.key)).size, 29, "each key once");
   assert.equal(storeCodeOf("de-CH"), "switzerland_chf_de");
   assert.equal(storeCodeOf("de-CH/eur"), "switzerland_eur_de", "read on www.apsoparts.com/de-CH/eur/ (storeId 1, EUR)");
   assert.equal(storeCodeOf("en-CH"), "switzerland_chf_en");
@@ -43,16 +45,18 @@ test("the shop's 25 store views, each with its Magento store code - the Swiss sh
 
 test("grouped as Magento has them: a country in a currency, each with its languages", () => {
   const g = countryGroups();
+  // Magento's own order (its CMS page form's "Store View" list, SARCLA's photos 10.11.2026)
   assert.deepEqual(g.map((x) => x.label), [
-    "Switzerland · CHF", "Switzerland · EUR", "Germany · EUR", "Austria · EUR", "France · EUR", "Italy · EUR", "Netherlands · EUR", "International · EUR", "Poland · EUR",
+    "Switzerland · EUR", "Switzerland · CHF", "Germany · EUR", "Austria · EUR", "France · EUR", "Italy · EUR", "Netherlands · EUR",
+    "Czech Republic · EUR", "China · EUR", "International · EUR", "Poland · EUR",
   ]);
-  assert.deepEqual(g[1].stores, ["de-CH/eur", "fr-CH/eur", "it-CH/eur", "en-CH/eur"]);
-  assert.deepEqual(g[7].stores, ["en-INT", "de-INT", "fr-INT", "it-INT", "nl-INT"]);
+  assert.deepEqual(g[0].stores, ["de-CH/eur", "en-CH/eur", "fr-CH/eur", "it-CH/eur"]);
+  assert.deepEqual(g[9].stores, ["en-INT", "de-INT", "fr-INT", "it-INT", "nl-INT", "cs-INT"]);
   // a store view the page index holds that the list lacks: under "Other", never lost
   const more = countryGroups(["es-ES", "de-CH"]);
   assert.deepEqual(more[more.length - 1], { key: "other", country: "Other", currency: null, label: "Other store views", stores: ["es-ES"] });
   const d = pageDoc({ source: "pick", store: "de-CH", path: "/de-CH/ueber-uns" });
-  assert.equal(shopCountries([], d).reduce((n, x) => n + x.stores.length, 0), 25);
+  assert.equal(shopCountries([], d).reduce((n, x) => n + x.stores.length, 0), 29);
 });
 
 test("the shop's own switcher, read: the store codes its options name", () => {

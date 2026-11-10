@@ -19,13 +19,13 @@ import { ConvertError, ensureTestsSchema, testById } from "./tests";
 import type { Change } from "./versions";
 import { isCreds, oauthHeader, type OAuthCreds } from "./oauth1";
 import {
-  KEY_WAITING, MagentoError, magentoRequest, planPage, restorePage, storeRefIn, writePage,
-  type Backup, type Backups, type MagentoRequest, type PagePlan, type StoreRef, type Want, type Written,
+  KEY_WAITING, MagentoError, magentoRequest, planPage, planShared, restorePage, storeRefIn, writePage, writeShared,
+  type Backup, type Backups, type MagentoRequest, type PagePlan, type SharedPlan, type SharedWritten, type StoreRef, type Target, type Want, type Written,
 } from "./cmsPage";
 import { magentoFetch } from "./magentoHttp";
 import { shopPage } from "./studio";
 import { magentoKeys } from "@/lib/doc/config";
-import { STORE_VIEWS, storeCodeOf } from "@/lib/content/studio/kinds/page/storeViews";
+import { STORE_VIEWS, storeCodeOf, storeViewOf } from "@/lib/content/studio/kinds/page/storeViews";
 import { checkConnection, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
 
 const SCHEMA = `
@@ -273,6 +273,10 @@ const REFS = new Map<string, { at: number; ref: StoreRef | null }>();
 /** A store view's code and id in one environment, read from its front page on the shop - kept a day (an hour when the
  * read failed). */
 export async function storeRefOf(env: Env, view: string): Promise<StoreRef | null> {
+  // a store view of Magento whose code the shop never showed (Czech Republic, China, International CS - Content v10): its
+  // address leads to en-INT, whose code and id are NOT its own - not known, never read
+  const listed = storeViewOf(view);
+  if (listed && !listed.code) return null;
   const key = `${env}|${view}`;
   const held = REFS.get(key);
   if (held && Date.now() - held.at < (held.ref ? 24 : 1) * 3600_000) return held.ref;
@@ -281,7 +285,8 @@ export async function storeRefOf(env: Env, view: string): Promise<StoreRef | nul
   // the code the shop's list names for it (Content v6: "de-CH/eur" is switzerland_eur_de, never switzerland_chf_de) -
   // a front page that says another is not this store view's
   const want = storeCodeOf(view);
-  const ref = found && (!want || found.code === want) ? found : null;
+  // the list's code and id when the front page could not be read (the same on production and ACC, read 10.11.2026)
+  const ref = found && (!want || found.code === want) ? found : !found && listed?.code && listed.id ? { view, code: listed.code, id: listed.id } : null;
   REFS.set(key, { at: Date.now(), ref });
   return ref;
 }
@@ -350,6 +355,50 @@ export async function cmsPageWrite(pieceId: string, env: Env, it: { view: string
   const ours = await oursOf(pieceId, env);
   try {
     return await writePage(m, { env, view: it.view, store: await storeRefOf(env, it.view), want: it.want, others: await othersOf(env, it.view), ours: (id) => ours.has(id), by, backups: pageBackups(pieceId) });
+  } catch (e) {
+    throw new ConvertError(said(e), 409);
+  }
+}
+
+/* ── a version written as ONE page for its store views (Content v10) ──── */
+
+/** Each ticked store view with its code and id as the hub knows them (unknown: null). */
+async function targetsOf(env: Env, stores: string[]): Promise<Target[]> {
+  const out: Target[] = [];
+  for (const v of stores) out.push({ view: v, ref: await storeRefOf(env, v) });
+  return out;
+}
+/** Every store view of the language the hub knows the id of - what the page serves now is read among them. */
+async function languageRefs(env: Env, lang: string): Promise<StoreRef[]> {
+  const out: StoreRef[] = [];
+  for (const v of sameLanguage(lang)) { const r = await storeRefOf(env, v); if (r) out.push(r); }
+  return out;
+}
+
+export type SharedPlanOut = SharedPlan | { view: string; env: Env; action: "none"; why: string; error: true };
+
+/** What writing a version as one page for its store views would do, read from Magento - nothing written. */
+export async function cmsSharedPlan(pieceId: string, env: Env, it: { view: string; stores: string[]; want: Extract<Want, { kind: "page" }> }): Promise<SharedPlanOut> {
+  await ensureCmsSchema();
+  try {
+    const m = connection(env);
+    const ours = await oursOf(pieceId, env);
+    return await planShared(m, { env, view: it.view, targets: await targetsOf(env, it.stores), want: it.want, language: await languageRefs(env, it.view.slice(0, 2)), ours: (id) => ours.has(id) });
+  } catch (e) {
+    return { view: it.view, env, action: "none", why: said(e), error: true };
+  }
+}
+
+/** A version written into Magento as ONE page for its store views, pressed by a person - backed up first. */
+export async function cmsSharedWrite(pieceId: string, env: Env, it: { view: string; stores: string[]; want: Extract<Want, { kind: "page" }> }, by: string): Promise<SharedWritten> {
+  await ensureCmsSchema();
+  const m = connection(env);
+  const ours = await oursOf(pieceId, env);
+  try {
+    return await writeShared(m, {
+      env, view: it.view, targets: await targetsOf(env, it.stores), want: it.want, language: await languageRefs(env, it.view.slice(0, 2)),
+      ours: (id) => ours.has(id), by, backups: pageBackups(pieceId),
+    });
   } catch (e) {
     throw new ConvertError(said(e), 409);
   }

@@ -97,6 +97,8 @@ export type FieldSpec =
 export type Opts = {
   /** a picture's address as it is written - the preview makes the hub's own absolute, the hand-over names Magento's media */
   picture?: (url: string) => string;
+  /** the store view the page is drawn for (Content v10, SARCLA point 9): its links go there - else the module's own */
+  store?: string;
 };
 
 /** A module drawn: its inner HTML and its CSS, every rule written `@@ ...` (the registry puts the module's class there). */
