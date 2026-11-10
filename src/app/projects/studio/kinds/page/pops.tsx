@@ -6,8 +6,10 @@
 // only the blocks.
 //
 //   PopCard          the popup's frame: what it is, a close, its body, its foot
-//   TextPop          a text's words, its character guide, bold / italic / list / link where the block allows them, its
-//                    look (size, colour), "Ask AI for this text" and Done; a button's or a link's page too
+//   TextPop          a text's words, its character guide, bold / italic / underline / list / link, its look (Content v10:
+//                    colour - the shop's palette or one of its own, flagged when it cannot be read -, size, alignment),
+//                    "Ask AI for this text" and Done; a link's page too
+//   ButtonPop        a button (Content v10, point 3): its words, its page of the shop, its style, colour, size, arrow, tab
 //   PicturePop       a picture: make it (from its idea), upload, the galleries, the shop's products, fine-tune, its alt text
 //   BlockSettingsPop a new page's block: background, alignment, heading size, picture side, its button, its items
 //   ShopBlockPop     a page of the shop's own block (look, hide it, replace it with a module, the AI) or one the hub put
@@ -34,6 +36,7 @@ import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import FormatItalicIcon from "@mui/icons-material/FormatItalic";
 import FormatListBulletedIcon from "@mui/icons-material/FormatListBulleted";
+import FormatUnderlinedIcon from "@mui/icons-material/FormatUnderlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import InsertLinkIcon from "@mui/icons-material/InsertLink";
 import SendRoundedIcon from "@mui/icons-material/SendRounded";
@@ -43,9 +46,10 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  addItem, getField, moveItem, removeItem, setField, setLook,
-  type BlockBg, type ButtonLook, type Fields, type ListKey, type Look, type Pic, type TextColor, type TextSize,
+  SPLITS, addItem, getField, moveItem, removeItem, setField, setLook,
+  type BlockBg, type Fields, type ListKey, type Look, type Pic, type TextAlign, type TextSize,
 } from "@/lib/content/studio/kinds/page/fields";
+import { buttonLookOfField, fieldButtonPatchOf, groundOfField, type ButtonLook as BtnLook, type TextLook } from "@/lib/content/studio/kinds/page/style";
 import { bgPathOf, blockTexts, type BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
 import { ITEM_NAME, itemsOf } from "@/lib/content/studio/kinds/page/outline";
 import { PICTURE_TUNES, PicturePanel, type Picture, type PictureAspect } from "../../pictures";
@@ -53,6 +57,9 @@ import { PINK, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { LinkInput, SHEEN_BG, sheen, type Making } from "./Fields";
 import { Choice } from "./ui";
+import { ButtonLookBox, MarkBtn, TextLookRow } from "./Look";
+import { SwitchList } from "./Switch";
+import type { SwitchOption } from "@/lib/content/studio/kinds/page/modules/switch";
 
 const RED = "#c5221f";
 const AMBER = "#a96a12";
@@ -180,11 +187,11 @@ export function cleanRich(html: string): string {
   return t.innerHTML.replace(/&nbsp;/g, " ").trim();
 }
 
-const SHOP_COLOR: Record<string, string> = { petrol: "#274e64", ink: "#1d2326", red: "#d80901", grey: "#6b767c", white: "#ffffff" };
-const SHOP_SIZE: Record<string, string> = { s: "0.88em", l: "1.2em", xl: "1.45em" };
+const SIZE_OPTS = [{ key: "s", label: "Small" }, { key: "m", label: "Normal" }, { key: "l", label: "Large" }, { key: "xl", label: "Extra large" }];
 
-const SIZE_OPTS = [{ key: "s", label: "Small" }, { key: "m", label: "Normal" }, { key: "l", label: "Large" }];
-const COLOR_OPTS = [{ key: "auto", label: "Standard" }, { key: "petrol", label: "Petrol" }, { key: "ink", label: "Ink" }, { key: "red", label: "Red" }, { key: "muted", label: "Grey" }];
+/** A text's look in the popup (Content v10): its value, what sets it, the ground it stands on (for the readability
+ * guard: [] = a picture or not known) and whether it is large (a heading: 3:1 is enough). */
+export type TextLookCtl = { value: TextLook; set: (next: TextLook, label: string) => void; grounds: string[]; large: boolean };
 
 export type TextPopProps = {
   kicker: string; title: string;
@@ -204,10 +211,9 @@ export type TextPopProps = {
   onClose: () => void;
   /** "Ask AI for this text": its answer (null = done, the words are in the box), or what went wrong */
   ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
-  /** its look: size and colour (a new page's field) */
-  look?: { value: Look; set: (p: Partial<Look>) => void } | null;
-  /** a page of the shop's element: its look (colour, size, weight, alignment - one stylesheet for it) */
-  shopLook?: { value: Record<string, string>; set: (rule: string, value: string | undefined) => void } | null;
+  /** Content v10: its look - colour, size, weight, italic, underline, alignment (a new page's field, a page of the shop's
+   * element as its look change, a module's words in its settings) */
+  textLook?: TextLookCtl | null;
   /** a page of the shop's element: hidden on the page (or shown again) */
   onHide?: (() => void) | null;
   /** a page of the shop's link: where it goes, put on the page with Done */
@@ -220,7 +226,7 @@ export type TextPopProps = {
   hint?: React.ReactNode;
 };
 
-export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, look, shopLook, onHide, href, link, note, hint }: TextPopProps) {
+export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, href, link, note, hint }: TextPopProps) {
   const [hrefDraft, setHrefDraft] = useState(href ?? "");
   useEffect(() => { setHrefDraft(href ?? ""); }, [href]);
   const hrefOut = href !== null && href !== undefined && hrefDraft.trim() && hrefDraft.trim() !== href ? hrefDraft.trim() : undefined;
@@ -228,7 +234,6 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
-  const [showLook, setShowLook] = useState(false);
   const box = useRef<HTMLTextAreaElement | null>(null);
   const richBox = useRef<HTMLDivElement | null>(null);
   const typing = useRef(false);
@@ -266,7 +271,26 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
     put(r.value);
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(r.caret[0], r.caret[1]); });
   };
-  const richCmd = (cmd: "bold" | "italic" | "insertUnorderedList") => { richBox.current?.focus(); try { document.execCommand(cmd); } catch { /* the browser has no such command */ } };
+  const richCmd = (cmd: "bold" | "italic" | "underline" | "insertUnorderedList") => { richBox.current?.focus(); try { document.execCommand(cmd); } catch { /* the browser has no such command */ } };
+  /** words selected in the box (a mark goes on them) - else B / I / U set the whole text's look (Content v10) */
+  const selected = (): boolean => {
+    if (rich) { const s = window.getSelection(); return !!s && !s.isCollapsed && !!richBox.current && richBox.current.contains(s.anchorNode); }
+    const el = box.current;
+    return !!el && (el.selectionStart ?? 0) !== (el.selectionEnd ?? 0);
+  };
+  const tl = textLook?.value ?? {};
+  const boldOn = tl.weight ? tl.weight === "bold" : !!textLook?.large;
+  const styleBtn = (what: "bold" | "italic" | "underline") => {
+    if (selected() && (rich || (marks?.bold && what !== "underline"))) {
+      if (rich) richCmd(what); else mark(what === "bold" ? "**" : "*");
+      return;
+    }
+    if (!textLook) { setMsg({ tone: "warn", text: "Select the words first." }); return; }
+    setMsg(null);
+    if (what === "bold") textLook.set({ ...tl, weight: boldOn ? (textLook.large ? "regular" : undefined) : (textLook.large ? undefined : "bold") }, boldOn ? "Made it regular" : "Made it bold");
+    else if (what === "italic") textLook.set({ ...tl, italic: !tl.italic || undefined }, tl.italic ? "Took the italic off" : "Made it italic");
+    else textLook.set({ ...tl, underline: !tl.underline || undefined }, tl.underline ? "Took the underline off" : "Underlined it");
+  };
   const linkTo = (url: string) => {
     const u = url.trim();
     if (!/^(\/[^\s"'<>()]*|https:\/\/(www|acc)\.apsoparts\.com(\/[^\s"'<>()]*)?)$/i.test(u)) { setMsg({ tone: "warn", text: "A link goes to a page of the shop: /de-CH/... or https://www.apsoparts.com/..." }); return; }
@@ -290,26 +314,24 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
   const count = rich ? null : draft.length;
   const over = max != null && count !== null && count > max;
   const iconBtn = { p: 0.45, borderRadius: "6px", color: INK, "&:hover": { bgcolor: "rgba(21,34,58,.06)" } } as const;
-  const lk = look?.value ?? {};
-  const sl = shopLook?.value ?? {};
-  const lookSet = look ? Object.keys(lk).length > 0 : Object.values(sl).some(Boolean);
+  const selMarks = !!(rich || marks?.bold);
 
   return (
     <PopCard kicker={kicker} title={title} onClose={() => { flush(); if (live && onChange && draft !== value) onChange(draft); onClose(); }}
       foot={canEdit ? (
         <>
-          {(look || shopLook) && <Button size="small" onClick={() => setShowLook((x) => !x)} sx={{ ...quiet, color: showLook || lookSet ? PINK : MUTED }}>Aa  Look{lookSet ? " · changed" : ""}</Button>}
           {onHide && <Tooltip title="Hide it on the page"><IconButton size="small" onClick={onHide} aria-label="Hide it on the page" sx={{ color: MUTED }}><VisibilityOffOutlinedIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>}
           <Box sx={{ flex: 1 }} />
           <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>{live ? "Shows in the page as you type" : "Ctrl+Enter"}</Typography>
           <Button size="small" variant="contained" disableElevation onClick={done} sx={doneBtn}>Done</Button>
         </>
       ) : undefined}>
-      {canEdit && (marks || rich) && (
+      {canEdit && (marks || rich || textLook) && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mb: 0.75, mx: -0.5 }} onMouseDown={(e) => e.preventDefault()}>
-          {(rich || marks?.bold) && <>
-            <Tooltip title="Bold"><IconButton size="small" onClick={() => (rich ? richCmd("bold") : mark("**"))} aria-label="Bold" sx={iconBtn}><FormatBoldIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
-            <Tooltip title="Italic"><IconButton size="small" onClick={() => (rich ? richCmd("italic") : mark("*"))} aria-label="Italic" sx={iconBtn}><FormatItalicIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+          {(selMarks || textLook) && <>
+            <MarkBtn on={!!textLook && boldOn} tip={selMarks ? (textLook ? "Bold - the words selected, or all of it" : "Bold") : boldOn ? "Regular" : "Bold"} onClick={() => styleBtn("bold")}><FormatBoldIcon sx={{ fontSize: 18 }} /></MarkBtn>
+            <MarkBtn on={!!tl.italic} tip={selMarks ? (textLook ? "Italic - the words selected, or all of it" : "Italic") : "Italic"} onClick={() => styleBtn("italic")}><FormatItalicIcon sx={{ fontSize: 18 }} /></MarkBtn>
+            {(rich || textLook) && <MarkBtn on={!!tl.underline} tip={rich ? "Underline - the words selected, or all of it" : "Underline all of it"} onClick={() => styleBtn("underline")}><FormatUnderlinedIcon sx={{ fontSize: 18 }} /></MarkBtn>}
           </>}
           {(rich || marks?.list) && <Tooltip title="A list"><IconButton size="small" onClick={() => { if (rich) { richCmd("insertUnorderedList"); return; } const el = box.current; if (!el) return; const r = listIn(el, draft); put(r.value); requestAnimationFrame(() => { el.focus(); el.setSelectionRange(r.caret[0], r.caret[1]); }); }} aria-label="A list" sx={iconBtn}><FormatListBulletedIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
           {(rich || marks?.link) && <Tooltip title="A link to a page of the shop"><IconButton size="small" onClick={() => setLinking((x) => (x === null ? "" : null))} aria-label="A link" sx={{ ...iconBtn, color: linking !== null ? PINK : INK }}><InsertLinkIcon sx={{ fontSize: 19 }} /></IconButton></Tooltip>}
@@ -335,7 +357,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
           onKeyDown={(e) => { if (e.key === "Enter" && ((!multiline && !e.shiftKey) || e.ctrlKey || e.metaKey)) { e.preventDefault(); done(); } }}
           sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem", lineHeight: 1.5, alignItems: "flex-start" } }} />
       )}
-      {!marks && !rich && count !== null && max != null && (
+      {!marks && !rich && !textLook && count !== null && max != null && (
         <Typography sx={{ fontSize: "0.72rem", fontWeight: over ? 700 : 500, color: over ? RED : MUTED, textAlign: "right", mt: 0.4, fontVariantNumeric: "tabular-nums" }}>{over ? `${count - max} too many` : `${count} / ${max}`}</Typography>
       )}
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.6, lineHeight: 1.4 }}>{hint}</Typography>}
@@ -350,28 +372,76 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
       {href !== null && href !== undefined && (
         <TextField fullWidth size="small" label="Where the link goes" value={hrefDraft} disabled={!canEdit} onChange={(e) => setHrefDraft(e.target.value)} sx={{ ...field, mt: 1.25 }} />
       )}
-      {showLook && look && (
-        <Box sx={{ display: "grid", gap: 0.75, mt: 1.25, p: 1, borderRadius: "8px", bgcolor: "#f7f8fa" }}>
-          <Setting mt={0} label="Size" value={lk.size ?? "m"} onChange={(v: string) => look.set({ size: v === "m" ? undefined : (v as TextSize) })} options={SIZE_OPTS} />
-          <Setting mt={0.5} label="Colour" value={lk.color ?? "auto"} onChange={(v: string) => look.set({ color: v === "auto" ? undefined : (v as TextColor) })} options={COLOR_OPTS} />
-        </Box>
-      )}
-      {showLook && shopLook && (
-        <Box sx={{ display: "grid", gap: 0.75, mt: 1.25, p: 1, borderRadius: "8px", bgcolor: "#f7f8fa" }}>
-          <Setting mt={0} label="Colour" value={keyOf(SHOP_COLOR, sl.color) ?? "auto"} onChange={(v: string) => shopLook.set("color", v === "auto" ? undefined : SHOP_COLOR[v])}
-            options={[{ key: "auto", label: "As it is" }, { key: "petrol", label: "Petrol" }, { key: "ink", label: "Ink" }, { key: "red", label: "Red" }, { key: "grey", label: "Grey" }, { key: "white", label: "White" }]} />
-          <Setting mt={0.5} label="Size" value={keyOf(SHOP_SIZE, sl["font-size"]) ?? "auto"} onChange={(v: string) => shopLook.set("font-size", v === "auto" ? undefined : SHOP_SIZE[v])}
-            options={[{ key: "auto", label: "As it is" }, { key: "s", label: "Smaller" }, { key: "l", label: "Larger" }, { key: "xl", label: "Much larger" }]} />
-          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-            <Setting mt={0.5} label="Weight" value={sl["font-weight"] === "700" ? "bold" : sl["font-weight"] === "400" ? "regular" : "auto"} onChange={(v: string) => shopLook.set("font-weight", v === "bold" ? "700" : v === "regular" ? "400" : undefined)}
-              options={[{ key: "auto", label: "As it is" }, { key: "regular", label: "Regular" }, { key: "bold", label: "Bold" }]} />
-            <Setting mt={0.5} label="Align" value={sl["text-align"] ?? "auto"} onChange={(v: string) => shopLook.set("text-align", v === "auto" ? undefined : v)}
-              options={[{ key: "auto", label: "As it is" }, { key: "left", label: "Left" }, { key: "center", label: "Centre" }]} />
-          </Box>
-        </Box>
-      )}
+      {canEdit && textLook && <TextLookRow value={tl} onChange={(next, label) => textLook.set(next, label)} grounds={textLook.grounds} large={textLook.large} />}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: msg.tone === "warn" ? AMBER : "#1b7a55", mt: 0.75, lineHeight: 1.4 }}>{msg.text}</Typography>}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} />}
+    </PopCard>
+  );
+}
+
+/* ── a button (Content v10, point 3) ──────────────────────────────────── */
+
+export type ButtonPopProps = {
+  kicker: string; title?: string;
+  /** its words, and what puts them on the page (as they are typed) */
+  label: string; max: number; onLabel: (v: string) => void;
+  /** its page of the shop (the shop's page search) */
+  url: string; onUrl: (v: string) => void;
+  api: StudioApi; store: string;
+  look: BtnLook; onLook: (next: BtnLook, label: string) => void;
+  /** the ground it stands on ([] = not known), its colour while none is chosen, its arrow while not set */
+  grounds: string[]; fallback: string; arrowDefault?: boolean;
+  canEdit: boolean;
+  ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
+  onClose: () => void;
+  hint?: React.ReactNode;
+};
+
+/** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint }: ButtonPopProps) {
+  const [draft, setDraft] = useState(label);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const typing = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { if (!typing.current) setDraft(label); }, [label]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const put = (v: string) => {
+    setDraft(v);
+    typing.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { typing.current = false; onLabel(v); }, 300);
+  };
+  const flush = () => { if (timer.current) { clearTimeout(timer.current); timer.current = null; } typing.current = false; if (draft !== label) onLabel(draft); };
+  const over = draft.length > max;
+  const askAi = async (ask: string) => {
+    if (!ai) return;
+    setBusy(true); setMsg(null);
+    const r = await ai(ask, draft);
+    setBusy(false);
+    if (r.error) setMsg(r.error);
+    else if (r.text !== undefined) put(r.text);
+  };
+  return (
+    <PopCard kicker={kicker} title={title} onClose={() => { flush(); onClose(); }} maxBody="min(66vh, 620px)"
+      foot={canEdit ? (
+        <>
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5 }}>Shows in the page as you change it</Typography>
+          <Button size="small" variant="contained" disableElevation onClick={() => { flush(); onClose(); }} sx={doneBtn}>Done</Button>
+        </>
+      ) : undefined}>
+      <TextField fullWidth size="small" label="Its words" value={draft} disabled={!canEdit} onChange={(e) => put(e.target.value)} autoFocus
+        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flush(); } }}
+        helperText={<Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box>}
+        sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
+      <Box sx={{ mt: 1.75 }}>
+        <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
+      </Box>
+      {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
+      {canEdit && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
+      {msg && <Typography sx={{ fontSize: "0.78rem", color: AMBER, mt: 0.75 }}>{msg}</Typography>}
+      {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} placeholder="Ask AI for the button's words…" />}
     </PopCard>
   );
 }
@@ -531,7 +601,7 @@ function Items({ f, list, setF, canEdit, onOpen }: { f: Fields; list: ListKey; s
   );
 }
 
-export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, busy, onWrite, onDuplicate, onRemove, onPicture, onText, onAddText, onClose }: {
+export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, busy, onWrite, onDuplicate, onRemove, onPicture, onText, onAddText, switchTo, onClose }: {
   api: StudioApi; row: BlockRow; f: Fields; setF: (next: Fields, label?: string) => void; store: string; canEdit: boolean; canAi: boolean;
   /** the AI writing this block now */
   busy: boolean;
@@ -540,6 +610,8 @@ export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, bus
   onPicture: (path: string) => void; onText: (path: string) => void;
   /** the sections' empty slot: a text-and-picture block put there */
   onAddText?: () => void;
+  /** Content v10 (point 4): the modules it can become, its content kept */
+  switchTo?: { options: SwitchOption[]; keeps: string; run: (type: string) => void } | null;
   onClose: () => void;
 }) {
   const key = row.key;
@@ -575,11 +647,19 @@ export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, bus
           <Setting label="Background" value={look(bgPath).bg ?? "default"} onChange={(v: string) => !d && setF(setLook(f, bgPath, { bg: v === "default" ? undefined : (v as BlockBg) }), "Changed the background")} options={BG_OPTS} />
           {(texts.length > 0 || heading || sec) && (
             <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-              {texts.length > 0 && <Setting label="Words" value={align} onChange={(v: string) => !d && setAll({ align: v === "left" ? undefined : "center" }, "Changed the alignment")} options={[{ key: "left", label: "Left" }, { key: "center", label: "Centred" }]} />}
+              {texts.length > 0 && <Setting label="Words" value={align} onChange={(v: string) => !d && setAll({ align: v === "left" ? undefined : (v as TextAlign) }, "Changed the alignment")} options={[{ key: "left", label: "Left" }, { key: "center", label: "Centred" }, { key: "right", label: "Right" }]} />}
               {sec && <Setting label="Picture" value={sec.side} onChange={(side: string) => !d && setF(setField(f, `${key}.side`, side), "Moved the picture")} options={[{ key: "left", label: "Left" }, { key: "right", label: "Right" }]} />}
             </Box>
           )}
           {heading && <Setting label="Heading" value={look(heading).size ?? "m"} onChange={(v: string) => !d && setF(setLook(f, heading, { size: v === "m" ? undefined : (v as TextSize) }), "Changed the heading's size")} options={SIZE_OPTS} />}
+          {picPath && pic?.url && (
+            <Setting label="The picture's width" value={String(look(key).split ?? 50)} onChange={(v: string) => !d && setF(setLook(f, key, { split: v === "50" ? undefined : Number(v) }), `Made the picture ${v} % wide`)}
+              options={SPLITS.map((n) => ({ key: String(n), label: `${n} %` }))} />
+          )}
+          {key === "faq" && (
+            <Setting label="The questions" value={look("faq").open ? "open" : "closed"} onChange={(v: string) => !d && setF(setLook(f, "faq", { open: v === "open" || undefined }), v === "open" ? "Opened all the questions" : "Closed all the questions")}
+              options={[{ key: "closed", label: "All closed (each opens on a click)" }, { key: "open", label: "All open" }]} />
+          )}
           {picPath && pic && (
             <>
               <Sub>The picture</Sub>
@@ -599,15 +679,23 @@ export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, bus
           {btnPath && (
             <>
               <Sub>The button</Sub>
-              <LinkInput api={api} store={store} value={(getField(f, `${btnPath}.url`) as string) ?? ""} disabled={d} onChange={(v) => setF(setField(f, `${btnPath}.url`, v))} />
-              <Setting mt={-0.25} label="Its style" value={look(btnPath).button ?? "red"} onChange={(v: string) => !d && setF(setLook(f, btnPath, { button: v === "red" ? undefined : (v as ButtonLook) }), "Changed the button")}
-                options={[{ key: "red", label: "Red" }, { key: "petrol", label: "Petrol" }, { key: "outline", label: "Outline" }]} />
+              <TextField fullWidth size="small" label="Its words" value={(getField(f, `${btnPath}.label`) as string) ?? ""} disabled={d} onChange={(e) => setF(setField(f, `${btnPath}.label`, e.target.value.slice(0, 60)))}
+                sx={{ ...field, mt: 0.75, mb: 1.25, "& input": { fontSize: "0.86rem" } }} />
+              <LinkInput api={api} store={store} label="Its page of the shop" value={(getField(f, `${btnPath}.url`) as string) ?? ""} disabled={d} onChange={(v) => setF(setField(f, `${btnPath}.url`, v))} />
+              {!d && <ButtonLookBox value={buttonLookOfField(look(btnPath))} grounds={groundOfField(f, btnPath)} fallback={key === "cta" ? "red" : "red"}
+                onChange={(next, label) => setF(setLook(f, btnPath, fieldButtonPatchOf(next)), label)} />}
             </>
           )}
           {(key === "benefits" || key === "faq" || key === "links") && (
             <>
               <Sub>{key === "benefits" ? "Tiles" : key === "faq" ? "Questions" : "Links"}</Sub>
               <Items f={f} list={key} setF={setF} canEdit={canEdit} onOpen={onText} />
+            </>
+          )}
+          {canEdit && switchTo && switchTo.options.length > 0 && (
+            <>
+              <Sub mt={2}>Change it into another module</Sub>
+              <SwitchList options={switchTo.options} keeps={switchTo.keeps} onPick={switchTo.run} />
             </>
           )}
         </>

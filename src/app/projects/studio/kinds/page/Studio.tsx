@@ -62,7 +62,10 @@ import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
 import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
-import { BlockSettingsPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich } from "./pops";
+import { BlockSettingsPop, ButtonPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich } from "./pops";
+import { SwitchList } from "./Switch";
+import { useEdit } from "./useEdit";
+import { buttonLookOfField, fieldButtonPatchOf, groundOfField } from "@/lib/content/studio/kinds/page/style";
 import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
 import type { AddPlace, Picked } from "./Frame";
 import { checkChange } from "./guard";
@@ -115,8 +118,9 @@ type Translated = { fields?: PageDoc["fields"]; changes?: Change[]; from: string
 
 let entryId = 0;
 
-/** A popup open at the selection (Content v8): a text's editor, a picture's, or a block's settings (its row's key). */
-type Pop = { kind: "text" | "picture" | "settings"; key: string };
+/** A popup open at the selection (Content v8): a text's editor, a picture's, or a block's settings (its row's key); Content
+ * v10: the modules a block can become ("switch", its row's key). */
+type Pop = { kind: "text" | "picture" | "settings" | "switch"; key: string };
 
 /** Pictures made side by side, at most. */
 const AT_ONCE = 3;
@@ -276,6 +280,15 @@ export default function Studio({ api }: StudioProps) {
     setHistory((h) => h.map((x) => (x.at >= e.at ? { ...x, undone: true } : x)));
     setSelState(null);
   };
+  // Content v10 (SARCLA 10.11.2026 points 2-5): a text's and a button's look, a block changed into another module, a drag in
+  // the preview resizing inside a block (./useEdit.tsx)
+  const tools = useEdit({
+    api, isNew, canEdit, rows, view: () => viewOf(docRef.current, langRef.current), setView,
+    undoLabel: (label) => { const e = history.find((x) => x.label === label && !x.undone); if (e) void undo(e); },
+    editModule: (k) => modules.edit(k),
+  });
+  // the bar over a module just switched (its Undo) goes once its popup is closed
+  useEffect(() => { if (!pop) tools.clearSwitched(); }, [!!pop]); // eslint-disable-line react-hooks/exhaustive-deps
   // "Changes made here" lives in the bar's timeline (Content v7, SARCLA 10.11.2026: "a small icon on top") - ../../frame.tsx
   useTimeline(history.map((e) => ({
     id: e.id, label: e.label, note: e.note, warn: e.warn, at: e.at, by: e.by, where: e.lang, undone: e.undone,
@@ -1380,6 +1393,9 @@ export default function Studio({ api }: StudioProps) {
       { key: "ai", label: "Ask AI about it", icon: <AutoAwesomeOutlinedIcon />, run: () => { selectRow(r); askAi(); }, disabled: !aiHere },
     ];
     if (!canEdit) return acts;
+    // Content v10 (point 4): the modules of the same kind it can become
+    const sw = tools.optionsFor(r);
+    if (sw && sw.options.length) acts.push({ key: "switch", label: "Change it into another module", icon: <SwapHorizIcon />, run: () => selectRow(r, { kind: "switch", key: r.key }) });
     const i = rows.indexOf(r);
     if (isNew) {
       acts.push({ key: "dup", label: "Duplicate", icon: <ContentCopyOutlinedIcon />, run: () => dup(r), disabled: !r.copyable, tip: `A page has one ${r.name.toLowerCase()}` });
@@ -1439,12 +1455,13 @@ export default function Studio({ api }: StudioProps) {
         ) };
       }
       if (kind === "button") {
+        // Content v10 (point 3): its words, its page, its style, colour, size, arrow and tab
         const b = (getField(d.fields, path) ?? { label: "", url: "" }) as { label: string; url: string };
-        return { at: "below", width: 400, node: (
-          <TextPop key={k} kicker={kick} title="Button" value={b.label} max={LIMIT.button} multiline={false} canEdit={canEdit} live
-            onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop}
-            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null}
-            link={{ api, store: d.store, value: b.url, onChange: (v) => setFieldText(`${path}.url`, v) }} />
+        return { at: "below", width: 430, node: (
+          <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)}
+            api={api} store={d.store} look={buttonLookOfField(d.fields.looks[path])} grounds={groundOfField(d.fields, path)} fallback="red" canEdit={canEdit}
+            onLook={(next, label) => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: setLook(cur.fields, path, fieldButtonPatchOf(next)) }, label); }}
+            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} />
         ) };
       }
       const value = (getField(d.fields, path) as string | undefined) ?? "";
@@ -1454,7 +1471,7 @@ export default function Studio({ api }: StudioProps) {
         <TextPop key={k} kicker={kick} title={title} value={value} max={limitOf(path) ?? null} multiline={long} marks={marks} canEdit={canEdit} live
           onChange={(v) => setFieldText(path, v)} onDone={(v) => { setFieldText(path, v); closePop(); }} onClose={closePop}
           ai={aiHere ? (ask) => aiField(path, ask) : null}
-          look={{ value: d.fields.looks[path] ?? {}, set: (p: Partial<Look>) => setView({ ...d, fields: setLook(d.fields, path, p) }, "Changed the look") }} />
+          textLook={tools.fieldLook(path)} />
       ) };
     }
     if (pop.kind === "text" && sel?.picked && sel.picked.key === k) {
@@ -1465,11 +1482,18 @@ export default function Studio({ api }: StudioProps) {
       const inHeading = /^h[1-6]$/.test(p.tag) || /^h[1-6]$/.test(p.box?.tag ?? "");
       const heading = inHeading || /^(a|button|summary|label|small|strong|b|dt|th)$/.test(p.tag);
       const richOk = !inMod && !heading && /^(p|div|li|td|dd|blockquote|figcaption|span)$/.test(p.tag);
+      // Content v10 (point 3): a module's button clicked on the page - its words, page and look
+      const modBtn = inMod ? tools.moduleButton(p) : null;
+      if (modBtn) {
+        return { at: "below", width: 430, node: (
+          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} />
+        ) };
+      }
       return { at: "below", width: 420, node: (
         <TextPop key={k} kicker={kick} title={inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={p.text} multiline={!heading}
           rich={richOk ? p.inner : null} canEdit={canEdit} live={false} onClose={closePop}
-          // the look, a link's address, hidden - a page of the shop's own element (a module's are its settings')
-          shopLook={!inMod && p.selector && !p.frag ? { value: elementLook(d.changes, p.selector), set: (rule, v) => setElLook(p, rule, v) } : null}
+          // Content v10 (point 2): its look - a page of the shop's own element (its look change), a module's words (its settings)
+          textLook={inMod ? tools.moduleTextLook(p) : tools.elementLook(p)}
           onHide={!inMod ? () => { elEdit(p, { kind: "hide", on: true }); setSel(null); } : null}
           href={!inMod && p.tag === "a" ? p.href ?? "" : null}
           onDone={(text, html, href) => {
@@ -1519,12 +1543,24 @@ export default function Studio({ api }: StudioProps) {
         </PopCard>
       ) };
     }
+    // Content v10 (point 4): "Change it into another module" - the compatible modules, each with its thumbnail
+    if (pop.kind === "switch") {
+      const r = rows.find((x) => x.key === k);
+      const o = r ? tools.optionsFor(r) : null;
+      if (!r || !o) return null;
+      return { at: "side", width: 440, node: (
+        <PopCard kicker={`Block ${r.num} · ${r.name}`} title="Change it into another module" onClose={closePop} maxBody="min(66vh, 620px)">
+          <SwitchList options={o.options} keeps={o.keeps} disabled={!canEdit} first={8} onPick={(t) => tools.switchRow(r, t)} />
+        </PopCard>
+      ) };
+    }
     if (pop.kind === "settings") {
       const r = rows.find((x) => x.key === k);
       if (!r) return null;
       if (r.module) {
-        return { at: "side", width: 400, node: (
-          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} />
+        return { at: "side", width: 420, node: (
+          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }}
+            onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }
       if (isNew) {
@@ -1534,7 +1570,8 @@ export default function Studio({ api }: StudioProps) {
             busy={busyBlocks(busyHere, d.fields).includes(r.key)}
             onWrite={run ? () => void fillBlock(r.key) : undefined} onDuplicate={r.copyable ? () => dup(r) : undefined} onRemove={r.key !== "hero" ? () => removeRowAct(r) : undefined}
             onPicture={(path) => selectField(path, "picture")} onText={(path) => selectField(path)}
-            onAddText={() => addBlockAt("text", blockOrder(d.fields).indexOf("sections") + 1)} onClose={closePop} />
+            onAddText={() => addBlockAt("text", blockOrder(d.fields).indexOf("sections") + 1)}
+            switchTo={(() => { const o = tools.optionsFor(r); return o ? { ...o, run: (t: string) => tools.switchRow(r, t) } : null; })()} onClose={closePop} />
         ) };
       }
       const ci = r.change;
@@ -1589,7 +1626,7 @@ export default function Studio({ api }: StudioProps) {
             onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
           }}
           onAct={isNew ? onAct : undefined} bar={bar} popup={popup}
-          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null) }}
+          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow) }}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>

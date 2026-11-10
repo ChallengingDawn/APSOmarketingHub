@@ -23,6 +23,7 @@ import type { PageModule } from "@/lib/content/studio/kinds/page/fields";
 import { insertChange, replaceChange, withChange, type PageChange, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { kindOf, moduleGap, moduleId, moduleOfChange, newModule, type ModuleRef, type ModuleType } from "@/lib/content/studio/kinds/page/modules/model";
 import { renderModule, renderSkeleton } from "@/lib/content/studio/kinds/page/modules/render";
+import { switchModule } from "@/lib/content/studio/kinds/page/modules/switch";
 import type { Flash, Pending } from "../plan/overlay";
 
 export type Where = "before" | "after" | "prepend" | "append";
@@ -207,7 +208,9 @@ export function useModules(o: {
     const k = kindOf(type);
     const was = kindOf(cur.module.type);
     const same = k.takes === was.takes && (k.takes !== "categories" || k.kids === was.kids);
-    const next = { type: k.id, settings: { ...cur.module.settings, layout: k.layouts[0]?.key ?? "", ...(same ? {} : { items: [], fill: null }) } } as ModuleRef;
+    // Content v10: its content and what a person set on it kept (lib .../modules/switch.ts)
+    const kept = switchModule(cur.module, k.id);
+    const next = same ? kept : ({ ...kept, settings: { ...kept.settings, items: [], fill: null } } as ModuleRef);
     if (!same && k.takes !== "none") { setAutoFill(editing); if (!editing.startsWith(NP)) setBusyMap((bm) => ({ ...bm, [editing]: "Filling it from the shop…" })); }
     save(next, `Made the ${kindOf(cur.module.type).name.toLowerCase()} a ${k.name.toLowerCase()}`);
   };
