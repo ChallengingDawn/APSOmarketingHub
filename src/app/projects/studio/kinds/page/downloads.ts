@@ -6,34 +6,17 @@
 // frame (html2canvas reads the laid-out page, so the shop's own stylesheets count); the shop's pictures come through the
 // hub (a canvas refuses a picture of another site), and the studio's marks (the selection outline, the "+") are left out.
 
-import { pageDoc, viewName, viewShort, viewsOf } from "@/lib/content/studio/kinds/page/model";
-import type { PasteOut } from "@/lib/content/studio/kinds/page/shop";
-import { fileStem, pause, saveFile, type DownloadItem, type DownloadsOf } from "../../frame";
+import { pageDoc, versionLabel, viewName, viewsOf } from "@/lib/content/studio/kinds/page/model";
+import { everyVersionZip, versionFile, type PasteAnswer } from "@/lib/content/studio/kinds/page/downloadFiles";
+import { fileStem, saveFile, saveFiles, type DownloadItem, type DownloadsOf, type FileOut } from "../../frame";
 import type { StudioApi } from "../../useStudio";
 
-const slug = (v: string) => v.replace("/", "-").toLowerCase();
-
-/** One store view's HTML for Magento, saved; what to say when it is not (or not only) the HTML. */
-async function htmlOf(api: StudioApi, view: string, stem: string): Promise<string | null> {
-  const r = await api.act<PasteOut>("paste", { lang: view });
-  if (!r.ok) return r.error;
-  if (!r.result.ok) return `${view}: ${r.result.error}`;
-  const blocks = r.result.blocks;
-  const content = blocks.find((b) => b.key === "content");
-  const fields = blocks.find((b) => b.key === "fields" || b.key === "seo");
-  if (content) {
-    // the fields a new page's form takes (title, URL key, meta) ride along as a comment on top - one file to paste from
-    const head = fields ? `<!-- ${viewName(view)}\n${fields.code.replace(/--/g, "- -")}\n-->\n` : `<!-- ${viewName(view)} -->\n`;
-    saveFile(head + content.code, `${stem}-${slug(view)}.html`);
-    return r.result.warnings.length ? `${view} saved - before it goes live: ${r.result.warnings[0]}` : null;
-  }
-  const spec = blocks.find((b) => b.key === "spec");
-  if (spec) {
-    saveFile(spec.code, `${stem}-${slug(view)}-for-developers.txt`, "text/plain;charset=utf-8");
-    return `${view}: a product or category page is the theme's code - saved its list of changes for the developers.`;
-  }
-  if (fields) { saveFile(fields.code, `${stem}-${slug(view)}-search-fields.txt`, "text/plain;charset=utf-8"); return `${view}: only its search engine fields change - saved them.`; }
-  return `${view}: nothing to hand over yet.`;
+/** One version's file, read from the hub (its hand-over), or what to say instead. */
+async function fileOf(api: StudioApi, doc: ReturnType<typeof pageDoc>, view: string, stem: string): Promise<{ file: FileOut | null; say: string | null }> {
+  const r = await api.act<PasteAnswer>("paste", { lang: view });
+  if (!r.ok) return { file: null, say: r.error };
+  const f = versionFile(stem, view, versionLabel(doc, view), r.result);
+  return { file: f.name ? { name: f.name, data: f.text, type: f.type } : null, say: f.say };
 }
 
 /* ── the page as a picture ───────────────────────────────────────────────────────────────────────────────────────── */
@@ -141,17 +124,26 @@ export const downloads: DownloadsOf = (api) => {
   const canEdit = api.data.access.canEdit;
   const noPage = doc.source !== "new" && !doc.path ? "Pick the page first." : null;
   const off = noPage ?? (canEdit ? null : "For the project's editors.");
+  // one file per version - a language with the store views it goes to (Content v10, point 6), or a store view of its own
   const items: DownloadItem[] = views.map((v) => ({
-    key: `html:${v}`, group: "HTML for Magento - paste-ready", label: `${viewShort(v)} · HTML`, sub: viewName(v), disabled: off,
-    run: () => htmlOf(api, v, stem),
+    key: `html:${v}`, group: "HTML for Magento - paste-ready", label: `${versionLabel(doc, v)} · HTML`, sub: viewName(v), disabled: off,
+    run: async () => {
+      const r = await fileOf(api, doc, v, stem);
+      if (r.file) saveFile(r.file.data as string, r.file.name, r.file.type);
+      return r.say;
+    },
   }));
   if (views.length > 1) {
     items.push({
-      key: "html:all", group: "HTML for Magento - paste-ready", label: `Every store view · HTML (${views.length})`, sub: "One file each", disabled: off,
+      key: "html:all", group: "HTML for Magento - paste-ready", label: `Every version · HTML (${views.length})`, sub: "One zip, a file each", disabled: off,
+      // ONE download (a zip): a page that starts several at once is asked about by the browser - and a "no" there
+      // stops every later download of the hub (SARCLA 10.11.2026: "Download neither")
       run: async () => {
         const said: string[] = [];
-        for (const v of views) { const m = await htmlOf(api, v, stem); if (m) said.push(m); await pause(); }
-        return said.length ? said.join(" ") : `${views.length} files saved.`;
+        const files: FileOut[] = [];
+        for (const v of views) { const r = await fileOf(api, doc, v, stem); if (r.file) files.push(r.file); if (r.say) said.push(r.say); }
+        const saved = await saveFiles(files, everyVersionZip(stem));
+        return said.length ? said.join(" ") : saved ? null : "Nothing to hand over yet.";
       },
     });
   }

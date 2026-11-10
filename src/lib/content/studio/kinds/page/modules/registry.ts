@@ -120,7 +120,8 @@ export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: stri
   const cls = `apx-${m.settings.id}`;
   const d = moduleDef(m.type);
   const w = wordsFor(m.settings.store);
-  drawing.store = m.settings.store;
+  // its links in the store view of the page it is drawn in (Content v10, point 9: "the link should lead to correct locale")
+  drawing.store = o.store || m.settings.store;
   let r: { html: string; css: string };
   try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; }
   // what a person changed on it (Content v10: its words' and buttons' looks, its questions open or closed, its split)

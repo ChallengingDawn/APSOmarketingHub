@@ -47,15 +47,16 @@ test("each language's store view: the page's own country first, English the inte
 
 test("every language the shop publishes in, the page's own first", () => {
   const de = shopLanguages(INDEX, "de-CH");
-  assert.deepEqual(de.map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl"]);
-  assert.deepEqual(de.map((x) => x.store), ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL"]);
+  // Czech since Content v10: Magento has Czech Republic (EN, CS) and International CS (their front pages not open yet)
+  assert.deepEqual(de.map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl", "cs"]);
+  assert.deepEqual(de.map((x) => x.store), ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL", "cs-CZ"]);
   assert.deepEqual(de[0].stores, ["de-CH", "de-AT", "de-CH/eur", "de-DE", "de-INT"], "the page's store view first, then the others of its language");
   assert.equal(de[4].name, "Dutch");
   const nl = shopLanguages(INDEX, "nl-NL");
   assert.equal(nl[0].lang, "nl", "a Dutch page: Dutch first");
   assert.equal(nl[0].store, "nl-NL");
-  assert.deepEqual(shopLanguages([], "de-CH").map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl"], "the index empty: the shop's own list");
-  assert.deepEqual(shopLanguages(["de-CH", "fr-CH"], "es-ES").map((x) => x.lang), ["es", "de", "fr", "it", "en", "nl", "pl"], "the page's own language is always there, the shop's all with it");
+  assert.deepEqual(shopLanguages([], "de-CH").map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl", "cs"], "the index empty: the shop's own list");
+  assert.deepEqual(shopLanguages(["de-CH", "fr-CH"], "es-ES").map((x) => x.lang), ["es", "de", "fr", "it", "en", "nl", "pl", "cs"], "the page's own language is always there, the shop's all with it");
 });
 
 test("a page's languages: its own, then those made - a language not made yet is offered, not listed", () => {

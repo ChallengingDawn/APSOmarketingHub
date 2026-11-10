@@ -26,6 +26,7 @@ import HistoryIcon from "@mui/icons-material/History";
 import UndoIcon from "@mui/icons-material/Undo";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import type { StudioKind } from "@/lib/content/studio/kinds";
+import { handOverPlan, safeName, savedLine, zipOf, type MadeFile } from "@/lib/handover";
 import { PINK, btn } from "./parts";
 import type { StudioApi } from "./useStudio";
 
@@ -222,7 +223,7 @@ export function DownloadButton({ api, kind, load }: { api: StudioApi; kind: Stud
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [of, setOf] = useState<DownloadsOf | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [note, setNote] = useState<{ text: string; bad: boolean } | null>(null);
+  const [note, setNote] = useState<Note | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   useNoteFade(note, setNote);
   if (!load) return null;
@@ -235,10 +236,14 @@ export function DownloadButton({ api, kind, load }: { api: StudioApi; kind: Stud
   const items = of ? of(api) : [];
   const run = async (x: DownloadItem) => {
     setAnchor(null); setBusy(x.label); setNote(null);
+    // the files this run hands to the browser - each offered as a link too, the person's own click (Content v10, point 8)
+    const from = handedSeq();
     try {
       const said = await x.run();
-      setNote(said ? { text: said, bad: /not|could|failed|first/i.test(said) } : { text: `${x.label} - saved to your downloads.`, bad: false });
-    } catch (e) { setNote({ text: e instanceof Error ? e.message : String(e), bad: true }); }
+      const files = handedSince(from);
+      setNote(said ? { text: said, bad: /not|could|failed|first/i.test(said) && !files.length, files }
+        : { text: files.length ? savedLine(files.map((f) => f.name), files[0]?.inside ?? 0) : `${x.label} - saved to your downloads.`, bad: false, files });
+    } catch (e) { setNote({ text: e instanceof Error ? e.message : String(e), bad: true, files: handedSince(from) }); }
     setBusy(null);
   };
   return (
@@ -250,14 +255,31 @@ export function DownloadButton({ api, kind, load }: { api: StudioApi; kind: Stud
           {busy && <Box component="span" sx={{ fontSize: "0.78rem", fontWeight: 650, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>Making…</Box>}
         </Button>
       </Tooltip>
-      {note && !anchor && (
-        <Typography role="status" sx={{ fontSize: "0.76rem", color: note.bad ? "#c5221f" : "#1b7a55", maxWidth: 260, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{note.text}</Typography>
-      )}
+      {note && !anchor && <SavedNote note={note} />}
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { mt: 0.75, width: 340, maxHeight: "72vh", borderRadius: "12px", boxShadow: "0 18px 50px rgba(21,34,58,.18)" } } }}>
         {downloadEntries({ items: of ? items : null, loadErr, onRun: (x) => void run(x) })}
       </Menu>
     </>
+  );
+}
+
+type Note = { text: string; bad: boolean; files?: Handed[] };
+
+/** What a run said, and the file it made as a real link: a click on it is the person's own download, which the browser
+ * lets through even where it held back the one the hub started ("Not there? Save it"). */
+export function SavedNote({ note }: { note: Note }) {
+  const f = note.files?.[note.files.length - 1] ?? null;
+  return (
+    <Typography role="status" component="div" sx={{ fontSize: "0.76rem", color: note.bad ? "#c5221f" : "#1b7a55", maxWidth: 300, lineHeight: 1.3 }}>
+      <Box component="span" sx={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{note.text}</Box>
+      {f && (
+        <Box component="span" sx={{ color: MUTED }}>
+          Not there?{" "}
+          <Box component="a" href={f.href} download={f.name} title={f.name} sx={{ color: PINK, fontWeight: 700, textDecoration: "underline", textUnderlineOffset: "2px", "&:hover": { color: "#9e1f57" } }}>Save it</Box>
+        </Box>
+      )}
+    </Typography>
   );
 }
 
@@ -283,27 +305,67 @@ export function downloadEntries({ items, loadErr, onRun }: { items: DownloadItem
 }
 
 /** A done note stays a few seconds; a problem stays until the next click. */
-function useNoteFade(note: { text: string; bad: boolean } | null, set: (n: null) => void) {
+function useNoteFade(note: Note | null, set: (n: null) => void) {
   useEffect(() => {
     if (!note || note.bad) return;
-    const t = setTimeout(() => set(null), 6000);
+    // a note with its file's link stays a while: it is the way to the file when the browser held the download back
+    const t = setTimeout(() => set(null), note.files?.length ? 45_000 : 6000);
     return () => clearTimeout(t);
   }, [note, set]);
 }
 
 /* ── helpers the kinds' downloads share ───────────────────────────────────────────────────────────────────────────── */
 
-/** The browser's own download of a file made here. */
-export function saveFile(data: Blob | string, name: string, type = "text/html;charset=utf-8") {
+/** A file handed to the browser, kept a few minutes as a link the bar offers (SavedNote). */
+export type Handed = { seq: number; name: string; href: string; size: number; inside: number };
+const handed: Handed[] = [];
+let seq = 0;
+/** Where the list of handed files is now - a run's files are those after it. */
+export const handedSeq = () => seq;
+export const handedSince = (from: number): Handed[] => handed.filter((h) => h.seq > from);
+
+/**
+ * The browser's own download of a file made here (SARCLA 10.11.2026: "Download neither"). Started by the page, so the
+ * browser may hold it back (an automatic download - see lib/handover.ts); the file stays ten minutes as a link the bar
+ * offers, a click on which always saves it. `inside`: how many files a zip holds.
+ */
+export function saveFile(data: Blob | string, name: string, type = "text/html;charset=utf-8", inside = 1) {
   const blob = typeof data === "string" ? new Blob([data], { type }) : data;
   const href = URL.createObjectURL(blob);
+  const file = safeName(name);
+  handed.push({ seq: ++seq, name: file, href, size: blob.size, inside });
+  // a few at most, the older ones let go
+  for (const old of handed.splice(0, Math.max(0, handed.length - 12))) URL.revokeObjectURL(old.href);
+  setTimeout(() => { const i = handed.findIndex((h) => h.href === href); if (i >= 0) handed.splice(i, 1); URL.revokeObjectURL(href); }, 10 * 60_000);
   const a = document.createElement("a");
   a.href = href;
-  a.download = name;
+  a.download = file;
+  a.rel = "noopener";
+  a.style.display = "none";
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 4000);
+  setTimeout(() => a.remove(), 0);
+}
+
+/** A file a kind makes; a picture drawn in the browser comes as a Blob. */
+export type FileOut = { name: string; data: Blob | MadeFile["data"]; type?: string };
+
+/**
+ * Several files as ONE download - a zip (lib/handover.ts: a page that starts several downloads at once is asked about by
+ * the browser, and a "no" there stops every later one). One file goes as it is. Returns what was saved.
+ */
+export async function saveFiles(files: FileOut[], zipName: string): Promise<{ name: string; files: number } | null> {
+  const plan = handOverPlan(files.map((f) => ({ name: f.name, data: "", type: f.type })), zipName);
+  if (!plan) return null;
+  if (plan.files === 1) {
+    const f = files[0];
+    saveFile(f.data instanceof Blob ? f.data : new Blob([f.data as BlobPart], { type: f.type ?? "application/octet-stream" }), f.name, f.type);
+    return { name: plan.name, files: 1 };
+  }
+  const made: MadeFile[] = [];
+  for (const f of files) made.push({ name: f.name, data: f.data instanceof Blob ? new Uint8Array(await f.data.arrayBuffer()) : f.data, type: f.type });
+  saveFile(new Blob([zipOf(made) as BlobPart], { type: "application/zip" }), plan.name, "application/zip", made.length);
+  return { name: plan.name, files: made.length };
 }
 
 /** A file name from a title: plain letters and dashes. */

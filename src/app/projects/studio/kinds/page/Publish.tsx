@@ -9,6 +9,9 @@
 //                 testing & personalization > Winners; each page is backed up first (src/lib/convert/cms.ts)
 //   afterwards    "On ACC · de-CH · 09.11 10:12 · open it" and "Bring the page back as it was"
 // A category, a product or the home page is not a CMS page: the last step stays the hand-over for dotSource.
+// Content v10 (SARCLA 10.11.2026, point 6): a row is a LANGUAGE - "English · 11 store views" - with its store views as
+// Magento's Store View lists them, each saying what the write does there (put in, already in, left out and why, "id ?"
+// where the hub does not know Magento's id); a new page is ONE Magento page for all of them (store_id = their ids).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -22,7 +25,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import UndoIcon from "@mui/icons-material/Undo";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import type { PagePlan } from "@/lib/convert/cmsPage";
+import type { PagePlan, SharedPlan } from "@/lib/convert/cmsPage";
 import type { Env } from "@/lib/convert/model";
 import type { PageBackup } from "@/lib/convert/cms";
 import { STATE_WORD, noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
@@ -38,9 +41,12 @@ export type EnvState = {
   /** where its key for pages comes from, the connection in plain words, the last check (Content v6) */
   from?: "cms" | "order" | "none"; connection?: string; check?: Check | null;
 };
-type Status = { views: Omit<MagentoView, "want">[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
-type PlanOut = PagePlan | { view: string; env: Env; action: "none"; why: string; error: true };
-type Result = { view: string; ok: boolean; action?: string; pageId?: string; error?: string };
+/** A version as the last step reads it (Content v10): its language's label and the store views it goes to. */
+export type StatusView = Omit<MagentoView, "want"> & { label?: string; stores?: { view: string; open: boolean; id: number | null }[] };
+export type Status = { views: StatusView[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
+export type PlanOut = PagePlan | SharedPlan | { view: string; env: Env; action: "none"; why: string; error: true };
+type Result = { view: string; ok: boolean; action?: string; pageId?: string; error?: string; stores?: string[]; note?: string };
+const isShared = (p: PlanOut | undefined): p is SharedPlan => !!p && "targets" in p;
 
 const BLUE = "#2459d1";
 const GREEN = "#1b7a55";
@@ -85,12 +91,61 @@ function Targets({ envs, on, onToggle }: { envs: EnvState[]; on: Env[]; onToggle
 function planLine(p: PlanOut | undefined, e: EnvState): { text: string; tone: "ok" | "off" | "wait" } {
   if (!e.key) return { text: "waiting for its key", tone: "wait" };
   if (!p) return { text: "reading Magento…", tone: "wait" };
+  if (isShared(p) && p.action !== "none") {
+    // ONE page for the version's store views (Content v10)
+    const n = p.storeIds.length;
+    const put = p.targets.filter((t) => t.state === "new").map((t) => t.view);
+    const more = [put.length && p.action === "update" ? `puts in ${put.join(", ")}` : "", p.out.length ? `takes out ${p.out.join(", ")}` : "", p.more.length ? `and the earlier page${p.more.length === 1 ? "" : "s"} #${p.more.join(", #")}` : ""].filter(Boolean).join(" · ");
+    return { text: `${p.action === "create" ? "creates ONE page" : `updates page #${p.pageId}`} for ${n} store view${n === 1 ? "" : "s"}${more ? ` - ${more}` : ""}`, tone: "ok" };
+  }
   if (p.action === "create") return { text: "creates a new page", tone: "ok" };
   if (p.action === "update") {
     const shared = "shared" in p && p.shared.length ? ` - also serves ${p.shared.join(", ")}` : "";
     return { text: `updates page #${p.pageId}${shared}`, tone: "ok" };
   }
   return { text: `not written: ${p.why ?? "-"}`, tone: "off" };
+}
+
+/** A page of the shop's version: its page in each store view it goes to, in a few words. */
+function pickLine(plans: PlanOut[], stores: string[], e: EnvState): { text: string; tone: "ok" | "off" | "wait" } {
+  if (!e.key) return { text: "waiting for its key", tone: "wait" };
+  const mine = stores.map((v) => plans.find((p) => p.view === v));
+  if (mine.some((p) => !p)) return { text: "reading Magento…", tone: "wait" };
+  const go = mine.filter((p) => p!.action !== "none");
+  const pages = [...new Set(go.map((p) => ("pageId" in p! && p!.pageId) || "").filter(Boolean))];
+  if (!go.length) return { text: `not written: ${mine[0]?.why ?? "-"}`, tone: "off" };
+  const off = mine.filter((p) => p!.action === "none").map((p) => p!.view);
+  return { text: `updates ${pages.length} page${pages.length === 1 ? "" : "s"} (#${pages.join(", #")}) for ${go.length} store view${go.length === 1 ? "" : "s"}${off.length ? ` - not in ${off.join(", ")}` : ""}`, tone: "ok" };
+}
+
+const CHIP: Record<string, { c: string; w: string }> = {
+  new: { c: GREEN, w: "put in" }, has: { c: GREEN, w: "in it" }, other: { c: BLUE, w: "earlier page" }, taken: { c: "#a14b12", w: "left out" }, unknown: { c: AMBER, w: "id ?" }, out: { c: MUTED, w: "taken out" },
+};
+
+/** The version's store views as Magento's Store View lists them, each with what the write does there (one target). */
+function StoreChips({ v, plan }: { v: StatusView; plan: PlanOut | undefined }) {
+  const stores = v.stores ?? [{ view: v.view, open: true, id: null }];
+  const shared = isShared(plan) ? plan : null;
+  const extra = shared?.out ?? [];
+  return (
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.6 }}>
+      {[...stores.map((x) => x.view), ...extra].map((k) => {
+        const s = stores.find((x) => x.view === k);
+        const t = shared?.targets.find((x) => x.view === k);
+        const st = extra.includes(k) ? "out" : t?.state ?? (s && !s.id ? "unknown" : "");
+        const look = st ? CHIP[st] : null;
+        return (
+          <Box key={k} component="span" title={t?.why ?? (st === "out" ? `${k} is no longer ticked - the page leaves it` : s?.id ? `Magento store id ${s.id}` : "Magento has it; the hub does not know its id")}
+            sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.6, py: 0.15, borderRadius: "3px", border: `1px solid ${look ? `${look.c}44` : HAIRLINE}`, bgcolor: look ? `${look.c}0d` : "#fff",
+              fontSize: "0.7rem", fontWeight: 700, color: INK, whiteSpace: "nowrap", textDecoration: st === "out" ? "line-through" : "none" }}>
+            {k.split("/")[0].toUpperCase()}{k.includes("/") && <Box component="span" sx={{ fontSize: "0.58rem", color: BLUE }}>{k.split("/")[1].toUpperCase()}</Box>}
+            <Box component="span" sx={{ fontWeight: 500, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{s?.id ? `#${s.id}` : ""}</Box>
+            {look && <Box component="span" sx={{ fontWeight: 700, color: look.c }}>{look.w}</Box>}
+          </Box>
+        );
+      })}
+    </Box>
+  );
 }
 
 /** The exact page Magento gets, readable (not raw JSON). */
@@ -254,13 +309,17 @@ function NoKeySteps({ envs }: { envs: Env[] }) {
   );
 }
 
-export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string }) {
-  const [status, setStatus] = useState<Status | null>(null);
+export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string;
+  /** what Magento was read to say (a static check draws the step with it) */
+  initial?: { status: Status; plans: Record<string, PlanOut[]> };
+}) {
+  const [status, setStatus] = useState<Status | null>(initial?.status ?? null);
   const [err, setErr] = useState<string | null>(null);
   const [on, setOn] = useState<Env[]>(["acc"]);
   const [picked, setPicked] = useState<string[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
-  const [plans, setPlans] = useState<Record<string, PlanOut[]>>({});
+  const [plans, setPlans] = useState<Record<string, PlanOut[]>>(initial?.plans ?? {});
   const [reading, setReading] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<{ env: Env; results: Result[] } | null>(null);
@@ -276,6 +335,8 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
     if (!r.ok) { setErr(r.error); return; }
     setStatus(r.result);
   }, []);
+  // the store views each version goes to: a tick changed in the panel reads Magento again
+  const storesKey = (status?.views ?? []).map((v) => (v.stores ?? []).map((x) => x.view).join("+")).join(",");
   useEffect(() => { void load(); }, [load, madeKey]);
 
   const cmsViews = useMemo(() => (status?.views ?? []).filter((v) => v.cms && !v.why), [status]);
@@ -296,7 +357,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
   useEffect(() => {
     for (const e of envs) if (on.includes(e.env) && e.key) void read(e.env, sel);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [on.join(), selKey, envs.map((e) => e.key).join()]);
+  }, [on.join(), selKey, storesKey, envs.map((e) => e.key).join()]);
 
   const toggleEnv = (e: Env) => setOn((cur) => (cur.includes(e) ? cur.filter((x) => x !== e) : [...cur, e].sort()));
   const toggleView = (v: string) => setPicked((cur) => { const base = cur ?? cmsViews.map((x) => x.view); return base.includes(v) ? base.filter((x) => x !== v) : [...base, v]; });
@@ -304,10 +365,11 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
   const publish = async (env: EnvState) => {
     const views = sel.filter((v) => {
       const p = plans[env.env]?.find((x) => x.view === v);
-      return !p || p.action !== "none";
+      return !p || p.action !== "none" || doc.source !== "new";
     });
     if (!views.length) return;
-    if (!window.confirm(`Write ${views.join(", ")} into Magento ${env.label}? Each page is backed up first, and can be brought back as it was.`)) return;
+    const said0 = views.map((v) => status?.views.find((x) => x.view === v)?.label ?? v).join(", ");
+    if (!window.confirm(`Write ${said0} into Magento ${env.label}? Each page is backed up first, and can be brought back as it was.`)) return;
     setBusy(`publish:${env.env}`); setSaid(null);
     const r = await api.act<{ env: Env; results: Result[] }>("magento_publish", { env: env.env, views });
     setBusy(null);
@@ -370,7 +432,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
         <Button size="small" onClick={() => { for (const e of envs) if (on.includes(e.env) && e.key) void read(e.env, sel); }} startIcon={<RefreshIcon sx={{ fontSize: 15 }} />}
           sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0 }}>Read Magento again</Button>
       ) : undefined}>
-        Store views · {sel.length} of {cmsViews.length}
+        {doc.source === "new" ? "Pages" : "Languages"} · {sel.length} of {cmsViews.length} · {cmsViews.filter((v) => sel.includes(v.view)).reduce((n, v) => n + (v.stores?.length ?? 1), 0)} store views
       </Kick>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden" }}>
         {status.views.map((v, i) => {
@@ -387,14 +449,16 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
                 }}>{chosen && <CheckIcon sx={{ fontSize: 12, color: "#fff" }} />}</Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Box component="button" type="button" onClick={() => setOpen(isOpen ? null : v.view)} sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, width: "100%" }}>
-                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: INK, letterSpacing: ".02em" }}>{v.view}</Typography>
+                    <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: INK, letterSpacing: ".02em", whiteSpace: "nowrap" }}>{v.label ?? v.view}</Typography>
                     <Typography sx={{ ...mono, flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.sent?.identifier ?? v.path ?? ""}</Typography>
                     {v.sent && <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />}
                   </Box>
                   {v.why && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25 }}>{v.why}</Typography>}
                   {can && v.blocked && <Typography sx={{ fontSize: "0.76rem", color: AMBER, mt: 0.25 }}>{v.blocked}</Typography>}
+                  {/* its store views, as Magento's Store View lists them - what the write does in each (the first target's) */}
+                  {(v.stores?.length ?? 0) > 0 && <StoreChips v={v} plan={plans[envs.find((e) => on.includes(e.env) && e.key)?.env ?? "acc"]?.find((x) => x.view === v.view && isShared(x))} />}
                   {can && envs.filter((e) => on.includes(e.env)).map((e) => {
-                    const line = planLine(plans[e.env]?.find((x) => x.view === v.view), e);
+                    const line = doc.source === "new" || !v.stores ? planLine(plans[e.env]?.find((x) => x.view === v.view), e) : pickLine(plans[e.env] ?? [], v.stores.map((x) => x.view), e);
                     return (
                       <Typography key={e.env} sx={{ fontSize: "0.76rem", mt: 0.25, color: line.tone === "ok" ? GREEN : line.tone === "off" ? "#a14b12" : MUTED, display: "flex", gap: 0.5 }}>
                         <Box component="span" sx={{ fontWeight: 700, color: INK, flexShrink: 0 }}>{e.label}:</Box>
@@ -428,11 +492,11 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
           );
         })}
       </Box>
-      <Hint mt={0.75}>A click on a store view shows the exact page Magento gets. Each store view is its own page in Magento; nothing is written until you press Publish.</Hint>
+      <Hint mt={0.75}>{doc.source === "new" ? "One Magento page per language, for every store view ticked (its Store View field). A click on a row shows the exact page Magento gets; nothing is written until you press Publish." : "The changes go into the page of each store view the language goes to. A click on a row shows what Magento gets; nothing is written until you press Publish."}</Hint>
 
       <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
         {envs.filter((e) => on.includes(e.env)).map((e, i) => {
-          const writable = sel.filter((v) => { const p = plans[e.env]?.find((x) => x.view === v); return p && p.action !== "none"; });
+          const writable = sel.filter((v) => { const p = plans[e.env]?.find((x) => x.view === v); return doc.source !== "new" ? true : p && p.action !== "none"; });
           const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : null);
           const blocked = cmsViews.filter((v) => sel.includes(v.view) && v.blocked).length;
           const off = !!why || !!busy || !!reading[e.env] || !!blocked;
@@ -443,7 +507,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
               <Button fullWidth variant={i === 0 ? "contained" : "outlined"} disableElevation disabled={off} onClick={() => void publish(e)}
                 startIcon={busy === `publish:${e.env}` ? <CircularProgress size={14} color="inherit" /> : undefined}
                 sx={i === 0 ? { ...mainBtn, height: 42, borderRadius: "8px" } : { ...btn, height: 42, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
-                {busy === `publish:${e.env}` ? `Writing into ${e.label}…` : `Publish to ${e.env === "acc" ? "ACC" : "production"}${writable.length && !why ? ` · ${writable.length} store view${writable.length === 1 ? "" : "s"}` : ""}`}
+                {busy === `publish:${e.env}` ? `Writing into ${e.label}…` : `Publish to ${e.env === "acc" ? "ACC" : "production"}${writable.length && !why ? ` · ${writable.length === 1 ? "1 page" : `${writable.length} pages`} for ${writable.reduce((n, v) => { const p = plans[e.env]?.find((x) => x.view === v && isShared(x)); return n + (isShared(p) ? p.storeIds.length : status.views.find((x) => x.view === v)?.stores?.length ?? 1); }, 0)} store views` : ""}`}
               </Button>
               {(say || blocked > 0) && <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: MUTED }}>{say ?? `${blocked} store view${blocked === 1 ? " has" : "s have"} words to finish first.`}</Typography>}
             </Box>
@@ -456,7 +520,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
         <Box sx={{ mt: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
           {said.results.map((r) => (
             <Typography key={r.view || "all"} sx={{ fontSize: "0.8rem", color: r.ok ? GREEN : "#c5221f" }}>
-              {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} (page #${r.pageId})` : r.error}
+              {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} (page #${r.pageId})${r.stores?.length ? ` for ${r.stores.join(", ")}` : ""}${r.note ? ` - ${r.note}` : ""}` : r.error}
             </Typography>
           ))}
         </Box>

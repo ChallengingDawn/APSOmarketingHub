@@ -8,6 +8,7 @@
 //
 // Every rule is written `@@ ...`: the registry (./registry.ts drawModule) puts the module's own class there (.apx-<id>).
 
+import { inStore } from "../links";
 import type { Card, ModuleSettings, Opts, Point } from "./types";
 import { L2_ICON_LABEL, L2_ICON_PATHS } from "./library2/icons";
 
@@ -75,13 +76,10 @@ export const drawing: { store: string | null } = { store: null };
 /** A link to the shop, written from the page's own host: the same module works on ACC and on the live shop (and in the
  * studio's preview, whose page carries the shop's address as its base). Pictures stay absolute on www - ACC lacks some
  * media files (the kit, 05.11). */
-export const href = (u: string) => {
-  const path = u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, "");
-  // a store view in another currency (the Swiss shop's EUR: "de-CH/eur") keeps its visitors there: /de-CH/x -> /de-CH/eur/x
-  const cur = drawing.store && /^[a-z]{2}-[A-Z]{2,3}\/[a-z]{3}$/.test(drawing.store) ? drawing.store : null;
-  const base = cur ? cur.split("/")[0] : null;
-  return esc(cur && base && path.startsWith(`/${base}/`) && !path.startsWith(`/${cur}/`) ? `/${cur}${path.slice(base.length + 1)}` : path);
-};
+export const href = (u: string) => esc(inStore(u, drawing.store));
+// Content v10 (SARCLA 10.11.2026, point 9: "the link should lead to correct locale based on locale"): every link of the same
+// language goes to the store view drawn - /en-INT/x in en-CH's page is /en-CH/x, /de-CH/x in the Swiss EUR shop /de-CH/eur/x
+// (../links.ts inStore; before, only the Swiss EUR shop was put right). A link of another language is the relink's.
 
 /** A picture's <img>: a product's the sharp 500 px one; lazy below the fold. */
 export function pic(c: Card, o: Opts, lazy = true, alt = ""): string {
@@ -205,16 +203,20 @@ export function header(s: ModuleSettings, all = true): string {
   return `<div class="am-hd"><div>${ey ? `<p class="am-ey">${esc(ey)}</p>` : ""}${t ? `<h2 class="am-h">${marked(t)}</h2>` : ""}${sub ? `<p class="am-sub">${esc(sub)}</p>` : ""}</div>${link}</div>`;
 }
 
+/** What a card says under its name: the shop's count - or, a product without one, its number (Content v10, SARCLA point 9:
+ * "product bento since more technical" - the number a buyer orders by). */
+const metaOf = (c: Card) => c.meta || (c.kind === "product" && c.number ? c.number : "");
+
 /** The kit's finished card: photo, name in two lines, the shop's count; "Zum Produkt" takes the count's place on hover. */
 export function card(c: Card, o: Opts, label = ""): string {
   return `<a class="am-pc${c.kind === "category" ? " is-cat" : ""}" href="${href(c.url)}"><i>${pic(c, o)}</i>${label ? `<small>${esc(label)}</small>` : ""}`
-    + `<b>${nameOf(c.name)}</b><em>${esc(c.meta)}</em></a>`;
+    + `<b>${nameOf(c.name)}</b><em>${esc(metaOf(c))}</em></a>`;
 }
 
 /** The big tile: a category's photo filling it (a product's on white), a white caption with its name and "Alle anzeigen". */
 export function big(c: Card, o: Opts, small: string, go: string): string {
   return `<a class="am-big${c.kind === "product" ? " is-prod" : ""}" href="${href(c.url)}">${pic(c, o, false)}<span class="am-cap">${small ? `<small>${esc(small)}</small>` : ""}`
-    + `<b>${esc(c.name)}</b>${c.meta ? `<em>${esc(c.meta)}</em>` : ""}<span class="am-go">${esc(go)}</span></span></a>`;
+    + `<b>${esc(c.name)}</b>${metaOf(c) ? `<em>${esc(metaOf(c))}</em>` : ""}<span class="am-go">${esc(go)}</span></span></a>`;
 }
 
 /* ── icons (line icons, the shop's stroke) ─────────────────────────────── */

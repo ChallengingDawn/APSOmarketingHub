@@ -31,6 +31,7 @@
 // from the bar over it or its row's settings (./pops.tsx). The selection is one: a row clicked selects its block in the
 // page, a click in the page selects its row.
 
+import { relinkModule } from "@/lib/content/studio/kinds/page/links";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
@@ -43,7 +44,7 @@ import { limitOf } from "@/lib/content/studio/kinds/page/fit";
 import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage,
+  MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, leadOf, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage, tickStore, versionOfStore,
   viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { lookLine, problemsLine } from "@/lib/content/studio/kinds/page/readable";
@@ -78,7 +79,7 @@ import { ModulesTab } from "./modules/ModulesTab";
 import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
-import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
+import { MODULES, moduleDef } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
 import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
@@ -307,7 +308,14 @@ export default function Studio({ api }: StudioProps) {
   const openView = (key: string) => {
     const cur = docRef.current;
     const k = baseStore(key) ?? storeFor(key);
-    if (k === mainView(cur) || viewsOf(cur).includes(k) || !canEdit) { setLang(k); return; }
+    if (k === mainView(cur) || viewsOf(cur).includes(k)) { setLang(k); return; }
+    // Content v10 (SARCLA point 6: one page per language): a store view a language's page goes to opens that page; one of
+    // a language the page has, not ticked yet, is ticked for it (no copy, no AI) and opens it
+    const has = versionOfStore(cur, k);
+    if (has) { setLang(has); return; }
+    const lead = leadOf(cur, langOfStore(k));
+    if (lead && canEdit) { record(`Ticked ${k} for the ${langName(k)} page`, cur); api.setDoc(tickStore(cur, k, true)); setLang(lead); return; }
+    if (lead || !canEdit) { setLang(lead ?? k); return; }
     const add = howToAdd(cur, k);
     const there = presenceRef.current[k];
     // a page of the shop is copied onto its own page in that store view - when the shop has it there
@@ -912,7 +920,9 @@ export default function Studio({ api }: StudioProps) {
     // the store view it goes in (a language asked: its store view for this page)
     const to = storeFor(target);
     if (to === from) return `${to} is the page's own store view.`;
-    if (langOfStore(to) === langOfStore(from)) { openView(to); return `${to} is the page's own language - it is made as a copy of ${howToAdd(cur0, to).from}, no AI.`; }
+    // one page per language (Content v10): a store view of a language the page has goes to that language's page - no AI
+    const leadTo = leadOf(cur0, langOfStore(to));
+    if (langOfStore(to) === langOfStore(from) || (leadTo && leadTo !== to && !viewsOf(cur0).includes(to))) { openView(to); return `${to} goes to the ${langName(to)} page - the same words, no AI.`; }
     setLangState(to);
     setSelState(null);
     setStep("page");
@@ -949,12 +959,22 @@ export default function Studio({ api }: StudioProps) {
       let relinked = "";
       if (latest.source === "new") {
         const rl = await api.act<{ map: Record<string, string>; missing: string[] }>("relink", { lang: to });
+        // a module of the page in this store view's language even when no link needed its counterpart
+        if (rl.ok && !Object.keys(rl.result.map).length && viewOf(docRef.current, to).fields.modules?.some((x) => x.module.settings.store !== to)) {
+          const cur = docRef.current;
+          const v = viewOf(cur, to);
+          await setDocSafely(api, cur, withView(cur, to, { ...v, fields: { ...v.fields, modules: v.fields.modules!.map((x) => ({ ...x, module: { ...x.module, settings: { ...x.module.settings, store: to } } })) } }));
+        }
         if (rl.ok && Object.keys(rl.result.map).length) {
           const m = rl.result.map;
           const cur = docRef.current;
           const v = viewOf(cur, to);
           const fx = (u: string) => m[u] ?? u;
-          const fields = { ...v.fields, hero: { ...v.fields.hero, button: { ...v.fields.hero.button, url: fx(v.fields.hero.button.url) } }, cta: { ...v.fields.cta, button: { ...v.fields.cta.button, url: fx(v.fields.cta.button.url) } }, links: v.fields.links.map((l) => ({ ...l, url: fx(l.url) })) };
+          const fields = {
+            ...v.fields, hero: { ...v.fields.hero, button: { ...v.fields.hero.button, url: fx(v.fields.hero.button.url) } }, cta: { ...v.fields.cta, button: { ...v.fields.cta.button, url: fx(v.fields.cta.button.url) } }, links: v.fields.links.map((l) => ({ ...l, url: fx(l.url) })),
+            // its modules' products and categories too, and their words in its language (Content v10, SARCLA point 9)
+            ...(v.fields.modules ? { modules: v.fields.modules.map((x) => ({ ...x, module: { ...x.module, settings: { ...relinkModule(x.module.settings, m), store: to } } })) } : {}),
+          };
           await setDocSafely(api, cur, withView(cur, to, { ...v, fields }));
         }
         if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${from} one.`;
@@ -1558,7 +1578,10 @@ export default function Studio({ api }: StudioProps) {
       const r = rows.find((x) => x.key === k);
       if (!r) return null;
       if (r.module) {
-        return { at: "side", width: 420, node: (
+        // a module of products or categories is a technical one: wider, so each one's number and link show (Content v10,
+        // SARCLA point 9: "product bento since more technical put it wider so we can also see the link")
+        const items = moduleDef(r.module.type)?.takes;
+        return { at: "side", width: items === "products" || items === "categories" ? 620 : 420, node: (
           <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };

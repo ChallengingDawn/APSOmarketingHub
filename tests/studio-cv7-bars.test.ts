@@ -111,29 +111,28 @@ test("a page with its A/B test on is a row: page, versions, the two that run, pl
 
 /* ── point 2: several store views in one go ─────────────────────────────── */
 
-test("the plan: a language the page has is copied (no AI), another is translated once and its others copied from it", () => {
+test("the plan: a language the page has takes the store view (no AI), another is translated once for all of its ticked", () => {
+  // Content v10 (SARCLA point 6: one page per language): no copies any more - a store view of the page's language goes to
+  // that language's page; French is ONE translation (shown in fr-CH) going to the three French ones ticked
   const d = pageDoc({ source: "pick", store: "de-CH", path: "/de-CH/privacy", changes: [{ op: "text", selector: "h1", text: "Datenschutz" }] });
   const steps = planViews(d, ["fr-FR", "de-DE", "fr-CH", "de-CH/eur", "fr-CH/eur", "de-CH", "it-CH"]);
-  // the page's own language first: copies of de-CH (its EUR twin from de-CH)
-  assert.deepEqual(steps.slice(0, 2), [{ key: "de-CH/eur", how: "copy", from: "de-CH" }, { key: "de-DE", how: "copy", from: "de-CH" }]);
-  // French: translated ONCE into fr-CH (the language's own), then fr-CH/eur and fr-FR copied from it
-  assert.deepEqual(steps.slice(2, 5), [
-    { key: "fr-CH", how: "translate", from: "de-CH" }, { key: "fr-CH/eur", how: "copy", from: "fr-CH" }, { key: "fr-FR", how: "copy", from: "fr-CH" },
-  ]);
-  assert.deepEqual(steps[5], { key: "it-CH", how: "translate", from: "de-CH" });
-  assert.equal(steps.length, 6, "de-CH (the page's own) is left out");
-  assert.equal(planSummary(steps), "6 store views: 4 copies (no AI), 2 translations - 2 AI calls, one at a time");
+  assert.deepEqual(steps.slice(0, 2), [{ key: "de-CH/eur", how: "tick", from: "de-CH" }, { key: "de-DE", how: "tick", from: "de-CH" }]);
+  assert.deepEqual(steps[2], { key: "fr-CH", how: "translate", from: "de-CH", stores: ["fr-CH/eur", "fr-CH", "fr-FR"] });
+  assert.deepEqual(steps[3], { key: "it-CH", how: "translate", from: "de-CH", stores: ["it-CH"] });
+  assert.equal(steps.length, 4, "de-CH (the page's own) is left out");
+  assert.equal(planSummary(steps), "6 store views: 2 to the page's languages (no AI), French and Italian translated - 2 AI calls, one at a time");
   assert.equal(planSummary([]), "Tick the store views to make.");
 });
 
 test("all of a language, all of a country, and ticking a set twice takes it off", () => {
   assert.deepEqual(viewsOfLanguage("nl"), ["nl-NL", "nl-INT"]);
-  assert.deepEqual(viewsOfCountry("CH"), ["de-CH", "fr-CH", "it-CH", "en-CH", "de-CH/eur", "fr-CH/eur", "it-CH/eur", "en-CH/eur"]);
+  // Magento's order since Content v10 (its CMS page form: Switzerland EUR, then CHF, each DE / EN / FR / IT)
+  assert.deepEqual(viewsOfCountry("CH"), ["de-CH/eur", "en-CH/eur", "fr-CH/eur", "it-CH/eur", "de-CH", "en-CH", "fr-CH", "it-CH"]);
   const once = toggleAll(["pl-PL"], viewsOfLanguage("nl"));
   assert.deepEqual(once, ["pl-PL", "nl-NL", "nl-INT"]);
   assert.deepEqual(toggleAll(once, viewsOfLanguage("nl")), ["pl-PL"]);
   assert.ok(SHOP_COUNTRIES.some((c) => c.cc === "INT" && c.name === "International"));
-  assert.deepEqual(SHOP_LANGUAGES.map((l) => l.lang).sort(), ["de", "en", "fr", "it", "nl", "pl"]);
+  assert.deepEqual(SHOP_LANGUAGES.map((l) => l.lang).sort(), ["cs", "de", "en", "fr", "it", "nl", "pl"], "Czech too since Content v10 (Magento's Czech Republic and International CS)");
 });
 
 /* ── point 4: Who does it, prefilled ───────────────────────────────────── */

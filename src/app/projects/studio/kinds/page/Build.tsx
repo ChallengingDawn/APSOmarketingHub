@@ -42,7 +42,7 @@ import type { Change } from "@/lib/convert/versions";
 import { LIMIT } from "@/lib/content/studio/kinds/page/fields";
 import { pageHasContent, type AppBriefOut, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import {
-  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, viewName, viewShort, viewState, viewsLine, viewsOf,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, languagesOf, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, versionLabel, viewName, viewShort, viewState, viewsLine, viewsOf,
   type PageDoc, type PageSource, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
@@ -114,37 +114,35 @@ function Inserts({ d, list, remove, canEdit }: { d: PageDoc; list: InsertOut[] |
   );
 }
 
-/** Every store view of the shop, by language: made, out of date or still to make - and, for a page of the shop, whether
- * the page is there at all (SARCLA 09.11.2026: "the locales are not all complete in Magento - we select by store view"). */
-function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
-  const LABEL = { main: "The page's own", done: "Made", stale: "Out of date", empty: "Not made" } as const;
+/** The page's languages, each with the store views it goes to (Content v10, SARCLA point 6: "one page should be able to work
+ * to multiple locales directly by language association") - and its store views with their own words. A click opens one;
+ * the ticks are in "Store views" over the page (every store view of the shop, as Magento lists them). */
+function StoreViews({ doc, lang, onLang, groups }: { doc: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
   const TINT = { main: "pink", done: "green", stale: "amber", empty: "slate" } as const;
-  // as Magento groups them (Content v6): a country in a currency - the Swiss shop in CHF and in EUR, the international one
-  const countries = shopCountries(groups.flatMap((g) => g.stores), doc);
+  const LABEL = { main: "The page's own", done: "Made", stale: "Out of date", empty: "Not made" } as const;
+  const total = groups.reduce((n, g) => n + g.stores.length, 0);
   return (
     <Box>
-      {countries.map((g) => (
-        <Box key={g.key} sx={{ mb: 0.75 }}>
-          <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, px: 1, pt: 0.5, pb: 0.25 }}>{g.label}</Typography>
-          {g.stores.map((k) => {
-            const st = viewState(doc, k);
-            const off = doc.source !== "new" && presence[k]?.exists === false && st === "empty";
+      {languagesOf(doc).map((g) => (
+        <Box key={g.lang} sx={{ mb: 0.75 }}>
+          {g.versions.map((v) => {
+            const st = viewState(doc, v.key);
             return (
-              <Box key={k} component="button" type="button" onClick={() => onLang(k)} sx={{
-                all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", cursor: "pointer", px: 1, py: 0.55, borderRadius: "6px",
-                bgcolor: k === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
+              <Box key={v.key} component="button" type="button" onClick={() => onLang(v.key)} sx={{
+                all: "unset", boxSizing: "border-box", display: "block", width: "100%", cursor: "pointer", px: 1, py: 0.6, borderRadius: "6px",
+                bgcolor: v.key === lang ? "rgba(36,89,209,.07)" : "transparent", "&:hover": { bgcolor: "rgba(36,89,209,.05)" },
               }}>
-                <Typography title={viewName(k)} sx={{ fontSize: "0.78rem", fontWeight: 800, color: off ? "#9aa5b8" : INK, width: 50, flexShrink: 0, letterSpacing: ".02em" }}>{k.split("/")[0]}</Typography>
-                <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.72rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {doc.source !== "new" && st !== "main" && st !== "empty" && doc.langs[k]?.path ? `${doc.langs[k].path} · ${viewNote(doc, k)}` : viewNote(doc, k, presence)}
-                </Typography>
-                <Chip tint={TINT[st]}>{LABEL[st]}</Chip>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", fontWeight: 700, color: INK }}>{versionLabel(doc, v.key)}</Typography>
+                  <Chip tint={TINT[st]}>{LABEL[st]}</Chip>
+                </Box>
+                <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.25, lineHeight: 1.45 }}>{v.stores.join(" · ")}</Typography>
               </Box>
             );
           })}
         </Box>
       ))}
-      <Hint>Each store view is its own page in Magento. A store view of a language the page has starts as a copy (no AI); another language is translated by the assistant. Then change each as it needs.</Hint>
+      <Hint>One page per language, for every store view ticked ({languagesOf(doc).reduce((n, g) => n + g.versions.reduce((m, v) => m + v.stores.length, 0), 0)} of {total}). Tick, untick or give a store view its own words in &quot;Store views&quot; over the page.</Hint>
     </Box>
   );
 }

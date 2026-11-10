@@ -43,7 +43,7 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite } from "@/lib/convert/cms";
 import { seoFieldsOf } from "@/lib/convert/cmsPage";
 import { connectionLine, type Check } from "./magentoCheck";
 import { gateOf } from "@/lib/convert/cmsPage";
@@ -56,7 +56,7 @@ import { FIELD_SCHEMA, FILL_SCHEMA, PART_LABEL, cleanFill, type Candidate, type 
 import { fitField, fitFields, limitOf } from "./fit";
 import {
   baseStore, changeId, changeLine, changeStrings, convertVersionsOf, emptyPage, opensMarkerPage, fillTexts, fromAi, hashOf, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
-  pageModesFor, pageSourceFix, pageText, shopList, placeholdersOf, shopUrl, sourceHash, textsFromAi, urlKeyOf, viewKey, viewOf, viewsOf, withChangeStrings,
+  pageModesFor, pageSourceFix, pageText, shopList, placeholdersOf, shopUrl, sourceHash, storeKnown, storesOfView, textsFromAi, urlKeyOf, versionLabel, versionOfStore, viewKey, viewOf, viewsOf, withChangeStrings,
   type AiChange, type MagentoRecord, type PageChange, type PageDoc,
 } from "./model";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
@@ -997,7 +997,11 @@ const magento: ServerAction = async (ctx, raw) => {
   ]);
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore });
   return {
-    views: views.map(({ want: _want, ...v }) => v),
+    // each version (a language - Content v10) with the store views it goes to, and what the hub knows of each in Magento
+    views: views.map(({ want: _want, ...v }) => ({
+      ...v, label: versionLabel(doc, v.view),
+      stores: storesOfView(doc, v.view).map((x) => ({ view: x, ...storeKnown(x) })),
+    })),
     // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
     envs: publishTargets(doc).map((env) => ({
       env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
@@ -1037,11 +1041,17 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   const doc = pageDoc(raw, ctx.piece.language);
   if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
+  const shared: Awaited<ReturnType<typeof cmsSharedPlan>>[] = [];
   for (const v of viewsIn(doc, input)) {
     const m = await magentoOf(raw, v);
-    if (m.cms && m.want && !m.why) items.push({ view: v, want: m.want });
+    if (!m.cms || !m.want || m.why) continue;
+    // a new page: ONE Magento page for the version's store views (Content v10, SARCLA point 6) - its plan names each one
+    if (m.want.kind === "page") shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
+    // a page of the shop: its page in each store view the version goes to, the same changes (one tag: a write again
+    // replaces its own work, also where two store views share one Magento page)
+    else for (const x of storesOfView(doc, v)) items.push({ view: x, want: { ...m.want, tag: `content-${v}` } });
   }
-  return { env, plans: await cmsPagePlans(String(ctx.pieceId), env, items), waiting: null };
+  return { env, plans: [...shared, ...await cmsPagePlans(String(ctx.pieceId), env, items)], waiting: null };
 };
 
 const magentoPublish: ServerAction = async (ctx, raw, input) => {
@@ -1052,22 +1062,49 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const views = viewsIn(doc, input);
   if (!views.length) throw new Error("Pick the store views to write.");
-  const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
+  const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string; stores?: string[]; note?: string }[] = [];
   const records: MagentoRecord[] = [];
   const moved: Op[] = [];
   for (const v of views) {
     const m = await magentoOf(raw, v);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
-    try {
-      const w = await cmsPageWrite(String(ctx.pieceId), env, { view: v, want: m.want }, ctx.me.username);
-      results.push({ view: v, ok: true, action: w.action, pageId: w.pageId });
-      // a page of the shop given a new URL key: it is at its new address from now on (the studio follows it there)
-      const newKey = m.want.kind === "changes" ? seoFieldsOf(m.want.seo, m.want.identifier).identifier : undefined;
-      const identifier = newKey ?? m.want.identifier;
-      records.push({ env, store: v, pageId: w.pageId, identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${v}/${identifier}` });
-      if (newKey && env === doc.env) moved.push({ op: "set", path: at(doc, v, "path"), value: `/${v}/${newKey}` }, { op: "set", path: [...at(doc, v, "fields"), "seo", "urlKey"], value: "" });
-    } catch (e) {
-      results.push({ view: v, ok: false, error: (e as Error).message });
+    const want = m.want;
+    // a new page: ONE Magento page for all the store views its version goes to (Content v10, SARCLA point 6)
+    if (want.kind === "page") {
+      try {
+        const w = await cmsSharedWrite(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want }, ctx.me.username);
+        const put = w.plan.targets.filter((t) => (t.state === "new" || t.state === "has") && !w.missing.includes(t.view)).map((t) => t.view);
+        const left = w.plan.targets.filter((t) => t.state === "taken" || t.state === "unknown").map((t) => t.view);
+        results.push({
+          view: v, ok: true, action: w.action, pageId: w.pageId, stores: put,
+          ...(w.missing.length || left.length ? { note: [w.missing.length ? `Magento did not put it in ${w.missing.join(", ")} - tick ${w.missing.length === 1 ? "it" : "them"} in the page's Store View there` : "", left.length ? `left out: ${left.join(", ")}` : ""].filter(Boolean).join("; ") } : {}),
+        });
+        for (const x of put.length ? put : [v]) records.push({ env, store: x, pageId: w.pageId, identifier: want.identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${x}/${want.identifier}` });
+      } catch (e) {
+        results.push({ view: v, ok: false, error: (e as Error).message });
+      }
+      continue;
+    }
+    // a page of the shop: the same changes into its page in each store view the version goes to - a Magento page two of
+    // them share is written once
+    const tagged = { ...want, tag: `content-${v}` };
+    const plans = await cmsPagePlans(String(ctx.pieceId), env, storesOfView(doc, v).map((x) => ({ view: x, want: tagged })));
+    const done = new Set<string>();
+    for (const p of plans) {
+      const x = p.view;
+      if (p.action === "none") { results.push({ view: x, ok: false, error: p.why ?? "Not written." }); continue; }
+      if ("pageId" in p && p.pageId) { if (done.has(p.pageId)) continue; done.add(p.pageId); }
+      try {
+        const w = await cmsPageWrite(String(ctx.pieceId), env, { view: x, want: tagged }, ctx.me.username);
+        results.push({ view: x, ok: true, action: w.action, pageId: w.pageId });
+        // a page of the shop given a new URL key: it is at its new address from now on (the studio follows it there)
+        const newKey = seoFieldsOf(want.seo, want.identifier).identifier;
+        const identifier = newKey ?? want.identifier;
+        records.push({ env, store: x, pageId: w.pageId, identifier, action: w.action, at: new Date().toISOString(), by: ctx.me.username, backupId: w.backupId, url: `${ENVS[env].base}/${x}/${identifier}` });
+        if (newKey && env === doc.env && x === v) moved.push({ op: "set", path: at(doc, v, "path"), value: `/${v}/${newKey}` }, { op: "set", path: [...at(doc, v, "fields"), "seo", "urlKey"], value: "" });
+      } catch (e) {
+        results.push({ view: x, ok: false, error: (e as Error).message });
+      }
     }
   }
   if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }, ...moved]);
@@ -1081,10 +1118,13 @@ const magentoRestore: ServerAction = async (ctx, raw, input) => {
   const view = baseStore(String(input.view ?? ""));
   if (!view) throw new Error("Which store view?");
   const doc = pageDoc(raw, ctx.piece.language);
-  const r = await cmsPageRestore(String(ctx.pieceId), env, view, ctx.me.username);
-  const record: MagentoRecord = { env, store: view, pageId: r.pageId, identifier: r.identifier, action: r.action, at: new Date().toISOString(), by: ctx.me.username, backupId: r.backupId, url: `${ENVS[env].base}/${view}/${r.identifier}` };
-  await write(ctx, [{ op: "set", path: ["magento"], value: [record, ...doc.magento].slice(0, 40) }]);
-  return { record };
+  // a new page is ONE Magento page for its version's store views (Content v10): its backups are the version's
+  const ver = doc.source === "new" ? versionOfStore(doc, view) ?? view : view;
+  const r = await cmsPageRestore(String(ctx.pieceId), env, ver, ctx.me.username);
+  const at0 = new Date().toISOString();
+  const records: MagentoRecord[] = (doc.source === "new" ? storesOfView(doc, ver) : [view]).map((x) => ({ env, store: x, pageId: r.pageId, identifier: r.identifier, action: r.action, at: at0, by: ctx.me.username, backupId: r.backupId, url: `${ENVS[env].base}/${x}/${r.identifier}` }));
+  await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }]);
+  return { record: records[0] };
 };
 
 export const pageKind: KindDef = {

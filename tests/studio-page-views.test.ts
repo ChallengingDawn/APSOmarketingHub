@@ -107,16 +107,17 @@ test("a page of the shop: a copy takes its own address in that store view", () =
 
 test("the shop's store views by language, and the line that says how far the page is", () => {
   const groups = shopViews(INDEX, "de-CH");
-  assert.deepEqual(groups.map((g) => g.lang), ["de", "fr", "it", "en", "nl", "pl"]);
+  assert.deepEqual(groups.map((g) => g.lang), ["de", "fr", "it", "en", "nl", "pl", "cs"]);
   // the shop's own 25 (Content v6): the Swiss shop in EUR beside its CHF one, the English store view of every country
   assert.deepEqual(groups[0].stores, ["de-CH", "de-CH/eur", "de-DE", "de-AT", "de-INT"], "the shop's order, the EUR twin beside its store view");
   assert.deepEqual(groups[1].stores, ["fr-CH", "fr-CH/eur", "fr-FR", "fr-INT"]);
-  assert.deepEqual(groups[3].stores, ["en-INT", "en-CH", "en-CH/eur", "en-DE", "en-AT", "en-FR", "en-IT", "en-NL", "en-PL"]);
-  assert.equal(groups.reduce((n, g) => n + g.stores.length, 0), 25);
+  // Magento's list since Content v10: its order (Switzerland EUR first), Czech Republic and China's English too
+  assert.deepEqual(groups[3].stores, ["en-INT", "en-CH/eur", "en-CH", "en-DE", "en-AT", "en-FR", "en-IT", "en-NL", "en-CZ", "en-CN", "en-PL"]);
+  assert.equal(groups.reduce((n, g) => n + g.stores.length, 0), 29);
   const d = pageDoc({ source: "new", store: "de-CH", fields: { hero: { title: "Dichtungen" } } });
-  assert.equal(viewsLine(d, groups), "Only de-CH so far · 25 store views on the shop");
+  assert.equal(viewsLine(d, groups), "German · goes to de-CH · 1 of 29 store views");
   const two = copyView(withView(d, "fr-CH", { ...viewOf(d, "fr-CH"), fields: { ...d.fields, hero: { ...d.fields.hero, title: "Joints" } } }), "de-AT", "de-CH");
-  assert.equal(viewsLine(two, groups), "de-CH · de-AT · fr-CH · 3 of 25 store views");
+  assert.equal(viewsLine(two, groups), "German, French · 6 of 29 store views");
   assert.deepEqual(shopViews([], "fr-FR")[0], { lang: "fr", name: "French", stores: ["fr-CH", "fr-CH/eur", "fr-FR", "fr-INT"] }, "without the index: the shop's own list, in its order");
 });
 

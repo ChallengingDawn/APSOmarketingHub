@@ -37,7 +37,7 @@ import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { fieldLabel } from "@/lib/content/studio/kinds/page/fields";
 import {
-  howToAdd, langName, leftoversOf, mainView, shopUrl, viewName, viewShort, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
+  howToAdd, langName, leadOf, leftoversOf, mainView, shopUrl, storesOfView, versionLabel, viewName, viewShort, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
@@ -158,9 +158,11 @@ export function viewNote(d: PageDoc, k: string, presence?: Record<string, Presen
  * wide. A click on the button opens every store view, the made ones with their check marks. */
 export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; lang: string; onLang: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
+  // Content v10 (SARCLA point 6): a tab is a LANGUAGE's page ("EN · 9") - or a store view with its own words ("EN-CH")
   const made = viewsOf(d);
   const all = made.includes(lang) ? made : [...made, lang];
-  const MAX = 3;
+  const covered = made.reduce((n, k) => n + storesOfView(d, k).length, 0);
+  const MAX = 4;
   const tabs = all.length <= MAX ? all : all.slice(0, MAX).includes(lang) ? all.slice(0, MAX) : [...all.slice(0, MAX - 1), lang];
   const more = all.length - tabs.length;
   const total = groups.reduce((n, g) => n + g.stores.length, 0);
@@ -176,12 +178,15 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
         {tabs.map((k, i) => {
           const on = k === lang;
           const st = viewState(d, k);
+          const isLead = made.includes(k) && leadOf(d, k.slice(0, 2)) === k;
+          const n = made.includes(k) ? storesOfView(d, k).length : 0;
           return (
-            <Tooltip key={k} title={`${viewName(k)} · ${k} · ${STATE_NOTE[st]}`}>
+            <Tooltip key={k} title={made.includes(k) ? `${versionLabel(d, k)}: ${storesOfView(d, k).join(", ")} · shown in ${k} · ${STATE_NOTE[st]}` : `${viewName(k)} · ${STATE_NOTE[st]}`}>
               <Box component="button" type="button" role="radio" aria-checked={on} onClick={() => onLang(k)} sx={btnSx(on, i, st)}>
-                {/* the Swiss shop in EUR: its currency small beside it */}
-                {k.split("/")[0].toUpperCase()}
-                {k.includes("/") && <Box component="span" aria-label={viewShort(k)} sx={{ fontSize: "0.6rem", fontWeight: 800, opacity: 0.85, ml: -0.1 }}>{k.split("/")[1].toUpperCase()}</Box>}
+                {/* a language's page: its language and how many store views it goes to; a store view's own words: its address */}
+                {isLead ? k.slice(0, 2).toUpperCase() : k.split("/")[0].toUpperCase()}
+                {!isLead && k.includes("/") && <Box component="span" aria-label={viewShort(k)} sx={{ fontSize: "0.6rem", fontWeight: 800, opacity: 0.85, ml: -0.1 }}>{k.split("/")[1].toUpperCase()}</Box>}
+                {isLead && n > 1 && <Box component="span" sx={{ fontSize: "0.62rem", fontWeight: 800, px: 0.4, borderRadius: "3px", bgcolor: on ? "rgba(255,255,255,.22)" : "rgba(36,89,209,.1)", color: on ? "#fff" : BLUE }}>{n}</Box>}
                 {st === "main" && <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: on ? "#fff" : PINK }} />}
                 {st === "done" && <CheckIcon sx={{ fontSize: 13, color: on ? "#fff" : "#1b7a55" }} />}
                 {st === "stale" && <WarningAmberIcon sx={{ fontSize: 13, color: on ? "#fff" : AMBER }} />}
@@ -190,10 +195,11 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
           );
         })}
       </Box>
-      <Tooltip title={`${more ? `${more} more of the page's store views, and ` : ""}every store view of the shop - ${made.length} of ${total} made`}>
-        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label={more ? `${more} more store views` : "Another store view"}
+      <Tooltip title={`${more ? `${more} more of the page's languages, and ` : ""}every store view of the shop, as Magento lists them - ${covered} of ${total} get the page`}>
+        <Box component="button" type="button" onClick={(e: React.MouseEvent<HTMLElement>) => setMenu(e.currentTarget)} aria-label={more ? `${more} more` : "Store views"}
           sx={{ ...btnSx(false, 1, null), color: more ? INK : MUTED, fontWeight: more ? 800 : 600 }}>
-          {more ? `+${more}` : <><AddIcon sx={{ fontSize: 15 }} />Store view</>}
+          {more ? `+${more}` : <><AddIcon sx={{ fontSize: 15 }} />Store views</>}
+          <Box component="span" sx={{ fontSize: "0.64rem", fontWeight: 700, color: MUTED, ml: 0.25 }}>{covered}/{total}</Box>
         </Box>
       </Tooltip>
       {/* every store view of the shop by country and currency, as Magento has them (./StoreViewPicker.tsx) */}
@@ -317,7 +323,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   // a new page, drawn here from its fields as they are typed
   const patch = useMemo(() => {
     if (!isNew) return undefined;
-    const r = renderNewPage(d.fields, { marks: true, adds: !!adds, busy: writing, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
+    const r = renderNewPage(d.fields, { marks: true, adds: !!adds, busy: writing, store: d.store, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
     return `<style>${r.css}\n${BUSY_CSS}\n${ADD_CSS}</style>${r.html}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null), !!adds]);

@@ -16,7 +16,8 @@
 //             (the AI no longer leaves any: it writes the final words; ./model.ts leftoversOf flags any that remain)
 //   langs     the page in its other STORE VIEWS (SARCLA 09.11.2026: "the locales are not all complete in Magento - we
 //             select by store view"): one version per store view ("fr-CH", "de-DE"), each with its own address, words,
-//             changes and preview. The document's top level is the MAIN store view; `viewOf` gives one store view as a
+//             changes and preview. Since Content v10 a version is a LANGUAGE going to several store views (`stores`, the
+//             main one's on the document): the English page is one page for en-INT, en-CH, en-DE ... (storesOfView). The document's top level is the MAIN store view; `viewOf` gives one store view as a
 //             whole page document, `withView` puts it back. An older document kept one version per LANGUAGE ("fr"):
 //             `pageDoc` reads it as the version of its store view (LangVersion.store, else storeForLanguage)
 //   inserts   banners placed in the page by the banner studio (the shared contract: kind, piece, size, where)
@@ -26,7 +27,7 @@
 //             view (./magento.ts; the backups are in apsomh_convert_cms_backups)
 
 import { classify, isEnv, isKind, type Env, type PageKind } from "../../../../convert/model";
-import { STORE_VIEWS, countryGroups, countryStore, shopOrder, storeKey, viewName, viewShort, type CountryGroup } from "./storeViews";
+import { STORE_VIEWS, countryGroups, countryStore, shopOrder, storeKey, storeViewOf, viewName, viewShort, type CountryGroup } from "./storeViews";
 import { describe, validateChanges, type Change } from "../../../../convert/versions";
 import { emptyFields, fieldStrings, filledCount, normalizeFields, type Fields, type Item } from "./fields";
 
@@ -97,6 +98,8 @@ export type LangVersion = {
   /** the version of the page open in this store view (A, B, C - see PageVersion), and every version it has */
   letter: string;
   versions: PageVersion[];
+  /** the store views this version goes to, its own first (Content v10 - storesOfView reads it; pageDoc settles it) */
+  stores?: string[];
 };
 
 /**
@@ -254,6 +257,8 @@ export type PageDoc = {
   letter: string;
   versions: PageVersion[];
   langs: Record<string, LangVersion>;
+  /** the store views the main version goes to, its own first (Content v10 - one version per language; storesOfView) */
+  stores: string[];
   inserts: Insert[];
   /** the test's plan; `a` and `b`: which two run - "page" (the page as it is) or a version's letter */
   abTest: { enabled: boolean; split: number; goal: AbGoal; clickTarget: string; audience: AbAudience; notes: string; status: "draft"; a: string; b: string };
@@ -290,12 +295,12 @@ export const SHOP_STORES: readonly string[] = (() => {
   return [...keys].sort((a, b) => langs.indexOf(a.slice(0, 2)) - langs.indexOf(b.slice(0, 2)) || rank(a) - rank(b) || shopOrder(a) - shopOrder(b));
 })();
 /** The languages in the order the studio shows them (the page's own first). */
-export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl"] as const;
+export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl", "cs"] as const;
 /** @deprecated the four the studio offered before 08.11.2026 - the shop's languages come from its store views now */
 export const LANGS = ["de", "fr", "it", "en"] as const;
 /** Each language's own store view: the Swiss one where the shop has it, English the international one (x-default). */
-const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", es: "es-ES" };
-const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", es: "Spanish" };
+const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", cs: "cs-CZ", es: "es-ES" };
+const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", cs: "Czech", es: "Spanish" };
 
 /**
  * A store view as the shop writes it - WITH its currency where the shop has two ("de-CH/eur" stays "de-CH/eur": the Swiss
@@ -419,6 +424,8 @@ export function viewOf(d: PageDoc, key: string | null | undefined): PageDoc {
   return {
     ...d, path: v.path, store: k, changes: v.changes, texts: v.texts, fields: v.fields, outline: v.outline, newPage: { ...d.newPage, body: "" },
     letter: v.letter || "A", versions: v.versions ?? [],
+    // its own list as kept (the whole document's storesOfView settles it - never computed here: it reads the views)
+    stores: v.stores ?? [k],
   };
 }
 
@@ -494,8 +501,12 @@ export function copyView(d: PageDoc, to: string, from: string, path = "", at = n
     from: sourceHash(src), source: viewKey(d, from), made: "copy", at,
     // its versions come along (B, C of the page there too), the same one open
     letter: src.letter || "A", versions: cloneOf(src.versions ?? []),
+    // a copy is a store view with its own words (Content v10): it goes to itself - and leaves the version it was in; copied
+    // again, it keeps the store views it had
+    stores: d.langs[k]?.stores ?? [k],
   };
-  return { ...d, langs: { ...d.langs, [k]: v } };
+  const out = { ...d, langs: { ...d.langs, [k]: v } };
+  return dropFromOthers(out, k, v.stores ?? [k]);
 }
 
 /** The page without one store view's version (the main one stays). */
@@ -601,12 +612,15 @@ export function shopViews(stores: readonly string[], mainStore: string): StoreGr
   });
 }
 
-/** "de-CH · fr-CH · 2 of 25 store views" - the page's store views in one line. */
+/** "German, French · 9 of 29 store views" - the page's languages and the store views they go to, in one line (Content
+ * v10: a version is a language going to several store views); one store view alone is named. */
 export function viewsLine(d: PageDoc, groups: StoreGroup[]): string {
-  const made = viewsOf(d);
+  const langs = languagesOf(d);
   const total = groups.reduce((n, g) => n + g.stores.length, 0);
-  if (made.length < 2) return `Only ${made[0]} so far · ${total} store views on the shop`;
-  return `${made.join(" · ")} · ${made.length} of ${total} store views`;
+  const stores = langs.flatMap((g) => g.versions.flatMap((v) => v.stores));
+  const names = langs.map((g) => g.name).join(", ");
+  if (stores.length === 1) return `${names} · goes to ${stores[0]} · 1 of ${total} store views`;
+  return `${names} · ${stores.length} of ${total} store views`;
 }
 
 /**
@@ -618,6 +632,215 @@ export function shopCountries(stores: readonly string[], d?: PageDoc | null): Co
   return countryGroups([...stores, ...(d ? [mainView(d), ...Object.keys(d.langs)] : [])]);
 }
 
+/* ── one version per LANGUAGE, going to several store views (Content v10) ─ */
+
+// SARCLA 10.11.2026 (point 6): "one page should be able to work to multiple locales directly by language association, for
+// example de-en ch-en it's the same page but we should be able to see the locale and select as now on Store views". A
+// version is a LANGUAGE now: the English page is ONE page for en-INT, en-CH, en-DE ... The store views it goes to are
+// ticked - every store view of its language by default, each can be unticked - grouped by website as Magento's own "Store
+// View" multi-select has them, and the last step writes ONE Magento page for them (store_id = their ids,
+// src/lib/convert/cmsPage.ts). A store view that needs other words is split off ("Its own words for en-CH": a copy, then
+// its own) and joined again ("Same words as the English page"). A version's KEY stays a store view - the one it is shown
+// and previewed in (en-INT). A document kept before keeps what it had: its versions of one language with the same words
+// become one version with those store views (and nothing more); a version made from now on goes to all of its language.
+
+/** The shop's store views in one language, in Magento's order: "en" -> en-CH/eur, en-CH, en-DE ... en-INT, en-PL. */
+export const storesInLanguage = (lang: string): string[] => {
+  const l = String(lang ?? "").slice(0, 2).toLowerCase();
+  return STORE_VIEWS.filter((v) => v.lang === l).map((v) => v.key);
+};
+
+/** The version that speaks for a language: the page's own for its language, else the language's own store view's (fr-CH,
+ * en-INT ...), else the first the page has in it. Null when the page has no version in that language. */
+export function leadOf(d: PageDoc, lang: string): string | null {
+  const l = String(lang ?? "").slice(0, 2).toLowerCase();
+  const main = mainView(d);
+  if (langOfStore(main) === l) return main;
+  const have = viewsOf(d).filter((k) => langOfStore(k) === l);
+  return have.find((k) => k === HOME_STORE[l]) ?? have[0] ?? null;
+}
+
+const listOf = (d: PageDoc, k: string): string[] | undefined => (k === mainView(d) ? d.stores : d.langs[k]?.stores);
+
+/** The store views a version goes to, its own first: only its language's, never another version's own store view (nor
+ * one another version ticks, while this one has no list of its own yet). */
+export function storesOfView(d: PageDoc, key: string | null | undefined): string[] {
+  const k = viewKey(d, key);
+  const l = langOfStore(k);
+  const others = viewsOf(d).filter((x) => x !== k && langOfStore(x) === l);
+  const mine = listOf(d, k);
+  const taken = new Set(others);
+  if (!mine) for (const o of others) for (const x of listOf(d, o) ?? []) taken.add(x);
+  const base = mine ?? storesInLanguage(l);
+  return [k, ...new Set(base.map((x) => storeKey(x)).filter((x): x is string => !!x && x !== k && langOfStore(x) === l && !taken.has(x)))];
+}
+
+/** The version a store view's visitors get: its own, else the version of its language that goes to it - null when none. */
+export function versionOfStore(d: PageDoc, store: string): string | null {
+  const s = storeKey(store);
+  if (!s) return null;
+  for (const k of viewsOf(d)) if (storesOfView(d, k).includes(s)) return k;
+  return null;
+}
+
+/** The document with one version's list set (its own key kept first). */
+function setList(d: PageDoc, k: string, list: string[]): PageDoc {
+  if (k === mainView(d)) return { ...d, stores: list };
+  const v = d.langs[k];
+  return v ? { ...d, langs: { ...d.langs, [k]: { ...v, stores: list } } } : d;
+}
+
+/** The store views `stores` out of every version but `keep`'s (a store view goes to one version only). */
+function dropFromOthers(d: PageDoc, keep: string, stores: string[]): PageDoc {
+  let out = d;
+  for (const k of viewsOf(d)) {
+    if (k === keep) continue;
+    const list = storesOfView(out, k);
+    const left = list.filter((x, i) => i === 0 || !stores.includes(x));
+    // every version keeps an explicit list from then on, so the one dropped never comes back by default
+    out = setList(out, k, left);
+  }
+  return out;
+}
+
+/** The version with these store views ticked (its own always stays; another version's own store view never moves here).
+ * A store view ticked here leaves the version of its language that had it. */
+export function withStores(d: PageDoc, key: string, stores: readonly string[]): PageDoc {
+  const k = viewKey(d, key);
+  const l = langOfStore(k);
+  const own = viewsOf(d).filter((x) => x !== k);
+  const list = [k, ...new Set(stores.map((x) => storeKey(x)).filter((x): x is string => !!x && x !== k && langOfStore(x) === l && !own.includes(x)))];
+  return dropFromOthers(setList(d, k, list), k, list);
+}
+
+/** A store view ticked on (into its language's version - the one that speaks for it) or off (out of the version that has
+ * it). A version's own store view is never ticked off; a language the page does not have is the plan's (../makeViews.ts). */
+export function tickStore(d: PageDoc, store: string, on: boolean): PageDoc {
+  const s = storeKey(store);
+  if (!s) return d;
+  const has = versionOfStore(d, s);
+  if (on) {
+    if (has) return d;
+    const lead = leadOf(d, langOfStore(s));
+    return lead ? withStores(d, lead, [...storesOfView(d, lead), s]) : d;
+  }
+  if (!has || has === s) return d;
+  return setList(d, has, storesOfView(d, has).filter((x) => x !== s));
+}
+
+/** "Its own words for en-CH": the store view gets a version of its own - a copy of the version it was in (no AI), changed
+ * on its own from then on. `path`: a page of the shop's address in that store view. */
+export function splitStore(d: PageDoc, store: string, path = "", at = new Date().toISOString()): PageDoc {
+  const s = storeKey(store);
+  if (!s || viewsOf(d).includes(s)) return d;
+  const from = versionOfStore(d, s) ?? leadOf(d, langOfStore(s));
+  if (!from) return d;
+  return copyView(d, s, from, path, at);
+}
+
+/** "Same words as the English page": a store view's own version dropped, the store view back in its language's version. */
+export function joinStore(d: PageDoc, store: string): PageDoc {
+  const s = storeKey(store);
+  if (!s || s === mainView(d) || !viewsOf(d).includes(s)) return d;
+  // every store view it went to goes back with it
+  const back = storesOfView(d, s);
+  const dropped = dropView(d, s);
+  const lead = leadOf(dropped, langOfStore(s));
+  return lead ? withStores(dropped, lead, [...storesOfView(dropped, lead), ...back]) : dropped;
+}
+
+/** A version as people say it: "English · 9 store views" (the one that speaks for its language), "EN-CH · its own words". */
+export function versionLabel(d: PageDoc, key: string): string {
+  const k = viewKey(d, key);
+  const n = storesOfView(d, k).length;
+  if (leadOf(d, langOfStore(k)) !== k) return `${viewShort(k)} · its own words`;
+  return `${langName(k)} · ${n} store view${n === 1 ? "" : "s"}`;
+}
+
+/** The page's languages, each with its versions and their store views - the tabs, the store view panel, the last step. */
+export type LanguageGroup = { lang: string; name: string; lead: string; versions: { key: string; stores: string[] }[] };
+export function languagesOf(d: PageDoc): LanguageGroup[] {
+  const out: LanguageGroup[] = [];
+  for (const k of viewsOf(d)) {
+    const l = langOfStore(k);
+    let g = out.find((x) => x.lang === l);
+    if (!g) { g = { lang: l, name: langName(l), lead: leadOf(d, l) ?? k, versions: [] }; out.push(g); }
+    g.versions.push({ key: k, stores: storesOfView(d, k) });
+  }
+  for (const g of out) g.versions.sort((a, b) => (a.key === g.lead ? -1 : b.key === g.lead ? 1 : shopOrder(a.key) - shopOrder(b.key)));
+  return out;
+}
+
+/** What a store view is, in a few words, for the panel: whose words it gets. */
+export function storeState(d: PageDoc, store: string): { version: string | null; own: boolean; lead: boolean } {
+  const s = storeKey(store) ?? store;
+  const v = versionOfStore(d, s);
+  return { version: v, own: v === s, lead: !!v && v === s && leadOf(d, langOfStore(s)) === s };
+}
+
+/** Is a store view open on the shop (its front page answers), and does the hub know its Magento id? */
+export const storeKnown = (store: string): { open: boolean; id: number | null } => {
+  const v = storeViewOf(store);
+  return { open: v?.open ?? true, id: v?.id ?? null };
+};
+
+/** Two versions say the same words (a copy never changed): their fields, changes, texts and A/B versions are the same. */
+const wordsSig = (d: PageDoc, k: string) => {
+  const v = viewOf(d, k);
+  return JSON.stringify([v.source === "new" ? v.fields : null, v.changes, v.texts, versionList(v).map((x) => [x.letter, x.changes, x.texts])]);
+};
+
+/**
+ * Each version's store views settled (pageDoc, last). `old`: a document kept before Content v10 (no `stores` on it) - its
+ * versions of one language with the SAME words become one (the language's own first) going to those store views, and
+ * nothing more is ticked for it. Otherwise each version keeps its list (its language only, never another version's own
+ * store view, a store view in one version only - the first in order keeps it); a version without one (made since)
+ * goes to every store view of its language that no other version has.
+ */
+function settleStores(d: PageDoc, old: boolean): PageDoc {
+  let doc = d;
+  const merged = new Map<string, string[]>();
+  if (old) {
+    for (const l of [...new Set(viewsOf(doc).map(langOfStore))]) {
+      const lead = leadOf(doc, l);
+      const vs = viewsOf(doc).filter((k) => langOfStore(k) === l).sort((a, b) => (a === lead ? -1 : b === lead ? 1 : shopOrder(a) - shopOrder(b)));
+      const groups: { lead: string; sig: string }[] = [];
+      for (const k of vs) {
+        const sig = wordsSig(doc, k);
+        const g = groups.find((x) => x.sig === sig);
+        if (!g) { groups.push({ lead: k, sig }); continue; }
+        merged.set(g.lead, [...(merged.get(g.lead) ?? []), k]);
+        const langs = { ...doc.langs };
+        delete langs[k];
+        doc = { ...doc, langs };
+      }
+    }
+  }
+  const versions = viewsOf(doc);
+  const own = new Set(versions);
+  const claimed = new Set<string>();
+  const lists = new Map<string, string[] | null>();
+  for (const k of versions) {
+    const l = langOfStore(k);
+    const raw = old ? [k, ...(merged.get(k) ?? [])] : listOf(doc, k);
+    // a list of another language only (the page moved to another store view): read as none - all of its language
+    const usable = raw && raw.some((x) => langOfStore(x) === l) ? raw : null;
+    if (!usable) { lists.set(k, null); continue; }
+    const list = [k, ...new Set(usable.map((x) => storeKey(x)).filter((x): x is string => !!x && x !== k && langOfStore(x) === l && !own.has(x) && !claimed.has(x)))];
+    list.forEach((x) => claimed.add(x));
+    lists.set(k, list);
+  }
+  for (const k of versions) {
+    if (lists.get(k)) continue;
+    const list = [k, ...storesInLanguage(langOfStore(k)).filter((x) => x !== k && !own.has(x) && !claimed.has(x))];
+    list.forEach((x) => claimed.add(x));
+    lists.set(k, list);
+  }
+  for (const [k, list] of lists) doc = setList(doc, k, list ?? [k]);
+  if (!versions.includes(mainView(doc))) doc = { ...doc, stores: [mainView(doc)] };
+  return doc;
+}
+
 /* ── the document ─────────────────────────────────────────────────────── */
 
 export function emptyPage(language?: string | null): PageDoc {
@@ -625,7 +848,7 @@ export function emptyPage(language?: string | null): PageDoc {
     v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null, published: null,
     newPage: { title: "", urlKey: "", metaTitle: "", metaDescription: "", body: "" },
     fields: emptyFields(),
-    changes: [], texts: [], letter: "A", versions: [], langs: {}, inserts: [],
+    changes: [], texts: [], letter: "A", versions: [], langs: {}, stores: storesInLanguage(langOfStore(storeForLanguage(language))), inserts: [],
     abTest: { enabled: false, split: 50, goal: "add-to-cart", clickTarget: "", audience: "all", notes: "", status: "draft", a: "page", b: "A" },
     publish: { mode: "paste", status: "draft", notes: "" },
     magento: [],
@@ -714,6 +937,8 @@ function langsOfRaw(v: unknown, mainStore: string): Record<string, LangVersion> 
       made: x.made === "copy" || x.made === "translate" ? x.made : from ? "translate" : "",
       at: str(x.at, 40),
       letter, versions: versionsOfRaw(x.versions, letter),
+      // its store views as kept (Content v10) - settled by pageDoc
+      ...(Array.isArray(x.stores) ? { stores: x.stores.map((y) => str(y, 20)).filter(Boolean).slice(0, 40) } : {}),
     };
   }
   return out;
@@ -745,7 +970,9 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
   const letter = isLetter(d.letter) ? d.letter : "A";
   const versions = versionsOfRaw(d.versions, letter);
   const letters = versions.length ? versions.map((x) => x.letter) : [letter];
-  return {
+  // a document kept before Content v10 has no store view lists: its versions of one language with the same words merge
+  const old = !Array.isArray(d.stores);
+  return settleStores({
     v: 1,
     source: SOURCES.includes(d.source as PageSource) ? (d.source as PageSource) : e.source,
     env: isEnv(d.env) ? d.env : e.env,
@@ -761,6 +988,7 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     texts: textsOf(d.texts),
     letter, versions,
     langs: langsOfRaw(d.langs, store),
+    stores: Array.isArray(d.stores) ? d.stores.map((y) => str(y, 20)).filter(Boolean).slice(0, 40) : [],
     inserts: insertsOf(d.inserts),
     abTest: {
       enabled: ab.enabled === true,
@@ -782,7 +1010,7 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     notes: str(d.notes, 4000),
     outline: outlineOf(d.outline),
     briefText: str(d.briefText, 7000),
-  };
+  }, old);
 }
 
 /** An older new page: its words are one block of HTML, not fields yet. */

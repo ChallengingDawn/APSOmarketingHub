@@ -5,30 +5,29 @@
 
 import { designBlob, renderDesign } from "@/app/editor/designRender";
 import { pageIn, sizeOf, type FormatKey, type SocialDesign } from "@/lib/content/studio/kinds/social/design";
-import { save } from "./actions";
+import { saveFile, saveFiles, type FileOut } from "../../frame";
 
 const pad = (i: number) => String(i + 1).padStart(2, "0");
 
-async function saveBlob(b: Blob, name: string) {
-  const url = URL.createObjectURL(b);
-  save(url, name);
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-}
-
-/** Every page of one format as pictures, one file each. Returns how many were made. */
-export async function exportPages(d: SocialDesign, f: FormatKey, stem: string, mime: "image/png" | "image/jpeg" = "image/png", only?: number): Promise<number> {
-  let n = 0;
+/** The pages of one format drawn as files (not saved yet). */
+async function pageFiles(d: SocialDesign, f: FormatKey, stem: string, mime: "image/png" | "image/jpeg", only?: number): Promise<FileOut[]> {
+  const out: FileOut[] = [];
   for (const [i, p] of d.pages.entries()) {
     if (only !== undefined && i !== only) continue;
     const b = await designBlob(pageIn(d, p, f), mime);
     if (!b) continue;
     const s = sizeOf(f, d);
-    await saveBlob(b, `${stem}-${f}-${s.w}x${s.h}${d.pages.length > 1 ? `-${pad(i)}` : ""}.${mime === "image/png" ? "png" : "jpg"}`);
-    n += 1;
-    // the browser lets a page start one download at a time
-    await new Promise((r) => setTimeout(r, 250));
+    out.push({ name: `${stem}-${f}-${s.w}x${s.h}${d.pages.length > 1 ? `-${pad(i)}` : ""}.${mime === "image/png" ? "png" : "jpg"}`, data: b, type: mime });
   }
-  return n;
+  return out;
+}
+
+/** Every page of one format as pictures - one file, or a carousel's pages in ONE zip (Content v10, 10.11.2026: several
+ * downloads at once are held back by the browser - SARCLA's "Download neither"). Returns how many were made. */
+export async function exportPages(d: SocialDesign, f: FormatKey, stem: string, mime: "image/png" | "image/jpeg" = "image/png", only?: number): Promise<number> {
+  const files = await pageFiles(d, f, stem, mime, only);
+  await saveFiles(files, `${stem}-${f}-pages.zip`);
+  return files.length;
 }
 
 /** The pages of one format as one PDF, a page per page at its size. */
@@ -43,13 +42,15 @@ export async function exportPdf(d: SocialDesign, f: FormatKey, stem: string): Pr
     if (i > 0) pdf.addPage([s.w, s.h], orientation);
     pdf.addImage(url, "JPEG", 0, 0, s.w, s.h, undefined, "FAST");
   }
-  pdf.save(`${stem}-${f}-carousel.pdf`);
+  // handed over as every other file is (the bar offers it again as a link)
+  saveFile(pdf.output("blob"), `${stem}-${f}-carousel.pdf`, "application/pdf");
   return true;
 }
 
-/** Every format, every page. */
+/** Every format, every page - in one zip. */
 export async function exportEverything(d: SocialDesign, formats: FormatKey[], stem: string): Promise<number> {
-  let n = 0;
-  for (const f of formats) n += await exportPages(d, f, stem);
-  return n;
+  const files: FileOut[] = [];
+  for (const f of formats) files.push(...await pageFiles(d, f, stem, "image/png"));
+  await saveFiles(files, `${stem}-every-format.zip`);
+  return files.length;
 }

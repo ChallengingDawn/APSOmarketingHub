@@ -4,56 +4,56 @@
 // whole page into") several are ticked - one by one, all of a language, all of a country - and ONE action makes them: a
 // store view of a language the page has is a COPY (no AI), another language is TRANSLATED once (one AI call) and the
 // others of that language are then copies of it. They are made one at a time; how many AI calls it takes is said before.
+//
+// Content v10 (SARCLA 10.11.2026, point 6: "one page should be able to work to multiple locales directly by language
+// association"): a version is a LANGUAGE going to several store views (./model.ts storesOfView). A store view ticked of a
+// language the page has simply goes to that language's page - no copy, no AI ("tick"); a language the page does not have
+// is translated ONCE, and goes to the store views of it that were ticked. A store view's own words are a split
+// (model.ts splitStore), never a step of this plan.
 
-import { countryStore, langName, langOfStore, mainView, viewsOf, type PageDoc } from "./model";
+import { countryStore, langName, langOfStore, leadOf, mainView, versionOfStore, type PageDoc } from "./model";
 import { STORE_VIEWS, shopOrder } from "./storeViews";
 
-export type MakeStep = { key: string; how: "copy" | "translate"; from: string };
+/** `tick`: into the version of its language the page has (no AI); `translate`: a new language, going to `stores`;
+ * `copy`: an older plan's own copy of a store view (kept for a run started before - never planned since Content v10). */
+export type MakeStep = { key: string; how: "copy" | "translate" | "tick"; from: string; stores?: string[] };
 
 /** Each language's own store view first, where it is among the ones ticked (de-CH, fr-CH, it-CH, en-INT, nl-NL, pl-PL). */
-const HOME: Record<string, string[]> = { de: ["de-CH"], fr: ["fr-CH"], it: ["it-CH"], en: ["en-INT", "en-CH"], nl: ["nl-NL"], pl: ["pl-PL"] };
+const HOME: Record<string, string[]> = { de: ["de-CH"], fr: ["fr-CH"], it: ["it-CH"], en: ["en-INT", "en-CH"], nl: ["nl-NL"], pl: ["pl-PL"], cs: ["cs-CZ"] };
 
 /**
- * The steps that make the store views asked, in order: per language, its translation first (when the page has no store
- * view of it yet), then its copies. A copy is made from the same store view in its other currency when there is one,
- * else from the first of its language. Store views the page has already are left out; each asked once.
+ * The steps that make the store views asked, in order (the page's own language first, then the shop's): a store view of a
+ * language the page has goes to that language's page ("tick", no AI); the store views of another language are ONE
+ * translation, shown in its own store view (de-CH, fr-CH, en-INT ...) and going to all of them. A store view the page
+ * goes to already is left out; each asked once.
  */
 export function planViews(d: PageDoc, keys: readonly string[]): MakeStep[] {
   const main = mainView(d);
-  const have = viewsOf(d);
-  const asked = [...new Set(keys)].filter((k) => k && !have.includes(k)).sort((a, b) => shopOrder(a) - shopOrder(b));
+  const asked = [...new Set(keys)].filter((k) => k && !versionOfStore(d, k)).sort((a, b) => shopOrder(a) - shopOrder(b));
   const langs = [...new Set(asked.map(langOfStore))];
-  // the page's own language first, then the shop's order of languages
-  const order = ["de", "fr", "it", "en", "nl", "pl"];
+  const order = ["de", "fr", "it", "en", "nl", "pl", "cs"];
   langs.sort((a, b) => (a === langOfStore(main) ? -1 : b === langOfStore(main) ? 1 : (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)));
-  const made = [...have];
   const steps: MakeStep[] = [];
   for (const l of langs) {
     const mine = asked.filter((k) => langOfStore(k) === l);
-    let rest = mine;
-    if (!made.some((k) => langOfStore(k) === l)) {
-      const first = (HOME[l] ?? []).find((h) => mine.includes(h)) ?? mine[0];
-      steps.push({ key: first, how: "translate", from: main });
-      made.push(first);
-      rest = mine.filter((k) => k !== first);
-    }
-    for (const k of rest) {
-      const same = made.filter((x) => langOfStore(x) === l);
-      const twin = same.find((x) => countryStore(x) === countryStore(k));
-      steps.push({ key: k, how: "copy", from: twin ?? same[0] });
-      made.push(k);
-    }
+    const lead = leadOf(d, l);
+    if (lead) { for (const k of mine) steps.push({ key: k, how: "tick", from: lead }); continue; }
+    const first = (HOME[l] ?? []).find((h) => mine.includes(h)) ?? mine[0];
+    steps.push({ key: first, how: "translate", from: main, stores: mine });
   }
   return steps;
 }
 
-/** "5 store views: 3 copies (no AI), 2 translations - 2 AI calls" - said before anything starts. */
+/** "9 store views: 3 to the page's languages (no AI), French and Italian translated - 2 AI calls" - said before. */
 export function planSummary(steps: readonly MakeStep[]): string {
   if (!steps.length) return "Tick the store views to make.";
-  const copies = steps.filter((s) => s.how === "copy").length;
-  const tr = steps.length - copies;
-  const parts = [copies ? `${copies} cop${copies === 1 ? "y" : "ies"} (no AI)` : "", tr ? `${tr} translation${tr === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
-  return `${steps.length} store view${steps.length === 1 ? "" : "s"}: ${parts}${tr ? ` - ${tr} AI call${tr === 1 ? "" : "s"}, one at a time` : ""}`;
+  const ticks = steps.filter((s) => s.how !== "translate").length;
+  const tr = steps.filter((s) => s.how === "translate");
+  const views = ticks + tr.reduce((n, s) => n + (s.stores?.length ?? 1), 0);
+  const names = tr.map((s) => langName(s.key));
+  const said = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  const parts = [ticks ? `${ticks} to the page's language${ticks === 1 ? "" : "s"} (no AI)` : "", tr.length ? `${said} translated` : ""].filter(Boolean).join(", ");
+  return `${views} store view${views === 1 ? "" : "s"}: ${parts}${tr.length ? ` - ${tr.length} AI call${tr.length === 1 ? "" : "s"}, one at a time` : ""}`;
 }
 
 /** The store views of the shop in one language ("all of a language"), in the shop's order. */
