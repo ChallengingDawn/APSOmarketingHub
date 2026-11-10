@@ -1662,7 +1662,7 @@ export default function Studio({ api }: StudioProps) {
         // every module's settings as wide as a module of products' (Content v10: 620 px, so each one's number and link
         // show) - Content v11, SARCLA 10.11.2026: "make the popup wider like the product"
         return { at: "side", width: MODULE_POP_WIDTH, node: (
-          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: () => askBlock(r.key, "") } : null} stores={pageStores}
+          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: (ask) => askBlock(r.key, ask ?? "") } : null} stores={pageStores}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }

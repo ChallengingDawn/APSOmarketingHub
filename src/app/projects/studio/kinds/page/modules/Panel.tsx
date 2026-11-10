@@ -22,6 +22,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import InputBase from "@mui/material/InputBase";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -70,7 +71,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
   /** Content v11 (SARCLA 10.11.2026: "I can't see launch the AI to fill me the block"): "Fill it with AI" at the top - the
    * same as "Ask AI" on the module with no question (the studio's askBlock) */
-  ai?: { run: () => Promise<AiAnswer> } | null;
+  ai?: { run: (ask?: string) => Promise<AiAnswer> } | null;
   /** Content v10 (point 4): the module made another of its family (the studio keeps the Undo) - else the library's own swap */
   onSwitch?: (type: string) => void;
   /** shown first in the panel (the bar over a module just switched) */
@@ -96,6 +97,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const [gallery, setGallery] = useState(false);
   const [aiSaid, setAiSaid] = useState<AiAnswer | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
+  // Content v12 (SARCLA 10.11.2026: "with AI I can't still type in if needed"): what should change, asked under the button
+  const [aiAsk, setAiAsk] = useState("");
   const key = ctl.editing ?? "";
 
   // the module as the document has it (an Undo, another person) when nothing is waiting to be saved
@@ -164,12 +167,12 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const kb = Math.round(html.length / 100) / 10;
   // the AI at work on it (its button, or "Ask AI" on the page): what it does now
   const aiBusy = aiRunning || (key ? /with AI|from the shop/.test(ctl.busy[key] ?? "") && !busy : false);
-  const runAi = async () => {
+  const runAi = async (asked = "") => {
     if (!ai || aiBusy) return;
     flush();
     setAiRunning(true);
     setAiSaid(null);
-    try { setAiSaid(await ai.run()); } finally { setAiRunning(false); }
+    try { const r = await ai.run(asked.trim()); setAiSaid(r); if (r.ok) setAiAsk(""); } finally { setAiRunning(false); }
   };
   const lost = key ? ctl.lost[key] : "";
 
@@ -316,11 +319,19 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
       {top}
       {ai && ctl.canEdit && (
         <Box sx={{ mb: 1.5 }}>
-          <Button fullWidth variant="contained" disableElevation disabled={aiBusy || !api.data.ai} onClick={() => void runAi()}
+          <Button fullWidth variant="contained" disableElevation disabled={aiBusy || !api.data.ai} onClick={() => void runAi(aiAsk)}
             startIcon={aiBusy ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />}
             sx={{ ...mainBtn, bgcolor: PINK, borderRadius: "8px", height: 40, fontSize: "0.88rem", "&:hover": { bgcolor: "#a3245c" }, "&.Mui-disabled": { bgcolor: aiBusy ? PINK : undefined, color: aiBusy ? "#fff" : undefined, opacity: aiBusy ? 0.85 : undefined } }}>
-            {aiBusy ? (ctl.busy[key] || "Filling it with AI…") : gap ? "Fill it with AI" : "Write it again with AI"}
+            {aiBusy ? (ctl.busy[key] || "Filling it with AI…") : aiAsk.trim() ? "Ask" : gap ? "Fill it with AI" : "Write it again with AI"}
           </Button>
+          {/* what should change - empty, the button fills it from the page (the block chip's question box, Content v12) */}
+          <Box sx={{ mt: 0.75, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", px: 1.1, py: 0.5, "&:focus-within": { borderColor: PINK, boxShadow: "0 0 0 3px rgba(194,44,110,.12)" } }}>
+            <InputBase fullWidth multiline minRows={1} maxRows={5} value={aiAsk} disabled={aiBusy || !api.data.ai} placeholder="What should change? Empty: fill it from the page."
+              inputProps={{ "aria-label": "What should change?" }}
+              onChange={(e) => setAiAsk(e.target.value.slice(0, 1500))}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void runAi(aiAsk); } }}
+              sx={{ fontSize: "0.84rem", lineHeight: 1.45, color: INK }} />
+          </Box>
           {aiSaid ? (
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mt: 0.75 }}>
               <Typography sx={{ flex: 1, fontSize: "0.78rem", lineHeight: 1.45, color: aiSaid.ok ? MUTED : AMBER }}>{aiSaid.text}</Typography>
