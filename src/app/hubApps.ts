@@ -219,8 +219,16 @@ export const UC_SECTIONS: WebsiteSection[] = [
     // its own since 09.11.2026 (SARCLA: "this should come back on the level of UC's as a main app - more graphs as KPIs, much
     // more by tabs, and the sub apps on the side panel")
     slug: "apso-translator", name: "APSO Translator", line: "Customers' chats and e-mails in English for the agent, replies in their language", icon: "globe", ...BLUE,
+    // each figure page its own entry (SARCLA 10.11.2026: "put the tabs over time, languages and so forth as mini apps on
+    // the side bar") - they were tabs of one Overview
     pages: [
-      { name: "Overview", note: "What was translated: by day, language, inbox, agent and hour", href: "/uc/translator", icon: "bar", ...BLUE },
+      { name: "Over time", note: "What was translated, day by day: customer messages and the agents' ! notes", href: "/uc/translator", icon: "bar", ...BLUE },
+      { name: "Coverage", note: "Of the customer messages in another language, how many got their translation", href: "/uc/translator/coverage", icon: "verified", ...GREEN },
+      { name: "Languages", note: "The languages customers write in, and the replies sent in theirs", href: "/uc/translator/languages", icon: "globe", ...BLUE },
+      { name: "Inboxes & channels", note: "Where the translated messages came in: the HubSpot inbox, chat or e-mail", href: "/uc/translator/inboxes", icon: "layers", ...TEAL },
+      { name: "Agents", note: "Who asked for a translation with !", href: "/uc/translator/agents", icon: "groups", ...PINK },
+      { name: "When customers write", note: "The hour and the weekday of the messages translated", href: "/uc/translator/hours", icon: "route", ...AMBER },
+      { name: "Speed & DeepL", note: "How long a message waited for its comment, and the characters sent to DeepL", href: "/uc/translator/speed", icon: "bolt", ...PURPLE },
       { name: "Conversations", note: "Every comment and reply it made, with the texts", href: "/uc/translator/conversations", icon: "chat", ...PURPLE },
       { name: "Settings & help", note: "Live or Preview, the inboxes it reads, replies with !, the agents' commands", href: "/uc/translator/settings", icon: "tag", ...AMBER },
     ],

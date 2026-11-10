@@ -67,7 +67,6 @@ import QuestionAnswerOutlinedIcon from "@mui/icons-material/QuestionAnswerOutlin
 import TipsAndUpdatesOutlinedIcon from "@mui/icons-material/TipsAndUpdatesOutlined";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SecurityIcon from "@mui/icons-material/Security";
-import BarChartIcon from "@mui/icons-material/BarChart";
 import DescriptionIcon from "@mui/icons-material/Description";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PersonOutlineIcon from "@mui/icons-material/PersonOutline";
@@ -100,6 +99,8 @@ import LoyaltyOutlinedIcon from "@mui/icons-material/LoyaltyOutlined";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import ShowChartIcon from "@mui/icons-material/ShowChart";
+import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
+import SpeedOutlinedIcon from "@mui/icons-material/SpeedOutlined";
 import ContactMailIcon from "@mui/icons-material/ContactMail";
 import TagIcon from "@mui/icons-material/Tag";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
@@ -218,7 +219,13 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/ticket-duplicates": { label: "Duplicates & Merges", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
   "/uc/certificates": { label: "Certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
   "/uc/ticket-value": { label: "Ticket Value", icon: <PaidOutlinedIcon fontSize="small" /> },
-  "/uc/translator": { label: "Overview", icon: <BarChartIcon fontSize="small" /> },
+  "/uc/translator": { label: "Over time", icon: <ShowChartIcon fontSize="small" /> },
+  "/uc/translator/coverage": { label: "Coverage", icon: <DonutSmallIcon fontSize="small" /> },
+  "/uc/translator/languages": { label: "Languages", icon: <LanguageIcon fontSize="small" /> },
+  "/uc/translator/inboxes": { label: "Inboxes & channels", icon: <ForwardToInboxIcon fontSize="small" /> },
+  "/uc/translator/agents": { label: "Agents", icon: <GroupsIcon fontSize="small" /> },
+  "/uc/translator/hours": { label: "When customers write", icon: <ScheduleOutlinedIcon fontSize="small" /> },
+  "/uc/translator/speed": { label: "Speed & DeepL", icon: <SpeedOutlinedIcon fontSize="small" /> },
   "/uc/translator/conversations": { label: "Conversations", icon: <ForumOutlinedIcon fontSize="small" /> },
   "/uc/translator/settings": { label: "Settings & help", icon: <TuneIcon fontSize="small" /> },
   "/uc/sept-push": { label: "September Push", icon: <CampaignOutlinedIcon fontSize="small" /> },
