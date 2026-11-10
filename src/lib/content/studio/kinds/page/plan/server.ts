@@ -15,7 +15,7 @@ import { readShopPage } from "../shop";
 import { readBrain } from "@/lib/brain";
 import { fillModule, readStore, treeFor } from "./fill";
 import { mapText, pageMap, partOfSelection, type PagePart } from "./places";
-import { PLAN_SCHEMA, cleanPlan, pageWords, planSystem, planUser, type FillHow, type PlanMode } from "./plan";
+import { PLAN_SCHEMA, cleanPlan, pageWords, placeNow, planSystem, planUser, type FillHow, type PlanMode, type StepDo, type StepPlace } from "./plan";
 
 const MODES: PlanMode[] = ["ideas", "convincing", "part", "ask"];
 const modeIn = (input: Record<string, unknown>): PlanMode => MODES.find((m) => m === input.mode) ?? "ask";
@@ -31,16 +31,31 @@ async function readPlanPage(ctx: StudioCtx, raw: unknown, input: Record<string, 
   return { d, parts: map.parts, container: map.container, html: r.page.html, tree };
 }
 
-/** "Fill a plan's module from the shop" (read only). */
+/**
+ * One step of a plan made ready (read only): its place found again on the page as it is NOW - every change applied, the
+ * plan's earlier steps too, so a place by position never points at a block an earlier step put there (point 4) - and,
+ * when it brings a module of products, categories or a picture, that module filled from the shop.
+ */
 const planFill: ServerAction = async (ctx, raw, input) => {
   const d = viewOf(pageDoc(raw, ctx.piece.language), typeof input.lang === "string" ? input.lang : null);
+  const t = (input.target && typeof input.target === "object" ? input.target : null) as Record<string, unknown> | null;
+  let place: StepPlace | null = null;
+  let placeWhy = "";
+  if (t) {
+    const p = await readPlanPage(ctx, raw, input);
+    const kind = t.kind === "module" || t.kind === "block" ? t.kind : "page";
+    const doing = (["add", "replace", "words", "block"] as StepDo[]).find((x) => x === input.do) ?? "add";
+    const r = placeNow({ do: doing, where: input.where === "before" || input.where === "after" ? input.where : "", target: { kind, fp: s(t.fp, 600) } }, p);
+    place = r.place; placeWhy = r.why;
+  }
   const f = (input.fill && typeof input.fill === "object" ? input.fill : {}) as Record<string, unknown>;
   const how = (["page", "category", "technologies", "viewed", "bought", "numbers", "none"] as FillHow[]).find((h) => h === f.how) ?? "none";
-  return fillModule({
+  const filled = input.module && input.shop === true ? await fillModule({
     module: s(input.module, 60), store: readStore(d.store),
     fill: { how, category: s(f.category, 400), numbers: s(f.numbers, 600), count: Math.max(0, Math.min(24, Math.round(Number(f.count) || 0))) },
     count: Math.round(Number(input.count) || 0) || undefined,
-  });
+  }) : { items: [], feature: null, note: "", missing: [] };
+  return { ...filled, place, placeWhy };
 };
 
 export const planActions: Record<string, ServerAction> = { plan_fill: planFill };

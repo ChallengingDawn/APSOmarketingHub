@@ -106,36 +106,47 @@ export function usePlan(o: {
   };
 
   /** One step applied: at once in the page, filled, saved, checked. Returns what to tell the person (null = it is on). */
-  const apply = async (step: PlanStep): Promise<string | null> => {
+  const apply = async (planned: PlanStep): Promise<string | null> => {
     const forLang = ref.current.lang();
-    const view = ref.current.view(forLang);
-    const base = step.place.how === "change" ? view.changes.find((c) => c.id === (step.place as { change: string }).change) ?? null : null;
+    let step = planned;
+    const baseOf = (st: PlanStep) => (st.place.how === "change" ? ref.current.view(forLang).changes.find((c) => c.id === (st.place as { change: string }).change) ?? null : null);
+    let base = baseOf(step);
     if (step.place.how === "change" && !base) { const why = "What it was to change is not on the page any more."; setState(step.id, { state: "failed", why }); return why; }
     let module: ModuleRef | null = null;
     let html = "";
     setState(step.id, { state: "filling" });
+    const m1 = step.do === "block" ? null : moduleOf(step, base);
+    if (step.do !== "block" && !m1) { const why = `"${step.module}" is not in the module library any more.`; setState(step.id, { state: "failed", why }); return why; }
+    const lib = m1 ? libModule(m1.type) : null;
+    const needsShop = step.do !== "words" && step.do !== "block" && !!lib && (lib.takes !== "none" || lib.needs.includes("picture"));
+    // 1. at once: its skeleton (or the block, the module with its new words) at its place, scrolled to and lit
+    show(step, step.do === "block" ? step.html : needsShop ? skeletonOf(m1!, FILLING) : drawModule(m1!), true);
+    // 2. its place found again on the page as it is now (an earlier step may stand before it), and - a module of the
+    //    shop's products, categories or pictures - filled from the shop
+    const r = await ref.current.api.act<{ items: Card[]; feature: Card | null; note: string; missing: string[]; place: PlanStep["place"] | null; placeWhy: string }>("plan_fill", {
+      lang: forLang, module: m1?.type ?? "", shop: needsShop, fill: step.fill, count: step.fill.count, target: step.target, do: step.do, where: step.where,
+    });
+    if (!r.ok) {
+      const why = needsShop ? `It could not be filled from the shop: ${r.error}` : r.error;
+      if (m1 && needsShop) show(step, skeletonOf(m1, why, false)); else unshow(step.id);
+      setState(step.id, { state: "failed", why });
+      return why;
+    }
+    if (!r.result.place) {
+      const why = `Not on the page: ${r.result.placeWhy || "its place was not found on the page as it is now."}`;
+      unshow(step.id);
+      setState(step.id, { state: "failed", why });
+      return why;
+    }
+    step = { ...step, place: r.result.place };
+    base = baseOf(step);
+    if (step.place.how === "change" && !base) { const why = "What it was to change is not on the page any more."; unshow(step.id); setState(step.id, { state: "failed", why }); return why; }
     if (step.do === "block") {
       html = step.html;
-      show(step, html, true);
+      show(step, html);
     } else {
-      const m1 = moduleOf(step, base);
-      if (!m1) { const why = `"${step.module}" is not in the module library any more.`; setState(step.id, { state: "failed", why }); return why; }
-      const lib = libModule(m1.type);
-      const needsShop = step.do !== "words" && !!lib && (lib.takes !== "none" || lib.needs.includes("picture"));
-      // 1. at once: its skeleton in its place, scrolled to and lit
-      show(step, needsShop ? skeletonOf(m1, FILLING) : drawModule(m1), true);
-      // 2. filled from the shop
-      let m2 = m1;
-      if (needsShop) {
-        const r = await ref.current.api.act<{ items: Card[]; feature: Card | null; note: string; missing: string[] }>("plan_fill", { lang: forLang, module: m1.type, fill: step.fill, count: step.fill.count });
-        if (!r.ok) {
-          const why = `It could not be filled from the shop: ${r.error}`;
-          show(step, skeletonOf(m1, why, false));
-          setState(step.id, { state: "failed", why });
-          return why;
-        }
-        m2 = withFill(m1, r.result, step.fill);
-      }
+      let m2 = m1!;
+      if (needsShop) m2 = withFill(m1!, r.result, step.fill);
       const gap = moduleGapOf(m2);
       if (gap) {
         const why = `Not on the page: ${gap.charAt(0).toLowerCase()}${gap.slice(1)}${/[.!?]$/.test(gap) ? "" : "."}`;

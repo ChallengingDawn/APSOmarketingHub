@@ -44,6 +44,9 @@ export type PlanStep = {
   at: string;
   where: "before" | "after" | "";
   place: StepPlace;
+  /** the part it aims at, found again when it is applied (the page may have changed since the plan: an earlier step put a
+   * block before it, and a place by position would move) - ./places.ts partFp */
+  target: { kind: PagePart["kind"]; fp: string };
   layout: string;
   words: PlanWords;
   extras: { key: string; value: string }[];
@@ -264,8 +267,10 @@ export function looksEnglish(s: string): boolean {
   return foreign === 0 || english > foreign * 2;
 }
 
-const lower = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
-const article = (s: string) => (/^[aeiou]/i.test(s) ? "an" : "a");
+/** "Product row" -> "product row"; "USP bar" stays (a short word in capitals is a name). */
+const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
+/** "a" or "an" as it sounds: "an FAQ", "a USP bar", "an O-ring row" */
+const article = (s: string) => (/^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
 const quoteOf = (p: PagePart | undefined): string => {
   if (!p) return "the page";
   if (p.kind !== "page") return `the ${lower(libModule(p.module)?.name ?? "block")}${p.heading ? ` "${cutWords(p.heading, 26)}"` : ""}`;
@@ -416,13 +421,32 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     }
     if (doing === "words" && !Object.values(words).some((v) => (Array.isArray(v) ? v.length : !!v))) { problems.push(`The step for ${at.id} brought no words - left out.`); continue; }
     const s: PlanStep = {
-      id: stepId, do: doing, module: id ?? "", at: at.id, where: place.how === "insert" ? (where || "after") : "", place, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""),
+      id: stepId, do: doing, module: id ?? "", at: at.id, where: place.how === "insert" ? (where || "after") : "", place, target: { kind: at.kind, fp: partFp(at) }, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""),
       fill, html, line: "", why: looksEnglish(str(x.why, 120)) ? str(x.why, 120) : "", problems: [...new Set(said)].slice(0, 4),
     };
     s.line = stepLine(s, ctx.parts);
     steps.push(s);
   }
   return { note: noteOf(str(o.note, 400), steps), steps, problems: [...new Set(problems)].slice(0, 6) };
+}
+
+/* ── a step's place found again when it is applied ─────────────────────── */
+
+/** What finds a part again: a part the hub put - its change; a part of the page - its heading and first words. */
+export function partFp(p: Pick<PagePart, "kind" | "change" | "heading" | "text" | "tag">): string {
+  return p.kind === "page" ? `${p.tag}|${p.heading}|${p.text.slice(0, 160)}` : p.change;
+}
+
+/** The step's place on the page as it is NOW (the parts read again, with every change applied): its part found by what
+ * it is, the place made again. null + why when the part is not on the page any more. */
+export function placeNow(s: Pick<PlanStep, "do" | "where" | "target">, now: { parts: PagePart[]; container: string }): { place: StepPlace | null; why: string } {
+  const at = now.parts.find((p) => p.kind === s.target.kind && partFp(p) === s.target.fp)
+    // a part of the page whose words the page cut differently: its heading alone
+    ?? (s.target.kind === "page" ? now.parts.find((p) => p.kind === "page" && p.heading && `${p.tag}|${p.heading}|` === s.target.fp.slice(0, s.target.fp.indexOf("|", s.target.fp.indexOf("|") + 1) + 1)) : undefined);
+  if (!at) return { place: null, why: "The part it was planned at is not on the page any more." };
+  const doing: StepDo = s.do;
+  const r = placeOf(doing, at, s.where === "before" || s.where === "after" ? s.where : "", now);
+  return { place: r.place, why: r.problem };
 }
 
 /* ── a step made into the change the page keeps ───────────────────────── */
