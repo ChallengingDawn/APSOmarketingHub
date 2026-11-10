@@ -120,7 +120,28 @@ function context(ctx: StudioCtx, d: PageDoc): string {
   ].filter(Boolean).join("\n");
 }
 
-function pageBlock(d: PageDoc): string {
+/**
+ * "Write it all again" in one of three ways (Content v12, SARCLA 10.11.2026: "on content when write back should be able to
+ * write from topic or direct or ask") - the same whole-page write (fill_page), told how:
+ *   topic    from the to-do's subject and brief, the page written FRESH - its blocks kept, its present words not shown
+ *   better   the page as it stands, written again better - its facts and its blocks kept, no question asked
+ *   ask      the person's words ("What should change?") - THE PERSON ASKS, the whole page written with them
+ */
+export type WriteMode = "topic" | "better" | "ask";
+export const writeModeIn = (input: Record<string, unknown>): WriteMode | null => (input.mode === "topic" || input.mode === "better" || input.mode === "ask" ? input.mode : null);
+export const WRITE_MODE_TELL: Record<WriteMode, string> = {
+  topic: "WRITE IT FRESH FROM THE TOPIC: the to-do's subject and brief (above) are what the page is about. Its present words are NOT shown on purpose - do not try to keep or rephrase them; write every block new, as on a first write, in the blocks the page has.",
+  better: "WRITE IT AGAIN, BETTER: the page as it stands (its fields, above) is the base - keep its subject, its facts, its dates and its blocks, and make every block clearer, more concrete and more useful for a buyer. Nothing is asked: do not add a claim the page, the brief or the shop's facts do not hold.",
+  ask: "WRITE IT AGAIN AS THE PERSON ASKS (below): the whole page, every block it has, with that change - what the ask does not touch keeps its facts.",
+};
+
+/** The page as the AI sees it - "From the topic" (Content v12): its blocks only, never its present words. */
+function pageBlock(d: PageDoc, o: { words?: boolean } = {}): string {
+  if (d.source === "new" && o.words === false) {
+    return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
+THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
+(Its present words are left out on purpose - the page is written fresh from its topic.)`;
+  }
   if (d.source === "new") {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
 THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
@@ -345,15 +366,17 @@ function fillUser(part: Exclude<Part, "field">) {
       : part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
       : part === "section" ? `Write THIS section only (${sec?.title.trim() ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.${where}`
         : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
+    // "Write it all again" from the topic, directly or as asked (Content v12)
+    const mode = part === "all" ? writeModeIn(input) : null;
     return `${context(ctx, d)}
 
-${pageBlock(d)}
+${pageBlock(d, { words: mode !== "topic" })}
 
 THE SHOP'S PAGES YOU MAY LINK (address · name · kind):
 ${cands.map((c) => `${c.url} · ${c.name} · ${c.kind}`).join("\n") || "(none - leave every address empty)"}
 
 WRITE IN: ${langOf(d)} (store view ${d.store})
-${what}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
+${what}${mode ? `\n\n${WRITE_MODE_TELL[mode]}` : ""}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
   };
 }
 

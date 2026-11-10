@@ -79,6 +79,7 @@ import { VersionStrip } from "./Versions";
 import { ModulesTab } from "./modules/ModulesTab";
 import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
+import { WROTE, WriteAgain, type WriteMode } from "./WriteAgain";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
 import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
@@ -95,6 +96,8 @@ import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Typography from "@mui/material/Typography";
+import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
 import { PlanCard } from "./plan/PlanCard";
 import { servedOf, usePlan } from "./plan/usePlan";
@@ -702,12 +705,13 @@ export default function Studio({ api }: StudioProps) {
       }
       const cands = part === "all" || part === "links" || part === "hero" || part === "cta" ? await candidates() : [];
       // the whole page written (Content v8, point 5): with its modules - unless the ask only reworks the words
-      const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
+      // Content v12: "Write it all again" from the topic, directly or as asked - always the whole page with its modules
+      const compose = part === "all" && (!!opts.mode || !opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
       // an empty page (Content v9, SARCLA 10.11.2026: "it should by default start empty ... the block and number of
       // blocks are decided by the AI on the first prompt"): the AI decides its blocks and modules
       composed = compose;
       const decide = compose && !blockOrder(viewOf(docRef.current, forLang).fields).length;
-      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}) });
+      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}), ...(compose && opts.mode ? { mode: opts.mode } : {}) });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
       // a module of words that is not full is not put on the page (Content v9) - the server kept full ones; checked again
@@ -721,7 +725,7 @@ export default function Studio({ api }: StudioProps) {
         const c = npModules.place(fields, full.kept, forLang);
         placed = c.placed;
         return { ...cur, fields: c.fields };
-      }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      }, `AI wrote ${PART_LABEL[part as Part]}${opts.mode === "topic" ? " again from the topic" : opts.mode === "better" ? " again, better" : opts.mode === "ask" ? " again as asked" : ""}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
       if (part === "all") setToTop((n) => n + 1);
       const out = [...(r.result.problems ?? []), ...full.left];
@@ -1070,6 +1074,17 @@ export default function Studio({ api }: StudioProps) {
     }
     const made = entryId > mark;
     return { ok: ok && made, text, undo: made ? () => undoSince(mark) : null };
+  };
+
+  /** "Write it all again" from the topic, directly or as asked (Content v12): the whole page written, what it did said under
+   * the header with its Undo - everything since, the modules filled after it too */
+  const [wrote, setWrote] = useState<BlockAiAnswer | null>(null);
+  const writeAgain = async (mode: WriteMode, request?: string) => {
+    const mark = entryId;
+    setWrote(null);
+    const m = await fill("all", { mode, ...(request ? { request } : {}) });
+    const made = entryId > mark;
+    setWrote({ ok: made, text: made ? `${WROTE[mode]}${m ? ` - ${m}` : "."}` : m ?? "Nothing came back - ask again.", undo: made ? () => undoSince(mark) : null });
   };
 
   /* ── blocks added, moved, taken out (Content v5: "add more elements by + next to sections, or in the photo") ── */
@@ -1695,17 +1710,27 @@ export default function Studio({ api }: StudioProps) {
   const selectedBlock = !selRow ? null : isNew ? selectionOfRow(selRow.key)
     : selRow.kind === "page" && selRow.selector ? `e:${selRow.selector}` : selRow.change !== undefined ? `e:[data-apx-c="${selRow.change}"]:not(style)` : null;
   const blockList = (
+    <>
+    {wrote && (
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1, px: 1.25, py: 0.75, borderRadius: "8px", bgcolor: wrote.ok ? "#f3f8f5" : "#fff8ec", border: `1px solid ${wrote.ok ? "#cfe5d8" : "#f1d9ad"}` }}>
+        <Typography sx={{ flex: 1, fontSize: "0.78rem", lineHeight: 1.45, color: INK }}>{wrote.text}</Typography>
+        {wrote.undo && <Button size="small" onClick={() => { wrote.undo?.(); setWrote({ ok: true, text: "Taken back - the page is as it was.", undo: null }); }} sx={{ ...btn, px: 1, minWidth: 0, color: PINK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", flexShrink: 0 }}>Undo</Button>}
+        <Button size="small" onClick={() => setWrote(null)} sx={{ ...btn, px: 0.5, minWidth: 0, color: MUTED, flexShrink: 0 }} aria-label="Close">×</Button>
+      </Box>
+    )}
     <BlockList rows={rows} selected={selRowKey} busy={rowBusy} canEdit={canEdit} onSelect={(r) => selectRow(r)} onSettings={openSettings} menu={rowMenu}
       onMove={isNew && canEdit ? moveTo : undefined} onAdd={canEdit ? addAt : undefined}
       // a new page with no block yet (Content v9): its first one added here - or, while the AI writes it, it says so
       empty={!isNew ? <><CircularProgress size={13} /> Reading the page&apos;s blocks…</>
         : busyHere === "all" ? <><CircularProgress size={13} sx={{ color: PINK }} /> The AI is choosing the page&apos;s blocks…</>
           : <><Box component="span" sx={{ flex: 1 }}>No blocks yet - the page is empty.</Box>{canEdit && <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={(e) => addAt(0, e.currentTarget)} sx={{ ...btn, color: PINK, px: 1, py: 0.25, fontSize: "0.8rem", flexShrink: 0 }}>Add a block</Button>}</>} />
+    </>
   );
-  const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (
+  // Content v12 (SARCLA 10.11.2026: "write from topic or direct or ask"): "Write it all again" a choice of three, its Undo after
+  const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (isLegacyBody(d) ? (
     <Button size="small" disabled={!aiHere || !!busyHere} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-      sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : "Write it all again"}</Button>
-  ) : undefined;
+      sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>Move the draft in with AI</Button>
+  ) : <WriteAgain label="Write it all again" disabled={!aiHere || !!busyHere} busy={false} onRun={(mode, request) => void writeAgain(mode, request)} />) : undefined;
 
   return (
     <MakeViewsProvider value={makeViews}>
