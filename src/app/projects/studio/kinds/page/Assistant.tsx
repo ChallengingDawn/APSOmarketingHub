@@ -4,7 +4,8 @@
 // row of languages, not a button each. The quick asks for a page (write it, more convincing, shorter, the search engine
 // fields), a free ask, and - when an element is selected in the preview - the same
 // for that element alone. Every change it makes is listed with an Undo (it puts the page back as it was before that
-// change, and before every later one).
+// change, and before every later one) - since Content v7 in the bar's timeline, not here (SARCLA 10.11.2026: "bring it
+// inside a small icon on top" - ../../frame.tsx).
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -17,7 +18,6 @@ import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
-import UndoIcon from "@mui/icons-material/Undo";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { langOfStore, mainView, viewState, viewsLine, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
@@ -58,8 +58,6 @@ function SaidCard({ said, onClose }: { said: Said; onClose: () => void }) {
     </Box>
   );
 }
-
-const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
 
 /** "Translate the whole page into …": the store views of the shop's other languages, one squared row, each saying if it
  * is made (SARCLA 09.11.2026: "we select by store view") - the page's store views made, else each language's own store
@@ -102,12 +100,11 @@ function TranslateRow({ doc, groups, busy, onTranslate, enabled }: { doc: PageDo
   );
 }
 
-export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
   /** what the selection is: "This element only" (the default), "This part only" */
   contextKind?: string;
-  history: Entry[]; onUndo: (e: Entry) => void;
   ideas: Idea[]; onIdea: (i: Idea) => void;
   seo: SeoCard | null; onUseSeo: (s: SeoCard) => void;
   inputRef: React.Ref<HTMLTextAreaElement>; placeholder: string; lang: string;
@@ -164,27 +161,6 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
               <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.5 }}>{i.change}</Typography>
               <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.5 }}>{i.why}</Typography>
               <Button size="small" disabled={!enabled} onClick={() => onIdea(i)} sx={{ ...btn, mt: 0.5, px: 0, color: PINK }}>Make it</Button>
-            </Box>
-          ))}
-        </Box>
-      )}
-      {history.length > 0 && (
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Changes made here</Typography>
-          {history.map((e) => (
-            <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${HAIRLINE}`, opacity: e.undone ? 0.45 : 1 }}>
-              <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "ai" ? PINK : "#2459d1", flexShrink: 0 }} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
-                {e.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{e.note}</Typography>}
-                {e.warn && <Typography sx={{ fontSize: "0.76rem", color: "#c5221f", fontWeight: 600, mt: 0.25 }}>{e.warn}</Typography>}
-                <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{e.lang} · {ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
-              </Box>
-              {!e.undone && (
-                <Tooltip title="Put the page back as it was before this (and every later change)">
-                  <Button size="small" onClick={() => onUndo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: INK, minWidth: 0, px: 1 }}>Undo</Button>
-                </Tooltip>
-              )}
             </Box>
           ))}
         </Box>

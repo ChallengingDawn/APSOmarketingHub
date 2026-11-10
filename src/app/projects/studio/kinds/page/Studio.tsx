@@ -36,6 +36,7 @@ import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { headKey, shopPartsOf, type Located, type ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import type { Change } from "@/lib/convert/versions";
 import { StudioPanes, type QuickAsk } from "../../parts";
+import { useTimeline } from "../../frame";
 import { PICTURE_TUNES, makePicture, refinePicture, uploadPicture } from "../../pictures";
 import type { StudioProps } from "../../registry";
 import { AddBlockMenu, type AddAt } from "./AddBlock";
@@ -227,6 +228,11 @@ export default function Studio({ api }: StudioProps) {
     setHistory((h) => h.map((x) => (x.at >= e.at ? { ...x, undone: true } : x)));
     setSelState(null);
   };
+  // "Changes made here" lives in the bar's timeline (Content v7, SARCLA 10.11.2026: "a small icon on top") - ../../frame.tsx
+  useTimeline(history.map((e) => ({
+    id: e.id, label: e.label, note: e.note, warn: e.warn, at: e.at, by: e.by, where: e.lang, undone: e.undone,
+    undo: canEdit ? { tip: "Put the page back as it was before this (and every later change)", run: () => void undo(e) } : null,
+  })));
 
   /* ── what is selected: the outline and the page say the same ─────────── */
 
@@ -1019,7 +1025,7 @@ export default function Studio({ api }: StudioProps) {
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
           <input ref={upInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={(e) => { void onUploadFile(e.target.files?.[0]); e.target.value = ""; }} />
         </Stage>}
-        assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
+        assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)}
           ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
           said={said} onCloseSaid={() => setSaid(null)}
           translate={lang === main ? { doc, groups, busy, onTranslate: (l) => translate(l) } : null}

@@ -222,7 +222,7 @@ export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) 
                 {e.key && (
                   <Button size="small" disabled={busy === e.env} onClick={() => void check(e.env)} startIcon={busy === e.env ? <CircularProgress size={12} /> : undefined}
                     sx={{ ...btn, px: 0, minWidth: 0, mt: 0.25, color: BLUE, fontSize: "0.76rem" }}>
-                    {busy === e.env ? "Asking Magento…" : c ? "Check again" : "Check the connection"}
+                    {busy === e.env ? "Asking Magentoâ€¦" : c ? "Check again" : "Check the connection"}
                   </Button>
                 )}
               </Box>

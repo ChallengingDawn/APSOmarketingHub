@@ -1,32 +1,25 @@
 "use client";
 // THE SOCIAL STUDIO'S ASSISTANT (night of 09.11.2026, flow standard §1: right = the assistant, as in the page studio).
-// "Working on" the selection ("Headline" with ×) or the whole post; 3-4 quick asks for that; the free box; then "Changes
-// made here", each with an Undo. Whatever is asked still lands ON the canvas at once (SARCLA 08.11: "it opens another
+// "Working on" the selection ("Headline" with ×) or the whole post; 3-4 quick asks for that; the free box. "Changes made
+// here", each with an Undo, is the bar's history icon since Content v7 (SARCLA 10.11.2026: "a small icon on top - a
+// timeline") - handed there from here (../../frame.tsx). Whatever is asked still lands ON the canvas at once (SARCLA 08.11: "it opens another
 // window. Just put it on the canvas, not there") - the assistant only says what it did.
 
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
-import UndoIcon from "@mui/icons-material/Undo";
 
 import type { DesignNode } from "@/lib/design-document";
 import { plainText } from "@/lib/editor/richText";
-import { AssistantPanel, PINK, btn, type QuickAsk } from "../../parts";
+import { AssistantPanel, PINK, type QuickAsk } from "../../parts";
+import { useTimeline } from "../../frame";
 import { useClock } from "../../standard";
 import { T } from "./look";
 import { elementName, headlineIdOf } from "./Map";
 import { isEmptyFrame, isPictureNode, type Scope } from "./useDesignAi";
 import type { StudioCtx } from "./Studio";
-
-const ago = (iso: string) => {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const s = Math.round((Date.now() - t) / 1000);
-  return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-};
 
 /** What the assistant works on: the one selected element, or nothing (the whole post). */
 export function scopeOf(ctx: StudioCtx): { scope: Scope; node: DesignNode | null } {
@@ -43,6 +36,11 @@ export default function Assistant({ ctx, inputRef }: { ctx: StudioCtx; inputRef:
   const { scope, node } = scopeOf(ctx);
   const enabled = ctx.api.data.ai && ctx.canEdit;
   const clock = useClock(!!ai.working);
+  useTimeline(ctx.doc.log.map((e) => ({
+    id: e.id, label: e.label, note: e.note, at: e.at, by: e.by, undone: e.undone,
+    undo: ai.canUndo(e) && ctx.canEdit ? { tip: "Put the post back as it was before this (and every later change)", run: () => void ai.undo(e) } : null,
+    why: !e.undone && !ai.canUndo(e) ? "to go back: Versions, top right" : null,
+  })));
   const ask = (q: string, label?: string) => () => ai.ask(q, scope, label);
 
   const quick: QuickAsk[] = !node ? [
@@ -90,26 +88,6 @@ export default function Assistant({ ctx, inputRef }: { ctx: StudioCtx; inputRef:
     <AssistantPanel quick={quick} enabled={enabled} top={top} inputRef={inputRef}
       onAsk={(text) => ai.ask(text, scope)}
       placeholder={scope ? `What should change in the ${scope.name.toLowerCase()}? (Ctrl+Enter)` : "What should change on the post? A carousel about a service, a photo as the background, the story format… (Ctrl+Enter)"}>
-      {ctx.doc.log.length > 0 && (
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: T.ink3, mb: 0.75 }}>Changes made here</Typography>
-          {ctx.doc.log.map((e) => (
-            <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${T.line}`, opacity: e.undone ? 0.45 : 1 }}>
-              <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "ai" ? PINK : "#2459d1", flexShrink: 0 }} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.83rem", color: T.ink, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
-                {e.note && <Typography sx={{ fontSize: "0.76rem", color: T.ink3 }}>{e.note}</Typography>}
-                <Typography sx={{ fontSize: "0.7rem", color: T.ink3 }}>{ago(e.at)}{e.undone ? " · undone" : !ai.canUndo(e) ? " · to go back: Versions, top right" : ""}</Typography>
-              </Box>
-              {ai.canUndo(e) && ctx.canEdit && (
-                <Tooltip title="Put the post back as it was before this (and every later change)">
-                  <Button size="small" onClick={() => void ai.undo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: T.ink, minWidth: 0, px: 1 }}>Undo</Button>
-                </Tooltip>
-              )}
-            </Box>
-          ))}
-        </Box>
-      )}
     </AssistantPanel>
   );
 }

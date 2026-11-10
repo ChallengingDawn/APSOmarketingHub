@@ -8,8 +8,11 @@
 // The AI at work shows here for every kind (SARCLA 08.11.2026: "an AI animation as soon as it starts working"): from the
 // click, a light runs along the bar's lower edge and "AI is writing…" / "Making the picture…" stands beside "Saved".
 // (A slow action that is not the AI - reading the shop's pages, a send - is in api.working too, for its studio to show.)
+// Content v7 (SARCLA 10.11.2026): "Changes made here" is the bar's history icon (a timeline, with its count; a click shows
+// each change with its Undo) for every studio that keeps one, and the bar's Download gives what the kind gives as files
+// (./frame.tsx, registry.tsx DOWNLOADS). Who does it opens prefilled: the owner who makes it, the reviewer Claudio.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -27,7 +30,6 @@ import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
-import HistoryIcon from "@mui/icons-material/History";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import BookmarkAddOutlinedIcon from "@mui/icons-material/BookmarkAddOutlined";
 import BookmarkBorderOutlinedIcon from "@mui/icons-material/BookmarkBorderOutlined";
@@ -46,7 +48,9 @@ import { Faces, PersonPick, StatusChip, dayLabel } from "../work/ui";
 import { ReviewerPick } from "../work/ReviewerPick";
 import { InlineTitle } from "../work/InlineTitle";
 import { AiLine, AiWorking, PINK, STUDIO_BAR, btn, field, mainBtn } from "./parts";
-import { STUDIOS } from "./registry";
+import { DOWNLOADS, STUDIOS } from "./registry";
+import { DownloadButton, FrameProvider, TimelineButton, useFrameStore } from "./frame";
+import { missingPeople } from "@/lib/content/people";
 import { lookApi, useStudio, type StudioApi } from "./useStudio";
 
 function SaveBadge({ api }: { api: StudioApi }) {
@@ -82,7 +86,7 @@ function Versions({ api, onLook, opening }: { api: StudioApi; onLook: (v: Versio
   };
   return (
     <>
-      <Button size="small" disabled={!!busy || opening !== null} startIcon={busy || opening !== null ? <CircularProgress size={14} thickness={6} color="inherit" /> : <HistoryIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
+      <Button size="small" disabled={!!busy || opening !== null} startIcon={busy || opening !== null ? <CircularProgress size={14} thickness={6} color="inherit" /> : <BookmarkBorderOutlinedIcon sx={{ fontSize: 18 }} />} onClick={(e) => setAnchor(e.currentTarget)} sx={{ ...btn, color: INK }}>
         {busy ?? (opening !== null ? "Opening it…" : `Versions${v.length ? ` · ${v.length}` : ""}`)}
       </Button>
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} slotProps={{ paper: { sx: { width: 360, borderRadius: "12px", maxHeight: "70vh" } } }}>
@@ -181,11 +185,22 @@ function OnCalendar({ api }: { api: StudioApi }) {
   );
 }
 
-/** Who does it and who checks it, changed here (SARCLA 08.11.2026: "the owner directly") - a click on the faces. */
+/** Who does it and who checks it, changed here (SARCLA 08.11.2026: "the owner directly") - a click on the faces. Content
+ * v7 (SARCLA 10.11.2026: "this should be already prefilled"): a to-do that came without them gets them as it opens - the
+ * owner who makes it, the reviewer Claudio (lib/content/people.ts) - so the panel always opens filled; both change here. */
 function People({ api, onError }: { api: StudioApi; onError: (e: string | null) => void }) {
   const d = api.data;
   const p = d.piece;
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  // once per to-do, by an editor, only what is missing - what someone picked (or cleared) later is never touched again
+  const filled = useRef<number | null>(null);
+  useEffect(() => {
+    if (filled.current === p.id || !d.access.canEdit || api.looking) return;
+    filled.current = p.id;
+    const fill = missingPeople({ kind: p.contentType, writer: p.writer, reviewer: p.reviewer, maker: d.project?.createdBy ?? null, me: d.me, people: d.people.map((x) => x.username), defaultReviewer: d.defaultReviewer ?? null });
+    if (fill) void api.edit(fill).then((r) => { if (!r.ok) onError(r.error ?? "Who does it could not be filled in."); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.id]);
   const names = Object.fromEntries(d.people.map((x) => [x.username, x.name]));
   const people = [p.writer, p.reviewer].filter((x): x is string => !!x);
   const set = async (f: { writer?: string | null; reviewer?: string | null }) => {
@@ -259,6 +274,8 @@ function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onCloseLook }:
       {look && <LookBar api={api} look={look} busy={lookBusy} onBringBack={onBringBack} onClose={onCloseLook} />}
       {!look && ai && <AiWorking variant="inline" label={ai.label} />}
       {!look && <SaveBadge api={api} />}
+      {!look && <TimelineButton />}
+      {!look && <DownloadButton api={api} kind={d.kind} load={DOWNLOADS[d.kind]} />}
       {!look && <Versions api={api} onLook={onLook} opening={opening} />}
       {!look && moves(p, w).map((m) => (
         <Button key={m.to} size="small" variant={m.main ? "contained" : "outlined"} disableElevation disabled={!!busy}
@@ -287,6 +304,8 @@ function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onCloseLook }:
 
 export default function PieceStudio({ pieceId }: { pieceId: number }) {
   const { api, error } = useStudio(pieceId);
+  // what the kind's studio hands to the bar: its "Changes made here" (./frame.tsx)
+  const frame = useFrameStore();
   // a version looked at, read-only (SARCLA 09.11.2026: Versions "not working correctly")
   const [look, setLook] = useState<Look | null>(null);
   const [opening, setOpening] = useState<number | null>(null);
@@ -319,6 +338,7 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
   }
   const Studio = STUDIOS[api.data.kind];
   return (
+    <FrameProvider value={frame}>
     <Box sx={{ minHeight: "100vh" }}>
       <Bar api={api} look={look} lookBusy={lookBusy} opening={opening} onLook={(v) => void openLook(v)} onBringBack={() => void bringBack()} onCloseLook={() => setLook(null)} />
       {!api.data.access.canEdit && (
@@ -328,5 +348,6 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
       {/* the kind's studio opens again on a version brought back (epoch) or looked at - a studio's own state never keeps the old one */}
       <Studio key={look ? `look-${look.v.id}` : `live-${api.epoch ?? 0}`} api={look ? lookApi(api, look.v, look.doc) : api} />
     </Box>
+    </FrameProvider>
   );
 }

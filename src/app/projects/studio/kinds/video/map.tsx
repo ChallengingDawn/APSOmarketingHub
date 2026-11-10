@@ -27,11 +27,11 @@ import CloseIcon from "@mui/icons-material/Close";
 import ErrorOutlineRoundedIcon from "@mui/icons-material/ErrorOutlineRounded";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import UndoIcon from "@mui/icons-material/Undo";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { PINK, btn } from "../../parts";
+import { useTimeline } from "../../frame";
 import { makePicture, uploadPicture, type PictureAspect } from "../../pictures";
 
 export const sheen = keyframes`from { background-position: 140% 0; } to { background-position: -140% 0; }`;
@@ -212,7 +212,6 @@ export type Change<T> = { id: number; label: string; note?: string; at: number; 
   /** back after a reload on a document that changed since: shown, not undone from here */
   old?: boolean };
 
-const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
 
 /** The AI's changes, newest first; Undo puts the thing back as it was before one (and every later one). */
 /** A short fingerprint of a document, to know whether it changed since the list was kept. */
@@ -273,30 +272,16 @@ export function useChanges<T>(store?: string, doc?: T) {
   return { list, record, undo };
 }
 
+/** "Changes made here" - since Content v7 (SARCLA 10.11.2026: "a small icon on top - a timeline") the bar's history icon:
+ * this hands the list there (../../frame.tsx), each change with its Undo, and draws nothing in the assistant. */
 export function ChangesList<T>({ list, onUndo, what }: { list: Change<T>[]; onUndo: (e: Change<T>) => void; what: string }) {
-  if (!list.length) return null;
   const stale = list.some((x) => x.old && !x.undone);
-  return (
-    <Box sx={{ mt: 2.5 }}>
-      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Changes made here</Typography>
-      {stale && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 0.75, lineHeight: 1.45 }}>The {what} changed since these were made - to go back, use Versions at the top.</Typography>}
-      {list.map((e) => (
-        <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${HAIRLINE}`, opacity: e.undone ? 0.45 : 1 }}>
-          <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "you" ? "#2459d1" : PINK, flexShrink: 0 }} />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
-            {e.note && <Typography title={e.note} sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{e.note}</Typography>}
-            <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
-          </Box>
-          {!e.undone && !e.old && (
-            <Tooltip title={`Put the ${what} back as it was before this (and every later change)`}>
-              <Button size="small" onClick={() => onUndo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: INK, minWidth: 0, px: 1 }}>Undo</Button>
-            </Tooltip>
-          )}
-        </Box>
-      ))}
-    </Box>
-  );
+  useTimeline(list.map((e) => ({
+    id: e.id, label: e.label, note: e.note, at: e.at, by: e.by ?? "ai", undone: e.undone,
+    undo: e.old ? null : { tip: `Put the ${what} back as it was before this (and every later change)`, run: () => onUndo(e) },
+    why: e.old && !e.undone ? "to go back: Versions, top right" : null,
+  })), stale ? `The ${what} changed since some of these were made - to go back, use Versions at the top.` : null);
+  return null;
 }
 
 /* ── the picture slot, as the flow standard has it ─────────────────────────────────────────────────────────────── */
