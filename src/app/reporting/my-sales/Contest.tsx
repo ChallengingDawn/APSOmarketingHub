@@ -11,6 +11,7 @@ import Typography from "@mui/material/Typography";
 import PersonAddAltOutlinedIcon from "@mui/icons-material/PersonAddAltOutlined";
 import PhoneInTalkOutlinedIcon from "@mui/icons-material/PhoneInTalkOutlined";
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
+import EuroOutlinedIcon from "@mui/icons-material/EuroOutlined";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 
 import { FAINT, KpiTile, MUTED, TINT } from "@/app/uc/report/ui";
@@ -91,16 +92,21 @@ export function ContestPage() {
   );
 }
 
-/** The funnel on top: new customers, those with a sales action, those that qualify - a sales action and order intake. */
+/**
+ * The funnel on top: new customers, those with a sales action, those that qualify - a sales action and order intake -
+ * and the order intake they bring (SARCLA 10.11.2026: four tiles in a row, the fourth the order intake).
+ */
 function Figures({ d }: { d: ContestData }) {
   const h = useMemo(() => headline(d), [d]);
   return (
-    <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(3, minmax(0, 1fr))" } }}>
+    <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
       <KpiTile icon={<PersonAddAltOutlinedIcon />} tint="blue" label="New customers" value={int(h.fresh)} note="No order intake or revenue before 5 October" />
       <KpiTile icon={<PhoneInTalkOutlinedIcon />} tint="purple" label="With a sales action" value={int(h.counted)}
         note={`${pct(h.counted, h.fresh)} of the new customers · with or without order intake`} />
       <KpiTile icon={<EmojiEventsOutlinedIcon />} tint="green" label="Qualifying" value={int(h.bringing)}
         note={`${pct(h.bringing, h.counted)} of those with a sales action · new, a sales action and order intake`} />
+      <KpiTile icon={<EuroOutlinedIcon />} tint="amber" label="Order intake" value={eur(h.intake)}
+        note={`From the new customers with a sales action, as on the boards below · ${CONTEST.label}`} />
     </Box>
   );
 }
