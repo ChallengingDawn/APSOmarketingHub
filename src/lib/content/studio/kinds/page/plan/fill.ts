@@ -1,0 +1,130 @@
+// PAGE - A PLAN'S MODULE FILLED FROM THE SHOP (server, Content v7, 10.11.2026).
+//
+// SARCLA 10.11.2026 (point 13): "the AI could directly bring modules" - and the bar of 09.11.2026: real shop data only.
+// The AI says HOW a module is filled (./plan.ts FillSpec); the hub fills it here from what the shop itself shows and what
+// the hub already holds (../modules/source.ts):
+//   category      that category's products (its own page), or - a module of categories - its subcategories, each with
+//                 its products or its own subcategories (the module's `kids`)
+//   technologies  the shop's main technologies (its menu), each the same way
+//   viewed/bought the products whose pages are viewed most / whose articles are bought most online (GA4, last months),
+//                 within a category when one is given
+//   numbers       the product (8 digits) or article (10 digits) numbers the person named
+// and a module that shows a picture gets one from the shop: its category's photo, else a product's. Never a price, never
+// stock: a card carries a name, a photo, a link and the shop's own count ("702 Artikel").
+
+import type { Card } from "../modules/types";
+import { moduleDef } from "../modules/registry";
+import { cardsForNumbers, categoryCard, shopCategory, shopTree, topCards } from "../modules/source";
+import { libModule } from "./library";
+import type { FillSpec } from "./plan";
+
+export type FillOut = { items: Card[]; feature: Card | null; note: string; missing: string[] };
+
+const BASE = "https://www.apsoparts.com";
+/** The store view whose shop is read: "de-CH/eur" reads de-CH (the same catalogue - the module writes its links there). */
+export const readStore = (store: string) => /^([a-z]{2}-[A-Z]{2,3})/.exec(store)?.[1] ?? "de-CH";
+
+/** A category's address in this store view (an address from another store view is not this one's). */
+const inStore = (url: string, store: string) => { try { return new URL(url, BASE).pathname.startsWith(`/${store}/`); } catch { return false; } };
+
+/** Categories as cards, each with its products or subcategories (one shop read per category, in turn). */
+async function categoryCards(list: { name: string; url: string; img: string }[], store: string, kids: "products" | "subs", count: number, parent: Card[] = []): Promise<{ cards: Card[]; missing: string[] }> {
+  const cards: Card[] = [];
+  const missing: string[] = [];
+  for (const c of list) {
+    if (cards.length >= count) break;
+    try {
+      const card = await categoryCard(c.url, store, kids, parent);
+      cards.push({ ...card, name: c.name || card.name, img: c.img || card.img });
+    } catch (e) {
+      missing.push(`${c.name}: ${String((e as Error).message ?? e).slice(0, 120)}`);
+    }
+  }
+  return { cards, missing };
+}
+
+/** The module's items (and its picture) as the plan's fill says - from the shop. */
+export async function fillModule(o: { module: string; fill: FillSpec; store: string; count?: number }): Promise<FillOut> {
+  const lib = libModule(o.module);
+  if (!lib) throw new Error("That module is not in the library any more.");
+  const store = readStore(o.store);
+  const def = moduleDef(o.module);
+  const kids = def?.kids ?? "products";
+  const count = Math.max(lib.min || 1, Math.min(lib.max || 12, o.count || o.fill.count || lib.max || 6));
+  const f = o.fill;
+  const category = f.category && inStore(f.category, store) ? f.category : "";
+  let items: Card[] = [];
+  let feature: Card | null = null;
+  let note = "";
+  const missing: string[] = [];
+
+  if (lib.takes === "products") {
+    if (f.how === "numbers" && f.numbers) {
+      const r = await cardsForNumbers(f.numbers, store, count);
+      items = r.cards;
+      missing.push(...r.missing.map((m) => `${m.number}: ${m.why}`));
+      note = "The products you named, from the shop.";
+    } else if (f.how === "category" && category) {
+      const c = await shopCategory(category, store);
+      items = c.products.slice(0, count);
+      note = `${c.name || "The category"}'s products, as the shop lists them.`;
+      // a category whose page lists subcategories only: their first products
+      if (!items.length && c.subs.length) {
+        for (const s of c.subs) {
+          if (items.length >= count) break;
+          const sub = await shopCategory(s.url, store).catch(() => null);
+          for (const p of sub?.products ?? []) { if (items.length < count && !items.some((x) => x.url === p.url)) items.push(p); }
+        }
+        note = `Products of ${c.name || "the category"}'s subcategories, as the shop lists them.`;
+      }
+    } else {
+      const how = f.how === "viewed" ? "viewed" : "bought";
+      const r = await topCards(how, store, count, category || undefined);
+      items = r.cards;
+      note = r.note;
+    }
+  } else if (lib.takes === "categories") {
+    if (f.how === "category" && category) {
+      const c = await shopCategory(category, store);
+      if (!c.subs.length) throw new Error(`${c.name || "That category"} has no subcategories on the shop - a module of products fits it better.`);
+      const r = await categoryCards(c.subs, store, kids, count, c.subs);
+      items = r.cards; missing.push(...r.missing);
+      note = `${c.name || "The category"}'s subcategories, from the shop.`;
+    } else {
+      const t = await shopTree(store);
+      const r = await categoryCards(t.tree.map((n) => ({ name: n.name, url: n.url, img: t.photos[n.url] ?? "" })), store, kids, count);
+      items = r.cards; missing.push(...r.missing);
+      note = "The shop's technologies, from its menu.";
+    }
+  }
+
+  if (lib.needs.includes("picture")) {
+    // its picture: the category's own photo, else the first item's, else a technology's from the shop's home page
+    if (category) {
+      const c = await shopCategory(category, store).catch(() => null);
+      if (c) feature = { kind: "category", name: c.name, url: c.url, img: c.img || c.subs.find((x) => x.img)?.img || c.products.find((x) => x.img)?.img || "", meta: c.count, number: "", children: [] };
+    }
+    if (!feature?.img) {
+      const first = items.find((x) => x.img);
+      if (first) feature = { ...first, children: [] };
+    }
+    if (!feature?.img) {
+      const t = await shopTree(store).catch(() => null);
+      const n = t?.tree.find((x) => t.photos[x.url]);
+      if (t && n) feature = { kind: "category", name: n.name, url: n.url, img: t.photos[n.url], meta: "", number: "", children: [] };
+    }
+    if (feature && !feature.img) feature = null;
+  }
+  return { items, feature, note, missing };
+}
+
+/** The store view's category tree as the AI is shown it: the technologies and their categories (two levels). */
+export async function treeFor(store: string): Promise<{ name: string; url: string; depth: number }[]> {
+  const t = await shopTree(readStore(store));
+  const out: { name: string; url: string; depth: number }[] = [];
+  for (const n of t.tree) {
+    out.push({ name: n.name, url: n.url, depth: 0 });
+    for (const c of n.children.slice(0, 14)) out.push({ name: c.name, url: c.url, depth: 1 });
+  }
+  return out;
+}

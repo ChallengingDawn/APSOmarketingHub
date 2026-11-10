@@ -136,14 +136,14 @@ async function slowAction(o: Opened, action: string, b: Record<string, unknown>,
       const brain = await readBrain();
       const system = `${brandSystemPrompt(brain, o.def.channel)}\n\n${task.system}`;
       const r = await claudeText({
-        client, system: [{ type: "text", text: system }], user: task.user(o.ctx, stored?.doc, input),
+        client, system: [{ type: "text", text: system }], user: await task.user(o.ctx, stored?.doc, input),
         budget: { maxTokens: task.maxTokens ?? 4000, effort: task.effort ?? ((task.maxTokens ?? 4000) >= 12_000 ? "medium" : "low") }, outputFormat: { type: "json_schema", schema: task.schema },
       });
       if (!r.ok) return fail(r.failure.error, r.failure.status);
       let raw: unknown;
       try { raw = JSON.parse(r.text); } catch { return fail("The AI's answer could not be read - try again.", 502); }
       console.log(`[studio] ${o.kind}.${String(b.task)} for piece ${o.piece.id} by ${o.me.username}: ${r.usage.input_tokens}+${r.usage.output_tokens} tokens`);
-      return NextResponse.json({ ok: true, result: task.clean ? task.clean(raw, stored?.doc, o.ctx, input) : raw });
+      return NextResponse.json({ ok: true, result: task.clean ? await task.clean(raw, stored?.doc, o.ctx, input) : raw });
     } catch (e) { return fail(errText(e), 502); }
   }
 
