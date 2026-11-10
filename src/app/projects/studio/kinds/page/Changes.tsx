@@ -89,7 +89,7 @@ function Editor({ open, change, onClose, onSave }: { open: boolean; change: Chan
             <Field label="Its value" value={d.value} onChange={(v) => up({ value: v })} />
           </Box>
         )}
-        <Field label="What it does, in a few words" value={d.note} onChange={(v) => up({ note: v })} max={300} placeholder="Delivery promise under the price" />
+        <Field label="What it does, in a few words" value={d.note} onChange={(v) => up({ note: v })} max={300} placeholder="A clearer button under the price" />
         <Hint>Long words go in as a placeholder Content writes: &lt;span class=&quot;apx-text&quot;&gt;[Text from Content: what they must do]&lt;/span&gt;. Class names you add start with apx-.</Hint>
         {problems.map((p) => <Typography key={p} sx={{ fontSize: "0.84rem", color: "#c5221f", mt: 1 }}>{p}</Typography>)}
       </DialogContent>

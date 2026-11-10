@@ -377,7 +377,7 @@ export const HEROES: ModuleDef[] = [
     fields: [F.eyebrow, F.title, F.text, F.link, F.link2, F.feature, F.promises], defaults: heroDefaults, render: split,
     tags: ["hero", "intro", "top", "split", "picture"],
     sample: {
-      eyebrow: "Dichtungstechnik", title: "O-Ringe in ==jeder Grösse==, ab Lager bestellt",
+      eyebrow: "Dichtungstechnik", title: "O-Ringe in ==jeder Grösse==, online bestellt",
       text: "31 Produkte und 31.264 Artikel - vom Standard-NBR bis FFKM. Mit Preisen, Lieferzeiten und Verfügbarkeit in Echtzeit.",
       link: { label: "Zu den O-Ringen", url: "https://www.apsoparts.com/de-CH/dichtungstechnik/o-ringe-x-ringe.html" },
       link2: { label: "Schnellbestellung", url: "https://www.apsoparts.com/de-CH/quickorder/" },
@@ -404,7 +404,7 @@ export const HEROES: ModuleDef[] = [
     layouts: [], fields: [F.eyebrow, F.title, F.text, F.link, F.link2, F.promises], defaults: heroDefaults, render: products,
     tags: ["hero", "products", "fan", "stack", "bestseller"],
     sample: {
-      eyebrow: "Sortiment", title: "Dichtungen, Kunststoffe, Antriebe - ==ab Lager==",
+      eyebrow: "Sortiment", title: "Dichtungen, Kunststoffe, Antriebe - ==ein Shop==",
       text: "Über 60.000 Artikel in sechs Technologien - mit Preisen, Lieferzeiten und Verfügbarkeit in Echtzeit.",
       link: { label: "Zum Sortiment", url: "https://www.apsoparts.com/de-CH/dichtungstechnik.html" },
       link2: { label: "Schnellbestellung", url: "https://www.apsoparts.com/de-CH/quickorder/" },
@@ -427,9 +427,9 @@ export const HEROES: ModuleDef[] = [
     fields: [F.eyebrow, F.title, { kind: "text", label: "Lead", max: 700, rows: 5 }, { kind: "points", label: "Key facts", max: 3, item: { title: "Figure or word", text: "What it says" }, hint: "Real figures only - the shop's counts, its promises." }, { kind: "link", label: "Link under it" }],
     render: (m) => intro(m), tags: ["intro", "editorial", "lead", "facts", "text"],
     sample: {
-      eyebrow: "Dichtungstechnik", title: "Dichtungen für Maschinen und Anlagen, ==ab Lager==",
+      eyebrow: "Dichtungstechnik", title: "Dichtungen für Maschinen und ==Anlagen==",
       text: "Von O-Ringen über Rotations- und Hubdichtungen bis zu Profilen und Dichtungsplatten: die Dichtungstechnik umfasst 258 Produkte mit 37.336 Artikeln. Jeder Artikel zeigt seinen Preis, seine Lieferzeit und seine Verfügbarkeit in Echtzeit.",
-      points: [{ title: "258", text: "Produkte der Dichtungstechnik", icon: "check" }, { title: "37.336", text: "Artikel, jeder mit Preis und Verfügbarkeit", icon: "check" }, { title: "48/72 h", text: "Lieferung ab Lager in Europa", icon: "check" }],
+      points: [{ title: "258", text: "Produkte der Dichtungstechnik", icon: "check" }, { title: "37.336", text: "Artikel, jeder mit Preis und Verfügbarkeit", icon: "check" }, { title: "7", text: "Sprachen im Live-Chat und per E-Mail", icon: "check" }],
       link: { label: "Zur Dichtungstechnik", url: "https://www.apsoparts.com/de-CH/dichtungstechnik.html" },
     },
   },
@@ -445,7 +445,7 @@ export const HEROES: ModuleDef[] = [
       text: "O-Ringe, Rotations- und Hubdichtungen, Profile und Dichtungsplatten - mit Preisen, Lieferzeiten und Verfügbarkeit in Echtzeit.",
       link: { label: "Zur Dichtungstechnik", url: "https://www.apsoparts.com/de-CH/dichtungstechnik.html" },
       link2: { label: "Schnellbestellung", url: "https://www.apsoparts.com/de-CH/quickorder/" },
-      points: [{ title: "258", text: "Produkte der Dichtungstechnik", icon: "check" }, { title: "37.336", text: "Artikel, jeder mit Preis und Verfügbarkeit", icon: "check" }, { title: "48/72 h", text: "Lieferung ab Lager in Europa", icon: "check" }],
+      points: [{ title: "258", text: "Produkte der Dichtungstechnik", icon: "check" }, { title: "37.336", text: "Artikel, jeder mit Preis und Verfügbarkeit", icon: "check" }, { title: "7", text: "Sprachen im Live-Chat und per E-Mail", icon: "check" }],
     },
   },
   {

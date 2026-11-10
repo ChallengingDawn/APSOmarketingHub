@@ -359,7 +359,7 @@ export const CAMPAIGNS: ModuleDef[] = [
     fields: [F.eyebrow, F.title, F.text, F.link], defaults: (store) => ({ link: { label: wordsFor(store).all, url: "" } }), render: withProducts,
     tags: ["campaign", "products", "panel", "promotion", "selection"],
     sample: {
-      eyebrow: "O-Ringe / X-Ringe", title: "O-Ringe ==ab Lager==",
+      eyebrow: "O-Ringe / X-Ringe", title: "O-Ringe ==in jeder Grösse==",
       text: "31 Produkte mit 31.264 Artikeln - vom Standard-NBR bis FFKM.",
       link: { label: "Zu den O-Ringen", url: "https://www.apsoparts.com/de-CH/dichtungstechnik/o-ringe-x-ringe.html" },
     },
@@ -370,7 +370,7 @@ export const CAMPAIGNS: ModuleDef[] = [
     fields: [{ kind: "eyebrow", label: "Tag", max: 24 }, F.title, F.text, F.link, F.link2, F.feature], defaults: more, render: poster,
     tags: ["poster", "cover", "photo", "big", "campaign"],
     sample: {
-      eyebrow: "Fluidtechnik", title: "Schläuche und Armaturen, ==ab Lager==",
+      eyebrow: "Fluidtechnik", title: "Schläuche und Armaturen, ==online== bestellt",
       text: "490 Produkte mit 4.270 Artikeln - für Industrie, Chemie und Pharma.",
       link: { label: "Zur Fluidtechnik", url: "https://www.apsoparts.com/de-CH/fluidtechnik.html" },
       feature: { kind: "category", name: "Fluidtechnik", url: "https://www.apsoparts.com/de-CH/fluidtechnik.html", img: "https://www.apsoparts.com/media/wysiwyg/4_Fluid_Handling_Technology_1.jpg", meta: "", number: "", children: [] },

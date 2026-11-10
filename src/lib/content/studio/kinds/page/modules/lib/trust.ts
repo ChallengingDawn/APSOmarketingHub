@@ -335,7 +335,7 @@ function delivery(m: ModuleRef) {
 
 const promisesField = (label: string, max: number, hint = "The shop's own promises - a promise the shop does not make is never written here."): FieldSpec =>
   ({ kind: "points", label, max, item: { title: "Bold words", text: "The rest" }, icons: true, hint });
-const figuresField: FieldSpec = { kind: "points", label: "Figures", max: 5, item: { title: "Figure", text: "What it counts" }, hint: "Real figures only: the shop's counts, the brand's facts (48/72 h, 7 languages)." };
+const figuresField: FieldSpec = { kind: "points", label: "Figures", max: 5, item: { title: "Figure", text: "What it counts" }, hint: "Real figures only: the shop's counts, the brand's facts (six technologies, 7 languages) - no delivery times, no stock." };
 
 export const TRUST: ModuleDef[] = [
   {
@@ -348,7 +348,7 @@ export const TRUST: ModuleDef[] = [
       eyebrow: "APSOparts", title: "Das Sortiment in Zahlen", text: "", link: { label: "", url: "" },
       points: [
         { title: "1.560", text: "Produkte in sechs Technologien", icon: "check" }, { title: "60.367", text: "Artikel, jeder mit Preis und Verfügbarkeit", icon: "check" },
-        { title: "48/72 h", text: "Lieferung ab Lager in Europa", icon: "check" }, { title: "7", text: "Sprachen im Live-Chat und per E-Mail", icon: "check" },
+        { title: "6", text: "Technologien in einem Shop", icon: "check" }, { title: "7", text: "Sprachen im Live-Chat und per E-Mail", icon: "check" },
       ],
     },
   },
@@ -371,7 +371,7 @@ export const TRUST: ModuleDef[] = [
       eyebrow: "Warum APSOparts", title: "Bestellen ohne Umwege", text: "", link: { label: "", url: "" },
       points: [
         { title: "Keine Zuschläge", text: "Auch kleine Bestellungen ohne Zuschlag für Kleinmengen.", icon: "box" },
-        { title: "48/72 h ab Lager", text: "Artikel ab Lager kommen in 48 bis 72 Stunden in ganz Europa an.", icon: "truck" },
+        { title: "Track & Trace", text: "Jede Sendung in ganz Europa mit Sendungsverfolgung.", icon: "truck" },
         { title: "Nach Mass", text: "Platten, Stäbe und Dichtungen mit DirectCUT nach Mass konfiguriert.", icon: "cut" },
         { title: "Hilfe in 7 Sprachen", text: "Live-Chat und E-Mail, persönlich beantwortet.", icon: "chat" },
       ],
@@ -390,7 +390,7 @@ export const TRUST: ModuleDef[] = [
       points: [
         { title: "Preise in Echtzeit", text: "Ihr Preis, die Lieferzeit und die Verfügbarkeit bei jedem Artikel.", icon: "check" },
         { title: "Keine Zuschläge für Kleinbestellungen", text: "Auch ein einzelner O-Ring kostet keinen Zuschlag.", icon: "check" },
-        { title: "Lieferung in 48/72 h", text: "Für Artikel ab Lager, in ganz Europa.", icon: "check" },
+        { title: "Lieferung in ganz Europa", text: "Mit Track & Trace bei jeder Sendung.", icon: "check" },
         { title: "3D-Daten zum Herunterladen", text: "CAD-Daten für die Konstruktion.", icon: "check" },
         { title: "Hilfe in 7 Sprachen", text: "Live-Chat und E-Mail.", icon: "check" },
       ],
@@ -417,7 +417,7 @@ export const TRUST: ModuleDef[] = [
         { title: "Artikel finden", text: "Über die Suche, die Kategorien oder die Artikelnummer.", icon: "search" },
         { title: "Preis sehen", text: "Preis, Lieferzeit und Verfügbarkeit in Echtzeit.", icon: "clock" },
         { title: "Bestellen", text: "Im Warenkorb - oder als Liste mit DirectUP hochgeladen.", icon: "cart" },
-        { title: "Geliefert", text: "Artikel ab Lager in 48/72 h in ganz Europa.", icon: "truck" },
+        { title: "Geliefert", text: "In ganz Europa, mit Track & Trace.", icon: "truck" },
       ],
     },
   },
@@ -439,19 +439,19 @@ export const TRUST: ModuleDef[] = [
     },
   },
   {
-    id: "trust-delivery", category: "trust", name: "Delivery promise", note: "A big figure beside the way of an order - ordered, packed, delivered - a light running along it",
+    id: "trust-delivery", category: "trust", name: "The way of an order", note: "A big word or figure beside the way of an order - ordered, packed, delivered - a light running along it",
     needs: [], takes: "none", min: 0, max: 0, layouts: [],
-    fields: [{ kind: "extra", key: "figure", label: "Big figure (e.g. 48/72 h)", max: 12 }, { kind: "extra", key: "figureText", label: "Under the figure", max: 60 }, F.eyebrow, F.title, F.text,
+    fields: [{ kind: "extra", key: "figure", label: "Big word or figure (e.g. Europe-wide)", max: 12 }, { kind: "extra", key: "figureText", label: "Under the figure", max: 60 }, F.eyebrow, F.title, F.text,
       { kind: "points", label: "The way of an order", max: 4, item: { title: "Step", text: "One line" }, icons: true }, { kind: "link", label: "Link under it" }],
     gap: needPoints("steps"), render: (m) => delivery(m),
-    tags: ["delivery", "shipping", "timeline", "48h", "stock"],
+    tags: ["delivery", "shipping", "timeline", "order", "tracking"],
     sample: {
-      extra: { figure: "48/72 h", figureText: "Lieferung ab Lager in Europa" },
-      eyebrow: "Lieferung", title: "Ab Lager ==schnell== bei Ihnen", text: "Für Artikel ab Lager, in ganz Europa - mit Track & Trace.", link: { label: "", url: "" },
+      extra: { figure: "Europaweit", figureText: "Lieferung mit Track & Trace" },
+      eyebrow: "Lieferung", title: "Von der Bestellung ==bis zu Ihnen==", text: "In ganz Europa - jede Sendung mit Track & Trace.", link: { label: "", url: "" },
       points: [
         { title: "Bestellt", text: "Online, mit Preis und Verfügbarkeit.", icon: "cart" },
-        { title: "Verpackt", text: "Artikel ab Lager gehen direkt los.", icon: "box" },
-        { title: "Geliefert", text: "In 48 bis 72 Stunden in ganz Europa.", icon: "truck" },
+        { title: "Verpackt", text: "Sorgfältig verpackt und versandt.", icon: "box" },
+        { title: "Geliefert", text: "In ganz Europa, mit Track & Trace.", icon: "truck" },
       ],
     },
   },

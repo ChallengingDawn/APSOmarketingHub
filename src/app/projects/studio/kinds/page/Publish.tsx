@@ -28,7 +28,7 @@ import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import type { PagePlan, SharedPlan } from "@/lib/convert/cmsPage";
 import type { Env } from "@/lib/convert/model";
 import type { PageBackup } from "@/lib/convert/cms";
-import { STATE_WORD, noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
+import { noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
 import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, btn, mainBtn } from "../../parts";
@@ -223,65 +223,12 @@ function HtmlOf({ api, view }: { api: StudioApi; view: string }) {
   );
 }
 
-/** The connection to Magento, per environment, in plain words (Content v6 - SARCLA 09.11.2026: "the Magento connection is
- * not working yet"): no key on the hub yet, a key not checked yet, connected, refused - and "Check the connection", ONE
- * read of Magento's CMS pages with that key, nothing written. Content v7 (SARCLA 10.11.2026): "No key?" says the three
- * steps an admin takes, with Magento's menu path; a check says Connected / Refused / No key / Not reachable - never "The
- * hub answered 200." (lib/http/answer.ts, ./magentoCheck.ts). */
-export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) {
-  const [checks, setChecks] = useState<Partial<Record<Env, Check>>>({});
-  const [busy, setBusy] = useState<Env | null>(null);
-  const check = async (env: Env) => {
-    setBusy(env);
-    const r = await api.act<{ check: Check }>("magento_check", { env });
-    setBusy(null);
-    setChecks((c) => ({
-      ...c,
-      [env]: r.ok && r.result?.check ? r.result.check
-        : { env, state: "unreachable", line: "Not reachable - the hub could not finish the check", detail: r.ok ? null : r.error, pages: null, at: new Date().toISOString() },
-    }));
-  };
-  const DOT: Record<string, string> = { "no-key": "#9aa5b8", key: BLUE, connected: GREEN, refused: "#c5221f", "no-right": "#c5221f", unreachable: AMBER };
-  const noKey = envs.filter((e) => (checks[e.env] ?? e.check)?.state === "no-key" || (!e.key && !(checks[e.env] ?? e.check))).map((e) => e.env);
-  return (
-    <Box sx={{ mt: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", overflow: "hidden" }}>
-      <Typography sx={{ px: 1.25, pt: 0.9, pb: 0.25, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>Connection</Typography>
-      {envs.map((e) => {
-        const c = checks[e.env] ?? e.check ?? null;
-        const state = c?.state ?? (e.key ? "key" : "no-key");
-        const line = c?.line ?? e.connection ?? (e.key ? "Key set - not checked yet" : "No key yet");
-        const color = DOT[state] ?? MUTED;
-        const words = state === "no-key" ? "the hub has no key for this shop yet" : line.replace(/^(Connected|Refused|Not reachable) - /, "");
-        return (
-          <Box key={e.env} sx={{ px: 1.25, py: 0.75, borderTop: `1px solid ${HAIRLINE}`, "&:first-of-type": { borderTop: "none" } }}>
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
-              <Typography sx={{ width: 76, flexShrink: 0, fontSize: "0.8rem", fontWeight: 700, color: INK, pt: 0.15 }}>{e.label}</Typography>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-                  {/* the state in one squared word: Connected / Refused / No key / Not reachable */}
-                  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.6, py: 0.1, borderRadius: "3px", fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".02em", color, bgcolor: `${color}14`, border: `1px solid ${color}33`, flexShrink: 0 }}>
-                    <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: color }} />{STATE_WORD[state]}
-                  </Box>
-                  <Typography component="span" sx={{ fontSize: "0.8rem", color: state === "connected" ? GREEN : state === "refused" || state === "no-right" ? "#c5221f" : state === "no-key" ? MUTED : INK, minWidth: 0 }}>{words.charAt(0).toUpperCase() + words.slice(1)}</Typography>
-                </Box>
-                {c?.detail && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.25, overflowWrap: "anywhere" }}>{c.detail}</Typography>}
-                {e.from === "order" && !c && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The order connector&apos;s Magento integration, used for pages too.</Typography>}
-                {e.key && (
-                  <Button size="small" disabled={busy === e.env} onClick={() => void check(e.env)} startIcon={busy === e.env ? <CircularProgress size={12} /> : undefined}
-                    sx={{ ...btn, px: 0, minWidth: 0, mt: 0.25, color: BLUE, fontSize: "0.76rem" }}>
-                    {busy === e.env ? "Asking Magento…" : c ? "Check again" : "Check the connection"}
-                  </Button>
-                )}
-              </Box>
-            </Box>
-          </Box>
-        );
-      })}
-      {/* "No key?" - what to do, said once for the shops without one (SARCLA 10.11.2026) */}
-      {noKey.length > 0 && <NoKeySteps envs={noKey} />}
-      <Typography sx={{ px: 1.25, pb: 0.9, pt: 0.25, fontSize: "0.72rem", color: MUTED }}>A check reads one page list from Magento - nothing is written.</Typography>
-    </Box>
-  );
+/** The connection to Magento (Content v6/v7: Connected / Refused / No key and "Check the connection") is gone - Content v11,
+ * SARCLA 10.11.2026 on that box: "take out the connector check here - it makes no sense" (a check could only prove READ;
+ * both shops have their key). Only a shop WITHOUT a key still says what an admin does, in three steps. */
+export function Connection({ envs }: { api?: StudioApi; envs: EnvState[] }) {
+  const noKey = envs.filter((e) => !e.key).map((e) => e.env);
+  return noKey.length ? <NoKeySteps envs={noKey} /> : null;
 }
 
 /** The three steps an admin takes to give the hub its key - the Magento menu path as its own short steps. */
