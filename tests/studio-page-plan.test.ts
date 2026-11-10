@@ -117,7 +117,7 @@ test("a canned plan is kept where it makes sense: library ids, real parts, place
   // the lines SARCLA reads: short, English, concrete
   assert.match(plan.steps[0].line, /^Add an? .+ before "Datenschutzerklärung an die…"$/);
   assert.ok(!/ uSP /.test(plan.steps[0].line));
-  assert.match(plan.steps[1].line, /^Add a .+ after "Cookie Policy"$/);
+  assert.match(plan.steps[1].line, /^Add (an? )?.+ after "Cookie Policy"$/);
 });
 
 test("beside a module the hub put: before the next part of the page's own, or at the end of the content", () => {
@@ -261,8 +261,8 @@ test("the question carries the page's parts, the shop's categories, the language
 test("stepLine says each kind of step plainly", () => {
   const map = pageMap(PAGE, view());
   const p2 = map.parts[1];
-  assert.match(stepLine({ do: "replace", module: cats().id, at: "P2", where: "", place: { how: "replace", selector: p2.selector } }, map.parts), /^Replace "Cookie Policy" with a /);
-  assert.match(stepLine({ do: "add", module: prod().id, at: "P2", where: "after", place: { how: "insert", selector: p2.selector, where: "after" } }, map.parts), /^Add a .+ after "Cookie Policy"$/);
+  assert.match(stepLine({ do: "replace", module: cats().id, at: "P2", where: "", place: { how: "replace", selector: p2.selector } }, map.parts), /^Replace "Cookie Policy" with (an? )?[a-z]/);
+  assert.match(stepLine({ do: "add", module: prod().id, at: "P2", where: "after", place: { how: "insert", selector: p2.selector, where: "after" } }, map.parts), /^Add (an? )?.+ after "Cookie Policy"$/);
 });
 
 

@@ -302,7 +302,12 @@ export function looksEnglish(s: string): boolean {
 /** "Product row" -> "product row"; "USP bar" stays (a short word in capitals is a name). */
 const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 /** "a" or "an" as it sounds: "an FAQ", "a USP bar", "an O-ring row" */
-const headNoun = (s: string) => (s.split(" of ")[0].trim().split(" ").pop() ?? "");
+/** The word a name is about: before its first "with", "over", "of"... ("Hero with three products" -> "Hero"); a name
+ * that starts with a number is plural ("Two banners side by side"). */
+const headNoun = (s: string) => {
+  if (/^(two|three|four|five|six|\d+)\b/i.test(s)) return "items";
+  return s.split(/\s+(?:with|over|beside|of|in|on|for|from|and|under|above|by|at|to|as)\s+/i)[0].trim().split(" ").pop() ?? "";
+};
 const article = (s: string) => (/[^su]s$/i.test(headNoun(s)) ? "" : /^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
 const withArticle = (s: string) => { const a = article(s); return a ? `${a} ${s}` : s; };
 const quoteOf = (p: PagePart | undefined): string => {
