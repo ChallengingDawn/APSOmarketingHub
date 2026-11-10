@@ -4,6 +4,7 @@
 //   warn   worth a look (a little over the room, no button target, one changing word, a hub picture on the shop)
 
 import { brandFlags, isHubPicture, mediaUrl } from "./brand";
+import { unreadable } from "./looks";
 import { PRESET, overLimits, sizesOf, wordsFor, type BannerDoc, type PresetKey } from "./model";
 
 export type Check = { level: "stop" | "warn"; text: string };
@@ -23,6 +24,11 @@ export function placeChecks(d: BannerDoc, k: PresetKey): Check[] {
     out.push({ level: far ? "stop" : "warn", text: `The ${FIELD[o.field]} is ${o.by} character${o.by === 1 ? "" : "s"} too long here${far ? "" : " - it may be cut"}. Give this place shorter words.` });
   }
   if (!w.headline) out.push({ level: "stop", text: "No headline yet." });
+  // can it be read (Content v7): every word against what it stands on - the page studio's readability sums (looks.ts)
+  for (const u of unreadable(d)) out.push({ level: "stop", text: u.text });
+  if (d.look === "photo" && picturesOf(d).length && (d.content.photos.length >= 2 ? d.content.photos[0] : d.content.image).fit === "product") {
+    out.push({ level: "warn", text: "A product photo on white reads better in another design - the photo behind the words wants a scene." });
+  }
   for (const f of brandFlags([w.eyebrow, w.headline, ...w.words, w.line, w.button].join("\n"))) out.push({ level: "stop", text: f });
   if (p.out === "html" && w.button && !w.url) out.push({ level: "warn", text: "The button goes nowhere - say where it leads." });
   if (p.motion && d.content.rotatingWords.filter((x) => x.trim()).length === 1) out.push({ level: "warn", text: "One changing word does not change - add another, or put it in the headline." });
