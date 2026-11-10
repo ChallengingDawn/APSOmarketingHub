@@ -167,3 +167,33 @@ test("otd: the morning lines' new columns - the ERP's own date at the customer, 
   assert.deepEqual(t.replen!.map((x) => x[0]), [0, 3]);
   assert.deepEqual(k.customers, [{ c: "100-7", company: "100", m: { "2026-10": [1, 1, 2] } }]);
 });
+
+test("otd: the customer's own transport days (otd_transport.csv) - after the ERP's own date and the shipping mode, before the country's", async () => {
+  const { transitOf } = await import("../src/lib/reporting/boErpLines");
+  const { parseTransport, transportOf } = await import("../src/lib/reporting/otdRules");
+  const days = parseTransport("customer;days\r\n100-7;3\r\n110-9;4\r\n110-x;\r\n110-y;abc\r\n110-z;-1\r\n\r\n");
+  assert.deepEqual([...days], [["100-7", 3], ["110-9", 4]]);
+  assert.throws(() => parseTransport("kunde;tage\n100-7;3"), /customer;days/);
+  const of = (c: string) => days.get(c);
+  assert.equal(transportOf({ country: "Italy", customer: "110-9" }, transitOf, of), 4);
+  assert.equal(transportOf({ country: "Italy", customer: "100-7" }, transitOf, of), 3); // Italy's table says 4
+  assert.equal(transportOf({ country: "Italy", customer: "110-new" }, transitOf, of), 4); // unknown -> the country's
+  assert.equal(transportOf({ country: "Italy", customer: "100-7", mode: "wird abgeholt" }, transitOf, of), 0);
+  assert.equal(transportOf({ country: "Liechtenstein", customer: "100-7", mode: "DHL" }, transitOf, of), 1);
+  const base = { company: "110", order: "A26.2.000", line: "10", source: "eShop", orderDay: "2026-09-01", status: "invoiced", shipDay: "2026-10-02",
+    country: "Italy", lineType: "Order", firstDay: "2026-10-07", confDay: "2026-10-07", article: "A1", artType: "Standard", pc: "DT" };
+  const r = fromErpLines([
+    { ...base, customer: "100-7" }, // Fri + 3 = Wed 07.10
+    { ...base, line: "20", customer: "100-new" }, // Fri + 4 (Italy) = Thu 08.10
+    { ...base, line: "30", customer: "100-7", deliveredDay: "2026-10-09" }, // the ERP's own date first
+    { ...base, line: "40", customer: "100-7", mode: "wird abgeholt" },
+  ], transitOf, undefined, undefined, of);
+  assert.deepEqual(r.lines.map((l) => l.atCustomer), ["2026-10-07", "2026-10-08", "2026-10-09", "2026-10-02"]);
+  assert.deepEqual(r.dated, { own: 1, mode: 1, customer: 1, country: 1 });
+  assert.equal(r.exactDays, 1);
+  // kept in the cube and through the merge with the file's
+  const k = buildOtdCube(r.lines, "erp", "2026-11-10");
+  k.dated = r.dated;
+  const file = buildOtdCube(parseHistory("company;order;line;source;orderDay;firstDay;confDay;shipDay;atCustomer;article;pc;supplier;planned;group;comment\n100;A25.1.000;10;eShop;2025-03-01;2025-03-10;2025-03-10;2025-03-07;2025-03-10;A1;DT;-;J;;0"), "file", "2026-11-10");
+  assert.deepEqual(mergeCubes(k, file)?.dated, r.dated);
+});

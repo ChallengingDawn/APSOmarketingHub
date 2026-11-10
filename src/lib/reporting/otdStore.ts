@@ -9,7 +9,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { buildOtdCube, fromErpLines, HISTORY_FILE, mergeCubes, otdMainOf, parseHistory, type OtdCube, type OtdMain } from "./otdRules";
+import { buildOtdCube, fromErpLines, HISTORY_FILE, mergeCubes, otdMainOf, parseHistory, parseTransport, TRANSPORT_FILE, type OtdCube, type OtdMain } from "./otdRules";
 import { transitOf, type ErpLine } from "./boErpLines";
 import { zurichToday } from "./boDeliveryStore";
 
@@ -18,6 +18,9 @@ export const KV_OTD_FILE = "otd:cube:file";
 /** the Back Office's share (otdMainOf), a few KB - kept apart so its page never reads the cubes */
 export const KV_OTD_MAIN = "otd:main";
 const KV_OTD_FILE_SEEN = "otd:history:seen";
+/** each customer's transport days (otd_transport.csv), kept so a run without the file - the first after a deploy - has them */
+const KV_OTD_TRANSPORT = "otd:transport";
+type TransportKept = { sig: string; at: string; days: Record<string, number> };
 
 export type OtdErpContext = {
   supplierOf?: (article: string) => string | undefined;
@@ -25,12 +28,15 @@ export type OtdErpContext = {
   planningOf?: (article: string) => [string, number] | undefined;
   /** customer -> its company's name and owner in HubSpot - asked for the customers kept only */
   customerOf?: (customer: string) => { name?: string; owner?: string };
+  /** customer -> its transport days in the ERP (otdTransport) */
+  customerDaysOf?: (customer: string) => number | undefined;
 };
 
 /** the morning lines -> the "erp" cube; nothing kept when no line qualifies */
 export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}): Promise<Record<string, unknown>> {
-  const { lines: otd, skipped, exactDays } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf);
+  const { lines: otd, skipped, exactDays, dated } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf, ctx.customerDaysOf);
   const k = buildOtdCube(otd, "erp", zurichToday());
+  k.dated = dated;
   for (const [w, n] of Object.entries(skipped)) k.skipped[w] = (k.skipped[w] ?? 0) + n;
   for (const c of k.customers ?? []) {
     const x = ctx.customerOf?.(c.c);
@@ -39,7 +45,7 @@ export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}):
   }
   if (k.lines) { await kvSet(KV_OTD_ERP, k); await saveMain(); }
   return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, suppliers: k.suppliers.length, kept: k.lines > 0,
-    erp_date_at_customer: exactDays, planned_known: otd.filter((l) => l.planned).length, wish_dates: otd.filter((l) => l.wishDay).length,
+    erp_date_at_customer: exactDays, dated, planned_known: otd.filter((l) => l.planned).length, wish_dates: otd.filter((l) => l.wishDay).length,
     customers_kept: k.customers?.length ?? 0, customers_named: (k.customers ?? []).filter((c) => c.name).length };
 }
 
@@ -56,6 +62,25 @@ export async function loadOtdHistory(dir: string): Promise<Record<string, unknow
   await kvSet(KV_OTD_FILE_SEEN, sig);
   await saveMain();
   return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, kept: true };
+}
+
+/** otd_transport.csv beside the morning workbook -> each customer's transport days; read again only when the file changes,
+ *  kept, so the runs without it still have them */
+export async function otdTransport(dir: string): Promise<{ days?: Map<string, number>; status: Record<string, unknown> | string }> {
+  const p = path.join(dir, TRANSPORT_FILE);
+  const st = await fs.stat(p).catch(() => null);
+  const kept = await kvGet<TransportKept>(KV_OTD_TRANSPORT).catch(() => null);
+  const keptDays = kept?.days ? new Map(Object.entries(kept.days)) : undefined;
+  if (st) {
+    const sig = `${st.size}:${st.mtimeMs}`;
+    if (kept?.sig !== sig) {
+      const days = parseTransport(await fs.readFile(p, "utf8"));
+      if (!days.size) return { days: keptDays, status: "transport file without a customer - the kept ones used" };
+      await kvSet(KV_OTD_TRANSPORT, { sig, at: new Date().toISOString(), days: Object.fromEntries(days) } satisfies TransportKept);
+      return { days, status: { customers: days.size, read: true } };
+    }
+  }
+  return keptDays ? { days: keptDays, status: { customers: keptDays.size, read: false, since: kept!.at } } : { status: "no transport file" };
 }
 
 async function saveMain() {

@@ -165,7 +165,11 @@ export type OtdCube = {
   customers?: OtdCustomer[];
   /** every supplier's lines over all months - for the "kept" list in the slices */
   suppliers: string[];
+  /** the morning lines: how their date at the customer was found (since 10.11.2026) */
+  dated?: Dated;
 };
+/** how many lines took the ERP's own date, the shipping mode's days, the customer's transport days, the country's */
+export type Dated = { own: number; mode: number; customer: number; country: number };
 
 const add = (t: Trio, late: boolean, d: number) => { t[0]++; if (late) t[1]++; t[2] += d; };
 
@@ -328,7 +332,8 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
   return {
     ...erp, from: `${erp.from}+${file.from}`, first: file.first < erp.first ? file.first : erp.first, lines: erp.lines + file.lines,
     promised: take(erp.promised, file.promised), delivered: take(erp.delivered, file.delivered),
-    articles: [...arts.values()], ...(erp.customers ? { customers: erp.customers } : {}), suppliers: [...new Set([...erp.suppliers, ...file.suppliers])],
+    articles: [...arts.values()], ...(erp.customers ? { customers: erp.customers } : {}), ...(erp.dated ? { dated: erp.dated } : {}),
+    suppliers: [...new Set([...erp.suppliers, ...file.suppliers])],
   };
 }
 
@@ -338,19 +343,27 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
  *  special articles, shipped (invoiced) with a first confirmed date - the Back Office's own choice of lines - every order
  *  source. The date at the customer: the shipment plus the ERP's transport time to the country. */
 /** the transport days of a line: none when the customer collects it, Liechtenstein by DHL in one day (the OTD analysis file's
- *  lines: 72 %), else the ERP's table per country */
-export function transportOf(l: { country: string; mode?: string }, transitOf: (country: string) => number): number {
-  if (/picked up|abgeholt|abholung/i.test(l.mode ?? "")) return 0;
-  if (l.country === "Liechtenstein" && /^dhl$/i.test((l.mode ?? "").trim())) return 1;
-  return transitOf(l.country);
+ *  lines: 72 %), else the customer's own transport time in the ERP where the hub has it (otd_transport.csv: the file's
+ *  Transport_time is one value per customer on every line - Italy 3 or 4 days, Austria 3 or 4, by the customer), else the
+ *  ERP's table per country */
+export function transportWhy(l: { country: string; mode?: string; customer?: string }, transitOf: (country: string) => number,
+  customerDaysOf?: (customer: string) => number | undefined): [number, "mode" | "customer" | "country"] {
+  if (/picked up|abgeholt|abholung/i.test(l.mode ?? "")) return [0, "mode"];
+  if (l.country === "Liechtenstein" && /^dhl$/i.test((l.mode ?? "").trim())) return [1, "mode"];
+  const own = l.customer ? customerDaysOf?.(l.customer) : undefined;
+  if (own != null) return [own, "customer"];
+  return [transitOf(l.country), "country"];
 }
+export const transportOf = (l: { country: string; mode?: string; customer?: string }, transitOf: (country: string) => number,
+  customerDaysOf?: (customer: string) => number | undefined): number => transportWhy(l, transitOf, customerDaysOf)[0];
 export function fromErpLines<L extends { company: string; order: string; line: string; source: string; orderDay: string; status: string;
   shipDay: string; country: string; lineType: string; firstDay: string; confDay: string; article: string; artType: string; pc: string;
   customer?: string; mode?: string; deliveredDay?: string; wishDay?: string }>(
   lines: Iterable<L>, transitOf: (country: string) => number, supplierOf?: (article: string) => string | undefined,
   planningOf?: (article: string) => [string, number] | undefined,
-): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number } {
-  let exactDays = 0;
+  customerDaysOf?: (customer: string) => number | undefined,
+): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number; dated: Dated } {
+  const dated: Dated = { own: 0, mode: 0, customer: 0, country: 0 };
   const out: OtdLine[] = [], skipped: Record<string, number> = {};
   const skip = (w: string) => { skipped[w] = (skipped[w] ?? 0) + 1; };
   for (const l of lines) {
@@ -363,21 +376,44 @@ export function fromErpLines<L extends { company: string; order: string; line: s
     // the ERP's own date at the customer where it has one (dim_order DeliveryDateCustomer: 97 % equal to the OTD analysis
     // file's on the lines that carry it), never before the shipment; else the shipment plus the transport days
     const own = l.deliveredDay && l.deliveredDay >= l.shipDay ? l.deliveredDay : "";
-    if (own) exactDays++;
+    let atCustomer = own;
+    if (own) dated.own++;
+    else {
+      const [days, why] = transportWhy(l, transitOf, customerDaysOf);
+      dated[why]++;
+      atCustomer = addWorkdays(l.shipDay, days);
+    }
     const plan = planningOf?.(l.article);
     out.push({
       company: l.company, order: l.order, line: l.line, source: l.source, orderDay: l.orderDay, firstDay: l.firstDay, confDay: l.confDay,
-      shipDay: l.shipDay, atCustomer: own || addWorkdays(l.shipDay, transportOf(l, transitOf)), article: l.article, st, pc: l.pc,
+      shipDay: l.shipDay, atCustomer, article: l.article, st, pc: l.pc,
       supplier: supplierOf?.(l.article) ?? "",
       ...(l.customer ? { customer: l.customer } : {}), ...(l.wishDay ? { wishDay: l.wishDay } : {}),
       ...(plan ? { planned: plan[0] === "J" ? "J" : plan[0] === "N" ? "N" : "", replen: plan[1] } : {}),
     });
   }
-  return { lines: out, skipped, exactDays };
+  return { lines: out, skipped, exactDays: dated.own, dated };
 }
 
 /** The OTD analysis file's lines, as the hub keeps them (otd_history.csv - made from the file's "Data Input" sheet, one
  *  line a row, ';' separated, the header first). Its profit centre from the assortment group; standard/special not in it. */
+/** The ERP's transport time of each customer, as the OTD analysis file's lines carry it (Transport_time, column R - one value
+ *  per customer, 100 % of its lines): otd_transport.csv "customer;days", the customer as the morning lines carry it
+ *  (CustomerNumberUnique, "100-704623"); dropped beside the morning workbook like otd_history.csv. */
+export const TRANSPORT_FILE = "otd_transport.csv";
+export function parseTransport(text: string): Map<string, number> {
+  const rows = text.split(/\r?\n/);
+  const head = rows[0]?.split(";").map((h) => h.trim().toLowerCase()) ?? [];
+  const ci = head.indexOf("customer"), di = head.indexOf("days");
+  if (ci < 0 || di < 0) throw new Error(`${TRANSPORT_FILE}: the header lacks customer;days`);
+  const out = new Map<string, number>();
+  for (let i = 1; i < rows.length; i++) {
+    const c = rows[i].split(";"), k = (c[ci] ?? "").trim(), v = (c[di] ?? "").trim(), d = Number(v);
+    if (k && v && Number.isInteger(d) && d >= 0 && d <= 30) out.set(k, d);
+  }
+  return out;
+}
+
 export const HISTORY_FILE = "otd_history.csv";
 export const HISTORY_COLS = ["company", "order", "line", "source", "orderDay", "firstDay", "confDay", "shipDay", "atCustomer", "article", "pc",
   "supplier", "planned", "group", "comment"] as const;
