@@ -20,6 +20,7 @@ import { lookOf, type Look } from "@/lib/content/studio/kinds/page/readable";
 import { headKey, sectionLevels, type Located } from "@/lib/content/studio/kinds/page/shopParts";
 import type { FoundBlock } from "@/lib/content/studio/kinds/page/blocklist";
 import { drawPending, flashEl, shownWhy, stepElement, type Flash, type Pending } from "./plan/overlay";
+import { ResizeLayer, type ResizeSpec } from "./Resize";
 
 export type Device = "desktop" | "mobile";
 export const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, mobile: 390 };
@@ -100,6 +101,8 @@ export type SelectOpts = {
   selectedBlock?: string | null;
   /** a double-click started editing words in place (the text popup gives way) */
   onEditStart?: () => void;
+  /** Content v10 (SARCLA point 5): what a drag resizes where the selection is - its handle drawn over the page */
+  resize?: ResizeSpec | null;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -432,6 +435,8 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
         key: `nt:${inMod.getAttribute("data-apx-mod")}:${pathFrom(inMod, el).join(".")}`, selector: "", tag: el.tagName.toLowerCase(), text: text.slice(0, 4000),
         inner: clean.innerHTML.slice(0, 20_000), outer: clean.outerHTML.slice(0, 20_000), frag: null, host: null, editable: !!text && !el.querySelector("img,video,iframe,table"),
         href: el.closest("a")?.getAttribute("href") ?? undefined,
+        // Content v10: the ground it stands on, for the text popup's colours
+        ...(() => { try { const win = el.ownerDocument.defaultView as (Window & typeof globalThis) | null; return win ? { look: lookOf(el, win) } : {}; } catch { return {}; } })(),
       };
     }
     const f = el.getAttribute("data-apx-f");
@@ -562,6 +567,10 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     const blockKey = sel.current?.selectedBlock ?? null;
     if (blockKey && blockKey !== sel.current?.selected) { const be = findSelected(d, blockKey); be?.setAttribute("data-apx-selblock", ""); }
     const el = findSelected(d, sel.current?.selected ?? null);
+    // Content v10 (point 4): questions all closed - the one selected opens, as a click opens it on the shop
+    d.querySelectorAll("details[data-apx-opened]").forEach((x) => { if (!el || !x.contains(el)) { x.removeAttribute("open"); x.removeAttribute("data-apx-opened"); } });
+    const det = el?.closest("details");
+    if (det && !det.hasAttribute("open")) { det.setAttribute("open", ""); det.setAttribute("data-apx-opened", ""); }
     if (!el) { setSelRect(null); return; }
     el.setAttribute("data-apx-sel", "");
     const r = el.getBoundingClientRect();
@@ -946,6 +955,10 @@ ${SELECT_CSS}`;
         <iframe ref={frame} title={title} srcDoc={hubAbsolute(shown)} sandbox="allow-same-origin"
           style={{ width: w, height, border: 0, transform: `scale(${zoom})`, transformOrigin: "0 0", display: "block", background: "#fff" }} />
       </Box>
+      {select?.resize && selRect && select.selected && !mobile && dev && (
+        <ResizeLayer spec={select.resize} doc={docOf()} frame={frame.current} zoom={zoom} origin={{ left: dev.offsetLeft + border, top: dev.offsetTop + border }}
+          tick={`${selRect.x},${selRect.y},${selRect.w},${selRect.h},${height},${loaded},${avail}`} />
+      )}
       {toolbar && selRect && select?.selected && (
         <Box ref={tbBox} sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - tbW - 4) : tbLeft), top: Math.max(0, tbTop), zIndex: 3, whiteSpace: "nowrap" }}>{toolbar}</Box>
       )}

@@ -13,6 +13,7 @@
 // The readability guard of Content v6 (./readable.ts, WCAG) still applies: a colour that cannot be read on its ground is
 // FLAGGED before it is put on the page (readCheck), never applied silently.
 
+import type { Fields, Look } from "./fields";
 import { contrast, parseColor, type Rgba } from "./readable";
 
 /* ── the palette ──────────────────────────────────────────────────────── */
@@ -85,7 +86,8 @@ export type ReadCheck = {
   why: string;
 };
 
-const nameOf = (hex: string) => { const p = PALETTE.find((s) => s.hex === hex); return p ? `${p.label.toLowerCase()} ${hex}` : hex; };
+const GROUND_NAME: Record<string, string> = { "#f2f4f5": "light grey", "#f7f2ea": "sand", "#f3f4f5": "light grey" };
+const nameOf = (hex: string) => { const p = PALETTE.find((s) => s.hex === hex); const n = p ? p.label.toLowerCase() : GROUND_NAME[hex]; return n ? `${n} ${hex}` : hex; };
 
 /**
  * A colour on its grounds (one or several, a gradient's stops): ok when it reads on every one - WCAG's 4.5:1, 3:1 for
@@ -246,17 +248,18 @@ export function buttonCheck(b: ButtonLook, fallback: string, grounds: string[]):
 /* ── a compact string of a look (a module's `extra` holds words only) ─── */
 
 /** A look kept as one short string ("c=#274e64;z=l;w=b;i=1;u=1;a=center;s=outline;r=0;t=1") - a module's `extra` value. */
-export function packLook(l: TextLook & ButtonLook & { size?: string }): string {
+export function packLook(look: TextLook | ButtonLook): string {
+  const l = look as Record<string, unknown>;
   const parts: string[] = [];
   if (l.color) parts.push(`c=${l.color}`);
   if (l.size) parts.push(`z=${l.size}`);
-  if ((l as TextLook).weight) parts.push(`w=${(l as TextLook).weight === "bold" ? "b" : "r"}`);
-  if ((l as TextLook).italic) parts.push("i=1");
-  if ((l as TextLook).underline) parts.push("u=1");
-  if ((l as TextLook).align) parts.push(`a=${(l as TextLook).align}`);
-  if ((l as ButtonLook).style) parts.push(`s=${(l as ButtonLook).style}`);
-  if (typeof (l as ButtonLook).arrow === "boolean") parts.push(`r=${(l as ButtonLook).arrow ? 1 : 0}`);
-  if ((l as ButtonLook).tab) parts.push("t=1");
+  if (l.weight) parts.push(`w=${l.weight === "bold" ? "b" : "r"}`);
+  if (l.italic) parts.push("i=1");
+  if (l.underline) parts.push("u=1");
+  if (l.align) parts.push(`a=${l.align}`);
+  if (l.style) parts.push(`s=${l.style}`);
+  if (typeof l.arrow === "boolean") parts.push(`r=${l.arrow ? 1 : 0}`);
+  if (l.tab) parts.push("t=1");
   return parts.join(";");
 }
 
@@ -277,4 +280,63 @@ export function unpackLook(s: unknown): Record<string, unknown> {
     else if (k === "t") o.tab = v === "1";
   }
   return o;
+}
+
+/* ── a new page's field: its look as the fields keep it (./fields.ts Look) ── */
+
+/** A new page's text look as the popup shows it. */
+export function textLookOfField(l: Look | undefined): TextLook {
+  const x = l ?? {};
+  return cleanTextLook({ color: x.hex ?? x.color, size: x.size, weight: x.weight, italic: x.italic, underline: x.underline, align: x.align });
+}
+
+/** The popup's text look as a patch of a new page's look (every key set, so what is unset is cleared). */
+export function fieldPatchOf(t: TextLook): Partial<Look> {
+  const hex = t.color && t.color.startsWith("#") ? t.color : undefined;
+  return {
+    color: hex ? undefined : (t.color as Look["color"]), hex, size: t.size, weight: t.weight,
+    italic: t.italic || undefined, underline: t.underline || undefined, align: t.align,
+  };
+}
+
+/** A new page's button look as the popup shows it (a page from before: its red / petrol / outline). */
+export function buttonLookOfField(l: Look | undefined): ButtonLook {
+  const x = l ?? {};
+  return cleanButtonLook({
+    style: x.style ?? (x.button === "outline" ? "outline" : "filled"), color: x.hex ?? x.color ?? (x.button === "petrol" ? "petrol" : undefined),
+    size: x.bsize, arrow: x.arrow, tab: x.tab,
+  });
+}
+
+/** The popup's button look as a patch of a new page's look (its old red / petrol / outline cleared). */
+export function fieldButtonPatchOf(b: ButtonLook): Partial<Look> {
+  const hex = b.color && b.color.startsWith("#") ? b.color : undefined;
+  return {
+    button: undefined, style: b.style, color: hex ? undefined : (b.color as Look["color"]), hex,
+    bsize: b.size === "s" || b.size === "l" ? b.size : undefined, arrow: b.arrow === false ? false : undefined, tab: b.tab || undefined,
+  };
+}
+
+const NP_DEFAULT_BG: Record<string, string> = { hero: "grey", cta: "petrol" };
+
+/** The ground a new page's field stands on (its block's background, a tile's card) - for the readability guard. */
+export function groundOfField(f: Pick<Fields, "looks" | "sections">, path: string): string[] {
+  const p = path.split(".");
+  const bg = (k: string, fallback = "white") => GROUND[f.looks[k]?.bg ?? NP_DEFAULT_BG[k] ?? fallback] ?? GROUND.white;
+  if (p[0] === "hero" || p[0] === "cta" || p[0] === "faq" || p[0] === "links") return [bg(p[0])];
+  if (p[0] === "faqTitle") return [bg("faq")];
+  if (p[0] === "linksTitle") return [bg("links")];
+  if (p[0] === "intro") return [bg("intro-block")];
+  if (p[0] === "benefitsTitle") return [bg("benefits")];
+  if (p[0] === "benefits") return [bg("benefits") === GROUND.white ? GROUND.grey : GROUND.white];
+  if (p[0] === "sections" && p[1]) {
+    const i = f.sections.findIndex((s) => s.id === p[1]);
+    return [bg(`sections.${p[1]}`, i % 2 ? "grey" : "white")];
+  }
+  return [GROUND.white];
+}
+
+/** The grounds a page's element was measured on ("#274e64 to #ffffff", "a picture") as codes - none for a picture. */
+export function groundsOfLook(ground: string | undefined): string[] {
+  return [...String(ground ?? "").matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toLowerCase());
 }

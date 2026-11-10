@@ -44,6 +44,11 @@ import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
 import { PopCard } from "../pops";
 import type { ModulesCtl } from "./useModules";
+import { ButtonLookBox } from "../Look";
+import { SwitchList } from "../Switch";
+import { FAMILY_WORDS, compatibleModules, familyOf, questionsToggle } from "@/lib/content/studio/kinds/page/modules/switch";
+import { BUTTON_LOOK_KEY, buttonLookOf, openOf } from "@/lib/content/studio/kinds/page/modules/looks";
+import { packLook, type ButtonLook } from "@/lib/content/studio/kinds/page/style";
 
 type Way = "category" | "bought" | "viewed" | "numbers" | "ai";
 type TreeNode = { name: string; url: string; img: string; children: TreeNode[] };
@@ -54,8 +59,12 @@ const GREEN = "#1e7d4f";
 const AMBER = "#a96a12";
 const FILLING = "Filling it from the shop…";
 
-export function ModulePanel({ ctl, api, onBack, pageCategory, pop }: {
+export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top }: {
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
+  /** Content v10 (point 4): the module made another of its family (the studio keeps the Undo) - else the library's own swap */
+  onSwitch?: (type: string) => void;
+  /** shown first in the panel (the bar over a module just switched) */
+  top?: React.ReactNode;
   /** the page itself, when it is a category page of the shop - what "Most viewed / bought" and the AI look in first */
   pageCategory: { name: string; url: string } | null;
   /** Content v8: the settings popup beside the module in the page - its number in the list ("Block 3") */
@@ -276,11 +285,14 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop }: {
   const status = busy ? { tone: PINK, text: busy } : lost ? { tone: "#c5221f", text: `Not on the page: ${lost.charAt(0).toLowerCase()}${lost.slice(1)}` }
     : gap ? { tone: AMBER, text: `Not on the page yet - ${gap.charAt(0).toLowerCase()}${gap.slice(1)}. It shows as a grey outline until then.` }
     : { tone: GREEN, text: cur?.replace ? "On the page, in place of the element it replaces" : "On the page" };
-  const siblings = modulesIn(k.category).filter((d) => d.id !== k.id && d.takes === k.takes && (k.takes !== "categories" || d.kids === k.kids));
+  // Content v10 (point 4): every module of the library holding the same kind of content, its own category first
+  const compatible = compatibleModules(m);
+  const family = familyOf(k);
 
   return (
     <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"} pop={pop}
       right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
+      {top}
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
         {busy ? <CircularProgress size={12} sx={{ color: PINK, mt: 0.4, flexShrink: 0 }} /> : <Box sx={{ width: 8, height: 8, mt: 0.65, borderRadius: "2px", bgcolor: status.tone, flexShrink: 0 }} />}
         <Typography sx={{ fontSize: "0.8rem", color: status.tone, fontWeight: 600, flex: 1, lineHeight: 1.4 }}>{status.text}</Typography>
@@ -374,23 +386,18 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop }: {
         </>
       )}
 
-      {ctl.canEdit && siblings.length > 0 && (
+      {questionsToggle(m.type) && (
         <>
-          <Label>Other looks in {categoryOf(k.category)?.name ?? "its category"}</Label>
-          <Hint mt={0}>The same words and {k.takes === "none" ? "picture" : k.takes}, another module.</Hint>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 0.75, mt: 0.75 }}>
-            {siblings.slice(0, 9).map((d) => (
-              <Tooltip key={d.id} title={d.name}>
-                <Box component="button" type="button" onClick={() => { flush(); ctl.swapType(d.id); }} aria-label={`Make it a ${d.name}`} sx={{
-                  all: "unset", cursor: "pointer", borderRadius: "6px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", aspectRatio: "16 / 10",
-                  display: "grid", placeItems: "center", "&:hover": { borderColor: PINK }, "&:focus-visible": { outline: `2px solid ${PINK}`, outlineOffset: 1 },
-                }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={thumbOf(d.id)} alt="" loading="lazy" style={{ display: "block", maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
-                </Box>
-              </Tooltip>
-            ))}
-          </Box>
+          <Label>The questions</Label>
+          <Choice value={openOf(m) ? "open" : "closed"} onChange={(v) => set({ extra: { ...s.extra, open: v === "open" ? "1" : "0" } }, v === "open" ? "Opened all the questions" : "Closed all the questions", true)}
+            options={[{ key: "closed", label: "All closed (each opens on a click)", disabled: !ctl.canEdit }, { key: "open", label: "All open", disabled: !ctl.canEdit }]} />
+        </>
+      )}
+
+      {ctl.canEdit && compatible.length > 0 && family && (
+        <>
+          <Label>Change it into another module</Label>
+          <SwitchList options={compatible} keeps={FAMILY_WORDS[family]} onPick={(id) => { flush(); if (onSwitch) onSwitch(id); else ctl.swapType(id); }} />
         </>
       )}
       <Hint mt={1.5}>{k.from ? `From the ${k.from}. ` : ""}One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>
@@ -425,6 +432,12 @@ function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
     if (f.kind === "link" || f.kind === "link2") {
       out.push(<Label key={`${f.kind}l`}>{f.label ?? (f.kind === "link" ? "Button" : "Second button")}</Label>);
       out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
+      // Content v10 (point 3): its look - style, colour, size, arrow, new tab - kept in the module's settings
+      if (canEdit && s[f.kind].label.trim()) {
+        const key = BUTTON_LOOK_KEY[f.kind];
+        out.push(<ButtonLookFold key={`${f.kind}look`} value={buttonLookOf(m, f.kind)} fallback={f.kind === "link" ? "red" : "petrol"} arrowDefault={f.kind === "link"}
+          onChange={(next, label) => { const extra = { ...s.extra }; const p = packLook(next); if (p) extra[key] = p; else delete extra[key]; set({ extra }, label, true); }} />);
+      }
     }
     if (f.kind === "feature") {
       out.push(<Label key="fl">{f.label ?? "Picture"}</Label>);
@@ -585,6 +598,19 @@ function ItemList({ items, canEdit, onMove, onDrop }: { items: Card[]; canEdit: 
           )}
         </Box>
       ))}
+    </Box>
+  );
+}
+
+/** A button's look, folded under its words and page until opened (Content v10). */
+function ButtonLookFold({ value, onChange, fallback, arrowDefault }: { value: ButtonLook; onChange: (next: ButtonLook, label: string) => void; fallback: string; arrowDefault: boolean }) {
+  const [open, setOpen] = useState(false);
+  const changed = Object.keys(value).length > 0;
+  return (
+    <Box sx={{ mt: 0.75 }}>
+      <Button size="small" onClick={() => setOpen((x) => !x)} endIcon={<ChevronRightIcon sx={{ fontSize: 16, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }} />}
+        sx={{ ...btn, px: 0.5, fontSize: "0.78rem", color: changed ? PINK : MUTED }}>Its look{changed ? " · changed" : ""}</Button>
+      {open && <Box sx={{ mt: 0.75, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", bgcolor: "#fbfcfd" }}><ButtonLookBox value={value} onChange={onChange} grounds={[]} fallback={fallback} arrowDefault={arrowDefault} /></Box>}
     </Box>
   );
 }

@@ -299,7 +299,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   /** a popup at the selection: a text's or a picture's editor, a block's settings (./pops.tsx) */
   popup?: { node: React.ReactNode; at: "below" | "side"; width?: number; id?: string } | null;
   /** the Build list's ways into the page: the blocks found, a row to find, the block around the selection, a double-click */
-  blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart">;
+  blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart" | "resize">;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
