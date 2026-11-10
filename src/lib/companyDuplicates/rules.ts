@@ -32,6 +32,12 @@ export type Company = {
   address: string | null;
   unique: string | null;
   phone: string | null;
+  /** the last order (Last Order Date), the Compass year when there is no date; the revenue this year to date and last
+   *  year to the same day (EUR, the hub's ERP figures) */
+  lastOrder: string | null;
+  lastYear: number | null;
+  revenue: number;
+  revenuePy: number;
 };
 
 export type RawCompany = { id: string; properties: Record<string, string | null | undefined> };
@@ -39,6 +45,7 @@ export type RawCompany = { id: string; properties: Record<string, string | null 
 export const READ_PROPS = [
   "name", "domain", "website", "erp_customer_id", "mandant", "createdate", "zip", "city", "country_custom", "country",
   "hubspot_owner_id", "num_associated_deals", "num_associated_contacts", "hs_merged_object_ids", "address", "company_unique_number", "phone",
+  "order_last_order_date", "compass_last_order_year", "erp_rev_ytd_cy", "erp_rev_ytd_py",
 ];
 
 const nz = (v: string | null | undefined) => {
@@ -84,6 +91,8 @@ export function toCompany(r: RawCompany): Company {
     mandant: nz(p.mandant), createdate: nz(p.createdate), zip: nz(p.zip), city: nz(p.city), country: nz(p.country_custom) ?? nz(p.country),
     owner: nz(p.hubspot_owner_id), deals: Number(p.num_associated_deals) || 0, contacts: Number(p.num_associated_contacts) || 0,
     address: nz(p.address), unique: nz(p.company_unique_number), phone: nz(p.phone),
+    lastOrder: nz(p.order_last_order_date), lastYear: Number(p.compass_last_order_year) || null,
+    revenue: Math.round(Number(p.erp_rev_ytd_cy) || 0), revenuePy: Math.round(Number(p.erp_rev_ytd_py) || 0),
   };
 }
 
@@ -96,12 +105,21 @@ export type Rules = {
   place: { on: boolean };
   /** the same website, in one country; `otherNames`: also when the names differ (a sister company, often) */
   website: { on: boolean; otherNames: boolean };
+  /** the same name, postcode AND website, at most one customer number: merged by the hub once Live (SARCLA 10.11.2026:
+   *  "everything is the same - if there is no ERP number it's a definite merge; can we automate?") */
+  both: { autoMerge: boolean };
 };
 export const DEFAULT_RULES: Rules = {
   erp: { on: true, autoMerge: true, maxGroup: 4 },
   place: { on: true },
   website: { on: true, otherNames: true },
+  both: { autoMerge: true },
 };
+
+/** A possible group the hub merges by itself once Live: the same name, postcode and website, at most one customer number
+ *  (a possible group never has two), not more companies than the rule allows. */
+export const autoBoth = (g: Group, rules: Rules) =>
+  g.kind === "possible" && rules.both.autoMerge && g.shared.includes("place") && g.shared.includes("website") && g.members.length <= rules.erp.maxGroup;
 
 export type Shared = "erp" | "place" | "website";
 export type Group = {

@@ -47,7 +47,7 @@ import { Chip, Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Backfill, LastRun, Mode, Settings } from "@/lib/ticketAssoc/run";
 import type { AlertMode, AlertRow, AlertRun } from "@/lib/ticketAssoc/orderAlerts";
 import type { ContactRow, ContactTotals, ContactsMode, ContactsRun } from "@/lib/ticketAssoc/contacts";
-import { ShopAccountsTab } from "./ShopAccounts";
+
 import { NoCompanyTab } from "./NoCompany";
 import { GqsFollowUpsTab } from "./GqsFollowUps";
 import type { GqsMode } from "@/lib/ticketAssoc/gqsType";
@@ -69,10 +69,11 @@ type Data = {
   contacts: { rows: ContactRow[]; totals: ContactTotals }; lastContacts: ContactsRun | null;
   last: { preview: LastRun | null; live: LastRun | null }; everyMinutes: number; admin: boolean;
 };
-type View = "overview" | "articles" | "orders" | "contacts" | "shop" | "nocompany" | "gqs" | "alerts" | "settings";
-const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", shop: "#shop-accounts", nocompany: "#no-company", gqs: "#gqs-follow-ups", alerts: "#alerts", settings: "#settings" };
+// "Contacts without a company" (#shop-accounts) moved to Duplicates & merges > Contacts (SARCLA 10.11.2026)
+type View = "overview" | "articles" | "orders" | "contacts" | "nocompany" | "gqs" | "alerts" | "settings";
+const VIEW_HASH: Record<View, string> = { overview: "#overview", articles: "#articles", orders: "#orders", contacts: "#contacts", nocompany: "#no-company", gqs: "#gqs-follow-ups", alerts: "#alerts", settings: "#settings" };
 /** The tabs with their own read - no period, no pipeline filter. */
-const OWN_READ: View[] = ["settings", "shop", "nocompany", "gqs"];
+const OWN_READ: View[] = ["settings", "nocompany", "gqs"];
 const PIPE: Record<string, string> = { BO: "Back Office", ESO: "ESO", TSA: "TSA", SPR: "Special Prices", PM: "Product Management" };
 const WHY: Record<string, string> = { new: "new", stage: "moved stage", retry: "asked again" };
 const FIELD: Record<string, string> = { order_number: "order number", articles_on_the_ticket: "articles", c2s_ticket: "C2S" };
@@ -631,9 +632,7 @@ export default function TicketAssociations() {
   const r = held.result;
 
   let body: React.ReactNode;
-  // the shop accounts have their own read - not the period's tickets (SARCLA 19.10)
-  if (view === "shop") body = <Box id="ticketassoc-panel-shop" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ShopAccountsTab /></Box>;
-  else if (view === "nocompany") body = <Box id="ticketassoc-panel-nocompany" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><NoCompanyTab /></Box>;
+  if (view === "nocompany") body = <Box id="ticketassoc-panel-nocompany" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><NoCompanyTab /></Box>;
   else if (view === "gqs") body = <Box id="ticketassoc-panel-gqs" role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><GqsFollowUpsTab /></Box>;
   else if (r === null) body = <LoadingPanel label="Reading the tickets the hub linked…" />;
   else if (r.state !== "ok") body = <UpstreamPanel source="Associations" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
@@ -665,7 +664,6 @@ export default function TicketAssociations() {
           { id: "articles", label: "Articles", count: null },
           { id: "orders", label: "Orders", count: r?.state === "ok" && r.data.totals.order_tickets ? full(r.data.totals.order_tickets) : null },
           { id: "contacts", label: "Contacts & companies", count: r?.state === "ok" && r.data.contacts.totals.with_contact ? full(r.data.contacts.totals.with_contact) : null },
-          { id: "shop", label: "Contacts without a company", count: null },
           { id: "nocompany", label: "No company", count: null },
           { id: "gqs", label: "GQS follow-ups", count: null },
           { id: "alerts", label: "Order alerts", count: r?.state === "ok" && r.data.alerts.length ? full(r.data.alerts.length) : null },

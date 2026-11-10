@@ -8,7 +8,7 @@
 // customer number: merged by the hub once Live; possible duplicates: a person's Merge or Not duplicates); Left alone;
 // Decisions; Settings.
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Button from "@mui/material/Button";
@@ -51,6 +51,8 @@ import type { LogEntry, Mode, RunInfo, Settings, Snapshot } from "@/lib/companyD
 import type { Company, Group, MergeEvent, Rules } from "@/lib/companyDuplicates/rules";
 import { DupToggle } from "../DupToggle";
 import { GroupTable } from "./GroupTable";
+import { Decide, Decisions, useDecisionState } from "./decide";
+import { PerformisView } from "./Performis";
 import { KIND_LABEL, cap, dmy, kindOf, link, numberText, place, type Kind } from "./parts";
 
 type Merge = MergeEvent & { name: string };
@@ -72,40 +74,6 @@ async function send(method: "PUT" | "POST", body: object): Promise<Answer> {
   return (await r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }))) as Answer;
 }
 
-// ---------------------------------------------------------------- a person's decision on a group
-
-/** What a person decided on a group - shown at once, the next read confirms. */
-const Done = createContext<{ done: Record<string, string>; mark: (key: string, text: string) => void; admin: boolean; again: () => void }>({ done: {}, mark: () => {}, admin: false, again: () => {} });
-function Decide({ g }: { g: Group }) {
-  const { done, mark, admin, again } = useContext(Done);
-  const [busy, setBusy] = useState<"merge" | "apart" | null>(null);
-  if (done[g.key]) return <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 700, color: done[g.key].startsWith("Could not") ? RED : "#1f8a4c" }}>{done[g.key]}</Typography>;
-  if (!admin) return <Typography component="span" sx={{ fontSize: "0.76rem", color: FAINT }}>an admin decides</Typography>;
-  const keep = g.members.find((c) => c.id === g.into);
-  const go = async (action: "merge" | "apart") => {
-    const others = g.members.filter((c) => c.id !== g.into).map((c) => `- ${c.name} (${numberText(c)}, ${place(c)})`).join("\n");
-    const ask = action === "merge"
-      ? `Merge into ${keep?.name} (${keep ? `${numberText(keep)}, ${place(keep)}` : ""})?\n\n${others}\n\nIts deals, contacts, tickets and orders go with it. A merge cannot be undone in HubSpot.`
-      : `Keep these ${g.members.length} companies apart for good?\n\nThey will not be shown again.`;
-    if (!window.confirm(ask)) return;
-    setBusy(action);
-    try {
-      const j = await send("POST", { action, key: g.key });
-      mark(g.key, j.ok ? (action === "merge" ? "Merged" : "Kept apart") : `Could not: ${j.error ?? "failed"}`);
-      if (j.ok) again();
-    } finally { setBusy(null); }
-  };
-  return (
-    <Box component="span" sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-      <Button size="small" variant="contained" disableElevation disabled={!!busy} onClick={() => void go("merge")} sx={{ textTransform: "none", minWidth: 0, px: 1.2, py: 0.2, fontSize: "0.76rem" }}>
-        {busy === "merge" ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : "Merge"}
-      </Button>
-      <Button size="small" variant="outlined" disabled={!!busy} onClick={() => void go("apart")} sx={{ textTransform: "none", minWidth: 0, px: 1.2, py: 0.2, fontSize: "0.76rem" }}>
-        {busy === "apart" ? <CircularProgress size={12} /> : "Not duplicates"}
-      </Button>
-    </Box>
-  );
-}
 const decideCell = (g: Group) => <Decide g={g} />;
 
 /** A figure's groups in the table, in a window over the page. */
@@ -287,7 +255,7 @@ function NumberTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         {msg && <Typography sx={{ ...small, color: MUTED, mt: 1 }}>{msg}</Typography>}
       </GlassCard>
       <GroupTable title="The same customer number, now" hint={`From the read of ${d.snapshot ? dayTime(d.snapshot.at) : "—"} - the company marked keeps, the others go into it`}
-        groups={f?.sure ?? []} file="same-customer-number" icon={<VerifiedOutlinedIcon />} decide={decideCell} />
+        groups={f?.sure ?? []} file="same-customer-number" icon={<VerifiedOutlinedIcon />} decide={decideCell} review />
     </>
   );
 }
@@ -295,20 +263,26 @@ function NumberTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
 function PossibleTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const r = d.settings.rules, f = d.snapshot?.found;
   const { busy, msg, save } = useSave(onSaved);
+  const BOTH_ASK = "Let the hub merge the same name, postcode and website by itself?\n\nOnce Live, every hour: companies with all three the same and at most one customer number merged into the company with the number (else the oldest) - at most 40 groups a read. A merge cannot be undone in HubSpot.";
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
         <CardTitle icon={<RuleOutlinedIcon />} tint="purple" title="The rules" note="Never two customer numbers (a group's companies), never one website in two countries (its sites) - those are under Left alone. Merge puts the others into the company with the customer number, else the oldest" />
         <Grid container spacing={1.5}>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={{ xs: 12, md: 6, lg: 3 }}>
+            <SwitchRow title="Name, postcode and website: merge by itself" checked={r.both.autoMerge} disabled={!d.admin || busy} onChange={(v) => void save({ rules: { both: { autoMerge: v } } }, v ? BOTH_ASK : undefined)}
+              chips={merging(d) && r.both.autoMerge ? <Chip tint="pink">LIVE</Chip> : undefined}
+              text={`All three the same and at most one customer number: merged into the company with the number, else the oldest - every company read again first, ${f ? full(f.possible.filter((g) => g.shared.length > 1).length) : "—"} groups now. Off: they wait here for a click.`} />
+          </Grid>
+          <Grid size={{ xs: 12, md: 6, lg: 3 }}>
             <SwitchRow title="The same name at the same postcode" checked={r.place.on} disabled={!d.admin || busy} onChange={(v) => void save({ rules: { place: { on: v } } })}
               text='In one country, the names compared without legal forms, accents and signs - "Huwyler Klima AG" is "HUWYLER KLIMA".' />
           </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={{ xs: 12, md: 6, lg: 3 }}>
             <SwitchRow title="The same website" checked={r.website.on} disabled={!d.admin || busy} onChange={(v) => void save({ rules: { website: { ...r.website, on: v } } })}
               text="The company's domain, never a mail provider's (gmail, bluewin, gmx …) or ours." />
           </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
+          <Grid size={{ xs: 12, md: 6, lg: 3 }}>
             <SwitchRow title="Also when the names differ" checked={r.website.otherNames} disabled={!d.admin || busy || !r.website.on} onChange={(v) => void save({ rules: { website: { ...r.website, otherNames: v } } })}
               text="The same website under another name - often a sister company or a brand: look before merging." />
           </Grid>
@@ -316,16 +290,30 @@ function PossibleTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
         {msg && <Typography sx={{ ...small, color: MUTED, mt: 1 }}>{msg}</Typography>}
       </GlassCard>
       <GroupTable title="Possible duplicates" hint={`The strongest first - filter, order, choose the columns, download what you filtered.${d.admin ? "" : " An admin decides."}`}
-        groups={f?.possible ?? []} file="possible-company-duplicates" icon={<HourglassEmptyOutlinedIcon />} decide={decideCell} />
+        groups={f?.possible ?? []} file="possible-company-duplicates" icon={<HourglassEmptyOutlinedIcon />} decide={decideCell} review />
     </>
   );
 }
 
 function LeftTab({ d }: { d: Data }) {
   const f = d.snapshot?.found;
+  const [view, setView] = useState<"left" | "performis">("left");
   if (!f) return <Info>After the first read.</Info>;
+  const toggle = (
+    <Box role="tablist" aria-label="Left alone or Performis" sx={{ display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, p: 0.5, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(21,34,58,.03)", width: { xs: "100%", sm: 520 } }}>
+      {([["left", "Left alone", "What the rules keep apart"], ["performis", "Performis", "One company, several customer numbers - new titles"]] as const).map(([k, label, note]) => (
+        <Box key={k} component="button" type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
+          sx={{ all: "unset", cursor: "pointer", px: 1.5, py: 0.9, borderRadius: "9px", bgcolor: view === k ? "#fff" : "transparent", boxShadow: view === k ? "0 1px 3px rgba(21,34,58,.12)" : "none", "&:hover": { bgcolor: view === k ? "#fff" : "rgba(21,34,58,.05)" } }}>
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: view === k ? INK : MUTED }}>{label}</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{note}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+  if (view === "performis") return <>{toggle}<PerformisView /></>;
   return (
     <>
+      {toggle}
       <Tiles items={[
         { label: "A group's companies", value: f.counts.families, icon: <AccountTreeOutlinedIcon />, tint: "slate", note: "the same name or website, two customer numbers or more - never merged" },
         { label: "Sites in two countries", value: f.counts.sites, icon: <PublicOutlinedIcon />, tint: "slate", note: "one website, companies in different countries" },
@@ -454,14 +442,13 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
 export default function CompanyDuplicates() {
   const [tab, setTab] = useHashTab<TabId>(TAB_HASH, "overview");
   const [n, setN] = useState(0);
-  const [done, setDone] = useState<Record<string, string>>({});
   const { window: win } = useReportingWindow();
   const url = `/api/uc/company-duplicates?from=${win.from}&to=${win.to}${n ? `&n=${n}` : ""}`;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
   const again = useCallback(() => setN((x) => x + 1), []);
   const d = r?.state === "ok" ? r.data : null;
-  const ctx = useMemo(() => ({ done, mark: (key: string, text: string) => setDone((x) => ({ ...x, [key]: text })), admin: !!d?.admin, again }), [done, d?.admin, again]);
+  const ctx = useDecisionState(!!d?.admin, again);
   let body: React.ReactNode;
   if (r === null) body = <LoadingPanel label="Reading the companies…" />;
   else if (r.state !== "ok" || !d) body = <UpstreamPanel source="Duplicates & merges" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={again} />;
@@ -473,7 +460,7 @@ export default function CompanyDuplicates() {
   else body = <Overview d={d} />;
   const f = d?.snapshot?.found;
   return (
-    <Done.Provider value={ctx}>
+    <Decisions.Provider value={ctx}>
       <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
         <PageHeader
           title="Duplicates & merges"
@@ -500,6 +487,6 @@ export default function CompanyDuplicates() {
         </Box>
         <Box id={`companydup-panel-${tab}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>{body}</Box>
       </Box>
-    </Done.Provider>
+    </Decisions.Provider>
   );
 }

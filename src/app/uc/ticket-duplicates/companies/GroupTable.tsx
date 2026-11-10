@@ -24,11 +24,13 @@ import ViewColumnOutlinedIcon from "@mui/icons-material/ViewColumnOutlined";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import SwipeOutlinedIcon from "@mui/icons-material/SwipeOutlined";
 import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, bodyCell, headCell } from "@/app/uc/report/ui";
 import { Chip, Choice } from "@/app/connectors/parts";
 import type { Company, Group } from "@/lib/companyDuplicates/rules";
 import { KIND_LABEL, cap, dmy, kindOf, link, numberText, type Kind } from "./parts";
+import { Review } from "./Review";
 
 type Col = { key: string; label: string; cell: (c: Company) => React.ReactNode; text: (c: Company) => string; on: boolean; width?: number };
 const COLS: Col[] = [
@@ -42,6 +44,8 @@ const COLS: Col[] = [
   { key: "phone", label: "Phone", cell: (c) => c.phone ?? "—", text: (c) => c.phone ?? "", on: false },
   { key: "owner", label: "Owner", cell: (c) => c.ownerName ?? (c.owner ? `owner ${c.owner}` : "—"), text: (c) => c.ownerName ?? c.owner ?? "", on: true },
   { key: "created", label: "Created", cell: (c) => dmy(c.createdate), text: (c) => dmy(c.createdate), on: true },
+  { key: "lastOrder", label: "Last order", cell: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : "—"), text: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : ""), on: true },
+  { key: "revenue", label: "Revenue this year", cell: (c) => (c.revenue ? full(c.revenue) : "—"), text: (c) => String(c.revenue || ""), on: false },
   { key: "deals", label: "Deals", cell: (c) => full(c.deals), text: (c) => String(c.deals), on: true },
   { key: "contacts", label: "Contacts", cell: (c) => full(c.contacts), text: (c) => String(c.contacts), on: true },
 ];
@@ -66,10 +70,12 @@ function csv(groups: Group[]) {
   return `﻿${lines.join("\r\n")}`;
 }
 
-export function GroupTable({ title, hint, groups, decide, file, icon }: {
+export function GroupTable({ title, hint, groups, decide, file, icon, review }: {
   title: string; hint: string; groups: Group[]; file: string; icon: React.ReactNode;
   /** the decision on a group's row - none for what was left alone */
   decide?: (g: Group) => React.ReactNode;
+  /** "One by one": the groups as filtered, a group at a time (SARCLA 10.11.2026: "a swipe mode") */
+  review?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"all" | Kind>("all");
@@ -82,6 +88,7 @@ export function GroupTable({ title, hint, groups, decide, file, icon }: {
   const [page, setPage] = useState(0);
   const [cols, setCols] = useState<Record<string, boolean>>(() => Object.fromEntries(COLS.map((c) => [c.key, c.on])));
   const [menu, setMenu] = useState<HTMLElement | null>(null);
+  const [reviewing, setReviewing] = useState<Group[] | null>(null);
 
   const kinds = useMemo(() => [...new Set(groups.map(kindOf))], [groups]);
   const countries = useMemo(() => [...new Set(groups.flatMap((g) => g.members.map((c) => cap(c.country))))].filter((x) => x !== "—").sort(), [groups]);
@@ -135,7 +142,8 @@ export function GroupTable({ title, hint, groups, decide, file, icon }: {
     <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
       <CardTitle icon={icon} tint="purple" title={title} note={hint}
         right={
-          <Box sx={{ display: "flex", gap: 1 }}>
+          <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+            {review && <Button size="small" variant="contained" disableElevation startIcon={<SwipeOutlinedIcon />} disabled={!shown.length} onClick={() => setReviewing(shown)} sx={{ textTransform: "none" }}>One by one</Button>}
             <Button size="small" variant="outlined" startIcon={<ViewColumnOutlinedIcon />} onClick={(e) => setMenu(e.currentTarget)} sx={{ textTransform: "none" }}>Columns</Button>
             <Button size="small" variant="outlined" startIcon={<FileDownloadOutlinedIcon />} disabled={!shown.length} onClick={download} sx={{ textTransform: "none" }}>Download</Button>
           </Box>
@@ -175,7 +183,7 @@ export function GroupTable({ title, hint, groups, decide, file, icon }: {
           <TableHead>
             <TableRow>
               <TableCell sx={{ ...headCell, minWidth: 220 }}>Company</TableCell>
-              {visible.map((c) => <TableCell key={c.key} sx={{ ...headCell, ...(c.width ? { minWidth: c.width } : {}), ...(c.key === "deals" || c.key === "contacts" ? { textAlign: "right" } : {}) }}>{c.label}</TableCell>)}
+              {visible.map((c) => <TableCell key={c.key} sx={{ ...headCell, ...(c.width ? { minWidth: c.width } : {}), ...(c.key === "deals" || c.key === "contacts" || c.key === "revenue" ? { textAlign: "right" } : {}) }}>{c.label}</TableCell>)}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -193,6 +201,7 @@ export function GroupTable({ title, hint, groups, decide, file, icon }: {
           <Button size="small" endIcon={<ChevronRightIcon />} disabled={at >= pages - 1} onClick={() => setPage(at + 1)} sx={{ textTransform: "none" }}>Next</Button>
         </Box>
       )}
+      {reviewing && <Review groups={reviewing} onClose={() => setReviewing(null)} />}
     </GlassCard>
   );
 }
@@ -205,10 +214,10 @@ function GroupRows({ g, n, visible, span, decide }: { g: Group; n: number; visib
         <TableCell colSpan={span} sx={{ ...bodyCell, py: 0.9 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             <Typography component="span" sx={{ fontSize: "0.76rem", fontWeight: 800, color: FAINT, minWidth: 34 }}>#{n}</Typography>
+            {decide && decide(g)}
             <Chip tint={g.kind === "erp" ? "green" : g.kind === "possible" ? (g.otherNames ? "amber" : "purple") : "slate"}>{KIND_LABEL[kindOf(g)]}</Chip>
             <Typography component="span" sx={{ fontSize: "0.82rem", color: INK, fontWeight: 600, flex: "1 1 260px", minWidth: 0 }}>{g.why}</Typography>
             <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap" }}>{g.members.length} companies · came {dmy(g.newest)}</Typography>
-            {decide && <Box sx={{ ml: "auto" }}>{decide(g)}</Box>}
           </Box>
         </TableCell>
       </TableRow>
@@ -222,7 +231,7 @@ function GroupRows({ g, n, visible, span, decide }: { g: Group; n: number; visib
                 {keeps && <Box component="span" sx={{ fontSize: "0.68rem", fontWeight: 800, color: TINT.green.fg, bgcolor: TINT.green.bg, px: 0.75, py: 0.1, borderRadius: "6px", whiteSpace: "nowrap" }} title="The others go into this company">keeps</Box>}
               </Box>
             </TableCell>
-            {visible.map((col) => <TableCell key={col.key} sx={{ ...bodyCell, fontSize: "0.8rem", color: INK, ...(col.key === "deals" || col.key === "contacts" ? { textAlign: "right", fontVariantNumeric: "tabular-nums" } : {}) }}>{col.cell(c)}</TableCell>)}
+            {visible.map((col) => <TableCell key={col.key} sx={{ ...bodyCell, fontSize: "0.8rem", color: INK, ...(col.key === "deals" || col.key === "contacts" || col.key === "revenue" ? { textAlign: "right", fontVariantNumeric: "tabular-nums" } : {}) }}>{col.cell(c)}</TableCell>)}
           </TableRow>
         );
       })}

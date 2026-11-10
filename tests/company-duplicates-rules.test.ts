@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_RULES, apartPairs, domainOf, erpOf, findGroups, intoOf, mergesOf, nameKey, stillHolds, toCompany, type Company } from "../src/lib/companyDuplicates/rules";
+import { performisCsv, performisFamilies, rolesOf } from "../src/lib/companyDuplicates/performis";
+import { DEFAULT_RULES, autoBoth, apartPairs, domainOf, erpOf, findGroups, intoOf, mergesOf, nameKey, stillHolds, toCompany, type Company } from "../src/lib/companyDuplicates/rules";
 
 const C = (id: string, extra: Partial<Company> = {}): Company => ({
   id, name: `Company ${id}`, domain: null, erp: null, placeholder: null, mandant: null, createdate: `2026-01-0${id.slice(-1)}T00:00:00Z`,
-  zip: null, city: null, country: "switzerland", owner: null, deals: 0, contacts: 0, address: null, unique: null, phone: null, ...extra,
+  zip: null, city: null, country: "switzerland", owner: null, deals: 0, contacts: 0, address: null, unique: null, phone: null, lastOrder: null, lastYear: null, revenue: 0, revenuePy: 0, ...extra,
 });
 const none = new Set<string>();
 
@@ -124,4 +125,53 @@ test("the merges HubSpot's history tells", () => {
     { value: "1;2;5;6;8", timestamp: "2026-04-01T10:00:00Z", sourceType: "CRM_UI", updatedByUserId: 7 },
   ], (h) => (h.sourceType === "INTEGRATION" ? `app ${h.sourceId}` : `user ${h.updatedByUserId}`));
   assert.deepEqual(ev.map((e) => [e.n, e.by]), [[1, "app 22343290"], [1, "user 7"], [1, "user 7"]]);
+});
+
+test("the same name, postcode and website with at most one number is merged by the hub", () => {
+  const f = findGroups([
+    C("1", { name: "Resonetics SA", zip: "1070", domain: "resonetics.com", erp: "715700", mandant: "M100" }),
+    C("2", { name: "Resonetics", zip: "1070", domain: "resonetics.com" }),
+    C("3", { name: "MBO services GmbH", zip: "2345", domain: "mbo-services.at" }),
+    C("4", { name: "MBO services GmbH", zip: "2345" }),
+  ], DEFAULT_RULES, none);
+  const both = f.possible.find((g) => g.members.some((c) => c.id === "1"))!;
+  const place = f.possible.find((g) => g.members.some((c) => c.id === "3"))!;
+  assert.equal(autoBoth(both, DEFAULT_RULES), true);
+  assert.equal(both.into, "1");
+  assert.equal(autoBoth(place, DEFAULT_RULES), false);
+  assert.equal(autoBoth(both, { ...DEFAULT_RULES, both: { autoMerge: false } }), false);
+});
+
+const NOW = Date.parse("2026-11-10T12:00:00Z");
+test("Performis: the account that buys is MAIN, others that buy SIDE, the rest DUPLICATE", () => {
+  const r = rolesOf([
+    C("1", { name: "Uni Zürich", erp: "721713", mandant: "M100", lastOrder: "2026-10-01", revenue: 9000, unique: "100-721713" }),
+    C("2", { name: "Uni Zürich", erp: "802650", mandant: "M100", lastOrder: "2026-11-01", revenue: 400 }),
+    C("3", { name: "Uni Zürich (DUPLICATE DON'T USE)", erp: "787010", mandant: "M100", lastOrder: "2023-05-01", revenuePy: 4000 }),
+  ], NOW);
+  assert.deepEqual(r.map((a) => a.role), ["main", "side", "duplicate"]);
+  assert.equal(r[0].newName, "Uni Zürich (MAIN ACCOUNT)");
+  assert.equal(r[2].newName, "Uni Zürich (DUPLICATE DON'T USE)");
+  assert.equal(r[1].uniqueNumber, "100-802650");
+  assert.equal(r[1].derived, true);
+  // nobody buys: the one that ordered last is MAIN
+  assert.deepEqual(rolesOf([C("1", { erp: "1", mandant: "M100", lastOrder: "2020-01-01" }), C("2", { erp: "2", mandant: "M100", lastOrder: "2022-01-01" })], NOW).map((a) => a.role), ["duplicate", "main"]);
+});
+
+test("Performis: one company = same name and postcode or same name and website; never across Mandants", () => {
+  const list = [
+    C("1", { name: "Geomatica Associati sagl", zip: "6713", erp: "809879", mandant: "M100", lastOrder: "2026-09-01" }),
+    C("2", { name: "Geomatica Associati", zip: "6713", erp: "809880", mandant: "M100" }),
+    C("3", { name: "Geomatica Associati", zip: "6713" }),
+    C("4", { name: "Würth AG", domain: "wuerth.ch", erp: "5", mandant: "M100" }),
+    C("5", { name: "Würth Industrie", domain: "wuerth.ch", erp: "6", mandant: "M100" }),
+    C("6", { name: "Kunde AG", zip: "1000", erp: "7", mandant: "M100" }),
+    C("7", { name: "Kunde GmbH", zip: "1000", erp: "8", mandant: "M110" }),
+  ];
+  const f = performisFamilies(list, NOW);
+  assert.equal(f.length, 1);
+  assert.deepEqual(f[0].accounts.map((a) => [a.id, a.role]), [["1", "main"], ["2", "duplicate"]]);
+  const csv = performisCsv(f).replace(/^﻿/, "").split("\r\n");
+  assert.equal(csv[0], '"Company unique number";"Company name";"New company name"');
+  assert.equal(csv[1], '"100-809879";"Geomatica Associati sagl";"Geomatica Associati sagl (MAIN ACCOUNT)"');
 });

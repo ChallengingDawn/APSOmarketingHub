@@ -16,9 +16,10 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { locked } from "@/lib/ticketDuplicates/reads";
 import { ownerNames } from "@/lib/integrations/erosion";
 import {
-  DEFAULT_RULES, READ_PROPS, apartPairs, domainOf, erpOf, findGroups, intoOf, mergesOf, stillHolds, toCompany, zipKey,
+  DEFAULT_RULES, READ_PROPS, apartPairs, autoBoth, domainOf, erpOf, findGroups, intoOf, mergesOf, stillHolds, toCompany, zipKey,
   type Company, type Found, type Group, type HistEntry, type MergeEvent, type RawCompany, type Rules,
 } from "./rules";
+import { performisFamilies, type PerfFamily } from "./performis";
 
 export const WORKFLOW_ID = "2905757899";
 /** the apps behind HubSpot's history of a merge */
@@ -26,31 +27,36 @@ const APPS: Record<string, string> = { "22343290": "The workflow", "50521064": "
 
 const READ_LOCK = 4_107_280, HISTORY_LOCK = 4_107_281;
 const TICK_MS = 5 * 60_000, EVERY_MS = 60 * 60_000, HISTORY_EVERY_MS = 24 * 3600_000, LIMIT_MS = 30 * 60_000;
-const MERGE_PER_HOUR = 20, MERGE_PER_RUN = 10, HISTORY_DAYS = 400;
+// 10.11.2026: the same name, postcode and website merged by the hub too (233 groups that day) - 40 groups a read, 60
+// merges an hour with a person's clicks
+const MERGE_PER_HOUR = 60, MERGE_PER_RUN = 40, HISTORY_DAYS = 400;
 
 const KV = {
   settings: "companyDup:settings", snapshot: "companyDup:snapshot", last: "companyDup:lastRun", log: "companyDup:log",
   apart: "companyDup:apart", survivors: "companyDup:survivors", history: "companyDup:history", ask: "companyDup:ask", hour: "companyDup:hour:merge",
+  performis: "companyDup:performis",
 };
 
 export type Mode = "off" | "shadow" | "live";
 export type Settings = { mode: Mode; rules: Rules; by: string | null; at: string | null };
 export type RunInfo = { at: string; seconds: number; read: number; sure: number; possible: number; merged: number; skipped?: number; error?: string };
 /** v: what a snapshot holds - a newer hub reads again at once when the kept one is older (2 = street, unique number,
- *  phone, the owner's name: SARCLA 10.11.2026 "more properties") */
+ *  phone, the owner's name: SARCLA 10.11.2026 "more properties"; 3 = the last order, Performis) */
 export type Snapshot = { at: string; seconds: number; found: Found; v?: number };
-const SNAP_V = 2;
+const SNAP_V = 3;
+export type Performis = { at: string; families: PerfFamily[] };
 export type LogEntry = { at: string; what: "merge" | "apart" | "skip" | "error"; ids: string[]; names: string[]; into?: string; text: string; by: string };
 export type History = { at: string; survivors: number; read: number; events: (MergeEvent & { name: string })[]; error?: string };
 
 // ---------------- settings ----------------
 const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
 function cleanRules(r: Partial<Rules> | undefined, cur: Rules): Rules {
-  const e = { ...cur.erp, ...(r?.erp ?? {}) }, p = { ...cur.place, ...(r?.place ?? {}) }, w = { ...cur.website, ...(r?.website ?? {}) };
+  const e = { ...cur.erp, ...(r?.erp ?? {}) }, p = { ...cur.place, ...(r?.place ?? {}) }, w = { ...cur.website, ...(r?.website ?? {}) }, b = { ...cur.both, ...(r?.both ?? {}) };
   return {
     erp: { on: bool(e.on, true), autoMerge: bool(e.autoMerge, true), maxGroup: Math.min(10, Math.max(2, Math.round(Number(e.maxGroup)) || 4)) },
     place: { on: bool(p.on, true) },
     website: { on: bool(w.on, true), otherNames: bool(w.otherNames, true) },
+    both: { autoMerge: bool(b.autoMerge, true) },
   };
 }
 export async function getSettings(): Promise<Settings> {
@@ -71,6 +77,7 @@ export const lastRun = async () => (await kvGet<RunInfo>(KV.last)) ?? null;
 export const snapshot = async () => (await kvGet<Snapshot>(KV.snapshot)) ?? null;
 export const readLog = async () => (await kvGet<LogEntry[]>(KV.log)) ?? [];
 export const history = async () => (await kvGet<History>(KV.history)) ?? null;
+export const performis = async () => (await kvGet<Performis>(KV.performis)) ?? null;
 export const apartCount = async () => ((await kvGet<string[]>(KV.apart)) ?? []).length;
 async function log(e: LogEntry) { await kvSet(KV.log, [e, ...(await readLog())].slice(0, 500)); }
 
@@ -91,19 +98,23 @@ type Page = { results?: RawCompany[]; paging?: { next?: { after?: string } } };
 
 /** Every company, a page of 100 at a time - and those others were merged into (for the history). */
 async function readAll(signal?: AbortSignal): Promise<{ list: Company[]; survivors: string[] }> {
-  const list: Company[] = [], survivors: string[] = [];
+  const list: Company[] = [], survivors: string[] = [], away = new Set<string>();
   let after: string | undefined;
   for (let page = 0; page < 3000; page++) {
     if (signal?.aborted) throw new Error("stopped at the time limit");
     const j = await hubspotRetry<Page>({ path: `/crm/v3/objects/companies?limit=100&archived=false&properties=${READ_PROPS.join(",")}${after ? `&after=${encodeURIComponent(after)}` : ""}` });
     for (const r of j.results ?? []) {
       list.push(toCompany(r));
-      if (r.properties.hs_merged_object_ids) survivors.push(String(r.id));
+      if (r.properties.hs_merged_object_ids) {
+        survivors.push(String(r.id));
+        for (const x of String(r.properties.hs_merged_object_ids).split(";")) if (x.trim()) away.add(x.trim());
+      }
     }
     after = j.paging?.next?.after;
     if (!after) break;
   }
-  return { list, survivors };
+  // a merge while the pages are read: the old records can still come in a later page - never a group of their own
+  return { list: list.filter((c) => !away.has(c.id)), survivors };
 }
 
 /** One more merge this hour - false at the limit. */
@@ -118,7 +129,7 @@ async function allow(n: number): Promise<boolean> {
 
 /** The group, merged: every company read again (none merged or gone meanwhile, still the rule's), then each into the one
  *  the others go into - a merge makes a new record in HubSpot, so the next merge goes into the id the last one gave. */
-export async function mergeGroup(kind: "erp" | "possible", ids: string[], by: string, why: string, into?: string): Promise<{ into: string; merged: string[]; name: string }> {
+export async function mergeGroup(kind: "erp" | "possible", ids: string[], by: string, why: string, into?: string, both?: Rules): Promise<{ into: string; merged: string[]; name: string }> {
   const now: Company[] = [];
   for (const id of [...new Set(ids)]) {
     const r = await hubspotRetry<RawCompany>({ path: `/crm/v3/objects/companies/${id}?properties=${READ_PROPS.join(",")}` });
@@ -127,6 +138,8 @@ export async function mergeGroup(kind: "erp" | "possible", ids: string[], by: st
   }
   const bad = stillHolds(kind, now);
   if (bad) throw new Error(`${bad} - nothing merged`);
+  // merged by itself as the same name, postcode and website: still all three, read now
+  if (both && !findGroups(now, both, new Set()).possible.some((g) => g.members.length === now.length && autoBoth(g, both))) throw new Error("the name, postcode or website differ now - nothing merged, a person decides");
   if (!(await allow(now.length - 1))) throw new Error(`the limit of ${MERGE_PER_HOUR} merges an hour is reached - nothing merged, try again next hour`);
   const target = into && now.some((c) => c.id === into) ? into : intoOf(now, kind);
   const keep = now.find((c) => c.id === target)!;
@@ -187,23 +200,42 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<RunInfo> {
   const { list, survivors } = await readAll(signal);
   const apart = new Set((await kvGet<string[]>(KV.apart)) ?? []);
   const found = findGroups(list, settings.rules, apart);
+  // what a person merged or kept apart while the pages were read is not shown again
+  const decided = new Set((await readLog()).filter((e) => e.at >= info.at && (e.what === "merge" || e.what === "apart")).flatMap((e) => e.ids));
+  if (decided.size) {
+    const keep = (g: Group) => !g.members.some((c) => decided.has(c.id));
+    found.sure = found.sure.filter(keep);
+    found.possible = found.possible.filter(keep);
+  }
   // the owners' names, for the lists
   const names = await ownerNames().catch(() => new Map<string, string>());
   for (const g of [...found.sure, ...found.possible, ...found.left]) for (const c of g.members) c.ownerName = c.owner ? names.get(c.owner) ?? null : null;
   info.read = list.length; info.sure = found.sure.length; info.possible = found.possible.length;
   await kvSet(KV.survivors, survivors);
   await kvSet(KV.snapshot, { at: info.at, seconds: Math.round((Date.now() - started) / 1000), found, v: SNAP_V } satisfies Snapshot);
-  // live: the same ERP customer, merged into the oldest - only once the workflow is off
-  if (settings.mode === "live" && settings.rules.erp.autoMerge && (await workflowOn()) === false) {
+  // Performis: one company, several customer numbers - the accounts' new names
+  const fams = performisFamilies(list);
+  for (const f of fams) for (const a of f.accounts) a.ownerName = a.owner ? names.get(a.owner) ?? null : null;
+  await kvSet(KV.performis, { at: info.at, families: fams } satisfies Performis);
+  // live, only once the workflow is off: the same customer number into the oldest company, the same name, postcode and
+  // website into the company with the customer number
+  if (settings.mode === "live" && (await workflowOn()) === false) {
+    const todo: { g: Group; kind: "erp" | "possible"; by: string; both?: Rules }[] = [
+      ...(settings.rules.erp.autoMerge ? found.sure.map((g) => ({ g, kind: "erp" as const, by: "APSOhub (same customer number)" })) : []),
+      ...found.possible.filter((g) => autoBoth(g, settings.rules)).map((g) => ({ g, kind: "possible" as const, by: "APSOhub (same name, postcode and website)", both: settings.rules })),
+    ];
     let skipped = 0;
-    for (const g of found.sure) {
+    for (const t of todo) {
       if (signal?.aborted || info.merged >= MERGE_PER_RUN) break;
-      if (g.tooBig) { skipped++; continue; }
-      try { await mergeGroup("erp", g.members.map((c) => c.id), "APSOhub (same customer number)", g.why); info.merged++; await dropFromSnapshot(g.members.map((c) => c.id)); }
+      const ids = t.g.members.map((c) => c.id);
+      if (t.g.tooBig) { skipped++; continue; }
+      try { await mergeGroup(t.kind, ids, t.by, t.g.why, undefined, t.both); info.merged++; await dropFromSnapshot(ids); }
       catch (e) {
         skipped++;
-        await log({ at: new Date().toISOString(), what: /limit/.test((e as Error).message) ? "skip" : "error", ids: g.members.map((c) => c.id), names: g.members.map((c) => c.name), text: (e as Error).message.slice(0, 300), by: "APSOhub" });
-        if (/limit/.test((e as Error).message)) break;
+        const msg = (e as Error).message;
+        // merged meanwhile (a person, another copy of the hub): nothing to do, not a failure
+        await log({ at: new Date().toISOString(), what: /limit|meanwhile/.test(msg) ? "skip" : "error", ids, names: t.g.members.map((c) => c.name), text: msg.slice(0, 300), by: "APSOhub" });
+        if (/limit/.test(msg)) break;
       }
     }
     if (skipped) info.skipped = skipped;

@@ -3,6 +3,7 @@
 // GET ?from=YYYY-MM-DD&to=YYYY-MM-DD (up to 365 days): settings, the last read and its groups, the workflow's state, the
 //   merges of the period (HubSpot's history), the log.
 // GET ?company=ID: one company checked now, nothing stored or written.
+// GET ?part=performis: the companies with several customer numbers in a Mandant, each account's new title.
 // PUT (admins): mode (off / shadow / live), the rules.
 // POST (admins) {action}: "run" read again now; "merge" {key, into?} merge a group of the last read; "apart" {key} keep
 //   its companies apart for good.
@@ -11,7 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { describeIntegrationError } from "@/lib/integrations/status";
-import { apartCount, askRun, checkCompany, decide, getSettings, history, lastRun, readLog, saveSettings, snapshot, workflowOn, type Mode } from "@/lib/companyDuplicates/engine";
+import { apartCount, askRun, checkCompany, decide, getSettings, history, lastRun, performis, readLog, saveSettings, snapshot, workflowOn, type Mode } from "@/lib/companyDuplicates/engine";
 import type { Rules } from "@/lib/companyDuplicates/rules";
 import { spanOk } from "@/lib/ticketDuplicates/period";
 
@@ -25,6 +26,8 @@ export async function GET(req: NextRequest) {
   try {
     const c = req.nextUrl.searchParams.get("company");
     if (c && /^\d+$/.test(c)) return NextResponse.json({ configured: true, ok: true, data: await checkCompany(c) });
+    // Left alone > Performis: one company, several customer numbers - the accounts' new titles
+    if (req.nextUrl.searchParams.get("part") === "performis") return NextResponse.json({ configured: true, ok: true, data: await performis() });
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Zurich" });
     const span = spanOk(req.nextUrl.searchParams.get("from"), req.nextUrl.searchParams.get("to"), today);
     const [settings, last, snap, wf, log, hist, apart] = await Promise.all([getSettings(), lastRun(), snapshot(), workflowOn(), readLog(), history(), apartCount()]);

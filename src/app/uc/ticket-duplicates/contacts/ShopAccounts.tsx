@@ -1,7 +1,9 @@
 "use client";
 
-// TICKET/ORDER/ARTICLE ASSOCIATIONS > Contacts without a company (SARCLA 19.10: "build it inside the
-// existing app, a separate contact tab ... they should be straightforward"). People with a shop login
+// DUPLICATES & MERGES > Contacts - Contacts without a company, built in Associations on 19.10 (SARCLA: "build it inside the
+// existing app, a separate contact tab ... they should be straightforward") and moved here on 10.11.2026 ("should get out
+// of there and be rebuilt as contacts - a new toggle on top - so we have only one place to change and create new
+// associations"). Its read and links stay where they were (/api/uc/ticket-associations/shop-accounts). People with a shop login
 // whose HubSpot contact has no company - their logins and orders count for no company. Each with the
 // companies its orders are booked on and those on its e-mail domain, the likeliest first: pick, Link;
 // the clear ones (all their orders on one company) in one go with "Link all". Nothing is linked
