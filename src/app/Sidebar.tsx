@@ -35,6 +35,7 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import AssignmentIndOutlinedIcon from "@mui/icons-material/AssignmentIndOutlined";
 import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
+import DomainOutlinedIcon from "@mui/icons-material/DomainOutlined";
 import MapOutlinedIcon from "@mui/icons-material/MapOutlined";
 import BoltIcon from "@mui/icons-material/Bolt";
 import CallSplitIcon from "@mui/icons-material/CallSplit";
@@ -217,6 +218,7 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/smart-tickets": { label: "Smart Sub-Tickets", icon: <AccountTreeOutlinedIcon fontSize="small" /> },
   "/uc/bo-distribution": { label: "Back Office Distribution", icon: <AssignmentIndOutlinedIcon fontSize="small" /> },
   "/uc/ticket-duplicates": { label: "Duplicates & Merges", icon: <ContentCopyOutlinedIcon fontSize="small" /> },
+  "/uc/company-duplicates": { label: "Company Duplicates", icon: <DomainOutlinedIcon fontSize="small" /> },
   "/uc/certificates": { label: "Certificates", icon: <VerifiedOutlinedIcon fontSize="small" /> },
   "/uc/ticket-value": { label: "Ticket Value", icon: <PaidOutlinedIcon fontSize="small" /> },
   "/uc/translator": { label: "Over time", icon: <ShowChartIcon fontSize="small" /> },

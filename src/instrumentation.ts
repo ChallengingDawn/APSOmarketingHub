@@ -97,6 +97,11 @@ export async function register() {
     // (src/lib/ticketDuplicates). TICKET_DUPLICATES=off stops it.
     const { startTicketDuplicates } = await import("./lib/ticketDuplicates/engine");
     startTicketDuplicates();
+    // Company duplicates: every company read every hour - the same ERP customer (merged into the oldest only in Live with
+    // the COMPANIES FULL DUPLICATE CHECK workflow off), possible duplicates for a person (src/lib/companyDuplicates).
+    // COMPANY_DUPLICATES=off stops it. SARCLA, 10.11.2026.
+    const { startCompanyDuplicates } = await import("./lib/companyDuplicates/engine");
+    startCompanyDuplicates();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
     // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
     const { startTicketValue } = await import("./lib/ticketValue/engine");
