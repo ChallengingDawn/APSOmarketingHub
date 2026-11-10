@@ -6,7 +6,7 @@
 // text. A search shows its result at once: grey tiles in place that fill as the shop answers, a plain reason when nothing
 // is found. Server: /api/content/products (lib/content/productPictures.ts), read only.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import InputAdornment from "@mui/material/InputAdornment";
@@ -76,7 +76,7 @@ function Tiles({ list, busy, onPick, columns }: { list: Product[]; busy: boolean
               "&:hover": { boxShadow: "0 0 0 2px #2459d1" }, "&:focus-visible": { outline: "2px solid #2459d1" },
             }}>
             <Box component="img" src={p.img} alt={p.name} loading="lazy" sx={{ width: "100%", aspectRatio: "1", objectFit: "contain", p: 0.75, boxSizing: "border-box", display: "block", bgcolor: "#fff" }} />
-            <Typography sx={{ px: 0.75, pb: 0.75, fontSize: "0.7rem", lineHeight: 1.25, color: INK, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: "1.75rem" }}>
+            <Typography sx={{ mx: 0.75, mb: 0.75, fontSize: "0.7rem", lineHeight: 1.25, color: INK, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", height: "1.75rem" }}>
               {p.name}
             </Typography>
           </Box>
@@ -99,6 +99,8 @@ export function ProductPictures({ onPick, columns = 3, store: initialStore }: { 
   const [tech, setTech] = useState<string>("");
   const [trail, setTrail] = useState<Link[]>([]);
   const [subs, setSubs] = useState<Link[]>([]);
+  const results = useRef<HTMLDivElement | null>(null);
+  const showResults = () => requestAnimationFrame(() => results.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
 
   const get = useCallback(async (params: Record<string, string>) => {
     const r = await fetch(`/api/content/products?${new URLSearchParams({ store, ...params })}`).catch(() => null);
@@ -120,6 +122,7 @@ export function ProductPictures({ onPick, columns = 3, store: initialStore }: { 
     const t = text.trim();
     if (!t) return;
     setAsked(t); setBusy(true); setNote(null); setTrail([]); setSubs([]); setTech("");
+    showResults();
     const j = await get({ q: t });
     setBusy(false);
     if (!j.ok) { setList([]); setNote(j.error ?? "Nothing came back."); return; }
@@ -128,6 +131,7 @@ export function ProductPictures({ onPick, columns = 3, store: initialStore }: { 
   };
   const open = async (c: Link, path: Link[]) => {
     setTrail(path); setBusy(true); setNote(null); setAsked("");
+    showResults();
     const j = await get({ category: c.url });
     setBusy(false);
     if (!j.ok) { setList([]); setSubs([]); setNote(j.error ?? "Nothing came back."); return; }
@@ -148,6 +152,19 @@ export function ProductPictures({ onPick, columns = 3, store: initialStore }: { 
         <Button size="small" variant="outlined" disabled={!q.trim() || busy} onClick={() => void search()} sx={{ flexShrink: 0, textTransform: "none", fontWeight: 650, borderColor: HAIRLINE, color: INK }}>Find</Button>
       </Box>
       <SquareChoice value={store} onChange={setStore} options={STORES.map((s) => ({ key: s.key, label: s.label }))} />
+      <Box ref={results} sx={{ display: "grid", gap: 0.75, scrollMarginBottom: "16px" }}>
+        {(busy || list) && (
+          <Box>
+            {!busy && list && list.length > 0 && (
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 0.5 }}>
+                {asked ? `${list.length} product${list.length === 1 ? "" : "s"} for "${asked}"` : `${list.length} product${list.length === 1 ? "" : "s"} in ${trail[trail.length - 1]?.name ?? "this category"}`} · a click puts its photo in
+              </Typography>
+            )}
+            <Tiles list={list ?? []} busy={busy} onPick={(p) => onPick(productPicture(p))} columns={columns} />
+          </Box>
+        )}
+        {note && <Typography sx={{ fontSize: "0.78rem", color: "#7f4f0b" }}>{note}</Typography>}
+      </Box>
       <Box>
         <Typography sx={lbl}>Or by the shop&apos;s categories</Typography>
         {treeError ? <Typography sx={{ fontSize: "0.76rem", color: "#7f4f0b" }}>{treeError}</Typography>
@@ -168,17 +185,6 @@ export function ProductPictures({ onPick, columns = 3, store: initialStore }: { 
           </Box>
         )}
       </Box>
-      {(busy || list) && (
-        <Box>
-          {!busy && list && list.length > 0 && (
-            <Typography sx={{ fontSize: "0.74rem", color: MUTED, mb: 0.5 }}>
-              {asked ? `${list.length} product${list.length === 1 ? "" : "s"} for "${asked}"` : `${list.length} product${list.length === 1 ? "" : "s"} in ${trail[trail.length - 1]?.name ?? "this category"}`} · a click puts its photo in
-            </Typography>
-          )}
-          <Tiles list={list ?? []} busy={busy} onPick={(p) => onPick(productPicture(p))} columns={columns} />
-        </Box>
-      )}
-      {note && <Typography sx={{ fontSize: "0.78rem", color: "#7f4f0b" }}>{note}</Typography>}
       {!busy && !list && !note && (
         <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>The shop&apos;s own product photos. The photo&apos;s address is kept, and the product&apos;s name becomes its alt text.</Typography>
       )}

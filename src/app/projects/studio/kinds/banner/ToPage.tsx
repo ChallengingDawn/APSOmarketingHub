@@ -54,7 +54,7 @@ const sheen = { backgroundImage: "linear-gradient(100deg,#eef1f4 30%,#f8f9fb 50%
 function RowChoice({ on, title, sub, onClick, disabled }: { on: boolean; title: string; sub?: string; onClick: () => void; disabled?: boolean }) {
   return (
     <Box component="button" type="button" disabled={disabled} onClick={onClick} aria-pressed={on} sx={{
-      all: "unset", boxSizing: "border-box", display: "block", width: "100%", cursor: disabled ? "default" : "pointer", px: 1.25, py: 0.8, borderRadius: "6px",
+      all: "unset", boxSizing: "border-box", display: "block", width: "100%", minWidth: 0, cursor: disabled ? "default" : "pointer", px: 1.25, py: 0.8, borderRadius: "6px",
       border: `1px solid ${on ? PINK : HAIRLINE}`, bgcolor: on ? "rgba(194,44,110,.06)" : "#fff", "&:hover": { borderColor: on ? PINK : "#9fb3c0" }, "&:focus-visible": { outline: `2px solid ${PINK}` },
     }}>
       <Typography sx={{ fontSize: "0.82rem", fontWeight: 650, color: INK, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</Typography>
@@ -91,6 +91,8 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
   // the studio's api is a new object on each draw: its call is kept, so a read runs when its own inputs change only
   const act = useRef(api.act);
   act.current = api.act;
+  const doneBox = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (done) requestAnimationFrame(() => doneBox.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })); }, [done]);
 
   // the pages: the page index, as the Page builder's picker (the home page first, then the CMS pages)
   useEffect(() => {
@@ -182,7 +184,7 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
             slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 18, color: MUTED }} /></InputAdornment> } }} />
           <Box sx={{ mt: 0.75 }}><SquareChoice value={store} onChange={setStore} options={STORES.map((s) => ({ key: s, label: s }))} /></Box>
           <Box sx={{ mt: 0.75 }}><SquareChoice value={kind} onChange={setKind} options={KINDS} /></Box>
-          <Box sx={{ mt: 1, maxHeight: 260, overflowY: "auto", display: "grid", gap: 0.5 }}>
+          <Box sx={{ mt: 1, maxHeight: 260, overflowY: "auto", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5 }}>
             {rows === null ? Array.from({ length: 4 }, (_, i) => <Box key={i} sx={{ height: 40, borderRadius: "6px", ...sheen }} />)
               : rows.length ? rows.map((r) => <RowChoice key={`${r.env}${r.path}`} on={false} title={nice(r.name)} sub={`${r.path}${r.env === "acc" ? " · only on ACC" : ""}`} onClick={() => setPage(r)} />)
                 : <Typography sx={{ fontSize: "0.8rem", color: rowsError ? "#7f4f0b" : MUTED }}>{rowsError ?? "No page of the shop matches - try other words or another store view."}</Typography>}
@@ -195,12 +197,12 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
         <>
           <Typography sx={label}>2 · Where on it</Typography>
           {placesError ? <Typography sx={{ fontSize: "0.8rem", color: "#7f4f0b", mb: 1.75 }}>{placesError}</Typography> : !places ? (
-            <Box sx={{ display: "grid", gap: 0.5, mb: 1.75 }} aria-label="Reading the page">
+            <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5, mb: 1.75 }} aria-label="Reading the page">
               <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Reading the page…</Typography>
               {Array.from({ length: 3 }, (_, i) => <Box key={i} sx={{ height: 36, borderRadius: "6px", ...sheen }} />)}
             </Box>
           ) : (
-            <Box sx={{ display: "grid", gap: 0.5, mb: 1.75 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.5, mb: 1.75 }}>
               {places.slider && <RowChoice on={where === "slider"} title={WHERE_LABEL.slider} sub="The banner becomes the slider's first slide" onClick={() => setWhere("slider")} disabled={busy} />}
               <RowChoice on={where === "top"} title={WHERE_LABEL.top} sub="Before the page's own content" onClick={() => setWhere("top")} disabled={busy} />
               {places.blocks.filter((b) => b.name !== "The slider").map((b) => (
@@ -236,7 +238,7 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
       {!page && !busy && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75 }}>Pick a page first.</Typography>}
       {error && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#c5221f" }}>{error}</Typography>}
       {done && (
-        <Box sx={{ p: 1.25, borderRadius: "8px", border: "1px solid #bfe3cf", bgcolor: "#f1faf5" }}>
+        <Box ref={doneBox} sx={{ p: 1.25, borderRadius: "8px", border: "1px solid #bfe3cf", bgcolor: "#f1faf5", scrollMarginBottom: "12px" }}>
           <Typography sx={{ display: "flex", alignItems: "center", gap: 0.75, fontSize: "0.86rem", fontWeight: 700, color: "#1b7a55" }}>
             <CheckCircleRoundedIcon sx={{ fontSize: 18 }} />{done.moved ? "Moved on the page" : "On the page"}
           </Typography>

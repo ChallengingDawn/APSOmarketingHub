@@ -81,11 +81,17 @@ export function placesIn(html: string, max = 16): PagePlaces {
     const text = wordsIn(inner);
     const pictures = /<(img|picture)\b|desktop_image/i.test(inner);
     const isSlider = /data-content-type="slider"/.test(inner);
+    // a picture without words: named by what it shows (its alt text), else "A picture"
+    const alt = wordsIn(/<img\b[^>]*\balt\s*=\s*"([^"]*)"/i.exec(inner)?.[1] ?? "");
     blocks.push({
       selector: sel,
-      name: cut(isSlider ? "The slider" : heading || text || (pictures ? "A picture" : "A block"), 60),
+      name: cut(isSlider ? "The slider" : heading || text || (pictures ? (alt ? `The picture "${alt}"` : "A picture") : "A block"), 60),
       text: cut(heading ? text.replace(heading, "").trim() : "", 90),
     });
   }
+  // two blocks of the same name: each says where it stands
+  const seen = new Map<string, number>();
+  for (const b of blocks) seen.set(b.name, (seen.get(b.name) ?? 0) + 1);
+  blocks.forEach((b, i) => { if ((seen.get(b.name) ?? 0) > 1) b.name = `${b.name} (block ${i + 1})`; });
   return { slider, blocks };
 }
