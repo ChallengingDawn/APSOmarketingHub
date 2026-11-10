@@ -117,6 +117,13 @@ function useFrame(k: OtdCube): Frame {
     return { k, axisKey, axis, yms, prev, min, max, from, to, filter, params: new URLSearchParams(params.toString()) };
   }, [k, params]);
 }
+/** where the measured dates end: to the OTD analysis file's last date the ERP's own, after it the hub's calculation */
+const seamOf = (f: Frame) => {
+  const u = f.k.dated?.fileUntil;
+  if (!u) return "";
+  const d = new Date(`${u}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  return ` · deliveries to ${d}: the ERP's measured dates (the OTD analysis file); later ones the hub's calculation from the shipment - in the holiday months up to 2 points more on time than measured, until the file is exported again`;
+};
 const periodOf = (f: Frame) => (f.from === f.to ? ymLabel(f.from) : `${ymLabel(f.from)} – ${ymLabel(f.to)}`);
 const axisWords = (f: Frame) => (f.axisKey === "promised" ? "by the month of the first confirmed date" : "by the month the line reached the customer");
 
@@ -148,7 +155,7 @@ const CHARTS: ChartDef[] = [
   /* ── Overview ─────────────────────────────────────────────── */
   {
     id: "otd", wide: true, title: "On time, month by month",
-    hint: (f) => `the share of the lines that reached the customer by their first confirmed date · ${axisWords(f)}${f.prev.length ? " · the same months a year before in grey" : ""}`,
+    hint: (f) => `the share of the lines that reached the customer by their first confirmed date · ${axisWords(f)}${f.prev.length ? " · the same months a year before in grey" : ""}${seamOf(f)}`,
     body: (f) => {
       const cur = months(f), py = f.prev.length ? monthly(f.axis, f.yms.map((ym) => ymAdd(ym, -12)), f.filter) : null;
       if (!cur.some((s) => s.n)) return NONE();

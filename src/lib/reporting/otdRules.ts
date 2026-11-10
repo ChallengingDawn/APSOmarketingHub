@@ -170,7 +170,9 @@ export type OtdCube = {
 };
 /** how many lines took the ERP's own date, the ERP's date from the OTD analysis file (since 10.11.2026 - absent in older
  *  cubes), the shipping mode's days, the customer's transport days, the country's */
-export type Dated = { own: number; file?: number; mode: number; customer: number; country: number };
+export type Dated = { own: number; file?: number; mode: number; customer: number; country: number;
+  /** the latest date the OTD analysis file gave: after it the months are the hub's calculation (the trend's seam) */
+  fileUntil?: string };
 /** an order line's key, the same for the morning lines and the OTD analysis file ("A26.654679.001|10") */
 export const lineKey = (order: string, line: string): string => {
   const n = Number(line.trim());
@@ -399,7 +401,10 @@ export function fromErpLines<L extends { company: string; order: string; line: s
     let atCustomer = own;
     const fromFile = own ? "" : fileDateOf?.(lineKey(l.order, l.line)) ?? "";
     if (own) dated.own++;
-    else if (fromFile && fromFile >= l.shipDay) { atCustomer = fromFile; dated.file = (dated.file ?? 0) + 1; }
+    else if (fromFile && fromFile >= l.shipDay) {
+      atCustomer = fromFile; dated.file = (dated.file ?? 0) + 1;
+      if (fromFile > (dated.fileUntil ?? "")) dated.fileUntil = fromFile;
+    }
     else {
       const [days, why] = transportWhy(l, transitOf, customerDaysOf);
       dated[why]++;

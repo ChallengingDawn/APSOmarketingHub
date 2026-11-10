@@ -218,5 +218,5 @@ test("otd: the ERP's dates of the OTD analysis file (otd_dates.csv) - after the 
     { ...base, line: "50" }, // not in the file -> the customer's days
   ], transitOf, undefined, undefined, (c) => (c === "100-7" ? 3 : undefined), (k) => days.get(k));
   assert.deepEqual(r.lines.map((l) => l.atCustomer), ["2026-10-09", "2026-10-07", "2026-10-08", "2026-10-13", "2026-10-07"]);
-  assert.deepEqual(r.dated, { own: 1, file: 2, mode: 0, customer: 2, country: 0 });
+  assert.deepEqual(r.dated, { own: 1, file: 2, mode: 0, customer: 2, country: 0, fileUntil: "2026-10-13" });
 });
