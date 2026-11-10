@@ -9,12 +9,14 @@ import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Slider from "@mui/material/Slider";
 import Typography from "@mui/material/Typography";
-import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
+import Link from "next/link";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
   AB_AUDIENCE_LABEL, AB_GOAL_LABEL, abLine, languageOfStore, lettersOf, mergeTexts, placeholdersOf, sideName, type AbAudience, type AbGoal, type PageDoc, type PasteBlock,
 } from "@/lib/content/studio/kinds/page/model";
 import type { PasteOut } from "@/lib/content/studio/kinds/page/shop";
+import { AB_TESTING_HREF } from "@/lib/content/abPlanned";
 import { Field, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Block, Choice, Hint, PasteCard, useCopy } from "./ui";
@@ -45,11 +47,12 @@ export function Texts({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) =>
 // SARCLA 09.11.2026 on the panel as it was ("Test the new version against the page as it is · Running it · Not running ·
 // The new version reaches visitors through a small script served from a gateway on Railway ..."): "Too much
 // information here". One line of state, one obvious action; the plan once it is on (which two run - the page as it is
-// or a version A, B, C - who sees the second, what decides it); how it runs behind "How it works", in two lines.
+// or a version A, B, C - who sees the second, what decides it). Content v7 (SARCLA 10.11.2026): the explanation is out
+// entirely ("take out this message"), and a planned test shows in Website > A/B testing, linked from here ("should you
+// update the A/B testing link?").
 
 export function AbTest({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) => void; canEdit: boolean }) {
   const ab = d.abTest;
-  const [how, setHow] = useState(false);
   const up = (p: Partial<PageDoc["abTest"]>) => set({ ...d, abTest: { ...ab, ...p } });
   const letters = lettersOf(d);
   // the two that run: what is tested (a version), and what it is tested against (the page as it is, or another version)
@@ -82,12 +85,9 @@ export function AbTest({ d, set, canEdit }: { d: PageDoc; set: (next: PageDoc) =
           {ab.notes.trim() && <Field label="Notes for the test" value={ab.notes} onChange={(v) => up({ notes: v })} multiline rows={2} disabled={!canEdit} />}
         </>
       )}
-      <Button size="small" onClick={() => setHow(!how)} endIcon={<KeyboardArrowDownIcon sx={{ fontSize: 16, transform: how ? "rotate(180deg)" : "none", transition: "transform .15s" }} />} sx={{ ...btn, px: 0, minWidth: 0, color: MUTED, fontSize: "0.76rem" }}>How it works</Button>
-      {how && (
-        <Box sx={{ mt: 0.25, color: MUTED, fontSize: "0.78rem", lineHeight: 1.5 }}>
-          <div>Visitors get the version from a small script the shop&apos;s footer loads (a gateway - the hub itself is not public).</div>
-          <div>The gateway counts each side&apos;s visitors and goal; the hub reads the results here.</div>
-        </Box>
+      {ab.enabled && (
+        <Button size="small" component={Link} href={AB_TESTING_HREF} target="_blank" endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+          sx={{ ...btn, px: 0, minWidth: 0, color: PINK, fontSize: "0.78rem" }}>See it in Website &gt; A/B testing</Button>
       )}
     </Box>
   );

@@ -30,7 +30,7 @@ type Whose = "mine" | "all" | "logos";
 type Kind = "any" | "generated" | "upload";
 type Use = { pieceId: number; projectId: number; title: string; project: string; contentType: string | null };
 
-const KIND_WORD: Record<Picture["kind"], string> = { generated: "Made with AI", upload: "Uploaded", logo: "Logo" };
+const KIND_WORD: Record<Picture["kind"], string> = { generated: "Made with AI", upload: "Uploaded", logo: "Logo", product: "A product of the shop" };
 const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const checker = {
   backgroundImage: "linear-gradient(45deg,#f3f5f8 25%,transparent 25%,transparent 75%,#f3f5f8 75%),linear-gradient(45deg,#f3f5f8 25%,transparent 25%,transparent 75%,#f3f5f8 75%)",

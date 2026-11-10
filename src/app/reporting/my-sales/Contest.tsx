@@ -74,6 +74,11 @@ export function ContestPage() {
         Order intake from customers with no order and no revenue before 5 October, with a call, e-mail, meeting or visit by someone in ESO up to their first order · <b>{CONTEST.label}</b>
         {d ? ` · Compass's order intake, read from HubSpot ${new Date(d.generatedAt).toLocaleString("en-GB")}` : ""}{computing && d ? " · reading HubSpot again" : ""}
       </Typography>
+      {/* hubspot-orders-3a 10.11.2026: every other "New customers" page counts the first invoice (the BSC rule) - say so here,
+          before an ESO who finds himself on one page and not the other says the contest is wrong */}
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.45 }}>
+        A new customer here: the first order on or after 5 October – the earlier of Compass's and the shop's – not the first invoice the New customers pages count.
+      </Typography>
     </Box>
   );
   if (!d) return <Box sx={shell}>{head}<Waiting computing={computing} progress={progress} error={error} /></Box>;

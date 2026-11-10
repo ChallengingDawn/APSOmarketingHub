@@ -36,3 +36,22 @@ export function reviewerChoices<T extends { username: string }>(people: T[], wri
   const others = people.filter((p) => p.username !== writer && p.username !== defaultReviewer);
   return { list: def ? [def, ...others] : others, picked: def?.username ?? null };
 }
+
+/**
+ * What a to-do that came WITHOUT its people gets as its studio opens (Content v7, SARCLA 10.11.2026: "This should be already
+ * prefilled" - the "Who does it" panel of the Page builder opened empty): the owner - whoever makes it: the project's maker
+ * when they are among the people, else the person opening it - and the reviewer, the default one (an action none). Only
+ * what is missing; null when nothing is. The panel's dropdowns change both afterwards.
+ */
+export function missingPeople(p: {
+  kind: string | null; writer: string | null; reviewer: string | null; maker: string | null; me: string; people: string[]; defaultReviewer: string | null; task?: string;
+}): { writer?: string; reviewer?: string } | null {
+  const out: { writer?: string; reviewer?: string } = {};
+  if (!p.writer) {
+    const owner = p.maker && p.people.includes(p.maker) ? p.maker : p.me;
+    if (owner) out.writer = owner;
+  }
+  const isTask = (p.kind ?? (p.task ?? "task")) === (p.task ?? "task");
+  if (!p.reviewer && !isTask && p.defaultReviewer) out.reviewer = p.defaultReviewer;
+  return Object.keys(out).length ? out : null;
+}

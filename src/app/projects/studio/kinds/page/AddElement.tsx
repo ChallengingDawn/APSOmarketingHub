@@ -30,7 +30,7 @@ export type AddElementProps = {
   /** the AI asked for a block at this place */
   onAskAi: (request: string, place: AddPlace) => void;
   canAi: boolean;
-  /** the module gallery opened for this place (builder B, ./modules/Gallery.tsx) */
+  /** the library opened for this place - the side bar's Modules tab since Content v7 (builder B, ./modules/ModulesTab.tsx) */
   onGallery?: (place: AddPlace) => void;
 };
 

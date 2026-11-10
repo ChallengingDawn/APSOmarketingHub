@@ -182,6 +182,34 @@ export function parseProduct(html: string, url: string): Card | null {
   return { kind: "product", name, url: u, img, meta: /^\s*\d/.test(cnt) ? countOf(cnt) : "", number: productOfUrl(u), children: [] };
 }
 
+/* ── clearance: never in an automatic fill ────────────────────────────── */
+
+/**
+ * The words the shop puts in a product's name (and so in its address) when it is on its way out or replaced - a product
+ * an automatic fill (a category, most bought, most viewed, the AI's pick) never shows (Content v7, the lead 10.11.2026:
+ * builder A's real runs filled a module with "(Nur solange der Vorrat reicht)", "(Nachfolge von ...)", "Liquidation"; the
+ * home page kit left them out on purpose). German, French, Italian, English, Dutch, Polish. "Auslauf" alone is not one
+ * (an Auslaufhahn is a tap).
+ */
+export const CLEARANCE = /nur\s+solange|solange\s+(der\s+)?vorrat|nachfolge|ersetzt\s+durch|auslaufend|auslaufartikel|auslaufmodell|liquidation|ausverkauf|abverkauf|only\s+while\s+stocks?|while\s+stocks?\s+last|successor\s+(of|to)|replaced\s+by|discontinued|[ée]puisement|dans\s+la\s+limite\s+des\s+stocks|successeur|remplac[ée]\s+par|esaurimento|successore|sostituito\s+da|liquidazione|zolang\s+de\s+voorraad|opvolger|vervangen\s+door|liquidatie|do\s+wyczerpania|nast[ęe]pca|wyprzeda[żz]/i;
+
+/** Is the product on clearance or replaced - by its name or its address ("...-nur-solange-der-vorrat-reicht.html")? */
+export function clearanceOf(name: string, url = ""): boolean {
+  const slug = (/\/([^/]+?)(?:\.html)?$/.exec(url)?.[1] ?? "").replace(/[-_]+/g, " ");
+  return CLEARANCE.test(name) || CLEARANCE.test(slug);
+}
+
+/** A product page's gallery: its pictures as the list shows them (the 279 px "img"), in order - the first is og:image. */
+export function galleryOf(html: string): string[] {
+  const out: string[] = [];
+  for (const m of html.matchAll(/"img"\s*:\s*"(https:[^"]+)"/g)) {
+    const u = m[1].split("\\/").join("/");
+    if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\/catalog\/product\//.test(u) && !out.includes(u)) out.push(u);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 /* ── numbers pasted ───────────────────────────────────────────────────── */
 
 /** The numbers in a pasted text: 8-digit products, 10-digit articles (a space or dot inside one is ignored), the rest. */

@@ -163,7 +163,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
           <Box sx={{ mt: 1, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff" }}>
             <PicturePanel projectId={api.data.piece.projectId} pieceId={api.data.piece.id} me={api.data.me} aspect={aspect} suggestion={pic.idea} columns={3}
               tabs={["project", "mine", "make"]} start="project"
-              onPick={(p) => { set({ ...pic, url: p.url, alt: pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
+              onPick={(p) => { set({ ...pic, url: p.url, alt: p.alt || pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
           </Box>
         </Collapse>
       </Box>
@@ -213,7 +213,7 @@ export function PictureSlot({ api, pic, set, disabled, aspect = "3:2", path, ctl
         <Box sx={{ mt: 1, p: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff" }}>
           <PicturePanel projectId={api.data.piece.projectId} pieceId={api.data.piece.id} me={api.data.me} aspect={aspect} suggestion={pic.idea} columns={3}
             tabs={["project", "mine", "make"]} start="project"
-            onPick={(p) => { set({ ...pic, url: p.url, alt: pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
+            onPick={(p) => { set({ ...pic, url: p.url, alt: p.alt || pic.alt || p.prompt?.slice(0, 120) || "" }); setOpen(false); }} />
         </Box>
       </Collapse>
       {pic.url && !making && <Box sx={{ mt: 1 }}><Field label="What it shows (alt text)" value={pic.alt} max={LIMIT.alt} disabled={disabled} onChange={(v) => set({ ...pic, alt: v })} /></Box>}

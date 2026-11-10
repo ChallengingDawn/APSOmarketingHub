@@ -142,12 +142,12 @@ function Picture({ api, d, set, pkey, canEdit, onMaking }: { api: StudioApi; d: 
   const pic = s ? s.image : d.hero;
   const put = (next: BlogDoc["hero"]) => set(s ? { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, image: next } : x)) } : { ...d, hero: next });
   // a picture made or uploaded lands up to 40 s later: on the post as it is then, never on this older copy
-  const land = (x: { url: string; prompt?: string | null }) => api.setDoc((raw: unknown) => {
+  const land = (x: { url: string; prompt?: string | null; alt?: string | null }) => api.setDoc((raw: unknown) => {
     const cur = blogDoc(raw, { language: d.language, author: d.author, title: d.title });
     const sec = sid ? cur.sections.find((y) => y.id === sid) : null;
     if (sid && !sec) return cur;
     const was = sec ? sec.image : cur.hero;
-    const next = { ...was, url: x.url, alt: was.alt || (sec ? sec.heading : cur.title), prompt: x.prompt ?? was.prompt };
+    const next = { ...was, url: x.url, alt: x.alt || was.alt || (sec ? sec.heading : cur.title), prompt: x.prompt ?? was.prompt };
     return sec ? { ...cur, sections: cur.sections.map((y) => (y.id === sec.id ? { ...y, image: next } : y)) } : { ...cur, hero: next };
   });
   const idea = pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));

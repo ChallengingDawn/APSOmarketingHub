@@ -10,7 +10,11 @@
 //   4. The assistant (right) works on the part selected ("Shorter", "Another one", "Three other headlines", your words)
 //      or on every word; a part's ask changes that part only, and shows on the banner at once. "Changes made here" lists
 //      each change with Undo.
-//   5. LAST STEP, pinned at the foot of the map: "Get it" - the paste block for Magento, the PNGs.
+//   5. LAST STEP, pinned at the foot of the map (Content v7, SARCLA 10.11.2026 point 11): "Put it on a page" - a page of the
+//      shop and a place on it; the page's Page builder to-do gets the banner as a module, shown in the middle - and "or
+//      get the pictures and the paste block" (the PNGs, the paste block for Magento).
+//   Since Content v7 a banner starts from a DESIGN - the shop's own best banners (./Design.tsx) - and its picture can be any
+//   of the shop's products (the picture panel's Products source).
 // The banner is drawn by the same code that writes the paste block and the PNGs (lib/content/studio/kinds/banner/
 // render.ts), so the stage is the thing.
 
@@ -64,7 +68,8 @@ export default function Studio({ api }: StudioProps) {
     <StudioPanes id="banner4" buildWidth={360} assistWidth={320}
       build={(
         <Pane pad={false} title="Build">
-          <BannerMap api={api} doc={doc} set={set} view={view} setView={setView} pick={pick} setPick={pickFromMap} pages={pages} ai={ai} png={png} prefix={prefix} title={piece.title} focusLeft={focusLeft} />
+          <BannerMap api={api} doc={doc} set={set} view={view} setView={setView} pick={pick} setPick={pickFromMap} pages={pages} ai={ai} png={png} prefix={prefix} title={piece.title} focusLeft={focusLeft}
+            font={brandFont.css} showPage={(id) => { setPageId(id); setView("pages"); }} />
         </Pane>
       )}
       preview={(

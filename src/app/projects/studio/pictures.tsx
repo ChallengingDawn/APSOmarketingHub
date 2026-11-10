@@ -5,7 +5,11 @@
 //   Make one     a few words -> a picture in the house style, kept in the hub, picked at once
 //   Upload       a photo from the computer: shrunk here, sent in small parts (the 8 KB body limit), kept
 //   Mine / This project / Logos   the galleries, newest first; a click picks
-// Server: /api/content/assets (lib/content/assets.ts). A picked picture is its address, never its bytes.
+//   Products     the shop's own product photos (Content v7, SARCLA 10.11.2026 point 11: "on pictures we should have all of
+//                our products as well"): found by name, product or article number, or browsed by the shop's categories -
+//                the photo's address kept, the product's name its alt text. Every panel that offers photos offers it.
+// Server: /api/content/assets (lib/content/assets.ts), /api/content/products (lib/content/productPictures.ts). A picked
+// picture is its address, never its bytes.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -27,18 +31,24 @@ import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { field, mainBtn } from "./parts";
+import { ProductPictures } from "./productPictures";
 import { whileWorking } from "./working";
+import { readAnswer } from "@/lib/http/answer";
 
 export type Picture = {
-  id: number; kind: "generated" | "upload" | "logo"; url: string; width: number | null; height: number | null;
+  id: number; kind: "generated" | "upload" | "logo" | "product"; url: string; width: number | null; height: number | null;
   name: string | null; prompt: string | null; projectId: number | null; by: string | null; at: string;
+  /** what it shows, for the alt text (a product: its name as the shop writes it) */
+  alt?: string | null;
+  /** a product of the shop: its number and its page */
+  product?: { number: string; url: string } | null;
 };
 export type PictureAspect = "1:1" | "4:5" | "16:9" | "3:2";
 type Where = { projectId?: number | null; pieceId?: number | null };
 
 async function post<T>(body: Record<string, unknown>): Promise<T & { ok: boolean; error?: string }> {
-  const r = await fetch("/api/content/assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: r.status === 403 ? "The hub refused it (too big a request)." : `The hub answered ${r.status}.` }));
+  // in plain words, never "The hub answered 200." (Content v7 - a picture is kept alive, its status is always 200)
+  return readAnswer(fetch("/api/content/assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })) as Promise<T & { ok: boolean; error?: string }>;
 }
 
 /** A picture from a few words, in the house style. Takes 10-40 s. */
@@ -162,13 +172,17 @@ export function PictureGrid({ pictures, onPick, onRemove, me, columns = 3, empty
   );
 }
 
-type Tab = "make" | "upload" | "mine" | "project" | "logos" | "all";
+type Tab = "make" | "upload" | "mine" | "project" | "logos" | "all" | "products";
 
 /** The panel: make one, upload one, or pick from the galleries. */
-export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect = "1:1", me, tabs = ["make", "upload", "mine", "project"], start = "make", suggestion, columns = 3 }: {
+export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect = "1:1", me, tabs: asked = ["make", "upload", "mine", "project"], start = "make", suggestion, columns = 3, store }: {
   onPick: (p: Picture) => void; projectId?: number | null; pieceId?: number | null; aspect?: PictureAspect; me?: string;
   tabs?: Tab[]; start?: Tab; suggestion?: string; columns?: number;
+  /** the store view whose product names the Products source shows ("de-CH"; the studio's language) */
+  store?: string;
 }) {
+  // the shop's products beside every choice of photos (a panel of logos, or of one thing only, keeps to it)
+  const tabs: Tab[] = asked.includes("products") || asked.length < 2 || asked.includes("logos") ? asked : [...asked, "products"];
   const [tab, setTab] = useState<Tab>(tabs.includes(start) ? start : tabs[0]);
   const [prompt, setPrompt] = useState(suggestion ?? "");
   const [aspect, setAspect] = useState<PictureAspect>(initialAspect);
@@ -206,7 +220,7 @@ export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect
     const r = await post({ action: "remove", id: p.id });
     if (r.ok) gallery.drop(p.id); else setErr(r.error ?? "Not removed.");
   };
-  const LABEL: Record<Tab, string> = { make: "Make one", upload: "Upload", mine: "Mine", project: "This project", logos: "Logos", all: "Everyone's" };
+  const LABEL: Record<Tab, string> = { make: "Make one", upload: "Upload", mine: "Mine", project: "This project", logos: "Logos", all: "Everyone's", products: "Products" };
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25, minWidth: 0 }}
@@ -246,6 +260,7 @@ export function PicturePanel({ onPick, projectId, pieceId, aspect: initialAspect
           {tab === "logos" && <PictureGrid pictures={gallery.pictures} onPick={onPick} onRemove={remove} me={me} columns={columns} empty="No logo added yet." />}
         </>
       )}
+      {tab === "products" && <ProductPictures onPick={onPick} columns={columns} store={store} />}
       {(tab === "mine" || tab === "project" || tab === "all") && (
         <PictureGrid pictures={gallery.pictures} onPick={onPick} onRemove={remove} me={me} columns={columns}
           empty={tab === "mine" ? "The pictures you make or upload come here." : tab === "all" ? "No picture in the hub yet." : "No picture in this project yet."} />

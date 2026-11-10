@@ -6,8 +6,10 @@
 //              (the banner's words) or "Only here" (shorter words for this place alone)
 //   headline   + the endings that take turns on the shop, where a place moves
 //   button     + where it goes
-//   picture    the standard's picture slot: Make it / Upload / Gallery (the shop's photos, ours) / Remove; or several in turn
-//   background the newsletter band's colours
+//   picture    the standard's picture slot: Make it / Upload / Gallery (the shop's products, its photos, ours) / Remove;
+//              or several in turn. A product of the shop stands free on the banner, its name the alt text (Content v7)
+//   design     the shop's banners as finished designs, their colours, the headline's colour - and what could not be read
+//              (Content v7, ./Design.tsx; the newsletter band's colours were the "background" before)
 // Every change shows on the banner as it is typed and saves on its own.
 
 import { useState } from "react";
@@ -19,12 +21,14 @@ import Typography from "@mui/material/Typography";
 import { MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { isHubPicture, photoLabel, SHOP_PHOTOS } from "@/lib/content/studio/kinds/banner/brand";
-import { PRESET, THEMES, THEME_KEYS, sizesOf, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
+import { PRESET, sizesOf, type BannerDoc, type OwnWords, type Picture, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import type { PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { btn, field } from "../../parts";
 import { PicturePanel, type Picture as HubPicture, type PictureAspect } from "../../pictures";
+import { storeForLang } from "../../productPictures";
 import { PictureSlot } from "../video/map";
-import { ChipsInput, Hint, PhotoPicker, Swatches } from "./ui";
+import DesignFields from "./Design";
+import { ChipsInput, Hint, PhotoPicker } from "./ui";
 
 export type Set = (fn: (d: BannerDoc) => BannerDoc) => void;
 
@@ -32,7 +36,7 @@ export type Set = (fn: (d: BannerDoc) => BannerDoc) => void;
 export const inLine = (name: string) => (/[A-Z]/.test(name.slice(1)) ? name : name.charAt(0).toLowerCase() + name.slice(1));
 
 export const PART_NAME: Record<PickPart, string> = {
-  eyebrow: "Small line over the headline", headline: "Headline", line: "Line", button: "Button", picture: "Picture", label: "Label on the picture", background: "Background",
+  eyebrow: "Small line over the headline", headline: "Headline", line: "Line", button: "Button", picture: "Picture", label: "Label on the picture", background: "Design",
 };
 
 type OwnField = keyof OwnWords;
@@ -89,10 +93,14 @@ function PictureEditor({ doc, set, canEdit, projectId, pieceId, me }: { doc: Ban
   const suggestion = words ? `A photo for a banner that says: "${words}". Industrial components in use, real, calm light.` : "";
   const pickHub = (p: HubPicture) => {
     if (!canEdit) return;
-    const label = p.name && !/\.(png|jpe?g|webp|gif)$/i.test(p.name) ? p.name.slice(0, 40) : "";
-    if (many) set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.some((x) => x.url === p.url) ? d.content.photos : [...d.content.photos, { url: p.url, alt: "", label }] } }));
-    else setImage({ url: p.url, alt: "", label: c.image.url === p.url ? c.image.label : label });
+    // a product of the shop: it stands free on the banner, its name the alt text (Content v7)
+    const product = p.kind === "product";
+    const label = product ? "" : p.name && !/\.(png|jpe?g|webp|gif)$/i.test(p.name) ? p.name.slice(0, 40) : "";
+    const pic: Picture = { url: p.url, alt: (p.alt ?? "").slice(0, 300), label, ...(product ? { fit: "product" as const } : {}) };
+    if (many) set((d) => ({ ...d, content: { ...d.content, photos: d.content.photos.some((x) => x.url === p.url) ? d.content.photos : [...d.content.photos, pic] } }));
+    else setImage(c.image.url === p.url && !product ? { ...pic, label: c.image.label } : pic);
   };
+  const store = storeForLang(lang);
   return (
     <Box sx={{ display: "grid", gap: 1.25 }}>
       {anyMotion && (
@@ -131,22 +139,36 @@ function PictureEditor({ doc, set, canEdit, projectId, pieceId, me }: { doc: Ban
               return { ...d, content: { ...d.content, photos: photos.length >= 2 ? photos : d.content.photos } };
             })} />
           ) : (
-            <PicturePanel key={suggestion ? "s" : "e"} onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} suggestion={suggestion} columns={3} />
+            <PicturePanel key={suggestion ? "s" : "e"} onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} suggestion={suggestion} columns={3} store={store} />
           )}
         </>
       ) : (
         <PictureSlot url={c.image.url || null} idea={suggestion} aspect={aspect} where={{ projectId, pieceId }} disabled={!canEdit}
-          onSet={(url, name) => canEdit && setImage({ url, alt: "", label: name && !/\.(png|jpe?g|webp|gif)$/i.test(name) ? name.slice(0, 40) : c.image.label })}
+          onSet={(url, name) => canEdit && setImage({ url, alt: "", label: c.image.fit === "product" ? "" : name && !/\.(png|jpe?g|webp|gif)$/i.test(name) ? name.slice(0, 40) : c.image.label })}
           onRemove={c.image.url ? () => canEdit && setImage({ url: "", alt: "", label: "" }) : undefined} removeLabel="No picture"
           gallery={(
             <Box sx={{ display: "grid", gap: 1 }}>
-              <Hint>The shop&apos;s photos</Hint>
+              <Hint>The shop&apos;s products, its photos, ours</Hint>
+              <PicturePanel onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} tabs={["mine", "project"]} start="products" columns={3} store={store} />
+              <Hint>The shop&apos;s technology photos</Hint>
               <PhotoPicker lang={lang} selected={[c.image.url]} onPick={(p) => canEdit && setImage({ url: p.url, alt: "", label: photoLabel(p, lang) })} />
-              <Hint>Ours</Hint>
-              <PicturePanel onPick={pickHub} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} tabs={["mine", "project"]} start="project" columns={3} />
             </Box>
           )} />
       )}
+    </Box>
+  );
+}
+
+/** The headline's word in the shop's red (the Black Friday headline's "persönliches"): a click on one of its words. */
+function RedWord({ doc, set, canEdit }: { doc: BannerDoc; set: Set; canEdit: boolean }) {
+  const words = [...new Set(doc.content.headline.split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter((w) => w.length > 1))].slice(0, 14);
+  if (!words.length) return null;
+  const on = words.includes(doc.accent) ? doc.accent : "";
+  return (
+    <Box sx={{ mt: 1.5 }}>
+      <Typography sx={{ fontSize: "0.72rem", fontWeight: 650, color: MUTED, mb: 0.6 }}>A word in red</Typography>
+      <SquareChoice<string> value={on} onChange={(w) => canEdit && set((d) => ({ ...d, accent: d.accent === w ? "" : w }))}
+        options={[{ key: "", label: "None", disabled: !canEdit }, ...words.map((w) => ({ key: w, label: w, disabled: !canEdit }))]} />
     </Box>
   );
 }
@@ -165,6 +187,7 @@ export default function PartFields({ doc, set, k, part, canEdit, projectId, piec
       {part === "headline" && (
         <>
           <Words doc={doc} set={set} k={k} f="headline" canEdit={canEdit} autoFocus={autoFocus} />
+          <RedWord doc={doc} set={set} canEdit={canEdit} />
           {anyMotion && (
             <Box sx={{ mt: 1.5 }}>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 650, color: MUTED, mb: 0.6 }}>Endings that take turns on the shop</Typography>
@@ -193,13 +216,7 @@ export default function PartFields({ doc, set, k, part, canEdit, projectId, piec
           }} />
       )}
       {part === "picture" && <PictureEditor doc={doc} set={set} canEdit={canEdit} projectId={projectId} pieceId={pieceId} me={me} />}
-      {part === "background" && (
-        <>
-          <Swatches value={doc.theme} disabled={!canEdit} onChange={(t) => set((d) => ({ ...d, theme: t }))}
-            options={THEME_KEYS.map((t) => ({ key: t, label: THEMES[t].name, fill: THEMES[t].bg }))} />
-          <Hint sx={{ mt: 1 }}>{THEMES[doc.theme].name}{doc.theme === "pale" ? " - the newsletter band's" : ""}. The same in every place.</Hint>
-        </>
-      )}
+      {part === "background" && <DesignFields doc={doc} set={set} canEdit={canEdit} pieceId={pieceId} />}
     </Box>
   );
 }

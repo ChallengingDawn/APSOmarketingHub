@@ -46,7 +46,7 @@ import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { SHEEN_BG, sheen } from "./Fields";
-import { Frame, type AddPlace, type Device, type Picked } from "./Frame";
+import { Frame, type AddPlace, type Device, type Picked, type SelectOpts } from "./Frame";
 import { StoreViewPicker } from "./StoreViewPicker";
 
 export type View = "before" | "after" | "both";
@@ -255,7 +255,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip, plan }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -291,6 +291,8 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   fold?: { build: boolean; assist: boolean; onBuild: () => void; onAssist: () => void };
   /** a slim row under the toolbar: the page's versions A / B / C (Content v6, ./Versions.tsx) */
   strip?: React.ReactNode;
+  /** Content v7: the AI plan's steps drawn in the page at once, one lit, whether it shows (./plan/overlay.ts) */
+  plan?: Pick<SelectOpts, "pending" | "flash" | "onShown">;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
@@ -316,7 +318,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
     selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
-    onAddEl: working ? undefined : onAddEl, oldShown,
+    onAddEl: working ? undefined : onAddEl, oldShown, ...(plan ?? {}),
   };
   // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
   const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())

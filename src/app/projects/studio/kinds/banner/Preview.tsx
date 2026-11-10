@@ -10,7 +10,9 @@
 //                 dark label under it, "<Part> · Ask AI · ×", and its fields open in the map; empty words show greyed
 //                 until written; while the AI writes, the banner shimmers with the clock
 //   under it      what to look at before it goes out, for this place
-//   In a page     the page to-do it was put in, with the banner in its place (Place.tsx)
+//   In a page     the page to-do it was put on, with the banner in its place (Place.tsx InPage; Content v7: put there by the
+//                 map's last step "Put it on a page", ToPage.tsx)
+//   the shop banner (Content v7) its 1920 x 600 and, with Phone, its 1080 x 900 picture - as the shop's slider shows them
 // Gone from the first studio: the build column of fields beside the banner, the sheet of "words here", checks and files
 // under every place, the picture's address field, the notes field - each part is changed on the banner itself now.
 
@@ -34,14 +36,15 @@ import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { esc, photoLabel } from "@/lib/content/studio/kinds/banner/brand";
 import { placeChecks, placeState } from "@/lib/content/studio/kinds/banner/checks";
-import { GROUPS, PRESET, PRESETS, isBand, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
-import { pasteBlock, pickCss, previewDoc, previewSwap, stillMarkup, stillSheet, type PickPart } from "@/lib/content/studio/kinds/banner/render";
+import { GROUPS, PRESET, PRESETS, hasPhone, isBand, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
+import { pasteBlock, pickCss, previewDoc, previewSwap, sizeOf, stillMarkup, stillSheet, type PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { Pane, btn, type Device } from "../../parts";
 import { PART_NAME, inLine, type Set } from "./Editor";
 import { CheckLines, type BannerBusy, type usePng } from "./Output";
 import { isWordPart, readPart, targetOf, writePart, type Target, type WordPartKey } from "@/lib/content/studio/kinds/banner/edit";
 import { shimmer, useClock } from "../video/map";
 import { InPage, PageBar, type Pages } from "./Place";
+import { storeForLang } from "../../productPictures";
 import { PhotoPicker, Scaled, useWidth } from "./ui";
 import { PicturePanel, makePicture, uploadPicture, type PictureAspect } from "../../pictures";
 
@@ -141,14 +144,16 @@ export type InPlace = { kind: "dbl" | "typing" | "done"; part: PickPart; text?: 
 function editInDom(root: HTMLElement, P: string, part: PickPart, text: string, on: (e: InPlace) => void) {
   const el = root.querySelector<HTMLElement>(PART_CLASS[part].map((c) => `.${P}-${c}`).join(","));
   if (!el) return;
+  // the headline's (and the line's) own words, its red word with them, are one field (Content v7)
+  const own = el.querySelector<HTMLElement>(`.${P}-ht`);
   const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement?.closest(`.${P}-w`) ? NodeFilter.FILTER_REJECT : n.textContent?.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP) });
-  const tn = walk.nextNode();
+  const tn = own ? null : walk.nextNode();
   const span = document.createElement("span");
   span.className = "is-editing";
   span.contentEditable = "plaintext-only";
   if (span.contentEditable !== "plaintext-only") span.contentEditable = "true";
   span.textContent = text;
-  const faded = tn?.parentElement && tn.parentElement !== el && /opacity/.test(tn.parentElement.getAttribute("style") ?? "") ? tn.parentElement : tn;
+  const faded = own ?? (tn?.parentElement && tn.parentElement !== el && /opacity/.test(tn.parentElement.getAttribute("style") ?? "") ? tn.parentElement : tn);
   if (faded?.parentNode) faded.parentNode.replaceChild(span, faded); else el.insertBefore(span, el.firstChild);
   let open = true;
   const finish = (keep: boolean) => {
@@ -323,9 +328,12 @@ function PictureActions({ doc, set, projectId, pieceId, me, onWork }: {
   const idea = words ? `A photo for a banner that says: "${words}". Industrial components in use, real, calm light.` : "Industrial components in use, real, calm light, for APSOparts.";
   const places = sizesOf(doc);
   const aspect: PictureAspect = places.some((x) => x === "story" || x === "portrait") && !places.some((x) => PRESET[x].group === "shop") ? "4:5" : places.every((x) => x === "square") ? "1:1" : "3:2";
-  const put = (url: string, label = "") => set((d) => (d.content.photos.length >= 2
-    ? { ...d, content: { ...d.content, photos: d.content.photos.some((x) => x.url === url) ? d.content.photos : [...d.content.photos, { url, alt: "", label }] } }
-    : { ...d, content: { ...d.content, image: { url, alt: "", label: label || d.content.image.label } } }));
+  const put = (url: string, label = "", product?: { alt: string }) => set((d) => {
+    const pic = { url, alt: product?.alt ?? "", label: product ? "" : label, ...(product ? { fit: "product" as const } : {}) };
+    return d.content.photos.length >= 2
+      ? { ...d, content: { ...d.content, photos: d.content.photos.some((x) => x.url === url) ? d.content.photos : [...d.content.photos, pic] } }
+      : { ...d, content: { ...d.content, image: product ? pic : { ...pic, label: label || (d.content.image.fit === "product" ? "" : d.content.image.label) } } };
+  });
   const make = async () => {
     setErr(null); onWork({ label: "Making the picture", since: Date.now() });
     const r = await makePicture(idea, aspect, { projectId, pieceId });
@@ -352,10 +360,11 @@ function PictureActions({ doc, set, projectId, pieceId, me, onWork }: {
       {!many && c.image.url && <Button size="small" onClick={() => set((d) => ({ ...d, content: { ...d.content, image: { url: "", alt: "", label: "" } } }))} sx={{ ...act, color: "rgba(255,255,255,.75)" }}>Remove</Button>}
       {err && <Typography sx={{ fontSize: "0.72rem", color: "#ffb4ae", ml: 0.5, maxWidth: 220, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={err}>{err}</Typography>}
       <Popover open={!!anchor} anchorEl={anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} slotProps={{ paper: { sx: { width: 420, p: 1.5, borderRadius: "10px" } } }}>
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>The shop&apos;s photos</Typography>
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>The shop&apos;s products, ours</Typography>
+        <PicturePanel onPick={(pic) => { put(pic.url, "", pic.kind === "product" ? { alt: pic.alt ?? "" } : undefined); setAnchor(null); }} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect}
+          tabs={["mine", "project"]} start="products" columns={3} store={storeForLang(lang)} />
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mt: 1.5, mb: 0.75 }}>The shop&apos;s technology photos</Typography>
         <PhotoPicker lang={lang} selected={many ? c.photos.map((x) => x.url) : [c.image.url]} onPick={(ph) => { put(ph.url, photoLabel(ph, lang)); setAnchor(null); }} />
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mt: 1.5, mb: 0.75 }}>Ours</Typography>
-        <PicturePanel onPick={(pic) => { put(pic.url); setAnchor(null); }} projectId={projectId} pieceId={pieceId} me={me} aspect={aspect} tabs={["mine", "project"]} start="project" columns={3} />
       </Popover>
     </>
   );
@@ -377,19 +386,22 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
   /** words being typed on the banner now (the left card does not take the cursor) */
   onTyping?: (on: boolean) => void;
 }) {
-  const [box, width] = useWidth<HTMLDivElement>();
+  const [box, width] = useWidth<HTMLDivElement>(820);
   const [device, setDevice] = useState<Device>("desktop");
   const made = sizesOf(doc);
   const k: PresetKey | null = view !== "all" && view !== "pages" && made.includes(view) ? view : null;
   const p = k ? PRESET[k] : null;
   const live = p?.out === "html";
+  // the shop banner: its 1920 x 600, and with Phone its 1080 x 900 picture (Content v7)
+  const phonePic = !!k && !live && hasPhone(k) && device === "mobile";
+  const size = k ? sizeOf(k, phonePic) : null;
   const shown = useMemo(() => (k ? staged(doc, k) : null), [doc, k]);
   const block = useMemo(() => (k && live && shown ? fade(pasteBlock(shown.doc, k, prefix, title), shown.ph) : ""), [shown, k, prefix, title, live]);
   const drawn = useMemo(() => {
     if (!k || live || !shown) return null;
-    const m = stillMarkup(shown.doc, k, prefix);
+    const m = stillMarkup(shown.doc, k, prefix, { phone: phonePic });
     return { css: m.css, html: fade(m.html, shown.ph) };
-  }, [shown, k, prefix, live]);
+  }, [shown, k, prefix, live, phonePic]);
 
   // words typed right on the banner (09.11.2026, the flow standard): a double-click on a part makes it a field in
   // place; every key writes the same field as the left card (which follows); Enter or a click outside keeps it, Esc
@@ -499,17 +511,16 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, py: 1.1, borderBottom: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)", flexShrink: 0, minHeight: 50, boxSizing: "border-box" }}>
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flex: "1 1 0", minWidth: 0, overflow: "hidden" }}>
             <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{p ? p.label : current === "pages" ? "In a page" : "All places"}</Typography>
-            {p && <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{sizeLabel(p)} · {p.note}</Typography>}
+            {p && <Typography sx={{ fontSize: "0.78rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{size ? `${size.w} × ${size.h}` : sizeLabel(p)} · {p.note}</Typography>}
           </Box>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-            {live && k && <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
+            {k && (live || hasPhone(k)) && <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "mobile", label: "Phone" }]} />}
             {language}
           </Box>
         </Box>
         <Box sx={{ flex: 1, minHeight: 0 }}>
           {current === "pages" ? (
             <Box sx={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-              <PageBar api={api} doc={doc} set={set} pages={pages} onShow={setPageId} />
               <Box sx={{ flex: 1, minHeight: 0 }}>
                 <InPage pieceId={pieceId} projectId={projectId} pages={pages} pageId={pageId} setPageId={setPageId} saved={saved} />
               </Box>
@@ -543,7 +554,7 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                       {live ? (
                         <LiveFrame key={`${k}-${phone ? "p" : "d"}`} block={block} width={frameWidth} font={font ?? ""} avail={avail} phone={phone} prefix={prefix} picked={pick} onHit={onHit} frameRef={frame} hold={!!typing} onEdit={onEdit} />
                       ) : still && (
-                        <StillView key={stillKey} onDbl={(part) => onEdit({ kind: "dbl", part })} css={still.css} html={still.html} w={p.w} h={p.h} scale={Math.min(1, avail / p.w, k === "story" || k === "portrait" || k === "sky" ? 620 / (p.h ?? 1) : 1)} prefix={prefix} picked={pick} onHit={(h) => onHit(h)} boxRef={stillBox} />
+                        <StillView key={`${stillKey}${phonePic ? "m" : ""}`} onDbl={(part) => onEdit({ kind: "dbl", part })} css={still.css} html={still.html} w={size?.w ?? p.w} h={size?.h ?? p.h} scale={Math.min(1, avail / (size?.w ?? p.w), k === "story" || k === "portrait" || k === "sky" || phonePic ? 620 / (size?.h ?? p.h ?? 1) : 1)} prefix={prefix} picked={pick} onHit={(h) => onHit(h)} boxRef={stillBox} />
                       )}
                     </Box>
                     {pick && (
