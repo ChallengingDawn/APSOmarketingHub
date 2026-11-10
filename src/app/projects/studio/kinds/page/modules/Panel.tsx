@@ -182,12 +182,14 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     } finally { setFollowing(false); }
   };
   const sigNow = m ? followSig(m) : "";
+  // the AI at work on it (its fill follows by itself - ../plan withFill): checked once it is done
+  const elsewhere = !!(key && ctl.busy[key]);
   useEffect(() => {
-    if (!m || !ctl.canEdit || busy || following || checked.current.has(sigNow)) return;
+    if (!m || !ctl.canEdit || busy || elsewhere || following || checked.current.has(sigNow)) return;
     if (!followNeedsShop(m, aboutRef.current)) { checked.current.add(sigNow); aboutRef.current = null; return; }
     void followNow(m);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigNow, busy, following, ctl.canEdit]);
+  }, [sigNow, busy, elsewhere, following, ctl.canEdit]);
 
   const s = m?.settings;
   const k = m ? kindOf(m.type) : null;
