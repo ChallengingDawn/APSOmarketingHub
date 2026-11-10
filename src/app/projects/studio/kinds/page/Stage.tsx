@@ -266,7 +266,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   reveal: number;
   onEditWords: () => void; onAskAi: () => void; inserts: InsertOut[] | null; shell: PreviewOut | null;
   /** what the AI is writing now in a new page (blocks, fields) and the pictures being made - they shimmer */
-  writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[] };
+  writing?: { blocks: string[]; fields: string[]; pictures: string[]; tuning?: string[]; modules?: Record<string, string>; moduleWhy?: Record<string, string> };
   /** a page of the shop being changed by the AI: since when, and what it is doing ("Checking that it reads well") */
   working?: number | null;
   workingLabel?: string | null;

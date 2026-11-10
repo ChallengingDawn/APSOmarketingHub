@@ -69,6 +69,9 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, guardFill, newPageAddresses, newPageSystem, newPageUser } from "./plan/newpage";
+import { treeFor } from "./plan/fill";
+import { readBrain } from "@/lib/brain";
 import { listTests } from "@/lib/convert/tests";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
@@ -356,6 +359,47 @@ function fillTask(part: Exclude<Part, "field">): AiTask {
     clean: (raw, _doc, _ctx, input) => cleanFill(raw, candidatesOf(input)),
   };
 }
+
+/* ── fill_page: a new page written whole WITH ITS MODULES (Content v8, SARCLA 10.11.2026 point 5: "when the AI is
+ *    generating a new page it should also generate the modules") ── */
+//
+// The whole-page write ("Write the page with AI", "Write it all again", an app's brief writing it by itself): the text
+// blocks as fill_all writes them, and 2 to 4 modules of the library among them - each checked, placed after its block
+// (or in place of one), filled from the shop by the studio through `plan_fill` (./plan/newpage.ts, ./plan/fill.ts). The
+// text blocks' words pass the same word rules as the modules'. The asks that only rework the words ("Make it shorter")
+// stay fill_all: the modules on the page stay as they are.
+
+/** What a new page's words may name: the brief, the person's ask, the brand's facts, the shop's pages offered. */
+async function newPageFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, unknown>): Promise<string> {
+  const brain = await readBrain().catch(() => null);
+  const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
+  return [context(ctx, d), s(input.request, 1500), candidatesOf(input).map((c) => c.name).join(" "), facts].join(" ");
+}
+
+const fillPage: AiTask = {
+  label: "Write the page",
+  schema: NEWPAGE_SCHEMA,
+  system: `${FILL_SYSTEM}\n\n${newPageSystem()}`,
+  maxTokens: 16_000,
+  effort: "medium",
+  user: async (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
+    const tree = await treeFor(d.store).catch(() => []);
+    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store })}`;
+  },
+  clean: async (raw, docRaw, ctx, input) => {
+    const d = viewFor(ctx, docRaw, input);
+    const cands = candidatesOf(input);
+    const base = cleanFill(raw, cands);
+    const pageText = await newPageFacts(ctx, d, input);
+    const lang = d.store.slice(0, 2);
+    // the text blocks' words under the shop's word rules too
+    const g = guardFill(base.answer, pageText, lang);
+    const tree = await treeFor(d.store).catch(() => []);
+    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang });
+    return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...g.problems, ...mods.problems].slice(0, 10) };
+  },
+};
 
 const ROLE: Record<string, string> = {
   "hero.eyebrow": `a small line above the page's title, at most ${LIMIT.eyebrow} characters`,
@@ -984,7 +1028,7 @@ export const pageKind: KindDef = {
     rewrite, ideas, texts, translate, seo, english, block: blockTask(false), block_fix: blockTask(true),
     // Content v7: the AI composes the page with the module library - a plan of steps (./plan/*)
     plan: planTask(context),
-    fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
+    fill_all: fillTask("all"), fill_page: fillPage, fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
     // the module gallery's "Fill with AI" (Content v6): the page as the AI sees it, then the candidates - ./modules/ai.ts

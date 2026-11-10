@@ -69,7 +69,7 @@ export type PlanMode = "ideas" | "convincing" | "part" | "ask";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
-const WORDS_SCHEMA = {
+export const WORDS_SCHEMA = {
   type: "object", additionalProperties: false, required: ["eyebrow", "title", "text", "button", "button2", "points", "faq"],
   properties: {
     eyebrow: { type: "string" }, title: { type: "string" }, text: { type: "string" }, button: { type: "string" }, button2: { type: "string" },
@@ -395,7 +395,7 @@ export function placeOf(doing: StepDo, at: PagePart, where: "before" | "after" |
   return { place: null, problem: `No place was found ${side} ${at.id}` };
 }
 
-function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanWords {
+export function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanWords {
   const o = isObj(v) ? v : {};
   const sw = (t: string) => safeWords(t, pageText, said, lang);
   const w = (k: string, n: number) => sw(str(o[k], n * 2)).slice(0, n);
@@ -406,7 +406,7 @@ function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanW
   };
 }
 
-function fillIn(v: unknown, lib: LibModule | null, ctx: CleanCtx): FillSpec {
+export function fillIn(v: unknown, lib: LibModule | null, ctx: CleanCtx): FillSpec {
   const o = isObj(v) ? v : {};
   let how = (["page", "category", "technologies", "viewed", "bought", "numbers", "none"] as FillHow[]).find((h) => h === o.how) ?? "none";
   const cat = str(o.category, 400);

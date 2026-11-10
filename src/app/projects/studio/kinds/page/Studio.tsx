@@ -67,6 +67,8 @@ import { servedOf, usePlan } from "./plan/usePlan";
 import { AbLastStep } from "./Sections";
 import { useAbBar } from "../../abBar";
 import { abApplies, abLineOf, abStateOf, activateAb, type AbRunning } from "@/lib/content/studio/kinds/page/abState";
+import type { NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
+import { useNewPageModules } from "./plan/useNewPageModules";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 /** The AI's block (./block.ts): the change, what it could not put right itself, what it put right */
@@ -485,6 +487,9 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the AI ──────────────────────────────────────────────────────────── */
 
+  // a new page's modules written with it (Content v8, SARCLA 10.11.2026 point 5) - ./plan/useNewPageModules.ts
+  const npModules = useNewPageModules({ api, record: (label, before, note) => record(label, before, "ai", note) });
+
   const candidates = async (): Promise<Candidate[]> => {
     const r = await api.act<{ candidates: Candidate[] }>("candidates", { lang: langRef.current });
     return r.ok ? r.result.candidates : [];
@@ -497,6 +502,8 @@ export default function Studio({ api }: StudioProps) {
     setBusy(key);
     const forLang = langRef.current;
     let wrote = false;
+    // the modules the whole-page write put on the page (Content v8), filled once the words are saved
+    let placed: { id: string; step: NewPageModule }[] = [];
     try {
       if (part === "field") {
         const path = opts.id ?? "";
@@ -507,18 +514,28 @@ export default function Studio({ api }: StudioProps) {
         return checkNote(r.result.leftovers);
       }
       const cands = part === "all" || part === "links" || part === "hero" || part === "cta" ? await candidates() : [];
-      const r = await api.ai<{ answer: FillAnswer; leftovers: string[] }>(`fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands });
+      // the whole page written (Content v8, point 5): with its modules - unless the ask only reworks the words
+      const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
+      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
       // the whole page written: only the blocks the page has (a block taken out stays out - Content v5)
-      await applyView((cur) => ({ ...cur, fields: part === "all" ? onlyOnPage(mergeFill(cur.fields, r.result.answer, opts.id), blockOrder(cur.fields)) : mergeFill(cur.fields, r.result.answer, opts.id) }),
-        `AI wrote ${PART_LABEL[part as Part]}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      await applyView((cur) => {
+        const fields = part === "all" ? onlyOnPage(mergeFill(cur.fields, r.result.answer, opts.id), blockOrder(cur.fields)) : mergeFill(cur.fields, r.result.answer, opts.id);
+        if (!compose || !r.result.modules?.length) return { ...cur, fields };
+        const c = npModules.place(fields, r.result.modules, forLang);
+        placed = c.placed;
+        return { ...cur, fields: c.fields };
+      }, `AI wrote ${PART_LABEL[part as Part]}${compose && r.result.modules?.length ? ` with ${r.result.modules.length} module${r.result.modules.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
-      return checkNote(r.result.leftovers);
+      const left = (r.result.problems ?? []).length ? `Left out: ${(r.result.problems ?? []).slice(0, 2).join(" ")}` : null;
+      return [left, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
     } finally {
       setBusy(null);
       // its pictures, made without another click - once the words are saved
       if (wrote && (part === "all" || part === "hero" || part === "sections" || part === "section")) setTimeout(() => void autoPictures(forLang, part, opts.id), 50);
+      // its modules, filled from the shop in front of the person (Content v8)
+      if (wrote && placed.length) void npModules.fillAll(forLang, placed);
     }
   };
 
@@ -1109,7 +1126,7 @@ export default function Studio({ api }: StudioProps) {
         preview={<Stage api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} view={view} onView={setViewMode} preview={preview} selected={sel?.key ?? null} picked={sel?.picked ?? null}
           onPick={onPick} onEdit={onEdit} editNonce={editNonce} reveal={reveal} onEditWords={() => setEditNonce((n) => n + 1)} onAskAi={askAi}
           inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
-          writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
+          writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths, modules: npModules.busyFor(lang), moduleWhy: npModules.whyFor(lang) }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
           oldShown={oldShown} onAddEl={!isNew && d.path && canEdit ? setAddPlace : undefined}
           plan={isNew ? undefined : {
             // the AI's steps and the library's modules, drawn in the page at once (Content v7, points 6 and 13)
