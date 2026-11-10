@@ -13,11 +13,11 @@
 import type { AiTask, ServerAction, StudioCtx } from "../../../contract";
 import { s } from "../../../contract";
 import { languageOfStore, pageDoc, viewOf, type PageDoc } from "../model";
-import { moduleOfChange, type Card } from "./model";
-import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, cleanCards, cleanedNote, shopCategory, shopTree, topCards } from "./source";
+import { moduleOfChange, normalizeModule, type Card } from "./model";
+import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, cleanCards, cleanedNote, followInfo, shopCategory, shopTree, topCards } from "./source";
 import type { TreeNode } from "./parse";
 import { MODULE_FILL_SCHEMA, MODULE_FILL_SYSTEM, candidatesIn, cleanPick, moduleFillUser } from "./ai";
-import { MODULE_WORDS_SCHEMA, MODULE_WORDS_SYSTEM, cleanModuleWords, datesIn, moduleWordsUser, pageWordsOf } from "./words";
+import { MODULE_WORDS_SCHEMA, MODULE_WORDS_SYSTEM, cleanModuleWords, datesIn, moduleWordsUser, pageWordsOf, showsIn } from "./words";
 import { libModule } from "../plan/library";
 import { treeFor } from "../plan/fill";
 import { readBrain } from "@/lib/brain";
@@ -101,9 +101,26 @@ const modulePicks: ServerAction = async (ctx, raw, input) => {
   return { cards: await cardsForPicks(numbers, storeIn(raw, input, ctx.piece.language), countIn(input)) };
 };
 
+/**
+ * Content v12 (SARCLA 10.11.2026: "on some bento you change the product but the background photo keeps seals"): what a
+ * module's products are - their categories (the one it was filled from, else their pages' breadcrumbs), the one they
+ * share and, when its picture should follow them, that category's photo (./source.ts followInfo). The studio decides with
+ * ./follow.ts and saves; nothing is written here. Input: the module as small as it goes (its type, its items' addresses,
+ * its picture), `hint` the category it was filled from.
+ */
+const moduleFollow: ServerAction = async (ctx, raw, input) => {
+  const store = storeIn(raw, input, ctx.piece.language);
+  const m = normalizeModule({
+    type: s(input.type, 60),
+    settings: { store, items: Array.isArray(input.items) ? input.items.slice(0, 12) : [], feature: input.feature ?? null },
+  });
+  if (!m) throw new Error("That module is not in the library any more.");
+  return followInfo({ m, store, hint: s(input.hint, 400) });
+};
+
 export const moduleActions: Record<string, ServerAction> = {
   module_tree: moduleTree, module_category: moduleCategory, module_branch: moduleBranch, module_numbers: moduleNumbers,
-  module_top: moduleTop, module_candidates: moduleCandidates, module_picks: modulePicks,
+  module_top: moduleTop, module_candidates: moduleCandidates, module_picks: modulePicks, module_follow: moduleFollow,
 };
 
 /** "Fill with AI" as a task of the page studio, given how it says the page (its context and outline) - ./ai.ts. */
@@ -152,7 +169,8 @@ async function wordsContext(ctx: StudioCtx, raw: unknown, input: Record<string, 
   const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
   const head = context(ctx, d);
   const dates = datesIn(`${page}${NL}${head}`);
-  return { d, page, tree, links, head, dates, pageText: `${head} ${page} ${s(input.request, 1500)} ${facts}` };
+  // what the module shows (its products' names, Content v12): its words may name them
+  return { d, page, tree, links, head, dates, pageText: `${head} ${page} ${s(input.request, 1500)} ${showsIn(input.now)} ${facts}` };
 }
 
 /** "Fill it with AI" as a task of the page studio (../server.ts registers it with how it says the project). */

@@ -51,6 +51,7 @@ import { SwitchList } from "../Switch";
 import { FAMILY_WORDS, compatibleModules, familyOf, questionsToggle } from "@/lib/content/studio/kinds/page/modules/switch";
 import { BUTTON_LOOK_KEY, buttonLookOf, openOf } from "@/lib/content/studio/kinds/page/modules/looks";
 import { packLook, type ButtonLook } from "@/lib/content/studio/kinds/page/style";
+import { aboutOf, fillHint, followNeedsShop, followPicture, followSig, followable, personPicture, pictureFrom, rewordOf, withoutReword, type FollowInfo } from "@/lib/content/studio/kinds/page/modules/follow";
 
 type Way = "category" | "bought" | "viewed" | "numbers" | "ai";
 type TreeNode = { name: string; url: string; img: string; children: TreeNode[] };
@@ -96,6 +97,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const [gallery, setGallery] = useState(false);
   const [aiSaid, setAiSaid] = useState<AiAnswer | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
+  const [following, setFollowing] = useState(false);
   const key = ctl.editing ?? "";
 
   // the module as the document has it (an Undo, another person) when nothing is waiting to be saved
@@ -149,6 +151,44 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctl.autoFill, ctl.editing, m?.type]);
 
+  /* ── its picture follows its products (Content v12, SARCLA 10.11.2026: "on some bento you change the product but the
+   *    background photo keeps seals") ──
+   * Whenever its products change - any fill, an item taken out, a switch into another module, or a module opened whose
+   * picture is of other products - the hub reads what they are (their categories: the one it was filled from, else their
+   * pages' breadcrumbs) and the fill's picture becomes their own category's photo; the person's picture stays; its words,
+   * when they went with other products, are flagged here ("Its words speak of other products") - never rewritten. */
+  const aboutRef = useRef<string | null>(null);
+  const checked = useRef(new Set<string>());
+  const followNow = async (m0: ModuleRef) => {
+    const sig = followSig(m0);
+    const about = aboutRef.current;
+    aboutRef.current = null;
+    checked.current.add(sig);
+    setFollowing(true);
+    try {
+      const small = (c: Card) => ({ kind: c.kind, name: c.name.slice(0, 80), url: c.url, img: c.img, number: c.number, ...(c.from ? { from: c.from } : {}) });
+      const r = await api.act<FollowInfo>("module_follow", {
+        store: ctl.store, type: m0.type, hint: fillHint(m0),
+        items: m0.settings.items.slice(0, 12).map((c) => ({ ...small(c), img: "" })), feature: m0.settings.feature ? small(m0.settings.feature) : null,
+      });
+      if (!r.ok) return;
+      const now0 = mRef.current;
+      // its products changed meanwhile: their own check follows
+      if (!now0 || followSig(now0) !== sig) return;
+      const out = followPicture(now0, r.result, { reword: true, ...(about !== null ? { about } : {}) });
+      if (!out.did && !out.reword) return;
+      checked.current.add(followSig(out.m));
+      change(out.m, out.line || "Flagged its words: they speak of other products", true);
+    } finally { setFollowing(false); }
+  };
+  const sigNow = m ? followSig(m) : "";
+  useEffect(() => {
+    if (!m || !ctl.canEdit || busy || following || checked.current.has(sigNow)) return;
+    if (!followNeedsShop(m, aboutRef.current)) { checked.current.add(sigNow); aboutRef.current = null; return; }
+    void followNow(m);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sigNow, busy, following, ctl.canEdit]);
+
   const s = m?.settings;
   const k = m ? kindOf(m.type) : null;
   const w = wordsFor(ctl.store);
@@ -161,6 +201,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     );
   }
   const gap = moduleGap(m);
+  const reword = rewordOf(m);
   const kb = Math.round(html.length / 100) / 10;
   // the AI at work on it (its button, or "Ask AI" on the page): what it does now
   const aiBusy = aiRunning || (key ? /with AI|from the shop/.test(ctl.busy[key] ?? "") && !busy : false);
@@ -177,6 +218,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const fillWith = (items: Card[], fill: ModuleSettings["fill"], patch: Partial<ModuleSettings>, label: string, note: string, missing: Missing[] = []) => {
     const c = mRef.current;
     if (!c) return;
+    // the category its words went with, before its products change - checked against the new ones (followNow)
+    if (items.map((x) => x.url).join(",") !== c.settings.items.map((x) => x.url).join(",")) aboutRef.current = aboutOf(c);
     // what is read is the store view shown: the module is its own from then on (its links, its interface words)
     const r = fitModule({ ...c, settings: { ...c.settings, ...patch, items, fill, store: ctl.store } });
     change(normalizeModule(r.m) ?? r.m, label, true);
@@ -204,7 +247,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     const k0 = kindOf(cur0.type);
     const patch: Partial<ModuleSettings> = {
       title: cur0.settings.title || c.name, link: { label: cur0.settings.link.label || w.all, url: c.url },
-      ...(k0.fields.some((f) => f.kind === "feature") && !cur0.settings.feature ? { feature: { kind: "category", name: c.name, url: c.url, img: c.img || c.subs[0]?.img || "", meta: c.count, number: "", children: [] } } : {}),
+      // its big tile the category itself when it has none (a picture of other products then follows - followNow)
+      ...(k0.fields.some((f) => f.kind === "feature") && !cur0.settings.feature && (c.img || c.subs[0]?.img) ? { feature: { kind: "category", name: c.name, url: c.url, img: c.img || c.subs[0]?.img || "", meta: c.count, number: "", children: [], from: "fill" } } : {}),
     };
     fillWith(list.slice(0, want()), { how: "category", category: c.url, numbers: "", ask: "", at: now(), missing: [] }, patch,
       `Filled the ${k.name.toLowerCase()} from ${c.name}`, `${c.name}: its first ${Math.min(list.length, want())} ${c.products.length ? "products" : "subcategories"} as the shop lists them.${r.result.cleaned ? ` ${r.result.cleaned}` : ""}`);
@@ -265,7 +309,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     const c = r.result.category;
     const img = c.img || c.subs[0]?.img || c.products[0]?.img || "";
     if (!img) return `${c.name} has no photo on the shop.`;
-    set({ feature: { kind: c.img || c.subs[0]?.img ? "category" : "product", name: c.name, url: c.url, img, meta: c.count, number: "", children: [] } }, "Changed the picture", true);
+    // picked by the person: it stays when the products change (Content v12)
+    set({ feature: personPicture({ kind: c.img || c.subs[0]?.img ? "category" : "product", name: c.name, url: c.url, img, meta: c.count, number: "", children: [] }) }, "Changed the picture", true);
     return null;
   });
 
@@ -278,13 +323,17 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     if (!nums.length) return `Its products carry no numbers - fill it again for ${ctl.store}.`;
     const r = await api.act<{ cards: Card[]; missing: Missing[] }>("module_numbers", { store: ctl.store, text: nums.join(" "), count: k.max || 12 });
     if (!r.ok) return r.error;
-    const featureIsProduct = cur0.settings.feature?.kind === "product";
+    const was = cur0.settings.feature;
+    const featureIsProduct = was?.kind === "product";
+    // a picture of the hub's own (uploaded, made by AI) belongs to no store view: it stays (Content v12)
+    const keepPic = !!was && !featureIsProduct && pictureFrom(was) === "person" && /^\/api\/content\/picture\//.test(was.img);
     const cards = r.result.cards;
-    const feature = featureIsProduct ? cards.shift() ?? null : null;
+    const product = featureIsProduct ? cards.shift() ?? null : null;
+    const feature = product ? { ...product, ...(was?.from ? { from: was.from } : {}) } : keepPic ? was : null;
     fillWith(cards, cur0.settings.fill ? { ...cur0.settings.fill, at: now() } : null,
       { store: ctl.store, feature, link: { label: cur0.settings.link.label, url: "" } },
       `Filled the ${k.name.toLowerCase()} for ${ctl.store}`,
-      `The same products as the ${ctl.store} shop has them.${cur0.settings.feature && !featureIsProduct ? " Its picture was a category of " + otherStore + " - pick one of " + ctl.store + "." : ""} Its link at the top goes nowhere until you give it a ${ctl.store} page.`, r.result.missing);
+      `The same products as the ${ctl.store} shop has them.${was && !featureIsProduct && !keepPic ? " Its picture was a category of " + otherStore + " - pick one of " + ctl.store + "." : ""} Its link at the top goes nowhere until you give it a ${ctl.store} page.`, r.result.missing);
     return null;
   });
 
@@ -314,6 +363,15 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"} pop={pop}
       right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
       {top}
+      {reword && ctl.canEdit && (
+        // Content v12: its products changed under its words - said, never rewritten silently
+        <Box sx={{ mb: ai ? 0.75 : 1.5, p: 1.1, borderRadius: "6px", border: `1px solid ${AMBER}55`, bgcolor: "#fdf8ef", display: "flex", alignItems: "flex-start", gap: 1 }}>
+          <Typography sx={{ flex: 1, fontSize: "0.8rem", color: INK, lineHeight: 1.45 }}>
+            <b>Its words speak of other products</b>{reword.name ? ` - it shows ${reword.name} now` : ""}.{ai ? " Write it again with AI, or keep them." : " Change them below, or keep them."}
+          </Typography>
+          <Button size="small" onClick={() => { const c = mRef.current; if (c) change(withoutReword(c), "Kept its words", true); }} sx={{ ...btn, px: 1, minWidth: 0, flexShrink: 0, color: MUTED, border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", borderRadius: "6px" }}>Keep them</Button>
+        </Box>
+      )}
       {ai && ctl.canEdit && (
         <Box sx={{ mb: 1.5 }}>
           <Button fullWidth variant="contained" disableElevation disabled={aiBusy || !api.data.ai} onClick={() => void runAi()}
@@ -411,7 +469,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
         </>
       )}
 
-      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store} stores={stores}
+      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store} stores={stores} following={following}
+        onRemovePicture={() => { const c = mRef.current; if (!c) return; const next = { ...c, settings: { ...c.settings, feature: null } }; checked.current.add(followSig(next)); change(next, "Took the picture out", true); }}
         onCategoryPhoto={() => setPicking(picking === "picture" ? null : "picture")} onGallery={() => setGallery(true)} />
       {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
 
@@ -443,16 +502,20 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
       <Hint mt={1.5}>{k.from ? `From the ${k.from}. ` : ""}One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>
       <PictureDialog open={gallery} onClose={() => setGallery(false)} title="A picture for the module" projectId={api.data.piece.projectId} pieceId={api.data.piece.id}
         tabs={["upload", "mine", "project", "make"]} start="mine" aspect="16:9"
-        onPick={(p) => set({ feature: { kind: "category", name: s.feature?.name || s.title || "Bild", url: s.feature?.url || s.link.url || `https://www.apsoparts.com/${ctl.store.split("/")[0]}/`, img: p.url, meta: "", number: "", children: [] } }, "Changed the picture", true)} />
+        onPick={(p) => set({ feature: personPicture({ kind: "category", name: s.feature?.name || s.title || "Bild", url: s.feature?.url || s.link.url || `https://www.apsoparts.com/${ctl.store.split("/")[0]}/`, img: p.url, meta: "", number: "", children: [] }) }, "Changed the picture", true)} />
     </PanelFrame>
   );
 }
 
 /* ── the module's fields, drawn from its settings schema ──────────────── */
 
-function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGallery }: {
+function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGallery, following = false, onRemovePicture }: {
   def: ModuleDef; m: ModuleRef; set: (patch: Partial<ModuleSettings>, label?: string, now?: boolean) => void; canEdit: boolean; store: string; stores?: string[];
   onCategoryPhoto: () => void; onGallery: () => void;
+  /** Content v12: its products' own picture being looked for */
+  following?: boolean;
+  /** the person took its picture out: it stays out (no picture of the products put back by itself) */
+  onRemovePicture?: () => void;
 }) {
   const s = m.settings;
   const words = def.fields.filter((f) => f.kind === "eyebrow" || f.kind === "title" || f.kind === "text");
@@ -490,11 +553,17 @@ function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGaller
           </Box>
           <Box sx={{ minWidth: 0, flex: 1 }}>
             <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: INK }} noWrap>{s.feature?.name || f.hint || "None yet"}</Typography>
+            {/* Content v12: whose picture it is - the fill's follows the products, the person's stays */}
+            {followable(def) && (following || s.feature) && (
+              <Typography sx={{ fontSize: "0.7rem", color: following ? PINK : MUTED, lineHeight: 1.3 }}>
+                {following ? "Finding its products' own picture…" : pictureFrom(s.feature) === "person" ? "Your pick - it stays when the products change" : "Follows its products - their category's photo"}
+              </Typography>
+            )}
             {canEdit && (
               <Box sx={{ display: "flex", gap: 0.5, mt: 0.25, flexWrap: "wrap" }}>
                 <Button size="small" onClick={onCategoryPhoto} sx={{ ...btn, px: 0.75, color: PINK }}>A category&apos;s photo</Button>
                 <Button size="small" onClick={onGallery} sx={{ ...btn, px: 0.75, color: PINK }}>From the pictures</Button>
-                {s.feature && <Button size="small" onClick={() => set({ feature: null }, "Took the picture out", true)} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
+                {s.feature && <Button size="small" onClick={() => (onRemovePicture ? onRemovePicture() : set({ feature: null }, "Took the picture out", true))} sx={{ ...btn, px: 0.75, color: MUTED }}>Remove</Button>}
               </Box>
             )}
           </Box>

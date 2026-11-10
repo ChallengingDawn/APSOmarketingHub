@@ -22,6 +22,10 @@ export type Card = {
   /** a product's 8-digit number ("" for a category) */
   number: string;
   children: Card[];
+  /** a module's picture (its `feature`) only: who put it there - the hub's fill (it follows the module's products when
+   * they change) or the person (uploaded, from the pictures, made by AI, a category's photo picked: it stays). None =
+   * the hub's picture store's is the person's, any other the fill's (./follow.ts pictureFrom). */
+  from?: "fill" | "person";
 };
 
 /** How the module's items were filled - so "fill again" does the same, and the panel says where they came from. */
