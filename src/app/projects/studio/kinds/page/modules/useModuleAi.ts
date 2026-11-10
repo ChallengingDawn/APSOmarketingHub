@@ -81,7 +81,7 @@ export function useModuleAi(o: {
     if (!api.data.ai || !api.data.access.canEdit) return { ok: false, full: false, text: "The AI is not set up on this hub." };
     if (running.current.has(key)) return { ok: false, full: false, text: "The AI is filling it already." };
     const forLang = ref.current.lang();
-    const m0 = moduleAt(viewOf(pageDoc(api.doc, api.data.piece.language), forLang), key);
+    const m0 = moduleAt(viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang), key);
     if (!m0) return { ok: false, full: false, text: "That module is not on the page any more." };
     const name = kindOf(m0.type).name;
     const again = !moduleGap(m0);
@@ -127,7 +127,7 @@ export function useModuleAi(o: {
   const fillLeft = async (forLang: string): Promise<string[]> => {
     const said: string[] = [];
     const api = ref.current.api;
-    const keys = (viewOf(pageDoc(api.doc, api.data.piece.language), forLang).fields.modules ?? []).filter((x) => moduleGap(x.module)).map((x) => `${NP}${x.id}`);
+    const keys = (viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang).fields.modules ?? []).filter((x) => moduleGap(x.module)).map((x) => `${NP}${x.id}`);
     for (const key of keys) {
       const now = moduleAt(viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang), key);
       if (!now || !moduleGap(now)) continue;

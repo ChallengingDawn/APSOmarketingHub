@@ -189,7 +189,10 @@ function modulesOf(v: unknown[]): PageModule[] {
   const out: PageModule[] = [];
   for (const x of v.slice(0, 12)) {
     if (!isObj(x) || typeof x.id !== "string" || !/^[a-z0-9]{2,16}$/i.test(x.id) || out.some((o) => o.id === x.id)) continue;
-    const module = normalizeModule(x.module);
+    let module = normalizeModule(x.module);
+    // every rule of a module hangs under its own class (.apx-<its id>): two modules with one id would share every look
+    // a person gives one of them (Content v11) - the later one takes an id of its own, from its place on the page
+    if (module && out.some((o) => o.module.settings.id === module!.settings.id)) module = { ...module, settings: { ...module.settings, id: `x${x.id.toLowerCase()}`.slice(0, 12) } };
     if (module) out.push({ id: x.id, after: typeof x.after === "string" && /^[\w.]{0,40}$/.test(x.after) ? x.after : "", module });
   }
   return out;
@@ -443,7 +446,9 @@ export function withOrder(f: Fields, order: string[]): Fields {
 
 /** A block added at a place of the order (1 = right after the hero): a new section, or a single block - moved there when
  * the page has it already. Its key comes back, to select it. */
-export function addBlock(f: Fields, kind: NewBlock, at: number): { fields: Fields; key: string } {
+export function addBlock(f0: Fields, kind: NewBlock, at: number): { fields: Fields; key: string } {
+  // a new text-and-picture block never turns its neighbours' grounds (Content v11)
+  const f = kind === "text" ? pinGrounds(f0) : f0;
   const order = blockOrder(f);
   const pos = Math.max(1, Math.min(order.length, Math.round(at)));
   if (kind === "text") {
@@ -464,8 +469,24 @@ export function addBlock(f: Fields, kind: NewBlock, at: number): { fields: Field
   return { fields: withOrder(f, next), key: kind };
 }
 
+/**
+ * The text-and-picture blocks' grounds as they show now, kept (Content v11, SARCLA 10.11.2026: "block edition interferes
+ * with other elements' design"). A section without a ground of its own takes white and grey in turn by its place among
+ * the sections - so a section added, moved, copied or taken out turned the grounds of the sections after it. Kept, they
+ * stay as they are: an edit of one block changes that block only.
+ */
+export function pinGrounds(f: Fields): Fields {
+  let looks = f.looks;
+  f.sections.forEach((s, i) => {
+    const k = `sections.${s.id}`;
+    if (!looks[k]?.bg) looks = { ...looks, [k]: { ...(looks[k] ?? {}), bg: i % 2 ? "grey" : "white" } };
+  });
+  return looks === f.looks ? f : { ...f, looks };
+}
+
 /** A block moved by one place (never above the hero). */
-export function moveBlock(f: Fields, key: string, by: -1 | 1): Fields {
+export function moveBlock(f0: Fields, key: string, by: -1 | 1): Fields {
+  const f = pinGrounds(f0);
   const order = blockOrder(f);
   const i = order.indexOf(key);
   const j = i + by;

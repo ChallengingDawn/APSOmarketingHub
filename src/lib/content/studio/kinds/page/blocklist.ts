@@ -10,7 +10,7 @@
 // A new page's module stands AFTER one of its blocks (fields.ts PageModule.after) - so the list's order is the blocks'
 // order with each block's modules after it; a row dragged elsewhere is laid back that way (moveRow).
 
-import { blockOrder, emptyPic, itemId, removeBlock, withOrder, type Fields, type PageModule, type Section } from "./fields";
+import { blockOrder, emptyPic, itemId, pinGrounds, removeBlock, withOrder, type Fields, type PageModule, type Section } from "./fields";
 import { blocksOf, previewOf, type BlockInfo, type PartState } from "./outline";
 import { kindOf, moduleGap, moduleId, moduleOfChange, type ModuleRef } from "./modules/model";
 import type { PageChange } from "./model";
@@ -123,7 +123,8 @@ function fromSequence(f: Fields, seq: string[]): Fields {
     blocks.unshift("hero");
     for (const m of nextMods) if (!blocks.includes(m.after) && m.after !== "") m.after = "";
   }
-  const out = withOrder(f, blocks);
+  // the sections' grounds kept as they show (Content v11: moving one block never turns another's ground)
+  const out = withOrder(pinGrounds(f), blocks);
   return mods.length || nextMods.length ? { ...out, modules: nextMods } : out;
 }
 
@@ -158,14 +159,16 @@ export function removeRow(f: Fields, key: string): Fields {
   const order = blockOrder(f);
   const i = order.indexOf(key);
   const prev = i > 0 ? order[i - 1] : "";
-  const out = removeBlock(f, key);
+  // the other sections keep the grounds they show (Content v11)
+  const out = removeBlock(key.startsWith("sections.") ? pinGrounds(f) : f, key);
   if (!f.modules?.some((m) => m.after === key)) return out;
   return { ...out, modules: (out.modules ?? f.modules).map((m) => (m.after === key ? { ...m, after: prev } : m)) };
 }
 
 /** A copy of a row right after it (a text-and-picture block, a module) - its key, to select it; null when a page has
  * only one of that block (the hero, the intro, the tiles...). */
-export function duplicateRow(f: Fields, key: string): { fields: Fields; key: string } | null {
+export function duplicateRow(f0: Fields, key: string): { fields: Fields; key: string } | null {
+  const f = key.startsWith("sections.") ? pinGrounds(f0) : f0;
   if (isModuleKey(key)) {
     const mods = f.modules ?? [];
     const i = mods.findIndex((m) => moduleKeyOf(m.id) === key);
