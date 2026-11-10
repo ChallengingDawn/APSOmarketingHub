@@ -10,6 +10,8 @@ export async function planWho(_write = false): Promise<Who | NextResponse> {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (access.role !== "admin") return NextResponse.json({ error: "The action plan is for admins" }, { status: 403 });
+  // never a person of Angst+Pfister, a cross-admin included (access.ts crossClosed, SARCLA 10.11.2026)
+  if (access.cross !== null) return NextResponse.json({ error: "The action plan is not part of your access" }, { status: 403 });
   const u = await getOptionalUser();
   return { userId: access.userId, name: u?.full_name || u?.username || `user ${access.userId}`, email: u?.email ?? null, canWrite: true };
 }

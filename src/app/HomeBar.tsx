@@ -31,7 +31,7 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
-import { APP_KEYS, AP_HUB_HOME, adminOnlyPath, asCross, asRole, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { APP_KEYS, AP_HUB_HOME, AP_SETTINGS, adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
@@ -117,10 +117,15 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
 
   const openFor = (key: string) => (viewed ? canOpen(key) : mine ? mine[key] : true);
   const role = viewed?.role ?? myRole;
+  // the two hubs, for the people of Angst+Pfister only - cross-user or cross-admin (access.ts Cross), never an admin
+  // without the mark (SARCLA 10.11.2026 on Bernd seeing it: "only cross people"); a preview follows the person previewed
+  const twoHubs = (viewed ? viewed.cross ?? null : myCross) !== null;
   const mayOpen = (href: string) => {
     const path = href.split("?")[0];
     if (!path.startsWith("/")) return true; // the shop, HubSpot - not ours to gate
     if (adminOnlyPath(path) && role !== "admin") return false;
+    // the action plan: never for a person of Angst+Pfister, a cross-admin too (access.ts crossClosed)
+    if (twoHubs && crossClosed(path)) return false;
     // the page's own sub-app decides, else its app (src/lib/auth/tree.ts); a page of no app is everybody's
     if (viewed) return canOpenPath(path);
     if (!myLevels) return true;
@@ -150,13 +155,12 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
   // the Action plan's own pages, admins only, carry their own (SARCLA 02.11.2026: "only admins have access to it, show it
   // for everyone on the page"; 04.11.2026: "bring Home to first position")
-  // the two hubs, for the people of Angst+Pfister only - cross-user or cross-admin (access.ts Cross), never an admin
-  // without the mark (SARCLA 10.11.2026 on Bernd seeing it: "only cross people"); a preview follows the person previewed
-  const twoHubs = (viewed ? viewed.cross ?? null : myCross) !== null;
   const home = hub === "ap" ? AP_HUB_HOME : "/";
   const NAV = hub === "ap" ? [
     { name: "Home", href: AP_HUB_HOME, icon: <HomeIcon />, show: true },
-    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
+    // the Angst+Pfister hub's own, simpler Settings (SARCLA 10.11.2026: "settings redirect to apsoparts; ap should have
+    // simpler settings but still settings")
+    { name: "Settings", href: AP_SETTINGS, icon: <SettingsOutlinedIcon />, show: true },
   ] : plan ? [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
@@ -170,24 +174,28 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Applications", href: "/#applications", icon: <AppsIcon />, show: !reads },
     // where Mission Control was: the action plan, for admins only (SARCLA 01.11.2026)
-    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" },
+    // ... greyed and never a link for the people of Angst+Pfister, a cross-admin too (SARCLA 10.11.2026: "action plan
+    // should be grey for AP employees and not be accessible not even as viewer")
+    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" || twoHubs, locked: twoHubs },
     { name: "Live", href: "/live", icon: <SensorsIcon />, show: mayOpen("/live") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
   ].filter((n) => n.show);
 
-  // the switch between the two hubs: inside the bar, on the left of its lower line, the search and the face on the right
-  // (SARCLA 10.11.2026: "take the toggle out of there" - beside the logo it pushed the menu and the search)
+  // the switch between the two hubs: outside the bar, on its left, the two names stacked (SARCLA 10.11.2026: "take the
+  // toggle out of there" - beside the logo it pushed the menu and the search; then, the lower line seen live: "put it
+  // on left side, your previous option one"); above the bar on a phone
   const hubSwitch = (
     <Box role="group" aria-label="Hub" sx={{
-      display: "flex", p: 0.4, gap: 0.4, borderRadius: "14px",
-      bgcolor: "rgba(21,34,58,.05)", border: "1px solid rgba(21,34,58,.06)",
+      ...glass, borderRadius: "22px", p: 0.75, gap: 0.5, flexShrink: 0,
+      display: "flex", flexDirection: { xs: "row", md: "column" }, justifyContent: "center",
+      animation: "riseIn .5s cubic-bezier(.22,.8,.3,1) .05s backwards",
     }}>
       {([["ap", "Angst+Pfister", AP_HUB_HOME], ["apsoparts", "APSOparts", "/"]] as const).map(([k, label, href]) => {
         const lit = hub === k;
         return (
           <Box key={k} component={Link} href={href} aria-current={lit ? "page" : undefined} sx={{
-            px: 1.4, py: 0.7, borderRadius: "11px", textDecoration: "none", whiteSpace: "nowrap",
+            px: 1.4, py: 0.7, borderRadius: "14px", textDecoration: "none", whiteSpace: "nowrap", textAlign: "center",
             fontSize: "0.82rem", fontWeight: 650, letterSpacing: "-0.01em",
             color: lit ? INK : MUTED, bgcolor: lit ? "#fff" : "transparent",
             boxShadow: lit ? "0 1px 2px rgba(31,45,78,.08), 0 4px 10px rgba(31,45,78,.06)" : "none",
@@ -199,17 +207,9 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
       })}
     </Box>
   );
-  // the lower line: the switch on its left for the two hubs' people; anybody else keeps the one line as before
-  const line2 = (right: React.ReactNode) => twoHubs ? (
-    <Box sx={{ flexBasis: "100%", display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap" }}>
-      {hubSwitch}
-      {right}
-    </Box>
-  ) : right;
-
-  return (
+  const bar = (
     <Box sx={{
-      ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5,
+      ...glass, borderRadius: "22px", px: { xs: 2, md: 2.5 }, py: 1.5, flex: 1, minWidth: 0,
       // backwards: once in, the bar lets go of the animation (a held one keeps it on its own layer)
       animation: "riseIn .5s cubic-bezier(.22,.8,.3,1) .05s backwards",
       display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
@@ -222,6 +222,16 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
       <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>
         {NAV.map((n) => {
           const lit = n.name === on;
+          // greyed, not a link: shown so nobody wonders where it went, and refused anyway (middleware, access.ts crossClosed)
+          if ("locked" in n && n.locked) {
+            return (
+              <Box key={n.name} aria-disabled="true" title="Not part of your access" sx={{
+                display: "flex", alignItems: "center", gap: 0.8, px: 1.6, py: 1, borderRadius: "14px",
+                fontSize: "0.88rem", fontWeight: 600, letterSpacing: "-0.01em", color: FAINT, opacity: 0.55,
+                cursor: "not-allowed", userSelect: "none", "& svg": { fontSize: 19 },
+              }}>{n.icon}{n.name}</Box>
+            );
+          }
           return (
             <Box key={n.name} component={Link} href={n.href} sx={{
               display: "flex", alignItems: "center", gap: 0.8, px: 1.6, py: 1, borderRadius: "14px",
@@ -237,7 +247,7 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
         })}
       </Box>
 
-      {line2(<Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
+      <Box ref={boxRef} sx={{ ml: "auto", display: "flex", alignItems: "center", gap: 1.5, position: "relative" }}>
         <Box sx={{
           display: searchShown ? { xs: "none", sm: "flex" } : "none", alignItems: "center", gap: 1,
           width: { sm: 220, lg: 320 }, px: 1.75, py: 1, borderRadius: "14px",
@@ -313,7 +323,14 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
           <AvatarFace size={38} photo={face.photo} iconId={face.iconId} initials={initials}
             fallback={<AccountCircleIcon sx={{ fontSize: 24 }} />} />
         </Box>
-      </Box>)}
+      </Box>
+    </Box>
+  );
+  if (!twoHubs) return bar;
+  return (
+    <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, alignItems: "stretch", gap: 1.5, position: "relative", zIndex: 5 }}>
+      {hubSwitch}
+      {bar}
     </Box>
   );
 }

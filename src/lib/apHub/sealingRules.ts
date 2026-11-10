@@ -161,7 +161,8 @@ export function noApproval(name: string): boolean {
 
 /* -- a figure per name ------------------------------------------------------------------------------------------- */
 
-export type Figure = { key: string; name: string; rev: number; gp: number; margin: number; prev?: number };
+/** `prev` / `prevGp`: the same key's net revenue and gross profit in the same months a year before. */
+export type Figure = { key: string; name: string; rev: number; gp: number; margin: number; prev?: number; prevGp?: number };
 
 /** Revenue and gross profit summed per key, the margin of the sums (never an average of margins), biggest first. */
 export function sumBy<T extends { rev: number; gp: number }>(rows: T[], key: (r: T) => string, name: (r: T) => string = key): Figure[] {
@@ -174,6 +175,50 @@ export function sumBy<T extends { rev: number; gp: number }>(rows: T[], key: (r:
     m.set(k, f);
   }
   return [...m.values()].map((f) => ({ ...f, margin: f.rev ? f.gp / f.rev : 0 })).sort((a, b) => b.rev - a.rev);
+}
+
+/* -- the months a page shows ------------------------------------------------------------------------------------- */
+
+const YM = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** A month as the pages and the API write it: YYYY-MM. */
+export const isMonth = (s: unknown): s is string => typeof s === "string" && YM.test(s);
+/** The same month a year before. */
+export const yearBefore = (m: string) => `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`;
+
+/** Every month from `from` to `to`, both in (none when `from` is later). */
+export function monthsBetween(from: string, to: string): string[] {
+  if (!isMonth(from) || !isMonth(to)) return [];
+  const out: string[] = [];
+  let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7));
+  for (let i = 0; i < 600; i++) {
+    const s = `${y}-${String(m).padStart(2, "0")}`;
+    if (s > to) break;
+    out.push(s);
+    if (++m > 12) { m = 1; y++; }
+  }
+  return out;
+}
+
+/**
+ * The months a page shows: those asked, kept within the months the figures hold (`first` .. `last`); none asked, the
+ * year so far up to the last month the figures hold. No figures yet: up to `now` (YYYY-MM).
+ */
+export function sealingPeriod(asked: { from?: string | null; to?: string | null }, held: { first: string | null; last: string | null }, now: string): { from: string; to: string } {
+  const last = isMonth(held.last) ? held.last : now;
+  const first = isMonth(held.first) && held.first <= last ? held.first : null;
+  let to = isMonth(asked.to) && asked.to < last ? asked.to : last;
+  if (first && to < first) to = first;
+  let from = isMonth(asked.from) && asked.from <= to ? asked.from : `${to.slice(0, 4)}-01`;
+  if (first && from < first) from = first;
+  return { from, to };
+}
+
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Oct 2026", "Jan – Oct 2026", "Nov 2025 – Oct 2026". */
+export function periodWords(from: string, to: string): string {
+  const name = (m: string) => MON[Number(m.slice(5, 7)) - 1] ?? m;
+  if (from === to) return `${name(to)} ${to.slice(0, 4)}`;
+  return from.slice(0, 4) === to.slice(0, 4) ? `${name(from)} – ${name(to)} ${to.slice(0, 4)}` : `${name(from)} ${from.slice(0, 4)} – ${name(to)} ${to.slice(0, 4)}`;
 }
 
 /* -- from results to action: the pilot's three commercial priorities, from the figures --------------------------- */
