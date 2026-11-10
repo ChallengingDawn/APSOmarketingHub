@@ -72,7 +72,8 @@ export function busyOf(busy: string | null, f: Fields): { parts: PartKey[]; bloc
   const none = { parts: [] as PartKey[], blocks: [] as string[], fields: [] as string[] };
   if (!busy) return none;
   const blocksOf = (k: PartKey): string[] => (k === "sections" ? ["sections", ...f.sections.map((s) => `sections.${s.id}`)] : BLOCK_OF[k] ? [BLOCK_OF[k] as string] : []);
-  if (busy === "all") return { parts: [...PART_KEYS], blocks: PART_KEYS.flatMap(blocksOf), fields: [] };
+  // an empty page written whole (Content v9): "page" - the page itself moves while the AI chooses its blocks
+  if (busy === "all") return { parts: [...PART_KEYS], blocks: [...PART_KEYS.flatMap(blocksOf), ...(blockOrder(f).length ? [] : ["page"])], fields: [] };
   if (busy.startsWith("section:")) return { parts: ["sections"], blocks: [`sections.${busy.slice(8)}`], fields: [] };
   if (busy.startsWith("field:")) {
     const path = busy.slice(6);
@@ -208,7 +209,8 @@ export function itemOfPath(path: string | null | undefined): string | null {
 /** The blocks of the map an AI run is writing (the studio's busy key) - they shimmer there and in the page. */
 export function busyBlocks(busy: string | null, f: Fields): string[] {
   if (!busy) return [];
-  if (busy === "all") return [...blockOrder(f), "seo"];
+  // an empty page written whole (Content v9): the page itself moves while the AI chooses its blocks
+  if (busy === "all") { const o = blockOrder(f); return [...o, "seo", ...(o.length ? [] : ["page"])]; }
   if (busy === "sections") return blockOrder(f).filter((k) => k === "sections" || k.startsWith("sections."));
   if (busy.startsWith("section:")) return [`sections.${busy.slice(8)}`];
   if (busy.startsWith("field:")) { const b = blockOfPath(busy.slice(6)); return b ? [b] : []; }

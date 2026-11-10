@@ -33,7 +33,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  LIMIT, addBlock, addItem, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
+  LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
   duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
@@ -77,6 +77,7 @@ import { ModulePanel } from "./modules/Panel";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
 import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
+import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
@@ -86,6 +87,7 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TuneIcon from "@mui/icons-material/Tune";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
@@ -94,7 +96,7 @@ import { servedOf, usePlan } from "./plan/usePlan";
 import { AbLastStep } from "./Sections";
 import { useAbBar } from "../../abBar";
 import { abApplies, abLineOf, abStateOf, activateAb, type AbRunning } from "@/lib/content/studio/kinds/page/abState";
-import type { NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
+import { fullOnly, type NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
 import { useNewPageModules } from "./plan/useNewPageModules";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
@@ -657,19 +659,27 @@ export default function Studio({ api }: StudioProps) {
       const cands = part === "all" || part === "links" || part === "hero" || part === "cta" ? await candidates() : [];
       // the whole page written (Content v8, point 5): with its modules - unless the ask only reworks the words
       const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
-      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands });
+      // an empty page (Content v9, SARCLA 10.11.2026: "it should by default start empty ... the block and number of
+      // blocks are decided by the AI on the first prompt"): the AI decides its blocks and modules
+      const decide = compose && !blockOrder(viewOf(docRef.current, forLang).fields).length;
+      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}) });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
-      // the whole page written: only the blocks the page has (a block taken out stays out - Content v5)
+      // a module of words that is not full is not put on the page (Content v9) - the server kept full ones; checked again
+      const full = fullOnly(r.result.modules ?? [], forLang);
+      // the whole page written: only the blocks the page has (a block taken out stays out - Content v5); an empty page:
+      // exactly the blocks the AI wrote (Content v9)
       await applyView((cur) => {
-        const fields = part === "all" ? onlyOnPage(mergeFill(cur.fields, r.result.answer, opts.id), blockOrder(cur.fields)) : mergeFill(cur.fields, r.result.answer, opts.id);
-        if (!compose || !r.result.modules?.length) return { ...cur, fields };
-        const c = npModules.place(fields, r.result.modules, forLang);
+        const merged = mergeFill(cur.fields, r.result.answer, opts.id);
+        const fields = part !== "all" ? merged : decide && !blockOrder(cur.fields).length ? asWritten(merged) : onlyOnPage(merged, blockOrder(cur.fields));
+        if (!compose || !full.kept.length) return { ...cur, fields };
+        const c = npModules.place(fields, full.kept, forLang);
         placed = c.placed;
         return { ...cur, fields: c.fields };
-      }, `AI wrote ${PART_LABEL[part as Part]}${compose && r.result.modules?.length ? ` with ${r.result.modules.length} module${r.result.modules.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
-      const left = (r.result.problems ?? []).length ? `Left out: ${(r.result.problems ?? []).slice(0, 2).join(" ")}` : null;
+      const out = [...(r.result.problems ?? []), ...full.left];
+      const left = out.length ? `Left out: ${out.slice(0, 2).join(" ")}` : null;
       return [left, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
     } finally {
       setBusy(null);
@@ -1547,7 +1557,10 @@ export default function Studio({ api }: StudioProps) {
   const blockList = (
     <BlockList rows={rows} selected={selRowKey} busy={rowBusy} canEdit={canEdit} onSelect={(r) => selectRow(r)} onSettings={openSettings} menu={rowMenu}
       onMove={isNew && canEdit ? moveTo : undefined} onAdd={canEdit ? addAt : undefined}
-      empty={<><CircularProgress size={13} /> Reading the page&apos;s blocks…</>} />
+      // a new page with no block yet (Content v9): its first one added here - or, while the AI writes it, it says so
+      empty={!isNew ? <><CircularProgress size={13} /> Reading the page&apos;s blocks…</>
+        : busyHere === "all" ? <><CircularProgress size={13} sx={{ color: PINK }} /> The AI is choosing the page&apos;s blocks…</>
+          : <><Box component="span" sx={{ flex: 1 }}>No blocks yet - the page is empty.</Box>{canEdit && <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={(e) => addAt(0, e.currentTarget)} sx={{ ...btn, color: PINK, px: 1, py: 0.25, fontSize: "0.8rem", flexShrink: 0 }}>Add a block</Button>}</>} />
   );
   const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (
     <Button size="small" disabled={!aiHere || !!busyHere} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}

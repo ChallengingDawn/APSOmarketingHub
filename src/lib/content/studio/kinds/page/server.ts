@@ -118,7 +118,7 @@ function context(ctx: StudioCtx, d: PageDoc): string {
 function pageBlock(d: PageDoc): string {
   if (d.source === "new") {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
-THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ")}
+THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
 THE PAGE'S FIELDS NOW (path: words):
 ${fieldStrings(d.fields).map((x) => `${x.id}: ${x.text}`).join("\n").slice(0, 20_000) || "(all empty)"}${isLegacyBody(d) ? `\n\nAN EARLIER DRAFT OF THIS PAGE (one block of HTML - take its good parts, never its placeholders):\n${d.newPage.body.slice(0, 16_000)}` : ""}`;
   }
@@ -335,7 +335,9 @@ function fillUser(part: Exclude<Part, "field">) {
     const at = sec ? order.indexOf(`sections.${sec.id}`) : -1;
     const near = (k: string | undefined) => { const b = k ? blocksOf(d.fields).find((x) => x.key === k) : null; return b ? `${b.name}${b.line ? ` ("${b.line}")` : ""}` : null; };
     const where = at > 0 ? ` It is block ${at + 1} of the page, after ${near(order[at - 1]) ?? "the hero"}${order[at + 1] ? ` and before ${near(order[at + 1])}` : ""}.` : "";
-    const what = part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
+    // an empty page (Content v9): the AI decides its blocks - ./plan/newpage.ts EMPTY_PAGE says how
+    const what = part === "all" && decides(d, input) ? "The page is EMPTY: you decide its blocks (THE PAGE IS EMPTY, below) and write each one you keep, all of it final copy. A block you leave out: no items and empty words."
+      : part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
       : part === "section" ? `Write THIS section only (${sec?.title.trim() ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.${where}`
         : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
     return `${context(ctx, d)}
@@ -390,6 +392,12 @@ async function subjectFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, un
   return categoryFacts(new URL(subject.url, "https://www.apsoparts.com").toString(), readStore(d.store)).catch(() => null);
 }
 
+/** Does the AI decide the page's blocks? An empty page - no block of its own yet (Content v9, SARCLA 10.11.2026: "the
+ * block and number of blocks are decided by the AI on the first prompt"). The studio says so (`decide`), as it saw it. */
+function decides(d: PageDoc, input: Record<string, unknown>): boolean {
+  return typeof input.decide === "boolean" ? input.decide : d.source === "new" && !blockOrder(d.fields).length;
+}
+
 const fillPage: AiTask = {
   label: "Write the page",
   schema: NEWPAGE_SCHEMA,
@@ -400,7 +408,7 @@ const fillPage: AiTask = {
     const d = viewFor(ctx, raw, input);
     const tree = await treeFor(d.store).catch(() => []);
     const facts = factsBlock(await subjectFacts(ctx, d, input, tree));
-    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts })}`;
+    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts, decide: decides(d, input) })}`;
   },
   clean: async (raw, docRaw, ctx, input) => {
     const d = viewFor(ctx, docRaw, input);

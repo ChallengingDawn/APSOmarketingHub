@@ -22,7 +22,7 @@ import { blockOrder, removeBlock, type Fields, type PageModule } from "../fields
 import { FILL_SCHEMA, type FillAnswer } from "../fill";
 import { moduleDef } from "../modules/registry";
 import type { ModuleRef } from "../modules/types";
-import { library, libraryText, libModule, makeModule, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
+import { emptyWords, library, libraryText, libModule, makeModule, moduleGapOf, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
 import { buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "./plan";
 
 const BASE = "https://www.apsoparts.com";
@@ -39,7 +39,8 @@ export const MODULE_AT = ["hero", "intro", "benefits", "section 1", "section 2",
 export type ModuleAt = (typeof MODULE_AT)[number];
 /** The blocks a module may take the place of: never the hero (it holds the page's title, its H1). */
 const INSTEAD_OK = new Set<string>(["intro", "benefits", "links", "faq", "cta"]);
-export const MAX_MODULES = 4;
+/** At most this many modules a write brings (Content v9: an empty page is built MOSTLY from the library - 3 to 6). */
+export const MAX_MODULES = 6;
 
 const BLOCK_NAME: Record<string, string> = { hero: "the hero", intro: "the intro", benefits: "the proof tiles", links: "the links", faq: "the questions", cta: "the call to action" };
 const blockName = (at: string) => BLOCK_NAME[at] ?? (/^section (\d)$/.test(at) ? `section ${at.slice(8)}` : at);
@@ -51,7 +52,7 @@ const blockName = (at: string) => BLOCK_NAME[at] ?? (/^section (\d)$/.test(at) ?
 // One list `items` carries a module's points (title + text) or its questions (title = the question, text = the answer).
 export const MODULES_SCHEMA = {
   type: "array",
-  description: "2 to 4 modules of THE LIBRARY among the page's text blocks",
+  description: "2 to 6 modules of THE LIBRARY among the page's text blocks, each FULL (all its words)",
   items: {
     type: "object", additionalProperties: false,
     required: ["module", "at", "how", "why", "eyebrow", "title", "text", "button", "link", "items", "fill", "category", "count"],
@@ -113,7 +114,7 @@ export function newPageExample(lib: LibModule[] = newPageLibrary()): string {
 export function newPageSystem(lib: LibModule[] = newPageLibrary()): string {
   return `THE PAGE IS TEXT BLOCKS AND MODULES. Besides the fields, you compose the page with the shop's MODULE LIBRARY ("modules"):
 finished blocks in the shop's own design that the hub fills with the shop's REAL products, categories and photos - never
-you. A good new page has 2 to 4 modules among its text blocks, each where it helps a buyer find, choose and order:
+you. A good new page has 2 to 6 modules among its text blocks, each where it helps a buyer find, choose and order:
 - the subject's products near the top (after the hero or the intro): a module that takes products, "fill" = "category"
   with the subject's category from the lists below (or "bought" / "viewed" within it);
 - a tool or service of the shop where it helps the choice (only one the library has);
@@ -199,9 +200,23 @@ ITS FIRST PRODUCT'S TECHNICAL SUMMARY (${f.product!.name}):
 ${rows.slice(1).map((r) => `- ${r[0]}: ${r[1]}`).join("\n")}` : ""}`;
 }
 
+/** What the first write of an EMPTY page is told (Content v9, SARCLA 10.11.2026: "the block and number of blocks are
+ * decided by the AI on the first prompt"; "the AI should really use the modules to build the block"). */
+export const EMPTY_PAGE = `THE PAGE IS EMPTY - YOU DECIDE ITS BLOCKS: which, and how many, for THIS subject and what the brief asks.
+Build it MOSTLY FROM THE MODULE LIBRARY: 3 to 6 modules - the subject's products near the top, the shop's categories or a
+tool of the shop where they help the choice, the reasons to order here, the questions buyers ask, one call to action at
+the end - each only where it helps a buyer find, choose and order.
+The text blocks (the fields) only where words of your own say what no module does: the hero always (its title is the
+page's H1), usually the intro and one to three sections. The proof tiles, the links, the questions and the call to action
+as text blocks only when no module of the library does it better. A block you leave out: its words "" and its items [] -
+it is not on the page. A module's "at" names a block you DO write ("hero", "intro", "section 1" ...).
+Every module you bring is FULL: every word it takes written for this page, its points or its questions as many as it
+shows. A module you cannot fill completely from the facts you have: leave it out, never half-filled.
+Compose the page: the text blocks you keep and 3 to 6 modules of the library among them.`;
+
 /** The question's part for the modules: the shop's categories, the pages a button may go to, the language - and the
- * shop's own facts on the subject (factsBlock). */
-export function newPageUser(a: { tree: { name: string; url: string; depth: number }[]; candidates: { url: string; name: string; kind: string }[]; language: string; store: string; facts?: string }): string {
+ * shop's own facts on the subject (factsBlock). `decide`: an empty page - the AI decides its blocks (EMPTY_PAGE). */
+export function newPageUser(a: { tree: { name: string; url: string; depth: number }[]; candidates: { url: string; name: string; kind: string }[]; language: string; store: string; facts?: string; decide?: boolean }): string {
   const tree = a.tree.length ? a.tree.slice(0, 120).map((t) => `${"  ".repeat(t.depth)}${t.url} · ${t.name}`).join("\n") : "(not read - fill with \"bought\" or \"viewed\", or a category from the pages below)";
   const own = ownPoints(a.store.split("/")[0]);
   return `${a.facts ? `${a.facts}\n\n` : ""}THE SHOP'S CATEGORIES (for a module's "fill" and its buttons: address · name):
@@ -214,7 +229,7 @@ must fit exactly these:
 ${own.map((x) => `"${x.id}": ${x.titles.join(" · ")}`).join("\n")}
 ` : ""}
 WRITE THE MODULES' WORDS IN: ${a.language} (store view ${a.store}). Each "why": English.
-Compose the page: its text blocks (the fields) and 2 to 4 modules of the library among them.`;
+${a.decide ? EMPTY_PAGE : "Compose the page: its text blocks (the fields) and 2 to 4 modules of the library among them."}`;
 }
 
 /* ── what comes back ──────────────────────────────────────────────────── */
@@ -321,12 +336,32 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
     const f0 = isObj(x.fill) ? { ...x.fill, category: whole(str(x.fill.category, 400)) } : x.fill;
     const fill = fillIn(f0, m, planCtx);
     const layouts = m.layouts.map((l) => l.key);
-    const layout = layouts.includes(str(x.layout, 30)) ? str(x.layout, 30) : "";
+    let layout = layouts.includes(str(x.layout, 30)) ? str(x.layout, 30) : "";
+    // a module of words is FULL on the page or not there (Content v9, SARCLA 10.11.2026: "the AI should really use the
+    // modules ... and fill them fully"; a "Three teasers" came back empty): what it lacks with the words it came with -
+    // another of its kind that these words fill takes its place, else it is left out and said. A module of the shop's
+    // products, categories or photos is checked once the shop has filled it (the studio: fillTries below).
+    let use = m;
+    let useExtras = extras;
+    if (!needsShop(id)) {
+      const store = ctx.store ?? "de-CH";
+      const gap = gapWith({ module: id, words, link, link2, extras, layout }, store);
+      if (gap) {
+        // one of the same kind that THESE words fill (not its own sample words)
+        const alt = lib.find((o) => o.id !== id && o.category === m.category && !taken.has(o.id) && !needsShop(o.id) && !ownPointsField(o.id)
+          && !gapWith({ module: o.id, words, link, link2, extras: [], layout: "" }, store)
+          && !!gapWith({ module: o.id, words: emptyWords(), link: "", link2: "", extras: [], layout: "" }, store));
+        if (!alt) { problems.push(`"${m.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
+        said.push(`"${m.name}" could not be filled (${lowerFirst(gap)}) - "${alt.name}" in its place`);
+        use = alt; useExtras = []; layout = "";
+      }
+    }
     taken.add(id);
+    taken.add(use.id);
     if (how === "instead") instead.add(at);
-    const name = m.name;
+    const name = use.name;
     out.push({
-      module: id, at, how, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""), link2, fill,
+      module: use.id, at, how, layout, words, extras: useExtras, link: link || (fill.how === "category" ? fill.category : ""), link2, fill,
       line: how === "instead" ? `${name} in place of ${blockName(at)}` : `Add ${withArticle(name)} after ${blockName(at)}`,
       why: looksEnglish(str(x.why, 120)) ? str(x.why, 120) : "", problems: [...new Set(said)].slice(0, 4),
     });
@@ -375,6 +410,74 @@ export function moduleOfStep(s: Pick<NewPageModule, "module" | "words" | "link" 
 export function needsShop(module: string): boolean {
   const m = libModule(module);
   return !!m && (m.takes !== "none" || m.needs.includes("picture"));
+}
+
+const lowerFirst = (t: string) => (t ? `${t.charAt(0).toLowerCase()}${t.slice(1)}` : t);
+
+/** What a module still lacks with these words in it ("" = full): the registry's own check (../modules/registry.ts), then
+ * its words - a headline when it takes one, its points or its questions when it takes them (Content v9: "filled fully,
+ * with all their words" - a module that draws nothing but its frame is not full). */
+export function gapWith(s: Pick<NewPageModule, "module" | "words" | "link" | "link2" | "extras" | "layout">, store: string): string {
+  const m = moduleOfStep(s, store);
+  if (!m) return "It is not in the module library";
+  const gap = moduleGapOf(m);
+  if (gap) return gap;
+  const keys = new Set((libModule(s.module)?.words ?? []).map((w) => w.key));
+  const st = m.settings;
+  if (keys.has("title") && !st.title.trim()) return "Give it a headline";
+  const lists = keys.has("points") || keys.has("faq");
+  if (lists && !st.points.some((p) => p.title.trim()) && !st.faq.some((x) => x.q.trim() && x.a.trim())) return keys.has("points") ? "Write its points" : "Write its questions and their answers";
+  return "";
+}
+
+/** The AI's modules of words that are not full taken out before they go on the page - the studio's own check of what the
+ * server kept (Content v9: no "not on the page yet" module from the AI). A module of the shop is checked once filled. */
+export function fullOnly<T extends Pick<NewPageModule, "module" | "words" | "link" | "link2" | "extras" | "layout">>(mods: T[], store: string): { kept: T[]; left: string[] } {
+  const kept: T[] = [];
+  const left: string[] = [];
+  for (const s of mods) {
+    const gap = needsShop(s.module) ? "" : gapWith(s, store);
+    if (gap) left.push(`"${libModule(s.module)?.name ?? s.module}" left out: ${lowerFirst(gap)}.`);
+    else kept.push(s);
+  }
+  return { kept, left };
+}
+
+/** One way to fill a module of the shop: the module, how, its layout, and the line said when it is not the AI's own. */
+export type FillTry = { module: string; fill: FillSpec; layout: string; why: string };
+
+/**
+ * What the studio tries, in turn, for a module of the shop's products or categories the AI put on a new page, until one
+ * comes back FULL (Content v9, SARCLA 10.11.2026: a module "not on the page yet" from the AI is never left): the AI's own
+ * fill; then, within the same category, the most bought and the most viewed products; a module of categories whose
+ * category has no subcategories: a module of products of the same family filled with that category's products. When
+ * none fills it, the module is taken off the page and said.
+ */
+export function fillTries(s: Pick<NewPageModule, "module" | "fill" | "layout">, lib: LibModule[] = newPageLibrary()): FillTry[] {
+  const m = libModule(s.module);
+  const out: FillTry[] = [{ module: s.module, fill: s.fill, layout: s.layout, why: "" }];
+  if (!m) return out;
+  const cat = s.fill.category;
+  const count = s.fill.count;
+  if (m.takes === "products") {
+    if (s.fill.how === "category" || s.fill.how === "numbers") {
+      out.push({ module: s.module, fill: { how: "bought", category: cat, numbers: "", count }, layout: s.layout, why: "the most bought products" });
+      out.push({ module: s.module, fill: { how: "viewed", category: cat, numbers: "", count }, layout: s.layout, why: "the most viewed products" });
+    } else if (s.fill.how === "bought" || s.fill.how === "viewed") {
+      const other = s.fill.how === "bought" ? "viewed" : "bought";
+      out.push({ module: s.module, fill: { how: other, category: cat, numbers: "", count }, layout: s.layout, why: `the most ${other} products` });
+    }
+  } else if (m.takes === "categories" && cat) {
+    // a family's module of products ("bentos", "showcases"), else the library's first module of products
+    const prods = lib.filter((o) => o.takes === "products" && !o.needs.includes("picture"));
+    const alt = prods.find((o) => o.category === m.category) ?? prods[0];
+    if (alt) {
+      const n = Math.max(alt.min, Math.min(alt.max, 6));
+      out.push({ module: alt.id, fill: { how: "category", category: cat, numbers: "", count: n }, layout: "", why: `${withArticle(alt.name)} in its place` });
+      out.push({ module: alt.id, fill: { how: "bought", category: cat, numbers: "", count: n }, layout: "", why: `${withArticle(alt.name)} with the most bought products, in its place` });
+    }
+  }
+  return out;
 }
 
 /**
