@@ -19,13 +19,28 @@ export const KV_OTD_FILE = "otd:cube:file";
 export const KV_OTD_MAIN = "otd:main";
 const KV_OTD_FILE_SEEN = "otd:history:seen";
 
+export type OtdErpContext = {
+  supplierOf?: (article: string) => string | undefined;
+  /** article -> [planned "J"/"N", replenishment days] (the articles sheet's ConsumptionDriven, ReplenishmentDays) */
+  planningOf?: (article: string) => [string, number] | undefined;
+  /** customer -> its company's name and owner in HubSpot - asked for the customers kept only */
+  customerOf?: (customer: string) => { name?: string; owner?: string };
+};
+
 /** the morning lines -> the "erp" cube; nothing kept when no line qualifies */
-export async function saveOtdFromErp(lines: ErpLine[], supplierOf?: (article: string) => string | undefined): Promise<Record<string, unknown>> {
-  const { lines: otd, skipped } = fromErpLines(lines, transitOf, supplierOf);
+export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}): Promise<Record<string, unknown>> {
+  const { lines: otd, skipped, exactDays } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf);
   const k = buildOtdCube(otd, "erp", zurichToday());
   for (const [w, n] of Object.entries(skipped)) k.skipped[w] = (k.skipped[w] ?? 0) + n;
+  for (const c of k.customers ?? []) {
+    const x = ctx.customerOf?.(c.c);
+    if (x?.name) c.name = x.name;
+    if (x?.owner) c.owner = x.owner;
+  }
   if (k.lines) { await kvSet(KV_OTD_ERP, k); await saveMain(); }
-  return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, suppliers: k.suppliers.length, kept: k.lines > 0 };
+  return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, suppliers: k.suppliers.length, kept: k.lines > 0,
+    erp_date_at_customer: exactDays, planned_known: otd.filter((l) => l.planned).length, wish_dates: otd.filter((l) => l.wishDay).length,
+    customers_kept: k.customers?.length ?? 0, customers_named: (k.customers ?? []).filter((c) => c.name).length };
 }
 
 /** otd_history.csv beside the morning workbook -> the "file" cube, once per version of the file (its size and time) */

@@ -281,11 +281,18 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     const arts = wb.articles;
     const supplierOf = arts ? (a: string) => unpackFacts(arts.get(a) ?? "").main_supplier : undefined;
     const customers = [...new Set(wb.erpLines.lines.map((l) => l.customer ?? "").filter(Boolean))];
-    const ownerOf = customers.length ? await customerOwners(customers).catch(() => undefined) : undefined;
+    const who = customers.length ? await customerOwners(customers).catch(() => undefined) : undefined;
+    const ownerOf = who?.ownerOf;
     try { out.erp_lines = { ...(await saveErpLines(wb.erpLines.lines, { supplierOf, ownerOf }, articleTexts)), rows: wb.erpLines.rows, kept: true, customers: customers.length }; }
     catch (e) { out.erp_lines = `not kept: ${(e as Error).message}`; }
     // OTD Reports: the same lines by the OTD analysis file's rules (SARCLA 09.11.2026) - never the step's problem
-    try { out.otd = await saveOtdFromErp(wb.erpLines.lines, supplierOf); }
+    const plan = wb.articlePlanning;
+    try {
+      out.otd = await saveOtdFromErp(wb.erpLines.lines, {
+        supplierOf, planningOf: plan ? (a) => plan.get(a) : undefined,
+        customerOf: who ? (c) => ({ name: who.nameOf(c), owner: who.ownerOf(c) }) : undefined,
+      });
+    }
     catch (e) { out.otd = `not kept: ${(e as Error).message}`; }
   }
   // OTD Reports' history: the OTD analysis file's lines (otd_history.csv), when one was dropped beside the workbook
@@ -380,19 +387,26 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
 
 /** Each customer (CustomerNumberUnique, "100-12345") -> its company's owner in HubSpot, by name: the revenue step's own
  *  customer -> company map (apsomh_cx_un2id), the companies' owner read 100 a call, the owners' names. */
-async function customerOwners(customers: string[]): Promise<(customer: string) => string | undefined> {
+async function customerOwners(customers: string[]): Promise<{ ownerOf: (customer: string) => string | undefined; nameOf: (customer: string) => string | undefined }> {
   const r = await query<{ un: string; company_id: string }>("SELECT un, company_id FROM apsomh_cx_un2id WHERE un = ANY($1::text[])", [customers]);
   const companyOf = new Map(r.rows.map((x) => [x.un, String(x.company_id)]));
   const ids = [...new Set(companyOf.values())];
-  const ownerOfCompany = new Map<string, string>();
+  const ownerOfCompany = new Map<string, string>(), nameOfCompany = new Map<string, string>();
   for (let i = 0; i < ids.length; i += 100) {
     const j = await hubspotFetchJson<{ results?: { id: string | number; properties?: Record<string, string | null> }[] }>({
-      path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id"] },
+      path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: ids.slice(i, i + 100).map((id) => ({ id })), properties: ["hubspot_owner_id", "name"] },
     });
-    for (const o of j.results ?? []) { const own = o.properties?.hubspot_owner_id; if (own) ownerOfCompany.set(String(o.id), own); }
+    for (const o of j.results ?? []) {
+      const own = o.properties?.hubspot_owner_id, nm = o.properties?.name;
+      if (own) ownerOfCompany.set(String(o.id), own);
+      if (nm) nameOfCompany.set(String(o.id), nm);
+    }
   }
   const names = await ownerNames();
-  return (c) => { const co = companyOf.get(c); const own = co ? ownerOfCompany.get(co) : undefined; return own ? names.get(own) ?? own : undefined; };
+  return {
+    ownerOf: (c) => { const co = companyOf.get(c); const own = co ? ownerOfCompany.get(co) : undefined; return own ? names.get(own) ?? own : undefined; },
+    nameOf: (c) => { const co = companyOf.get(c); return co ? nameOfCompany.get(co) : undefined; },
+  };
 }
 
 /** Articles -> their description in HubSpot's Products & Pricing (article_description), 100 a search. */

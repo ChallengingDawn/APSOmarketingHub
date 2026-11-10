@@ -95,6 +95,8 @@ export type OtdLine = {
   supplier: string;
   /** "J" / "N" / "" */
   planned?: string; group?: string; comment?: boolean;
+  /** the customer (CustomerNumberUnique), the customer's wish date, the main supplier's replenishment time in days */
+  customer?: string; wishDay?: string; replen?: number;
 };
 
 /* ── the slices: a month, a mandant, a source, standard/special, a profit centre ──── */
@@ -121,13 +123,18 @@ export type Slice = {
   /** [lines, promised lead days, real lead days, transport days] */
   lead: [number, number, number, number];
   planned: Trio[]; comment: Trio[];
+  /** against the customer's wish date: [lines with one, late against it, signed days]; the lines first confirmed later than asked */
+  wish?: Trio; wishLater?: number;
+  /** articles not planned, by their main supplier's replenishment time: [0] promised at least that long, [1] promised faster */
+  replen?: Trio[];
   sup: Record<string, SupRow>;
   group: Record<string, Trio>;
 };
 const trios = (k: number): Trio[] => Array.from({ length: k }, () => [0, 0, 0]);
 export const emptySlice = (): Slice => ({
   n: 0, late: 0, days: 0, signed: 0, over10: 0, cat: Array(6).fill(0), catDays: Array(6).fill(0), change: trios(7), changed: trios(2),
-  pos: trios(4), shape: trios(8), more: trios(2), lead: [0, 0, 0, 0], planned: trios(3), comment: trios(2), sup: {}, group: {},
+  pos: trios(4), shape: trios(8), more: trios(2), lead: [0, 0, 0, 0], planned: trios(3), comment: trios(2), wish: [0, 0, 0], wishLater: 0, replen: trios(2),
+  sup: {}, group: {},
 });
 /** a slice's key: month | mandant | source ("e" eShop, "m" the others) | "S"/"P"/"" | profit centre */
 export const sliceKey = (ym: string, company: string, src: string, st: string, pc: string) => `${ym}|${company}|${src}|${st}|${pc}`;
@@ -137,6 +144,10 @@ export const srcOf = (source: string) => (/^e-?shop$/i.test(source.trim()) ? "e"
 export type OtdArticle = { a: string; pc: string; st: string; sup: string; group?: string; text?: string;
   /** promised month -> [lines, late, positive late days] */
   m: Record<string, Trio> };
+/** a customer with late lines: its number, its company and the company's owner in HubSpot (added when kept) */
+export type OtdCustomer = { c: string; name?: string; owner?: string; company: string; m: Record<string, Trio> };
+/** the customers kept: the most late lines */
+export const CUSTOMER_KEEP = 300;
 
 /** The cube for one month axis. */
 export type OtdAxis = { slices: Record<string, Slice> };
@@ -150,6 +161,8 @@ export type OtdCube = {
   /** by the month of the first confirmed date (the Back Office's KPI) and by the month the line reached the customer (the file's) */
   promised: OtdAxis; delivered: OtdAxis;
   articles: OtdArticle[];
+  /** the customers with the most late lines (the morning lines carry the customer since 10.11.2026) */
+  customers?: OtdCustomer[];
   /** every supplier's lines over all months - for the "kept" list in the slices */
   suppliers: string[];
 };
@@ -178,6 +191,7 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
   const kept = new Set([...supN].sort((a, b) => b[1] - a[1]).slice(0, SUPPLIER_KEEP).map(([s]) => s));
   const promised: OtdAxis = { slices: {} }, delivered: OtdAxis = { slices: {} };
   const arts = new Map<string, OtdArticle & { late: number }>();
+  const custs = new Map<string, OtdCustomer & { late: number }>();
   let first = "", last = "";
   for (const l of ok) {
     const d = lateDays(l.firstDay, l.atCustomer), late = d > 0, c = lateCat(d);
@@ -205,6 +219,21 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
       const r = (s.sup[supKey] ??= newSup());
       r[0]++; if (late) { r[1]++; r[2] += d; if (d > 10) r[3]++; if (d > r[4]) r[4] = d; r[6 + c]++; } r[5] += d; r[6] += realLead;
       if (l.group) add((s.group[l.group] ??= [0, 0, 0]), late, late ? d : 0);
+      if (l.wishDay) {
+        const dw = lateDays(l.wishDay, l.atCustomer);
+        add((s.wish ??= [0, 0, 0]), dw > 0, dw);
+        if (l.firstDay > l.wishDay) s.wishLater = (s.wishLater ?? 0) + 1;
+      }
+      if (l.planned === "N" && l.replen && l.orderDay) {
+        const promisedCal = Math.round((ms(l.firstDay) - ms(l.orderDay)) / DAY);
+        add((s.replen ??= trios(2))[promisedCal < l.replen ? 1 : 0], late, d);
+      }
+    }
+    if (l.customer) {
+      const x = custs.get(l.customer) ?? { c: l.customer, company: l.company, m: {}, late: 0 };
+      const t = (x.m[fm] ??= [0, 0, 0]);
+      t[0]++; if (late) { t[1]++; t[2] += d; x.late++; }
+      custs.set(l.customer, x);
     }
     if (l.article) {
       const a = arts.get(l.article) ?? { a: l.article, pc: l.pc, st: l.st, sup, group: l.group, m: {}, late: 0 };
@@ -215,7 +244,9 @@ export function buildOtdCube(lines: OtdLine[], from: string, today: string): Otd
   }
   const articles = [...arts.values()].filter((a) => a.late > 0).sort((a, b) => b.late - a.late).slice(0, ARTICLE_KEEP)
     .map(({ late: _late, ...a }) => (a.group ? a : (delete a.group, a)));
-  return { v: OTD_VERSION, at: new Date().toISOString(), from, first, last, lines: ok.length, skipped, promised, delivered, articles, suppliers: [...kept] };
+  const customers = [...custs.values()].filter((x) => x.late > 0).sort((a, b) => b.late - a.late).slice(0, CUSTOMER_KEEP).map(({ late: _late, ...x }) => x);
+  return { v: OTD_VERSION, at: new Date().toISOString(), from, first, last, lines: ok.length, skipped, promised, delivered, articles,
+    ...(customers.length ? { customers } : {}), suppliers: [...kept] };
 }
 
 /* ── reading the cube: the slices a filter picks, summed ───────────────────────────── */
@@ -239,6 +270,10 @@ export function sumSlices(slices: Slice[]): Slice {
     for (let i = 0; i < 6; i++) { t.cat[i] += s.cat[i]; t.catDays[i] += s.catDays[i]; }
     addTrios(t.change, s.change); addTrios(t.changed, s.changed); addTrios(t.pos, s.pos); addTrios(t.shape, s.shape);
     addTrios(t.more, s.more); addTrios(t.planned, s.planned); addTrios(t.comment, s.comment);
+    // cubes kept before 10.11.2026 carry neither
+    if (s.wish) addTrios([t.wish!], [s.wish]);
+    t.wishLater = (t.wishLater ?? 0) + (s.wishLater ?? 0);
+    if (s.replen) addTrios(t.replen!, s.replen);
     for (let i = 0; i < 4; i++) t.lead[i] += s.lead[i];
     for (const [k, r] of Object.entries(s.sup)) {
       const x = (t.sup[k] ??= newSup());
@@ -293,7 +328,7 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
   return {
     ...erp, from: `${erp.from}+${file.from}`, first: file.first < erp.first ? file.first : erp.first, lines: erp.lines + file.lines,
     promised: take(erp.promised, file.promised), delivered: take(erp.delivered, file.delivered),
-    articles: [...arts.values()], suppliers: [...new Set([...erp.suppliers, ...file.suppliers])],
+    articles: [...arts.values()], ...(erp.customers ? { customers: erp.customers } : {}), suppliers: [...new Set([...erp.suppliers, ...file.suppliers])],
   };
 }
 
@@ -302,10 +337,20 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
 /** The morning file's ERP lines (./boErpLines.ts ErpLine) as OTD lines: order lines of mandants 100 and 110, standard and
  *  special articles, shipped (invoiced) with a first confirmed date - the Back Office's own choice of lines - every order
  *  source. The date at the customer: the shipment plus the ERP's transport time to the country. */
+/** the transport days of a line: none when the customer collects it, Liechtenstein by DHL in one day (the OTD analysis file's
+ *  lines: 72 %), else the ERP's table per country */
+export function transportOf(l: { country: string; mode?: string }, transitOf: (country: string) => number): number {
+  if (/picked up|abgeholt|abholung/i.test(l.mode ?? "")) return 0;
+  if (l.country === "Liechtenstein" && /^dhl$/i.test((l.mode ?? "").trim())) return 1;
+  return transitOf(l.country);
+}
 export function fromErpLines<L extends { company: string; order: string; line: string; source: string; orderDay: string; status: string;
-  shipDay: string; country: string; lineType: string; firstDay: string; confDay: string; article: string; artType: string; pc: string }>(
+  shipDay: string; country: string; lineType: string; firstDay: string; confDay: string; article: string; artType: string; pc: string;
+  customer?: string; mode?: string; deliveredDay?: string; wishDay?: string }>(
   lines: Iterable<L>, transitOf: (country: string) => number, supplierOf?: (article: string) => string | undefined,
-): { lines: OtdLine[]; skipped: Record<string, number> } {
+  planningOf?: (article: string) => [string, number] | undefined,
+): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number } {
+  let exactDays = 0;
   const out: OtdLine[] = [], skipped: Record<string, number> = {};
   const skip = (w: string) => { skipped[w] = (skipped[w] ?? 0) + 1; };
   for (const l of lines) {
@@ -315,13 +360,20 @@ export function fromErpLines<L extends { company: string; order: string; line: s
     if (!st) { skip("service or unknown article type"); continue; }
     if (l.status !== "invoiced" || !l.shipDay) { skip("not shipped yet"); continue; }
     if (!l.firstDay) { skip("no first confirmed date"); continue; }
+    // the ERP's own date at the customer where it has one (dim_order DeliveryDateCustomer: 97 % equal to the OTD analysis
+    // file's on the lines that carry it), never before the shipment; else the shipment plus the transport days
+    const own = l.deliveredDay && l.deliveredDay >= l.shipDay ? l.deliveredDay : "";
+    if (own) exactDays++;
+    const plan = planningOf?.(l.article);
     out.push({
       company: l.company, order: l.order, line: l.line, source: l.source, orderDay: l.orderDay, firstDay: l.firstDay, confDay: l.confDay,
-      shipDay: l.shipDay, atCustomer: addWorkdays(l.shipDay, transitOf(l.country)), article: l.article, st, pc: l.pc,
+      shipDay: l.shipDay, atCustomer: own || addWorkdays(l.shipDay, transportOf(l, transitOf)), article: l.article, st, pc: l.pc,
       supplier: supplierOf?.(l.article) ?? "",
+      ...(l.customer ? { customer: l.customer } : {}), ...(l.wishDay ? { wishDay: l.wishDay } : {}),
+      ...(plan ? { planned: plan[0] === "J" ? "J" : plan[0] === "N" ? "N" : "", replen: plan[1] } : {}),
     });
   }
-  return { lines: out, skipped };
+  return { lines: out, skipped, exactDays };
 }
 
 /** The OTD analysis file's lines, as the hub keeps them (otd_history.csv - made from the file's "Data Input" sheet, one

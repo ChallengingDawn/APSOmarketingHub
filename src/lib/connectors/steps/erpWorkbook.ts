@@ -521,6 +521,8 @@ export type ErpWorkbook = {
   /** the ERP's articles from its BI model (sheet "KPI ARTICLES", ./productFactsRules.ts): article -> its packed facts,
    *  only those `keepArticle` names - null without the sheet */
   articles: Map<string, string> | null;
+  /** OTD Reports: article -> [planned "J"/"N", replenishment days] when the articles sheet carries them */
+  articlePlanning: Map<string, [string, number]> | null;
   /** which sheet was read as what - by its name ("KPI LINES" ...) or, named otherwise ("Query1"), by its columns */
   kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null };
   rows: number;
@@ -603,6 +605,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     if (got) invoices = invoices ? invoices.concat(got) : got;
   }
   let articles: Map<string, string> | null = null;
+  let articlePlanning: Map<string, [string, number]> | null = null;
   if (kpi.articles) {
     // the supplier list first: the articles carry only their lead supplier's number
     let suppliers: Map<string, string> | null = null;
@@ -617,6 +620,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     const sa = new ArticlesSheet((a) => keep(a) || lineArts.has(a), suppliers);
     rows += await readSheet(file, part(kpi.articles)!, book, (n, cells) => sa.feed(n, cells), beat);
     articles = sa.finish();
+    articlePlanning = sa.planning();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, articlePlanning, kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

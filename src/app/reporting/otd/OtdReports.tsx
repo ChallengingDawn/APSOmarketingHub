@@ -29,6 +29,7 @@ import TimerOutlinedIcon from "@mui/icons-material/TimerOutlined";
 import ShoppingCartOutlinedIcon from "@mui/icons-material/ShoppingCartOutlined";
 import ForumOutlinedIcon from "@mui/icons-material/ForumOutlined";
 import AltRouteIcon from "@mui/icons-material/AltRoute";
+import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
 import PublicOutlinedIcon from "@mui/icons-material/PublicOutlined";
 import VerifiedOutlinedIcon from "@mui/icons-material/VerifiedOutlined";
 import CompareArrowsOutlinedIcon from "@mui/icons-material/CompareArrowsOutlined";
@@ -401,7 +402,7 @@ const CHARTS: ChartDef[] = [
   },
   {
     id: "planned", title: "Planned articles against the others",
-    hint: () => `the share on time, month by month · planned = the ERP plans the article's stock · ${FILE_ONLY}`,
+    hint: () => "the share on time, month by month · planned = the ERP plans the article's stock (ConsumptionDriven, the OTD analysis file's \"Article planned\")",
     body: (f) => {
       const ms = months(f);
       return <MultiLine labels={LABELS(f)} series={PLANNED.slice(0, 2).map((label, i) => ({ key: `p${i}`, label, values: ms.map((s) => share(s.planned[i])) }))} format={pct} tickFormat={pct0} max={1} />;
@@ -481,6 +482,86 @@ const CHARTS: ChartDef[] = [
     },
   },
 
+  /* ── what the morning lines carry since 10.11.2026 ─────────── */
+  {
+    id: "replen", wide: true, title: "Promised faster than the supplier can replenish",
+    hint: (f) => `${periodOf(f)} · articles NOT planned, by their main supplier's replenishment time in the ERP: the lines whose first confirmed date came sooner after the order than that time - late from the start unless the article was in stock`,
+    body: (f) => {
+      const t = total(f), r = t.replen ?? [[0, 0, 0], [0, 0, 0]];
+      if (!r[0][0] && !r[1][0]) return NONE("Counted from the morning lines once they carry the articles' planning (since 10.11.2026).");
+      return <Table head={["Lines of articles not planned", "Lines", "Share", "On time", "Average days"]} rows={[
+        { key: "ok", cells: ["Promised at least the replenishment time", int(r[0][0]), pct(r[0][0] / (r[0][0] + r[1][0])), pct(share(r[0])), days1(avg(r[0][2], r[0][0]))] },
+        { key: "fast", strong: true, cells: ["Promised faster than the supplier replenishes", int(r[1][0]), pct(r[1][0] / (r[0][0] + r[1][0])), pct(share(r[1])), days1(avg(r[1][2], r[1][0]))] },
+      ]} />;
+    },
+  },
+  {
+    id: "wishOtd", wide: true, title: "On time against the first confirmed date and against the customer's wish",
+    hint: () => "the same lines: reached the customer by the date we first confirmed, and by the date the customer asked for (CustomerWishDate)",
+    body: (f) => {
+      const ms = months(f);
+      if (!ms.some((s) => s.wish?.[0])) return NONE("Counted from the morning lines once they carry the customer's wish date (since 10.11.2026).");
+      return <MultiLine labels={LABELS(f)} series={[
+        { key: "f", label: "By the first confirmed date", values: ms.map((s) => (s.wish?.[0] ? onTimeShare(s) : null)) },
+        { key: "w", label: "By the customer's wish date", values: ms.map((s) => (s.wish?.[0] ? share(s.wish) : null)) },
+      ]} format={pct} tickFormat={pct0} max={1} height={260} />;
+    },
+  },
+  {
+    id: "wishLater", title: "First confirmed later than the customer asked",
+    hint: () => "the share of the lines whose first confirmed date came after the customer's wish date",
+    body: (f) => {
+      const ms = months(f);
+      return <MonthTrend values={ms.map((s) => (s.wish?.[0] ? (s.wishLater ?? 0) / s.wish[0] : null))} labels={LABELS(f)} label="Later than asked" fmt={pct} tick={pct0} />;
+    },
+  },
+  {
+    id: "wishTable", title: "The customer's wish in figures",
+    hint: (f) => `${periodOf(f)} · the lines carrying a wish date`,
+    body: (f) => {
+      const t = total(f), w = t.wish ?? [0, 0, 0];
+      if (!w[0]) return NONE("Counted from the morning lines once they carry the customer's wish date.");
+      return <Table head={["", "Lines", "Share"]} rows={[
+        { key: "n", cells: ["Lines with a wish date", int(w[0]), pct(t.n ? w[0] / t.n : null)] },
+        { key: "later", cells: ["First confirmed later than asked", int(t.wishLater ?? 0), pct((t.wishLater ?? 0) / w[0])] },
+        { key: "ok", strong: true, cells: ["Reached the customer by the wish date", int(w[0] - w[1]), pct(share(w))] },
+        { key: "days", cells: ["Average days against the wish (early as minus)", days1(avg(w[2], w[0])), ""] },
+      ]} />;
+    },
+  },
+  {
+    id: "customers", wide: true, title: "The customers with the most late lines",
+    hint: (f) => `${periodOf(f)}, by the month of the first confirmed date · the 300 customers with the most late lines over all the months, their company and its owner in HubSpot · the other filters do not apply here`,
+    body: (f) => {
+      type R = { label: string; name: string; owner: string; company: string; n: number; late: number; days: number };
+      const rows: R[] = (f.k.customers ?? []).map((c) => {
+        let n = 0, late = 0, days = 0;
+        for (const ym of f.yms) { const t = c.m[ym]; if (t) { n += t[0]; late += t[1]; days += t[2]; } }
+        return { label: c.c, name: c.name ?? "", owner: c.owner ?? "", company: c.company, n, late, days };
+      }).filter((r) => r.late > 0);
+      if (!rows.length) return NONE("Counted from the morning lines once they carry the customer (since 10.11.2026).");
+      return <FullTable first="Customer" find="a customer or company" initial="late" rows={rows} cols={[
+        { key: "name", head: "Company", cell: (r) => r.name || "—" },
+        { key: "owner", head: "Owner", cell: (r) => r.owner || "—" },
+        { key: "company", head: "Mandant", cell: (r) => r.company },
+        { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },
+        { key: "late", head: "Late", cell: (r) => int(r.late), sort: (r) => r.late },
+        { key: "rate", head: "On time", cell: (r) => pct(r.n ? (r.n - r.late) / r.n : null), sort: (r) => (r.n ? (r.n - r.late) / r.n : 0) },
+        { key: "avg", head: "Average late", cell: (r) => days1(r.late ? r.days / r.late : null), sort: (r) => (r.late ? r.days / r.late : 0) },
+      ]} />;
+    },
+  },
+  {
+    id: "ownersBars", title: "Late lines per owner",
+    hint: (f) => `${periodOf(f)} · the late lines of the customers above, by their company's owner`,
+    body: (f) => {
+      const t = new Map<string, [number, number]>();
+      for (const c of f.k.customers ?? []) for (const ym of f.yms) { const v = c.m[ym]; if (!v) continue; const k = c.owner || "No owner"; const x = t.get(k) ?? [0, 0]; x[0] += v[0]; x[1] += v[1]; t.set(k, x); }
+      const rows = [...t].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).slice(0, 15).map(([k, v]) => ({ label: k, value: v[1], secondary: `of ${int(v[0])} lines · ${pct(v[1] / v[0])} late` }));
+      return <BarList rows={rows} format={n0} labelWidth={200} emptyMessage="Counted once the morning lines carry the customer." />;
+    },
+  },
+
   /* ── Lead & transport ─────────────────────────────────────── */
   {
     id: "lead", wide: true, title: "Lead time promised and real",
@@ -512,7 +593,7 @@ const CHARTS: ChartDef[] = [
       ["Late days", "The working days (Monday to Friday) from the line's FIRST confirmed date to the day it reached the customer: 0 the same day, +n late, -n early. On time = 0 or less."],
       ["The month", "The file counts each line in the month it reached the customer. The Back Office's KPI counts it in the month of its first confirmed date. The switch \"Month counted by\" in Filters shows either."],
       ["The categories", "On time or early · 1-2 · 3-4 · 5-10 · 11-30 · more than 30 working days late - the file's \"Category late apso\"."],
-      ["The date at the customer", "The file reads it from the ERP. The morning lines carry the shipment, so the hub adds the ERP's transport time to the delivery country - the file's own lines show the same on 90 % of them."],
+      ["The date at the customer", "The file reads it from the ERP. The morning lines carry the ERP's own date on about a fifth of the lines (DeliveryDateCustomer - equal to the file's on 97 % of them); for the others the hub adds the ERP's transport time to the delivery country to the shipment - none when the customer collects, one day for Liechtenstein by DHL. Measured on 97,409 lines in both: the same date on 90 % of them, the same verdict on time or late on 97.6 %."],
       ["GLC", "The lines whose article has no supplier in the ERP: cut to size and made in house - the file's supplier \"-\"."],
       ["Impact", "A supplier's late days summed; its index = 100 × its late days / the largest supplier's; Critical from 50, High from 20, Medium from 10, else Low."],
       ["Date changes", "The working days between the first and the last confirmed date: moved earlier, none, 1-4, 5-9, 10-14, 15-19, 20 or more."],
@@ -610,6 +691,7 @@ const TABS: Record<OtdSlug, TabDef[]> = {
     { id: "ontime", label: "On time", title: "On time", note: "the lines that reached the customer by their first confirmed date - per mandant and article type", icon: <LocalShippingOutlinedIcon />, tint: "green", charts: ["otd", "lines", "mandant", "type"] },
     { id: "late", label: "How late", title: "How late", note: "the file's categories, month by month - and the days late of the late lines", icon: <EventRepeatOutlinedIcon />, tint: "amber", charts: ["catMix", "catAvg", "catTable", "depth", "over10"] },
     { id: "pcs", label: "Profit centres", title: "Per profit centre", note: "each article's profit centre", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["pcBars", "pcMonths"] },
+    { id: "customers", label: "Customers", title: "Per customer", note: "the customers with the most late lines, their company and its owner", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["ownersBars", "customers"] },
   ],
   suppliers: [
     { id: "impact", label: "Impact ranking", title: "Which suppliers make us late", note: "the file's \"Supplier Impact Rank\": each supplier's late days, its index against the largest, its priority", icon: <FactoryOutlinedIcon />, tint: "pink", charts: ["top10", "supRate", "impact"] },
@@ -620,11 +702,12 @@ const TABS: Record<OtdSlug, TabDef[]> = {
   products: [
     { id: "articles", label: "Articles", title: "The articles late most often", note: "with their product group, profit centre and supplier", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["articleBars", "groups", "articles"] },
     { id: "groups", label: "Product groups", title: "Per product group", note: FILE_ONLY, icon: <CategoryOutlinedIcon />, tint: "blue", charts: ["groupTable"] },
-    { id: "planned", label: "Planned articles", title: "Planned articles", note: FILE_ONLY, icon: <TimerOutlinedIcon />, tint: "green", charts: ["planned"] },
+    { id: "planned", label: "Planned articles", title: "Planned articles and replenishment time", note: "the ERP's planning of each article, and the lines promised faster than the supplier replenishes", icon: <TimerOutlinedIcon />, tint: "green", charts: ["planned", "replen"] },
   ],
   orders: [
     { id: "changes", label: "Date changes", title: "When the confirmed date moved", note: "the lines whose date changed after the first confirmation, and how far", icon: <EventRepeatOutlinedIcon />, tint: "pink", charts: ["changed", "changedDays", "changeCats"] },
     { id: "shape", label: "Order shape", title: "The order's shape", note: "the positions per order, one delivery or several, more deliveries than confirmed", icon: <ShoppingCartOutlinedIcon />, tint: "blue", charts: ["positions", "posTable", "more", "shape"] },
+    { id: "wish", label: "Customer's wish", title: "The date the customer asked for", note: "on time against the customer's wish date, and the lines first confirmed later than asked", icon: <CalendarMonthOutlinedIcon />, tint: "amber", charts: ["wishOtd", "wishLater", "wishTable"] },
     { id: "comment", label: "Customer comment", title: "A comment from the customer", note: FILE_ONLY, icon: <ForumOutlinedIcon />, tint: "slate", charts: ["comment"] },
   ],
   lead: [

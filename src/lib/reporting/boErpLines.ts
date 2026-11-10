@@ -82,6 +82,10 @@ export type ErpLine = {
   qty?: number; shipped?: number;
   /** the customer (CustomerNumberUnique, "100-12345") when the sheet carries it - for the price changes per owner */
   customer?: string;
+  /** when the sheet carries them (SARCLA's Query5, 10.11.2026): the order's shipping mode (DHL, Post Express, picked up -
+   *  empty for most EU lines), the ERP's own date at the customer (dim_order DeliveryDateCustomer - on ~21 % of the lines,
+   *  97 % equal to the OTD analysis file's), the customer's wish date (dim_orderline CustomerWishDate) */
+  mode?: string; deliveredDay?: string; wishDay?: string;
 };
 
 type Cell = string | number | boolean | Date | { v: number } | null | undefined;
@@ -108,7 +112,7 @@ const COLS = {
   company: "Company", order: "Order", source: "OrderSource", orderDay: "OrderDate", status: "OrderStatus", shipDay: "ShipmentDate",
   country: "ShippedToCountry", line: "Line", lineType: "LineType", price: "PriceSource", firstDay: "ShippingDateInitial",
   confDay: "ShippingDateConfirmed", article: "Article", artType: "ArticleType", pc: "ProfitCenter", qty: "OrderQty", shipped: "ShippedQty",
-  customer: "Customer",
+  customer: "Customer", mode: "ShippingMode", deliveredDay: "DeliveryDateCustomer", wishDay: "CustomerWishDate",
 } as const;
 type Key = keyof typeof COLS;
 const norm = (s: string) => s.replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -138,6 +142,9 @@ export class ErpLinesSheet {
       price: text(get("price")), firstDay: dayOf(get("firstDay")), confDay: dayOf(get("confDay")), article: text(get("article")),
       artType: text(get("artType")), pc: text(get("pc")), qty: Number(text(get("qty"))) || 0, shipped: Number(text(get("shipped"))) || 0,
       ...(this.at!.customer != null ? { customer: text(get("customer")) } : {}),
+      ...(this.at!.mode != null ? { mode: text(get("mode")) } : {}),
+      ...(this.at!.deliveredDay != null ? { deliveredDay: dayOf(get("deliveredDay")) } : {}),
+      ...(this.at!.wishDay != null ? { wishDay: dayOf(get("wishDay")) } : {}),
     };
     this.lines.set(`${order}|${l.line}`, l);
   }
