@@ -32,7 +32,7 @@ const day = (iso: string) => {
 function Letters({ t }: { t: PlannedTest }) {
   const runs = (l: string) => t.tested === `Version ${l}` || t.against === `Version ${l}`;
   return (
-    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+    <Box sx={{ display: "flex", gap: 0.5, flexWrap: "nowrap" }}>
       {t.against === "The page as it is" && <Chip tint="pink">As it is</Chip>}
       {t.versions.map((l) => <Chip key={l} tint={runs(l) ? "pink" : "slate"}>{l}</Chip>)}
     </Box>
@@ -71,7 +71,7 @@ export function PlannedTable({ tests }: { tests: PlannedTest[] }) {
                     </Box>
                   ) : `${t.title} (a new page)`}
                 </Typography>
-                <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{t.storeName}{t.env === "acc" ? " · ACC" : ""}</Typography>
+                <Typography sx={{ fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap" }}>{t.storeName}{t.env === "acc" ? " · ACC" : ""}</Typography>
               </TableCell>
               <TableCell sx={bodyCell}><Letters t={t} /></TableCell>
               <TableCell sx={{ ...bodyCell, maxWidth: 340 }}>
@@ -79,7 +79,7 @@ export function PlannedTable({ tests }: { tests: PlannedTest[] }) {
                 <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{t.plan}</Typography>
               </TableCell>
               <TableCell sx={bodyCell}>
-                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", alignItems: "center" }}>
+                <Box sx={{ display: "flex", gap: 0.5, flexWrap: "nowrap", alignItems: "center" }}>
                   <Chip tint="amber">Planned · not running</Chip>
                   <Chip tint={t.todo === "Approved" || t.todo === "Live" ? "green" : t.todo === "In review" ? "blue" : "slate"}>{t.todo}</Chip>
                 </Box>
