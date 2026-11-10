@@ -65,7 +65,8 @@ import {
 } from "./model";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
-import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, picturesOn, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
+import { picturesHold, type MediaFile, type PictureCheck } from "./media";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask, moduleWordsTask } from "./modules/server";
@@ -1048,17 +1049,34 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
   const shared: Awaited<ReturnType<typeof cmsSharedPlan>>[] = [];
+  const pics: { view: string; files: MediaFile[] }[] = [];
   for (const v of viewsIn(doc, input)) {
-    const m = await magentoOf(raw, v);
+    const m = await magentoOf(raw, v, env);
     if (!m.cms || !m.want || m.why) continue;
     // a new page: the same page in each of the version's store views (Content v10 point 6, v11) - its plan names each one
-    if (m.want.kind === "page") shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
+    if (m.want.kind === "page") {
+      shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
+      if (m.sent?.pictures.length) pics.push({ view: v, files: m.sent.pictures });
+    }
     // a page of the shop: its page in each store view the version goes to, the same changes (one tag: a write again
     // replaces its own work, also where two store views share one Magento page)
     else for (const x of storesOfView(doc, v)) items.push({ view: x, want: { ...m.want, tag: `content-${v}` } });
   }
-  return { env, plans: [...shared, ...await cmsPagePlans(String(ctx.pieceId), env, items)], waiting: null };
+  return { env, plans: [...shared, ...await cmsPagePlans(String(ctx.pieceId), env, items)], waiting: null, pictures: await picturesOf(env, pics) };
 };
+
+/**
+ * A new page's own pictures in the target's media (10.11.2026 - the Kalrez page's hero was Magento's grey placeholder):
+ * each read once (a HEAD of its address there), whatever version names it. A missing one holds Publish (`hold`).
+ */
+async function picturesOf(env: Env, pics: { view: string; files: MediaFile[] }[]): Promise<{ list: (PictureCheck & { views: string[] })[]; hold: string | null }> {
+  const byFile = new Map<string, MediaFile & { views: string[] }>();
+  for (const p of pics) for (const f of p.files) { const had = byFile.get(f.file); if (had) { if (!had.views.includes(p.view)) had.views.push(p.view); } else byFile.set(f.file, { ...f, views: [p.view] }); }
+  const files = [...byFile.values()];
+  const checked = await picturesOn(env, files.map(({ views: _v, ...f }) => f)).catch(() => files.map((f) => ({ ...f, address: "", state: "unknown" as const })));
+  const list = checked.map((c, i) => ({ ...c, views: files[i].views }));
+  return { list, hold: picturesHold(list.filter((p) => p.state === "missing"), ENVS[env].label) };
+}
 
 const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
@@ -1073,11 +1091,14 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const records: MagentoRecord[] = [];
   const moved: Op[] = [];
   for (const v of views) {
-    const m = await magentoOf(raw, v);
+    const m = await magentoOf(raw, v, env);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     const want = m.want;
     // a new page: the same page in each of the store views its version goes to, one Magento page each (Content v11)
     if (want.kind === "page") {
+      // its own pictures must be in the target's media first (10.11.2026): read again now, a missing one holds the write
+      const pics = m.sent?.pictures.length ? await picturesOf(env, [{ view: v, files: m.sent.pictures }]) : null;
+      if (pics?.hold) { results.push({ view: v, ok: false, error: `${pics.hold} Missing: ${pics.list.filter((p) => p.state === "missing").map((p) => p.file).join(", ")}.` }); continue; }
       try {
         const w = await cmsSharedWrite(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want }, ctx.me.username);
         const put = w.plan.targets.filter((t) => (t.state === "new" || t.state === "has") && !w.missing.includes(t.view)).map((t) => t.view);

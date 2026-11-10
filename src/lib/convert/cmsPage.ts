@@ -131,8 +131,10 @@ export async function pageIn(m: MagentoRequest, identifier: string, storeId: num
 
 /** What one store view's page should become. */
 export type Want =
-  /** a page made in the studio: created, or - where this to-do made it before - updated */
-  | { kind: "page"; identifier: string; title: string; metaTitle: string; metaDescription: string; content: string; active: boolean }
+  /** a page made in the studio: created, or - where this to-do made it before - updated. `layout`: Magento's page_layout
+   * ("1column" - 10.11.2026: a page sent without one took ACC's default, three columns, its content squeezed into 58 % of
+   * the window at the left); none = Magento's own, as before */
+  | { kind: "page"; identifier: string; title: string; metaTitle: string; metaDescription: string; content: string; active: boolean; layout?: string }
   /** an existing CMS page of the shop: the change list put into its content, the banners at its top, after its first
    * paragraph, at its end; `seo`: its search engine fields (Content v6, SARCLA 09.11.2026) - each only when set, a new
    * URL key the page's new identifier */
@@ -165,7 +167,10 @@ export function withInserts(content: string, ins?: { top: string; afterIntro: st
 function pageAfter(want: Want, page: MagentoPage | null): { fields: Record<string, unknown>; notPlaced: string[]; placed: number } {
   if (want.kind === "page") {
     return {
-      fields: { identifier: want.identifier, title: want.title, meta_title: want.metaTitle, meta_description: want.metaDescription, content: want.content, active: want.active },
+      fields: {
+        identifier: want.identifier, title: want.title, meta_title: want.metaTitle, meta_description: want.metaDescription, content: want.content, active: want.active,
+        ...(want.layout ? { page_layout: want.layout } : {}),
+      },
       notPlaced: [], placed: 0,
     };
   }

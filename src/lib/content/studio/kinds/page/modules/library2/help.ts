@@ -275,7 +275,7 @@ const helpHowto = def({
 @@ .am-hh-s{display:grid;gap:8px;margin:20px 0 22px!important}
 @@ .am-hh-s li{display:grid;grid-template-columns:30px minmax(0,1fr);gap:12px;align-items:start;padding:12px 14px;border-radius:14px;background:#fff;font:500 15.5px/1.4 var(--head);color:var(--ink)}
 @@ .am-hh-s b{display:block;padding-top:4px;font:600 15.5px/1.3 var(--head);color:var(--ink)}
-@@ .am-hh-s p{margin-top:3px!important;font:400 14px/1.45 Arial,sans-serif;color:var(--txt)}
+@@ .am-hh-s p{margin-top:3px!important;font:400 14px/1.45 var(--head);color:var(--txt)}
 @@ .am-hh-s span{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--red);font:600 14px/1 var(--head);color:#fff}
 @@ .am-hh-p{position:relative;margin:0;padding:14px;border-radius:20px;background:#fff;box-shadow:0 26px 50px -34px rgba(27,58,75,.65)}
 @@ .am-hh-p img{width:100%;height:auto;border-radius:10px}
