@@ -18,7 +18,7 @@
 
 import { CATEGORIES, MODULES, countFor, gapOf, moduleDef } from "../modules/registry";
 import { normalizeModule, newModule, isModuleType } from "../modules/model";
-import { renderModule, renderSkeleton } from "../modules/render";
+import { fitModule, renderModule, renderSkeleton } from "../modules/render";
 import type { FieldSpec, ModuleRef, ModuleSettings, Point } from "../modules/types";
 
 export type Need = "products" | "categories" | "picture" | "text";
@@ -50,8 +50,11 @@ export type LibrarySource = {
   list: () => LibModule[];
   make: (id: string, store: string) => ModuleRef | null;
   draw: (m: ModuleRef) => string;
-  /** the module in its own shape, grey, with the reason over it - the studio's preview only (never Magento) */
-  skeleton: (m: ModuleRef, busy: string) => string;
+  /** the module in its own shape, grey, with what is happening (busy: it moves) or why it cannot stand - the studio's
+   * preview only (never Magento) */
+  skeleton: (m: ModuleRef, text: string, busy: boolean) => string;
+  /** the module made light enough for one element of the page (its last items out) */
+  fit: (m: ModuleRef) => { m: ModuleRef; dropped: number };
   gap: (m: ModuleRef) => string;
   read: (raw: unknown) => ModuleRef | null;
   /** how many items a fill asks for, for its settings */
@@ -82,7 +85,8 @@ const registrySource: LibrarySource = {
   })),
   make: (id, store) => (isModuleType(id) ? newModule(id, store) : null),
   draw: (m) => renderModule(m),
-  skeleton: (m, busy) => renderSkeleton(m, { busy }),
+  skeleton: (m, text, busy) => renderSkeleton(m, busy ? { busy: text } : { reason: text }),
+  fit: (m) => fitModule(m),
   gap: (m) => gapOf(m),
   read: (raw) => normalizeModule(raw),
   count: (m) => { const d = moduleDef(m.type); return d ? countFor(d, m.settings) : 6; },
@@ -96,7 +100,8 @@ export const library = (): LibModule[] => (held ??= SOURCE.list());
 export const libModule = (id: string): LibModule | null => library().find((m) => m.id === id) ?? null;
 export const makeModule = (id: string, store: string): ModuleRef | null => SOURCE.make(id, store);
 export const drawModule = (m: ModuleRef): string => SOURCE.draw(m);
-export const skeletonOf = (m: ModuleRef, busy: string): string => SOURCE.skeleton(m, busy);
+export const skeletonOf = (m: ModuleRef, text: string, busy = true): string => SOURCE.skeleton(m, text, busy);
+export const fitModuleOf = (m: ModuleRef) => SOURCE.fit(m);
 export const moduleGapOf = (m: ModuleRef): string => SOURCE.gap(m);
 export const readModule = (raw: unknown): ModuleRef | null => SOURCE.read(raw);
 export const fillCount = (m: ModuleRef): number => SOURCE.count(m);

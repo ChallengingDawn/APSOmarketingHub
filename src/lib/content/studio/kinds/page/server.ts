@@ -65,6 +65,7 @@ import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask } from "./modules/server";
+import { planActions, planTask } from "./plan/server";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -958,6 +959,8 @@ export const pageKind: KindDef = {
   toText: pageText,
   tasks: {
     rewrite, ideas, texts, translate, seo, english, block: blockTask(false), block_fix: blockTask(true),
+    // Content v7: the AI composes the page with the module library - a plan of steps (./plan/*)
+    plan: planTask(context),
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
@@ -973,5 +976,7 @@ ${pageBlock(d).slice(0, 6000)}`; }),
     convert_letter: convertLetter,
     // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts
     ...moduleActions,
+    // a plan's module filled from the shop (Content v7, ./plan/fill.ts)
+    ...planActions,
   },
 };

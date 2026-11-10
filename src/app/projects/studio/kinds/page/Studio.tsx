@@ -57,6 +57,9 @@ import { ModuleGallery } from "./modules/Gallery";
 import { ModulePanel } from "./modules/Panel";
 import { useModules } from "./modules/useModules";
 import { moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
+import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
+import { PlanCard } from "./plan/PlanCard";
+import { servedOf, usePlan } from "./plan/usePlan";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 /** The AI's block (./block.ts): the change, what it could not put right itself, what it put right */
@@ -65,6 +68,11 @@ type BlockOut = { summary: string; change: PageChange | null; problems: string[]
 /** A change kept back while the check looks at it - said so if the studio closes before it is done. */
 const CHECKING = "Not checked yet - the check did not finish. Show it anyway, or ask again.";
 const WRONG = "Looks wrong - not applied";
+/** The note SARCLA reads under an AI change: one short English line - the AI's summary when it is that, else its short note. */
+const shortNote = (summary: string, note: string | undefined): string | undefined => {
+  const one = (t: string | undefined) => { const x = (t ?? "").split(/\r?\n/)[0].replace(/\s+/g, " ").trim(); return x && x.length <= 110 && looksEnglish(x) ? x : ""; };
+  return one(summary.split(/(?<=[.!?])\s/)[0]) || one(note) || undefined;
+};
 type Translated = { fields?: PageDoc["fields"]; changes?: Change[]; from: string; missing: number; leftovers: string[]; problems: string[] };
 
 let entryId = 0;
@@ -207,15 +215,15 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the document, a language at a time, with a record of what changed ── */
 
-  const record = (label: string, before: PageDoc = docRef.current, by: "ai" | "you" = "you", note?: string) =>
-    setHistory((h) => [{ id: ++entryId, label, note, at: Date.now(), lang: langRef.current, before, undone: false, by }, ...h].slice(0, 40));
+  const record = (label: string, before: PageDoc = docRef.current, by: "ai" | "you" = "you", note?: string, change?: string) =>
+    setHistory((h) => [{ id: ++entryId, label, note, at: Date.now(), lang: langRef.current, before, undone: false, by, ...(change ? { change } : {}) }, ...h].slice(0, 40));
   const setDoc = (next: PageDoc, label?: string) => { if (label) record(label); api.setDoc(next); };
   const setView = (next: PageDoc, label?: string) => { if (label) record(label); api.setDoc(withView(docRef.current, langRef.current, next)); };
   /** an AI answer laid over the document as it is NOW (the person may have typed while it wrote) */
-  const applyView = async (make: (cur: PageDoc) => PageDoc, label: string, note?: string, forLang = langRef.current) => {
+  const applyView = async (make: (cur: PageDoc) => PageDoc, label: string, note?: string, forLang = langRef.current, change?: string) => {
     const cur = docRef.current;
     const next = withView(cur, forLang, make(viewOf(cur, forLang)));
-    record(label, cur, "ai", note);
+    record(label, cur, "ai", note, change);
     await setDocSafely(api, cur, next);
   };
   // the module gallery (Content v6, SARCLA 09.11.2026 points 7-9): a module is a change of the store view shown, its panel
@@ -531,7 +539,7 @@ export default function Studio({ api }: StudioProps) {
       const before = viewOf(docRef.current, forLang).changes;
       const next = carryMeta(before, r.result.changes);
       const fresh = next.filter((c) => (c.op === "replace" || c.op === "insert") && !before.some((o) => o.id === c.id && JSON.stringify(o) === JSON.stringify(c)) && !c.off);
-      await applyView((cur) => ({ ...cur, changes: next.map((c) => (fresh.includes(c) ? ({ ...c, off: CHECKING } as PageChange) : c)) }), "AI changed the page", r.result.summary || request, forLang);
+      await applyView((cur) => ({ ...cur, changes: next.map((c) => (fresh.includes(c) ? ({ ...c, off: CHECKING } as PageChange) : c)) }), "AI changed the page", shortNote(r.result.summary, ""), forLang);
       setIdeas([]);
       setStep("page");
       const held: string[] = [];
@@ -638,9 +646,12 @@ export default function Studio({ api }: StudioProps) {
       const c = r.result.change;
       if (!c?.id) return `No block came back${r.result.problems.length ? `: ${r.result.problems[0]}` : ""}. Ask again, in other words.`;
       // saved, held back while it is looked at - the preview shows it only once it reads well
-      await applyView((cur) => ({ ...cur, changes: withChange(cur.changes, { ...c, off: CHECKING } as PageChange) }), label, r.result.summary || request, forLang);
+      // the note SARCLA reads: one short English line (09.11.2026 it came back as a long German paragraph)
+      await applyView((cur) => ({ ...cur, changes: withChange(cur.changes, { ...c, off: CHECKING } as PageChange) }), label, shortNote(r.result.summary, c.note), forLang, c.id);
       setIdeas([]);
-      const msg = await checkAndPlace(c.id, forLang, { fix: true, first: r.result.problems, look: lookText });
+      // a check that does not finish never leaves the block silently held back: it is said
+      const msg = await checkAndPlace(c.id, forLang, { fix: true, first: r.result.problems, look: lookText })
+        .catch((e: unknown) => { const why = `Held back: the check did not finish (${String((e as Error)?.message ?? e).slice(0, 80)}) - "Show it anyway" applies it.`; warnLast(why); return why; });
       return [msg, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || null;
     } finally { setBusy(null); setBusyPart(null); setWorkNote(null); }
   };
@@ -653,6 +664,43 @@ export default function Studio({ api }: StudioProps) {
     const { off: _o, ...rest } = c;
     setView({ ...cur, changes: cur.changes.map((x, k) => (k === i ? (rest as PageChange) : x)) }, `Applied change ${i + 1} anyway`);
   };
+  /* ── the AI builds with modules (Content v7, SARCLA 10.11.2026 points 5, 13): a plan of steps, each shown at once ── */
+
+  const served = useMemo(() => servedOf(preview.held.after), [preview.held.after]);
+  const plan = usePlan({
+    api, lang: () => langRef.current, view: (l) => viewOf(latestDoc(), l),
+    put: (l, make, label, note) => applyView(make, label, note, l),
+    check: (id, l, o) => checkAndPlace(id, l, o),
+    warn: (label, why) => setHistory((h) => { const i = h.findIndex((e) => e.label === label && !e.undone); return i < 0 ? h : h.map((e, k) => (k === i ? { ...e, warn: why } : e)); }),
+    served, changes: d.changes, canAi,
+  });
+  /** what the selection is, for the plan: its element (or the block it stands in), its words, the change it is in */
+  const scopeOf = (p: Picked | null) => {
+    if (!p) return {};
+    const c = p.frag ? viewOf(docRef.current, langRef.current).changes[p.frag.change] : undefined;
+    return { selector: p.box?.selector ?? p.selector, text: p.text.slice(0, 400), ...(c?.id ? { change: c.id } : {}) };
+  };
+  // a change the AI made that the server's picture does not show, or that stays held back: said under its line
+  useEffect(() => {
+    if (!served) return;
+    setHistory((h) => {
+      let moved = false;
+      const next = h.map((e) => {
+        const id = e.change;
+        if (!id || e.undone || e.warn || e.lang !== lang) return e;
+        const c = d.changes.find((x) => x.id === id) as (PageChange & { off?: string }) | undefined;
+        if (!c) return e;
+        if (c.off && c.off !== CHECKING) { moved = true; return { ...e, warn: /^Looks wrong/.test(c.off) ? c.off : `Held back - not on the page: ${c.off}` }; }
+        const i = served.changes.findIndex((x) => x.id === id && !(x as { off?: string }).off);
+        const hit = i >= 0 ? served.hits.find((x) => x.index === i) : undefined;
+        if (hit?.state === "missing") { moved = true; return { ...e, warn: "Not on the page: its place was not found on the page as the shop has it now. Take it out and add it again with the +." }; }
+        return e;
+      });
+      return moved ? next : h;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [served, d.changes, lang]);
+
   /** "Show the old one": a replace's hidden element shown again in the preview (nothing changes in the page itself). */
   const toggleOld = (i: number) => setOldShown((l) => (l.includes(i) ? l.filter((x) => x !== i) : [...l, i]));
   useEffect(() => { setOldShown([]); }, [lang]);
@@ -805,6 +853,7 @@ export default function Studio({ api }: StudioProps) {
   /* ── the selection, as the assistant says it ──────────────────────────── */
 
   const scope = sel?.picked ?? null;
+  const inModule = !!scope?.frag && !!moduleOfChange(d.changes[scope.frag.change]);
   const blockKey = sel?.key.startsWith("b:") ? blockOfPath(sel.key.slice(2)) : null;
   const blockInfo = blockKey ? blocksOf(d.fields).find((b) => b.key === blockKey) ?? null : null;
   // a whole block selected (not one of its items): "4 · Proof tiles"
@@ -848,10 +897,11 @@ export default function Studio({ api }: StudioProps) {
           { label: "Make it more convincing", run: () => fill("field", { id: fieldPath, request: "Make it more convincing for a buyer - concrete benefits, no hype." }) },
           ...englishAsk,
         ] : englishAsk
-    ) : scope && selPart ? [
-      { label: "Make this part more convincing", run: () => rewrite(`Make this part of the page ("${selPart.name}") more convincing for a buyer: clearer benefits, in the page's own facts. Keep its structure.`, scope) },
-      { label: "Make it shorter", run: () => rewrite("Make this part's words shorter and easier to scan, same meaning.", scope) },
-      { label: "Make it stand out", run: () => rewrite("Make this part stand out more on the page, in the shop's look (petrol, a small red accent).", scope) },
+    ) : scope && (selPart || inModule) ? [
+      // a part (or a module the hub put): the AI plans with the module library (Content v7)
+      { label: "Make this part more convincing", run: () => plan.ask("part", `Make this part of the page${selPart ? ` ("${selPart.name}")` : ""} more convincing for a buyer: clearer benefits, the right products at hand, in the page's own facts.`, scopeOf(scope)) },
+      { label: "Make it shorter", run: () => plan.ask("part", "Make this part's words shorter and easier to scan, same meaning.", scopeOf(scope)) },
+      { label: "A better module here", run: () => plan.ask("part", "Put the module of the library that does this part's job best in its place, filled from the shop.", scopeOf(scope)) },
       ...englishAsk,
     ] : scope ? [
       { label: "Rewrite this element", run: () => rewrite("Rewrite this element's words: clearer and more useful for a buyer.", scope) },
@@ -867,15 +917,14 @@ export default function Studio({ api }: StudioProps) {
     ...(filledCount(d.fields) ? englishAsk : []),
     ...againAsk,
   ] : [
+    // Content v7: the AI answers with a plan of modules of the library, filled from the shop (./plan/*)
     { label: "Ideas for this page", run: async () => {
       if (!d.path) return "Pick the page first.";
       await ensureOutline(lang);
-      const r = await api.ai<{ ideas: Idea[] }>("ideas", { lang });
-      if (!r.ok) return r.error;
-      setIdeas(r.result.ideas);
-      return r.result.ideas.length ? null : "No idea came back - ask again.";
+      setIdeas([]);
+      return plan.ask("ideas", "");
     } },
-    { label: "Make it more convincing", run: () => rewrite("Make the page more convincing for a buyer: the reasons to order here, clearer benefits, in the page's own facts. Keep what works.") },
+    { label: "Make it more convincing", run: async () => { if (!d.path) return "Pick the page first."; await ensureOutline(lang); return plan.ask("convincing", ""); } },
     { label: "Make it read well on a phone", run: () => rewrite("Make every new block read well on a phone (390 px): check spacing, font sizes and stacking. Keep everything else.") },
     { label: "Search engine fields", run: async () => {
       if (!d.path) return "Pick the page first.";
@@ -908,13 +957,18 @@ export default function Studio({ api }: StudioProps) {
         if (blockPart) return fillBlock(blockPart, text);
         return fill("all", { request: text });
       }
+      // a part, or a module the hub put: a plan; one element: the block that takes its place
+      if (scope && (selPart || inModule)) return plan.ask("part", text, scopeOf(scope));
       return rewrite(text, scope);
     }
     if (/^(translate|übersetz|tradu|vertaal|przetłum)/i.test(text.trim())) {
       const to = others.find((l) => new RegExp(langName(l), "i").test(text) || new RegExp(`\\b${l}\\b`, "i").test(text));
       if (to) return translate(to);
     }
-    return isNew ? fill("all", { request: text }) : rewrite(text);
+    if (isNew) return fill("all", { request: text });
+    if (!d.path) return "Pick the page first.";
+    await ensureOutline(langRef.current);
+    return plan.ask("ask", text);
   };
 
   /* ── written by itself only from an app's brief (SARCLA 09.11.2026: "if the project was created via an SEO brief,
@@ -1012,6 +1066,7 @@ export default function Studio({ api }: StudioProps) {
           inserts={inserts} shell={shell} onFix={(left) => void fixLeftovers(left)} empty={empty}
           writing={{ blocks: marks.blocks, fields: marks.fields, pictures: makingPaths, tuning: tuningPaths }} working={busyHere === "rewrite" ? since : null} workingLabel={busyHere === "rewrite" ? workNote : null}
           oldShown={oldShown} onAddEl={!isNew && d.path && canEdit ? setAddPlace : undefined}
+          plan={isNew ? undefined : { pending: plan.pending, flash: plan.flash, onShown: plan.onShown }}
           onMap={isNew ? undefined : setLocated} seek={seek} selLabel={selPart && sel?.picked ? selPart.name : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}` : null}
           picActs={picActs} onAct={isNew ? onAct : undefined}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
@@ -1022,6 +1077,7 @@ export default function Studio({ api }: StudioProps) {
         assist={<Assistant quick={quick} onAsk={onAsk} enabled={canAi} context={scopeLabel} contextKind={contextKind} onClearContext={() => setSel(null)} history={history} onUndo={(e) => void undo(e)}
           ideas={ideas} onIdea={(i) => void rewrite(`${i.title}: ${i.change}`)} seo={seo} lang={lang} inputRef={askRef} placeholder={placeholder}
           said={said} onCloseSaid={() => setSaid(null)}
+          plan={isNew ? null : <PlanCard ctl={plan} enabled={aiHere} />}
           translate={lang === main ? { doc, groups, busy, onTranslate: (l) => translate(l) } : null}
           // a page of the shop keeps its URL key: a new one moves the page - it is taken on the left, on purpose (Content v6)
           onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />}

@@ -18,7 +18,8 @@
 // AI's is not that.
 
 import { SHOP_TOKENS, blockRules, cleanBlock, prefixOf } from "../block";
-import { leftoversIn } from "../model";
+import { insertChange, leftoversIn, replaceChange, type PageChange } from "../model";
+import type { Card, ModuleRef } from "../modules/types";
 import { emptyWords, libModule, library, libraryText, moduleIdOf, pickModule, type LibModule, type PlanWords } from "./library";
 import type { PagePart } from "./places";
 
@@ -422,6 +423,38 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     steps.push(s);
   }
   return { note: noteOf(str(o.note, 400), steps), steps, problems: [...new Set(problems)].slice(0, 6) };
+}
+
+/* ── a step made into the change the page keeps ───────────────────────── */
+
+/** The module with what the hub filled it with from the shop (its items, its picture) and how - so "fill again" in its
+ * panel does the same. */
+export function withFill(m: ModuleRef, out: { items: Card[]; feature: Card | null; missing?: string[] }, spec: FillSpec, at = new Date().toISOString()): ModuleRef {
+  const how = spec.how === "viewed" || spec.how === "bought" || spec.how === "numbers" ? spec.how : spec.how === "none" ? "ai" : "category";
+  return {
+    ...m,
+    settings: {
+      ...m.settings,
+      items: out.items.length ? out.items : m.settings.items,
+      feature: out.feature ?? m.settings.feature,
+      fill: { how, category: spec.category, numbers: spec.numbers, ask: "", at, missing: (out.missing ?? []).slice(0, 30) },
+    },
+  };
+}
+
+/** The change a step becomes: at its place, in place of a part, or the change it rewrites (its id, its place kept). */
+export function stepChange(step: Pick<PlanStep, "id" | "place" | "line">, html: string, module: ModuleRef | null, base: PageChange | null = null): PageChange | null {
+  const note = step.line.slice(0, 120);
+  const mod = module ? { module: module as unknown as { type: string; settings: Record<string, unknown> } } : {};
+  if (step.place.how === "change") {
+    if (!base || (base.op !== "insert" && base.op !== "replace")) return null;
+    const next = { ...base, html, note, ...mod, id: base.id } as PageChange & { off?: string };
+    if (!module) delete (next as { module?: unknown }).module;
+    delete next.off;
+    return next;
+  }
+  if (step.place.how === "replace") return replaceChange(step.place.selector, html, { id: step.id, note, ...mod });
+  return insertChange(step.place.selector, step.place.where, html, { id: step.id, note, ...mod });
 }
 
 /** The whole page's words (its parts) - what a word of a plan may name. */

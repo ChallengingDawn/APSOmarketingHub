@@ -18,6 +18,7 @@ import { HAIRLINE } from "@/app/uc/report/ui";
 import { leftoversIn } from "@/lib/content/studio/kinds/page/model";
 import { lookOf, type Look } from "@/lib/content/studio/kinds/page/readable";
 import { headKey, sectionLevels, type Located } from "@/lib/content/studio/kinds/page/shopParts";
+import { drawPending, flashEl, shownWhy, stepElement, type Flash, type Pending } from "./plan/overlay";
 
 export type Device = "desktop" | "mobile";
 export const DEVICE_WIDTH: Record<Device, number> = { desktop: 1280, mobile: 390 };
@@ -80,6 +81,11 @@ export type SelectOpts = {
   onAddEl?: (place: AddPlace) => void;
   /** a page of the shop: the changes whose replaced element is shown again instead of their block ("Show the old one") */
   oldShown?: number[];
+  /** Content v7: the AI plan's steps drawn in the page at once (a skeleton while it fills) until the server's picture has
+   * them (./plan/overlay.ts); one of them, or a change drawn by the server, scrolled to and lit; and whether it shows */
+  pending?: Pending[];
+  flash?: Flash | null;
+  onShown?: (f: { key?: string; index?: number }, why: string) => void;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -461,12 +467,20 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       }
     }
     if (!editing.current) markLeftovers(rootOf(d));
+    paintPending(d);
     showOld(d);
     markSelected();
     measure();
     drawAdds(d);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markSelected, measure]);
+
+  /** the plan's steps in the page (Content v7): a place not found is said */
+  const paintPending = (d: Document) => {
+    const s = sel.current;
+    if (!s || s.mode !== "element") return;
+    for (const key of drawPending(d, s.pending ?? [])) s.onShown?.({ key }, "It is not in the page - its place was not found on the page as it is now.");
+  };
 
   /** "Show the old one" (Content v6): a replace's hidden element shown again, its block hidden - in the preview only */
   const showOld = (d: Document) => {
@@ -651,6 +665,28 @@ ${SELECT_CSS}`;
 
   useEffect(() => { draw(); }, [patch, draw]);
   // "Show the old one" switched, the "+" offered or not: the page itself does not reload
+  const pendKey = JSON.stringify((select?.pending ?? []).map((p) => [p.key, p.selector, p.where, p.change ?? -1, p.html.length]));
+  useEffect(() => {
+    const d = docOf();
+    if (!d?.body) return;
+    paintPending(d); measure(); drawAdds(d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendKey, loaded]);
+  // a step applied: scrolled to and lit - and if it does not show, said (once per ask, once its page is in the frame)
+  const flashed = useRef(0);
+  useEffect(() => {
+    const f = select?.flash;
+    if (!f?.nonce || flashed.current === f.nonce) return;
+    const d = docOf();
+    if (!d?.body) return;
+    const el = stepElement(d, f);
+    if (!el && f.key === undefined) return;
+    flashed.current = f.nonce;
+    const why = shownWhy(el);
+    if (el && !why) setTimeout(() => { revealEl(el); flashEl(el); }, 60);
+    sel.current?.onShown?.({ key: f.key, index: f.index }, why);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.flash?.nonce, loaded, pendKey]);
   const oldKey = (select?.oldShown ?? []).join(",");
   const addsOn = !!select?.onAddEl;
   useEffect(() => {

@@ -26,7 +26,9 @@ import { Chip, useCopy } from "./ui";
 
 export type Entry = { id: number; label: string; note?: string; at: number; lang: string; before: PageDoc; undone: boolean; by: "ai" | "you";
   /** the check after applying (Content v6): "Looks wrong - not applied: ..." */
-  warn?: string };
+  warn?: string;
+  /** the change the AI made (Content v7): its line says when the page does not show it */
+  change?: string };
 export type Idea = { title: string; why: string; change: string };
 export type SeoCard = { title: string; description: string; urlKey: string };
 /** What a part of the page says, in English - to read it (Content v5), never a change */
@@ -102,7 +104,7 @@ function TranslateRow({ doc, groups, busy, onTranslate, enabled }: { doc: PageDo
   );
 }
 
-export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid, plan }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
   /** what the selection is: "This element only" (the default), "This part only" */
@@ -115,6 +117,8 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   translate: { doc: PageDoc; groups: StoreGroup[]; busy: string | null; onTranslate: (l: string) => Promise<string | null> } | null;
   /** what the selection says in English, to read (Content v5) */
   said?: Said | null; onCloseSaid?: () => void;
+  /** the AI's plan of modules (Content v7, ./plan/PlanCard.tsx) */
+  plan?: React.ReactNode;
 }) {
   const { done, copy } = useCopy();
   const top = (
@@ -139,6 +143,7 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
   );
   return (
     <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={inputRef}>
+      {plan}
       {said && <SaidCard said={said} onClose={() => onCloseSaid?.()} />}
       {translate && !context && <TranslateRow {...translate} enabled={enabled} />}
       {seo && (
