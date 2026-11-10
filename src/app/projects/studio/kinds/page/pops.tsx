@@ -562,8 +562,16 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
               }}><AutoAwesomeOutlinedIcon sx={{ fontSize: 15, color: PINK }} />{t.label}</Box>
             ))}
           </Box>
-          <TextField fullWidth size="small" value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Or say what should change…" disabled={tuning}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void tune(ask); } }} sx={{ ...field, mt: 1 }} />
+          {/* your own words, with a button to make it (SARCLA 10.11.2026: "on fine-tune there is nothing to click to generate") */}
+          <Box sx={{ display: "flex", gap: 0.75, mt: 1, alignItems: "stretch" }}>
+            <TextField fullWidth size="small" value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="Or say what should change…" disabled={tuning}
+              onKeyDown={(e) => { if (e.key === "Enter" && ask.trim()) { e.preventDefault(); void tune(ask); } }} sx={field} />
+            <Button size="small" variant="contained" disableElevation disabled={tuning || isMaking || !ask.trim()} onClick={() => void tune(ask)}
+              startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
+              sx={{ flexShrink: 0, textTransform: "none", fontWeight: 700, borderRadius: "7px", px: 1.5, bgcolor: PINK, "&:hover": { bgcolor: PINK, filter: "brightness(.92)" } }}>
+              Make it
+            </Button>
+          </Box>
           {tuning && <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}><CircularProgress size={14} sx={{ color: PINK }} /><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Fine-tuning - up to 40 seconds, it lands in the page.</Typography></Box>}
         </Box>
       )}

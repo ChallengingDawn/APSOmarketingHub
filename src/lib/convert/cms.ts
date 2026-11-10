@@ -308,6 +308,15 @@ function pageBackups(pieceId: string): Backups {
 }
 
 /** The Magento pages this to-do created, by environment - a later write may update them (and no other page). */
+/** Has this to-do been written on ACC (a page created or updated there, written)? Production waits for it - "ACC first"
+ * (Content v11, before the first production CMS write the hub ever makes). */
+export async function pieceOnAcc(pieceId: string): Promise<boolean> {
+  await ensureCmsSchema();
+  const r = await query<{ n: string }>(
+    `SELECT count(*)::text AS n FROM apsomh_convert_cms_backups WHERE piece_id = $1 AND env = 'acc' AND written AND kind IN ('create', 'update')`, [pieceId]);
+  return Number(r.rows[0]?.n ?? 0) > 0;
+}
+
 async function oursOf(pieceId: string, env: Env): Promise<Set<string>> {
   const r = await query<{ page_id: string }>(
     `SELECT DISTINCT page_id FROM apsomh_convert_cms_backups WHERE piece_id = $1 AND env = $2 AND kind = 'create' AND written AND page_id <> ''`, [pieceId, env]);

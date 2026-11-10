@@ -43,7 +43,11 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
+
+/** Production only after the same to-do was written on ACC and looked at there (Content v11 - the first production CMS
+ * write of the hub must never be its first write). */
+const ACC_FIRST = "ACC first: publish it on ACC and look at it there - then production.";
 import { seoFieldsOf } from "@/lib/convert/cmsPage";
 import { connectionLine, type Check } from "./magentoCheck";
 import { gateOf } from "@/lib/convert/cmsPage";
@@ -995,7 +999,9 @@ const magento: ServerAction = async (ctx, raw) => {
     mayShip(),
     cmsPageBackups(String(ctx.pieceId)).catch(() => []),
   ]);
-  const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore });
+  const onAcc = await pieceOnAcc(String(ctx.pieceId)).catch(() => false);
+  const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore })
+    ?? (env === "prod" && !restore && !onAcc ? ACC_FIRST : null);
   return {
     // each version (a language - Content v10) with the store views it goes to, and what the hub knows of each in Magento
     views: views.map(({ want: _want, ...v }) => ({
@@ -1058,6 +1064,7 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
   const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env });
   if (no) throw new Error(no);
+  if (env === "prod" && !(await pieceOnAcc(String(ctx.pieceId)))) throw new Error(ACC_FIRST);
   const doc = pageDoc(raw, ctx.piece.language);
   if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const views = viewsIn(doc, input);
