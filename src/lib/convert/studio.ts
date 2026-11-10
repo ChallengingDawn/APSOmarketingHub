@@ -86,6 +86,8 @@ ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS sent_at timestamptz;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS project_id bigint;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS content_type text;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS block text;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS scope text;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS part text;
 `;
 
 let schemaReady: Promise<void> | null = null;
@@ -201,6 +203,10 @@ export type Idea = {
   /** The type of content change it proposes - Content's own type (./changeTypes.ts): Page builder, SEO landing page,
    *  Banner, Newsletter. And the shop block it is about, when it was asked for one (./blocks.ts key). */
   contentType: ChangeType; block?: string | null;
+  /** "block" = an optimization of ONE block of the page, its versions modules that replace it (./blockRules.ts, SARCLA
+   *  10.11.2026: "we cannot say where it is"); "page" = one about the page as a whole (before 10.11.2026). And the
+   *  block's name as a person finds it: "Block 4 of 9 · Warum unsere Kunden immer wieder bestellen". */
+  scope?: "page" | "block"; part?: string | null;
 };
 /** The AI's reading of one page, written with its ideas: what works, what stops buyers. */
 export type Analysis = { text: string; at: string; by: string | null };
@@ -218,6 +224,7 @@ type IdeaRow = {
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
   decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null; target: string | null;
   sent_by?: string | null; sent_at?: Date | null; project_id?: string | null; content_type?: string | null; block?: string | null;
+  scope?: string | null; part?: string | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -230,6 +237,7 @@ const toIdea = (r: IdeaRow): Idea => ({
   impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null, target: r.target ?? null,
   sentBy: r.sent_by ?? null, sentAt: iso(r.sent_at ?? null), projectId: r.project_id ? String(r.project_id) : null,
   contentType: typeOfIdea({ contentType: r.content_type, block: r.block }), block: r.block ?? null,
+  scope: r.scope === "block" ? "block" : "page", part: r.part ?? null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
@@ -282,18 +290,50 @@ export function cleanTarget(x: unknown): string | null {
   return t;
 }
 
-export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number; target?: string | null; type?: unknown; block?: string | null }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
+export async function addIdea(env: Env, path: string, idea: { title: string; why: string; change: string; expect: string; impact?: number; confidence?: number; effort?: number; target?: string | null; type?: unknown; block?: string | null; scope?: "page" | "block"; part?: string | null }, by: string, source: "ai" | "person", numbers: Numbers | null): Promise<Idea> {
   await ensureStudioSchema();
   const c = classify(path);
   const one = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? Math.max(1, Math.min(5, Math.round(x))) : null);
   const r = await query<IdeaRow>(
-    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort, target, content_type, block)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
+    `INSERT INTO apsomh_convert_ideas (env, path, page_key, kind, title, why, change, expect, source, status, numbers, created_by, impact, confidence, effort, target, content_type, block, scope, part)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
     [env, path, pageKeyOf(path), c.kind, idea.title.slice(0, 200), idea.why.slice(0, 1500), idea.change.slice(0, 2000), idea.expect.slice(0, 600), source,
       source === "person" ? "approved" : "proposed", numbers ? JSON.stringify(numbers) : null, by, one(idea.impact), one(idea.confidence), one(idea.effort), cleanTarget(idea.target),
-      cleanChangeType(idea.type, idea.block ?? null), idea.block ?? null],
+      cleanChangeType(idea.type, idea.block ?? null), idea.block ?? null, idea.scope === "block" ? "block" : "page", idea.part ? idea.part.slice(0, 160) : null],
   );
   return toIdea(r.rows[0]);
+}
+
+/** A version the hub made with the optimization (a block's versions come with it - ./blockIdeas.ts). */
+export function saveVersionOf(idea: Idea, changes: Change[], summary: string, by: string, letter: string): Promise<Version> {
+  return saveRevision(idea, changes, summary.slice(0, 600), null, by, letter);
+}
+
+/**
+ * Optimizations are per block since 10.11.2026 (SARCLA chose "Redo as block ones"): the AI's page-wide optimizations
+ * still waiting for a yes or no are set aside - dropped, so "Bring back" still finds them - and their pages are read
+ * again for block ones (./scan.ts). What a person approved, sent or wrote stays. Returns the pages set aside.
+ */
+export const SET_ASIDE_BY = "set aside: optimizations are per block now (10.11.2026)";
+export async function setAsidePageIdeas(): Promise<{ env: Env; path: string }[]> {
+  await ensureStudioSchema();
+  const r = await query<{ env: Env; path: string }>(
+    `UPDATE apsomh_convert_ideas SET status = 'dropped', decided_by = $1, decided_at = now()
+      WHERE status = 'proposed' AND source = 'ai' AND COALESCE(scope, 'page') = 'page' AND COALESCE(content_type, '') <> 'landing-page'
+      RETURNING env, path`, [SET_ASIDE_BY]);
+  const seen = new Set<string>();
+  return r.rows.filter((x) => { const k = `${x.env} ${x.path}`; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+/** Pages whose page-wide optimizations were set aside and that have no block optimization yet - to read again. */
+export async function pagesToRedo(limit: number): Promise<{ env: Env; path: string; kind: PageKind }[]> {
+  await ensureStudioSchema();
+  const r = await query<{ env: Env; path: string; kind: PageKind }>(
+    `SELECT i.env, i.path, min(i.kind) AS kind FROM apsomh_convert_ideas i
+      WHERE i.decided_by = $1 AND i.kind IN ('home', 'category', 'cms')
+        AND NOT EXISTS (SELECT 1 FROM apsomh_convert_ideas b WHERE b.env = i.env AND b.path = i.path AND b.scope = 'block')
+      GROUP BY i.env, i.path ORDER BY count(*) DESC, i.path LIMIT $2`, [SET_ASIDE_BY, limit]);
+  return r.rows;
 }
 
 async function ideaById(id: string): Promise<Idea | null> {
@@ -516,7 +556,7 @@ WHERE ITS VISITORS COME FROM AND GO NEXT (Google Analytics, ${from} to ${to}, ${
 }
 
 /** A block of the shop shown on many pages (the newsletter band, the home slider...): ./blocks.ts. */
-export type BlockFocus = { key?: string; name: string; selector: string; about: string; goal: string };
+export type BlockFocus = { key?: string; name: string; selector: string; about: string; goal: string; focus?: string };
 
 /**
  * NEW LANDING PAGES for what Google shows a page for and the page does not answer (SARCLA 10.11.2026: "we should have
@@ -797,7 +837,7 @@ export async function writeVersion(ideaId: string, request: string | null, by: s
   // a content page: the Content studio's modules make the version (./modular.ts - SARCLA 10.11.2026: "the content agent
   // ... quality is much higher"); a product page, a block in the footer, or a plan that brings nothing: written below
   let planNote = "";
-  if (usesModules(page.kind, idea.block)) {
+  if (usesModules(page.kind, idea.block) || idea.scope === "block") {
     const m = await moduleVersion({
       ask, page: { env: page.env, path: page.path, url: page.url, html: page.html, kind: page.kind }, outline: o.lines, letter, request,
       brief: `${numbersBrief(idea.numbers)}
@@ -808,6 +848,7 @@ Change: ${idea.change}
 Expected: ${idea.expect}`,
       others: opts.another && others.length ? others.map((v) => ({ letter: v.letter || "A", summary: v.summary })) : null,
       current: !opts.another && cur && request ? cur.changes : null,
+      target: idea.scope === "block" ? idea.target ?? null : null,
     });
     if (m.ok) {
       const version = await saveRevision(idea, m.changes, m.summary, opts.another ? (request ?? "another version") : request, by, letter);

@@ -26,6 +26,7 @@ import type { ModuleRef } from "@/lib/content/studio/kinds/page/modules/types";
 import { classify, type Env, type PageKind } from "./model";
 import { validateChanges, type Change } from "./versions";
 import { riskOf } from "./safety";
+import { shopPart } from "./blockRules";
 import { DROP_SCHEMA, TWEAKS_SCHEMA, bare, dropIn, inPlanOrder, outlineSelectors, pointedAt, revised, tweaksIn, withIds, type ModChange } from "./modularRules";
 
 type AskFn = <T>(system: string, user: string, schema: Record<string, unknown>, maxTokens: number) => Promise<{ ok: true; data: T } | { ok: false; error: string }>;
@@ -45,6 +46,8 @@ export type ModularIn = {
   others: { letter: string; summary: string }[] | null;
   /** a revision: the version's changes now */
   current: Change[] | null;
+  /** an optimization of one block: its selector - the plan works on that block (./blockRules.ts) */
+  target?: string | null;
 };
 export type ModularOut = { ok: true; changes: Change[]; summary: string; problems: string[] } | { ok: false; error: string; budget: boolean };
 
@@ -78,6 +81,66 @@ function moduleOf(step: Pick<PlanStep, "do" | "module" | "layout" | "words" | "l
   return step.layout ? { ...m1, settings: { ...m1.settings, layout: step.layout } } : m1;
 }
 
+/**
+ * A plan's steps made into the changes a version keeps, the way the Content studio applies them (usePlan apply): the
+ * module with its words, filled from the shop and FULL (else left out, said), drawn by the library, at its place.
+ */
+export async function buildSteps(steps: PlanStep[], current: ModChange[], store: string): Promise<{ made: ModChange[]; problems: string[] }> {
+  const problems: string[] = [];
+  const made: ModChange[] = [];
+  const shopStore = readStore(store);
+  for (const step of steps) {
+    problems.push(...step.problems);
+    const base = step.place.how === "change" ? (current.find((c) => c.id === (step.place as { change: string }).change) as PageChange | undefined) ?? null : null;
+    if (step.place.how === "change" && !base) { problems.push(`"${step.line}" left out: what it was to change is not in the version`); continue; }
+    if (step.do === "block") {
+      const ch = stepChange(step, step.html, null, base);
+      if (ch) made.push(ch as ModChange);
+      continue;
+    }
+    const m1 = moduleOf(step, base, store);
+    if (!m1) { problems.push(`"${step.line}" left out: its module is not in the library`); continue; }
+    let m2 = m1;
+    if (step.do !== "words" && needsShop(m1.type)) {
+      // filled from the shop, FULL: the AI's own fill, then the studio's other ways (most bought, most viewed ...)
+      let filled: ModuleRef | null = null;
+      let lack = "";
+      for (const t of fillTries(step)) {
+        const mt = t.module === m1.type ? m1 : moduleOf({ ...step, module: t.module, layout: t.layout }, base, store);
+        if (!mt) continue;
+        const out = await fillModule({ module: mt.type, store: shopStore, fill: t.fill, count: t.fill.count || undefined }).catch(() => null);
+        if (!out) continue;
+        const m = withFill(mt, out, t.fill);
+        lack = fullGap(m);
+        if (!lack) { filled = m; break; }
+      }
+      if (!filled) { problems.push(`"${step.line}" left out: the shop could not fill it${lack ? ` (${low(lack)})` : ""}`); continue; }
+      m2 = filled;
+    }
+    const gap = step.do === "words" ? moduleGapOf(m2) : fullGap(m2);
+    if (gap) { problems.push(`"${step.line}" left out: ${low(gap)}`); continue; }
+    const fit = fitModuleOf(m2);
+    const ch = stepChange(step, drawModule(fit.m), fit.m, base);
+    if (ch) made.push(ch as ModChange);
+  }
+  return { made, problems };
+}
+
+/** The changes a version may carry - each validated with its module kept beside it; none that rewrites the shop's own
+ * parts, except a whole block of the page the hub itself found (`own`: its parts' selectors - phase 1 replaces those). */
+export function keepSafe(all: ModChange[], own: Set<string>, problems: string[]): ModChange[] {
+  const kept: ModChange[] = [];
+  for (const c of all) {
+    const v = validateChanges(bare([c]));
+    if (!v.changes[0]) { problems.push(...v.problems); continue; }
+    const whole = (c.op === "replace" || c.op === "insert") && own.has((c as { selector: string }).selector);
+    const risk = whole ? [] : riskOf(v.changes).flatMap((x) => x.problems);
+    if (risk.length) { problems.push(`left out - it ${risk[0]}`); continue; }
+    kept.push(c);
+  }
+  return kept;
+}
+
 const low = (t: string) => (t ? `${t.charAt(0).toLowerCase()}${t.slice(1).replace(/[.\s]+$/, "")}` : t);
 
 export async function moduleVersion(a: ModularIn): Promise<ModularOut> {
@@ -86,11 +149,17 @@ export async function moduleVersion(a: ModularIn): Promise<ModularOut> {
   const current = a.current ? withIds(a.current) : [];
   const view: PageDoc = { ...emptyPage(), env: a.page.env, path: a.page.path, store, changes: current as PageChange[] };
   const map = pageMap(a.page.html, view);
+  // a block of the shop outside the main column (the newsletter band): a part of its own
+  if (a.target && !map.parts.some((p) => p.selector === a.target)) {
+    const sp = shopPart(a.page.html, a.target, "the block");
+    if (sp && !partOfSelection(a.page.html, view, map.parts, { selector: a.target })) map.parts.push(sp);
+  }
   if (!map.parts.length) return { ok: false, error: "The page's parts could not be read for the modules.", budget: false };
   const [tree, brain] = await Promise.all([treeFor(store).catch(() => []), readBrain().catch(() => null)]);
   const links = pageLinks(a.page.html, store);
   const pointed = pointedAt(a.request);
-  const selected = pointed ? partOfSelection(a.page.html, view, map.parts, { selector: pointed.selector }) : null;
+  const selected = pointed ? partOfSelection(a.page.html, view, map.parts, { selector: pointed.selector })
+    : a.target ? map.parts.find((p) => p.selector === a.target) ?? partOfSelection(a.page.html, view, map.parts, { selector: a.target }) : null;
 
   const context = `${a.brief}${a.others?.length ? `
 
@@ -126,42 +195,9 @@ ${elements.join("\n") || "(none read)"}`;
     newId: () => changeId(), lang: store.slice(0, 2), store,
   });
   const problems: string[] = [...plan.problems];
-  const made: ModChange[] = [];
-  const shopStore = readStore(store);
-  for (const step of plan.steps) {
-    problems.push(...step.problems);
-    const base = step.place.how === "change" ? (current.find((c) => c.id === (step.place as { change: string }).change) as PageChange | undefined) ?? null : null;
-    if (step.place.how === "change" && !base) { problems.push(`"${step.line}" left out: what it was to change is not in the version`); continue; }
-    if (step.do === "block") {
-      const ch = stepChange(step, step.html, null, base);
-      if (ch) made.push(ch as ModChange);
-      continue;
-    }
-    const m1 = moduleOf(step, base, store);
-    if (!m1) { problems.push(`"${step.line}" left out: its module is not in the library`); continue; }
-    let m2 = m1;
-    if (step.do !== "words" && needsShop(m1.type)) {
-      // filled from the shop, FULL: the AI's own fill, then the studio's other ways (most bought, most viewed ...)
-      let filled: ModuleRef | null = null;
-      let lack = "";
-      for (const t of fillTries(step)) {
-        const mt = t.module === m1.type ? m1 : moduleOf({ ...step, module: t.module, layout: t.layout }, base, store);
-        if (!mt) continue;
-        const out = await fillModule({ module: mt.type, store: shopStore, fill: t.fill, count: t.fill.count || undefined }).catch(() => null);
-        if (!out) continue;
-        const m = withFill(mt, out, t.fill);
-        lack = fullGap(m);
-        if (!lack) { filled = m; break; }
-      }
-      if (!filled) { problems.push(`"${step.line}" left out: the shop could not fill it${lack ? ` (${low(lack)})` : ""}`); continue; }
-      m2 = filled;
-    }
-    const gap = step.do === "words" ? moduleGapOf(m2) : fullGap(m2);
-    if (gap) { problems.push(`"${step.line}" left out: ${low(gap)}`); continue; }
-    const fit = fitModuleOf(m2);
-    const ch = stepChange(step, drawModule(fit.m), fit.m, base);
-    if (ch) made.push(ch as ModChange);
-  }
+  const built = await buildSteps(plan.steps, current, store);
+  problems.push(...built.problems);
+  const made = built.made;
 
   const raw = r.data as { tweaks?: unknown; drop?: unknown };
   const tw = tweaksIn(raw.tweaks, outlineSelectors(a.outline));
@@ -172,14 +208,7 @@ ${elements.join("\n") || "(none read)"}`;
 
   // each change as a version may carry it (its module kept beside it), and none that rewrites the shop's own parts
   const all = current.length ? revised(current, fresh, drop) : fresh;
-  const kept: ModChange[] = [];
-  for (const c of all) {
-    const v = validateChanges(bare([c]));
-    if (!v.changes[0]) { problems.push(...v.problems); continue; }
-    const risk = riskOf(v.changes).flatMap((x) => x.problems);
-    if (risk.length) { problems.push(`left out - it ${risk[0]}`); continue; }
-    kept.push(c);
-  }
+  const kept = keepSafe(all, new Set([...map.parts.map((p) => p.selector).filter(Boolean), ...(a.target ? [a.target] : [])]), problems);
   if (!kept.some((c) => fresh.includes(c)) && !drop.length) return { ok: false, error: problems[0] ?? "The plan's changes could not be laid over the page.", budget: false };
   if (!kept.length) return { ok: false, error: "The revision would take every change out - say what should stay.", budget: false };
   const summary = plan.note && plan.note !== "Nothing to change"
