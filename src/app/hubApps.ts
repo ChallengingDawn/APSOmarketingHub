@@ -211,10 +211,9 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "Stock to partners", note: "Every morning at 07:00 a partner's articles with our stock, MOQ and status", href: "/uc/partner-stock", icon: "inventory", ...GREEN },
       { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "tree", ...PURPLE },
       { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
-      { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
-      // the companies' check beside the tickets' (SARCLA 10.11.2026: "rework duplicates and merges to include a company
-      // duplicate check") - the COMPANIES FULL DUPLICATE CHECK workflow brought into the hub
-      { name: "Company duplicates", note: "The same ERP customer twice, the same name at one postcode, the same website - merged into the right company", href: "/uc/company-duplicates", icon: "copy", ...TEAL },
+      // tickets and companies, one app with a toggle on top (SARCLA 10.11.2026: "company duplicates should go inside of
+      // duplicates and merges") - the companies at /uc/ticket-duplicates/companies, under this entry and its grant
+      { name: "Duplicates & merges", note: "Tickets: the same request twice, the same order. Companies: the same customer number, name and postcode, website - merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
       { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
       { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
     ],

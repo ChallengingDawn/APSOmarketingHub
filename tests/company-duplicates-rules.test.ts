@@ -4,7 +4,7 @@ import { DEFAULT_RULES, apartPairs, domainOf, erpOf, findGroups, intoOf, mergesO
 
 const C = (id: string, extra: Partial<Company> = {}): Company => ({
   id, name: `Company ${id}`, domain: null, erp: null, placeholder: null, mandant: null, createdate: `2026-01-0${id.slice(-1)}T00:00:00Z`,
-  zip: null, city: null, country: "switzerland", owner: null, deals: 0, contacts: 0, ...extra,
+  zip: null, city: null, country: "switzerland", owner: null, deals: 0, contacts: 0, address: null, unique: null, phone: null, ...extra,
 });
 const none = new Set<string>();
 
@@ -16,6 +16,7 @@ test("an ERP number is digits; the placeholders are not one", () => {
   const c = toCompany({ id: "1", properties: { name: "X", erp_customer_id: "NO ERP ID (LEAD)", mandant: "M110" } });
   assert.equal(c.erp, null);
   assert.equal(c.placeholder, "NO ERP ID (LEAD)");
+  assert.equal(toCompany({ id: "2", properties: { company_unique_number: " CH-123 ", address: "Bahnhofstr. 1" } }).unique, "CH-123");
 });
 
 test("placeholders never make one ERP customer", () => {
@@ -30,6 +31,7 @@ test("the same ERP number in the same Mandant: sure, into the oldest", () => {
   assert.equal(f.sure.length, 1);
   assert.deepEqual(f.sure[0].members.map((c) => c.id), ["1", "2"]);
   assert.equal(f.sure[0].into, "1");
+  assert.match(f.sure[0].why, /^Same customer number 845265 in M100$/);
   assert.ok(!f.sure[0].tooBig);
 });
 

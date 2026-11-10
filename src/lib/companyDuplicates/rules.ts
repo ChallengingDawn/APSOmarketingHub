@@ -24,15 +24,21 @@ export type Company = {
   city: string | null;
   country: string | null;
   owner: string | null;
+  /** the owner's name - filled in by the engine for the companies of a group */
+  ownerName?: string | null;
   deals: number;
   contacts: number;
+  /** street (Street Address), Company Unique Number, phone - for the lists */
+  address: string | null;
+  unique: string | null;
+  phone: string | null;
 };
 
 export type RawCompany = { id: string; properties: Record<string, string | null | undefined> };
 
 export const READ_PROPS = [
   "name", "domain", "website", "erp_customer_id", "mandant", "createdate", "zip", "city", "country_custom", "country",
-  "hubspot_owner_id", "num_associated_deals", "num_associated_contacts", "hs_merged_object_ids",
+  "hubspot_owner_id", "num_associated_deals", "num_associated_contacts", "hs_merged_object_ids", "address", "company_unique_number", "phone",
 ];
 
 const nz = (v: string | null | undefined) => {
@@ -77,6 +83,7 @@ export function toCompany(r: RawCompany): Company {
     id: String(r.id), name: nz(p.name) ?? `Company ${r.id}`, domain: domainOf(p.domain, p.website), erp, placeholder: raw && !erp ? raw : null,
     mandant: nz(p.mandant), createdate: nz(p.createdate), zip: nz(p.zip), city: nz(p.city), country: nz(p.country_custom) ?? nz(p.country),
     owner: nz(p.hubspot_owner_id), deals: Number(p.num_associated_deals) || 0, contacts: Number(p.num_associated_contacts) || 0,
+    address: nz(p.address), unique: nz(p.company_unique_number), phone: nz(p.phone),
   };
 }
 
@@ -163,7 +170,7 @@ export function findGroups(list: Company[], rules: Rules, apart: Set<string>): F
       const members = [...g].sort(byAge);
       sure.push({
         key: groupKey(members.map((c) => c.id)), kind: "erp", shared: ["erp"], members, into: intoOf(members, "erp"),
-        why: `Same ERP customer ${members[0].erp} in ${members[0].mandant}`, newest: members[members.length - 1].createdate,
+        why: `Same customer number ${members[0].erp} in ${members[0].mandant}`, newest: members[members.length - 1].createdate,
         ...(members.length > rules.erp.maxGroup ? { tooBig: true } : {}),
       });
     }
@@ -177,7 +184,7 @@ export function findGroups(list: Company[], rules: Rules, apart: Set<string>): F
     const customers = new Set(members.filter((c) => c.erp).map((c) => `${c.erp}|${c.mandant ?? ""}`));
     const countries = new Set(members.map((c) => countryKey(c.country)).filter(Boolean));
     const base = { key, shared: [shared], members, why, newest: members[members.length - 1].createdate };
-    if (customers.size > 1) { counts.families++; if (left.length < MAX_LEFT) left.push({ ...base, kind: "family", into: members[0].id, why: `${why} - ${customers.size} ERP customers: a group's companies, left alone` }); return; }
+    if (customers.size > 1) { counts.families++; if (left.length < MAX_LEFT) left.push({ ...base, kind: "family", into: members[0].id, why: `${why} - ${customers.size} customer numbers: a group's companies, left alone` }); return; }
     if (countries.size > 1) { counts.sites++; if (left.length < MAX_LEFT) left.push({ ...base, kind: "sites", into: members[0].id, why: `${why} - in ${countries.size} countries: sites of one group, left alone` }); return; }
     if (members.length > MAX_POSSIBLE) { counts.big++; if (left.length < MAX_LEFT) left.push({ ...base, kind: "big", into: members[0].id, why: `${why} - ${members.length} companies: too many to be one, left alone` }); return; }
     // all of them one ERP customer: the sure rule has them
@@ -212,11 +219,11 @@ export function stillHolds(kind: "erp" | "possible", now: Company[]): string | n
   if (now.length < 2) return "fewer than two companies left";
   if (kind === "erp") {
     const keys = new Set(now.map((c) => (c.erp && c.mandant ? `${c.erp}|${c.mandant}` : "-")));
-    if (keys.size !== 1 || keys.has("-")) return "the ERP customer numbers differ now";
+    if (keys.size !== 1 || keys.has("-")) return "the customer numbers differ now";
     return null;
   }
   const customers = new Set(now.filter((c) => c.erp).map((c) => `${c.erp}|${c.mandant ?? ""}`));
-  if (customers.size > 1) return `${customers.size} different ERP customers now - never merged`;
+  if (customers.size > 1) return `${customers.size} different customer numbers now - never merged`;
   return null;
 }
 

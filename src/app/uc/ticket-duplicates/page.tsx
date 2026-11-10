@@ -57,6 +57,7 @@ import type { PropsState } from "@/lib/ticketDuplicates/properties";
 import type { LogEntry, Pending } from "@/lib/ticketDuplicates/live";
 import type { YearState } from "@/lib/ticketDuplicates/year";
 import { BUILT_IN, type TypeSettings } from "@/lib/ticketDuplicates/types";
+import { DupToggle } from "./DupToggle";
 
 type Data = {
   settings: Settings; last: RunInfo | null; decided: { at: string; done: number; errors: number } | null; year: YearState | null;
@@ -718,7 +719,7 @@ export default function TicketDuplicates() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Duplicates & merges"
-        subtitle="Back Office tickets that are the same request twice, or about an order someone already works - merged when 100% sure, flagged for a person otherwise"
+        subtitle="Tickets: Back Office tickets that are the same request twice, or about an order someone already works - merged when 100% sure, flagged for a person otherwise"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -727,6 +728,7 @@ export default function TicketDuplicates() {
           </Box>
         }
       />
+      <DupToggle on="tickets" />
       {d && <Status d={d} onChanged={again} />}
       <Box>
         <ReportTabs name="ticketdup" tab={tab} onSelect={setTab} tabs={[

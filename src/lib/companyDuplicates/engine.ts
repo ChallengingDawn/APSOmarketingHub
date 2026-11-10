@@ -14,6 +14,7 @@ import { kvGet, kvSet } from "@/lib/db/init";
 import { hubspotRetry } from "@/lib/connectors/steps/hs";
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { locked } from "@/lib/ticketDuplicates/reads";
+import { ownerNames } from "@/lib/integrations/erosion";
 import {
   DEFAULT_RULES, READ_PROPS, apartPairs, domainOf, erpOf, findGroups, intoOf, mergesOf, stillHolds, toCompany, zipKey,
   type Company, type Found, type Group, type HistEntry, type MergeEvent, type RawCompany, type Rules,
@@ -35,7 +36,10 @@ const KV = {
 export type Mode = "off" | "shadow" | "live";
 export type Settings = { mode: Mode; rules: Rules; by: string | null; at: string | null };
 export type RunInfo = { at: string; seconds: number; read: number; sure: number; possible: number; merged: number; skipped?: number; error?: string };
-export type Snapshot = { at: string; seconds: number; found: Found };
+/** v: what a snapshot holds - a newer hub reads again at once when the kept one is older (2 = street, unique number,
+ *  phone, the owner's name: SARCLA 10.11.2026 "more properties") */
+export type Snapshot = { at: string; seconds: number; found: Found; v?: number };
+const SNAP_V = 2;
 export type LogEntry = { at: string; what: "merge" | "apart" | "skip" | "error"; ids: string[]; names: string[]; into?: string; text: string; by: string };
 export type History = { at: string; survivors: number; read: number; events: (MergeEvent & { name: string })[]; error?: string };
 
@@ -183,16 +187,19 @@ async function run(settings: Settings, signal?: AbortSignal): Promise<RunInfo> {
   const { list, survivors } = await readAll(signal);
   const apart = new Set((await kvGet<string[]>(KV.apart)) ?? []);
   const found = findGroups(list, settings.rules, apart);
+  // the owners' names, for the lists
+  const names = await ownerNames().catch(() => new Map<string, string>());
+  for (const g of [...found.sure, ...found.possible, ...found.left]) for (const c of g.members) c.ownerName = c.owner ? names.get(c.owner) ?? null : null;
   info.read = list.length; info.sure = found.sure.length; info.possible = found.possible.length;
   await kvSet(KV.survivors, survivors);
-  await kvSet(KV.snapshot, { at: info.at, seconds: Math.round((Date.now() - started) / 1000), found } satisfies Snapshot);
+  await kvSet(KV.snapshot, { at: info.at, seconds: Math.round((Date.now() - started) / 1000), found, v: SNAP_V } satisfies Snapshot);
   // live: the same ERP customer, merged into the oldest - only once the workflow is off
   if (settings.mode === "live" && settings.rules.erp.autoMerge && (await workflowOn()) === false) {
     let skipped = 0;
     for (const g of found.sure) {
       if (signal?.aborted || info.merged >= MERGE_PER_RUN) break;
       if (g.tooBig) { skipped++; continue; }
-      try { await mergeGroup("erp", g.members.map((c) => c.id), "APSOhub (same ERP customer)", g.why); info.merged++; await dropFromSnapshot(g.members.map((c) => c.id)); }
+      try { await mergeGroup("erp", g.members.map((c) => c.id), "APSOhub (same customer number)", g.why); info.merged++; await dropFromSnapshot(g.members.map((c) => c.id)); }
       catch (e) {
         skipped++;
         await log({ at: new Date().toISOString(), what: /limit/.test((e as Error).message) ? "skip" : "error", ids: g.members.map((c) => c.id), names: g.members.map((c) => c.name), text: (e as Error).message.slice(0, 300), by: "APSOhub" });
@@ -210,7 +217,8 @@ export async function runOnce(signal?: AbortSignal, force = false): Promise<RunI
   const settings = await getSettings();
   if (settings.mode === "off") return null;
   const last = await lastRun();
-  const asked = await kvGet<boolean>(KV.ask);
+  // asked by "Read again now", or the kept snapshot is of an older hub
+  const asked = (await kvGet<boolean>(KV.ask)) || ((await snapshot())?.v ?? 1) < SNAP_V;
   // a read that failed is tried again after 15 minutes, not at every tick
   if (!force && !asked && last && Date.now() - Date.parse(last.at) < (last.error ? 15 * 60_000 : EVERY_MS)) return null;
   return locked(READ_LOCK, async () => {
@@ -296,7 +304,10 @@ export async function checkCompany(id: string): Promise<{ company: Company; grou
   const s = await getSettings();
   const f = findGroups([...list.values()], s.rules, new Set((await kvGet<string[]>(KV.apart)) ?? []));
   const mine = (g: Group) => g.members.some((c) => c.id === me.id);
-  return { company: me, groups: [...f.sure, ...f.possible, ...f.left].filter(mine) };
+  const groups = [...f.sure, ...f.possible, ...f.left].filter(mine);
+  const names = await ownerNames().catch(() => new Map<string, string>());
+  for (const c of [me, ...groups.flatMap((g) => g.members)]) c.ownerName = c.owner ? names.get(c.owner) ?? null : null;
+  return { company: me, groups };
 }
 
 // ---------------- the timer ----------------

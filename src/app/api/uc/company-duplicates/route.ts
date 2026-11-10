@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   if (access.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as { action?: string; key?: string; into?: string };
   try {
-    if (b.action === "run") { await askRun(); return NextResponse.json({ ok: true, data: { text: "Reading every company now - about ten minutes." } }); }
+    if (b.action === "run") { await askRun(); return NextResponse.json({ ok: true, data: { text: "Reading every company now - a few minutes." } }); }
     if ((b.action === "merge" || b.action === "apart") && typeof b.key === "string" && /^[\d,]+$/.test(b.key)) {
       const u = await getOptionalUser();
       const by = u?.full_name || u?.username || `user ${access.userId}`;
