@@ -21,8 +21,8 @@ import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { isHubPicture } from "@/lib/content/studio/kinds/banner/brand";
 import { picturesOf, placeChecks, type Check } from "@/lib/content/studio/kinds/banner/checks";
-import { PRESET, sizesOf, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
-import { htmlFile, pasteBlock, stillMarkup, type PickPart } from "@/lib/content/studio/kinds/banner/render";
+import { PHONE, PRESET, hasPhone, sizesOf, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
+import { htmlFile, pasteBlock, sizeOf, stillMarkup, type PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { applyCopy, applyPlace, type CopyAnswer, type Variant } from "@/lib/content/studio/kinds/banner/ai";
 import { AssistantPanel, PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -30,10 +30,10 @@ import { PART_NAME, inLine } from "./Editor";
 import { download, fileName, htmlToPng } from "./png";
 import { ChangesList, StepView, WorkingOn, useChanges, type Change } from "../video/map";
 
-async function pngOf(d: BannerDoc, k: PresetKey, prefix: string, scale: number, font: string) {
-  const p = PRESET[k];
-  const s = stillMarkup(d, k, prefix);
-  return htmlToPng({ html: s.html, css: s.css, width: p.w, height: p.h ?? 400, scale, fontCss: font });
+async function pngOf(d: BannerDoc, k: PresetKey, prefix: string, scale: number, font: string, phone = false) {
+  const z = sizeOf(k, phone) ?? { w: PRESET[k].w, h: 400 };
+  const s = stillMarkup(d, k, prefix, { phone });
+  return htmlToPng({ html: s.html, css: s.css, width: z.w, height: z.h, scale, fontCss: font });
 }
 
 /** The place's PNGs, downloaded one after another; what could not be drawn is said. */
@@ -44,10 +44,12 @@ export function usePng(doc: BannerDoc, prefix: string, title: string, font: stri
     setBusy(tag); setNote(null);
     const missed = new Set<string>();
     try {
-      for (const k of keys) {
-        const { blob, missing } = await pngOf(doc, k, prefix, scale, font ?? "");
+      // the shop banner comes with its picture for phones (1080 x 900), as the shop's slider takes both
+      for (const [k, phone] of keys.flatMap((x): [PresetKey, boolean][] => (hasPhone(x) ? [[x, false], [x, true]] : [[x, false]]))) {
+        const { blob, missing } = await pngOf(doc, k, prefix, scale, font ?? "", phone);
         missing.forEach((m) => missed.add(m));
-        download(blob, fileName(title, `-${PRESET[k].w}x${PRESET[k].h}${scale > 1 ? "@2x" : ""}.png`));
+        const z = sizeOf(k, phone) ?? { w: PRESET[k].w, h: PRESET[k].h };
+        download(blob, fileName(title, `-${z.w}x${z.h}${scale > 1 ? "@2x" : ""}.png`));
       }
       if (missed.size) setNote("A picture could not be fetched - the PNG was drawn without it.");
     } catch (e) { setNote(e instanceof Error ? e.message : String(e)); }
@@ -125,9 +127,9 @@ export function GetItView({ doc, k, prefix, title, png, onBack, onPlace }: {
           <>
             <Button variant={p.out === "html" ? "outlined" : "contained"} disableElevation disabled={stop || !!png.busy} onClick={() => void png.run([shown], 2, `${shown}2`)}
               startIcon={png.busy === `${shown}2` ? <CircularProgress size={14} color="inherit" /> : <DownloadIcon sx={{ fontSize: 17 }} />}
-              sx={p.out === "html" ? row : main}>PNG, sharp on fine screens ({p.w * 2} × {p.h * 2})</Button>
+              sx={p.out === "html" ? row : main}>PNG, sharp on fine screens ({p.w * 2} × {p.h * 2}){PHONE[shown] ? ` + phones (${PHONE[shown]!.w * 2} × ${PHONE[shown]!.h * 2})` : ""}</Button>
             <Button variant="outlined" disabled={stop || !!png.busy} onClick={() => void png.run([shown], 1, `${shown}1`)}
-              startIcon={png.busy === `${shown}1` ? <CircularProgress size={14} /> : undefined} sx={row}>PNG, {p.w} × {p.h}</Button>
+              startIcon={png.busy === `${shown}1` ? <CircularProgress size={14} /> : undefined} sx={row}>PNG, {p.w} × {p.h}{PHONE[shown] ? ` + phones ${PHONE[shown]!.w} × ${PHONE[shown]!.h}` : ""}</Button>
           </>
         )}
         {pictures.length > 1 && (

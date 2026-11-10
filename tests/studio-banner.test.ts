@@ -27,10 +27,11 @@ function selectors(css: string): string[] {
   return out;
 }
 
-test("a new banner is the shop band in pale petrol with the shop's first photo; anything stored opens as a whole banner", () => {
+test("a new banner is the shop's own banner in the slider's petrol with the shop's first photo; anything stored opens as a whole banner", () => {
   const e = emptyBanner("de");
-  assert.equal(e.format, "band");
-  assert.equal(e.theme, "pale");
+  assert.equal(e.format, "slider");
+  assert.equal(e.look, "petrol");
+  assert.equal(e.theme, "petrol");
   assert.equal(e.language, "DE");
   assert.equal(e.content.image.url, SHOP_PHOTOS[0].url);
   assert.equal(e.content.image.label, "Dichtungstechnik");
@@ -38,6 +39,7 @@ test("a new banner is the shop band in pale petrol with the shop's first photo; 
   const old = normalizeBanner({ v: 1, notes: "keep me" });
   assert.equal(old.notes, "keep me");
   assert.equal(old.format, "band");
+  assert.equal(old.look, "band", "a banner kept before its design could be picked opens as it was");
   const nulls = normalizeBanner({ format: "card", sizes: ["card", "nope", "sky", "sky"], theme: "pink", content: null, own: { sky: { headline: "Short" }, nope: {} } });
   assert.equal(nulls.format, "card");
   assert.deepEqual(nulls.sizes, ["sky"]);

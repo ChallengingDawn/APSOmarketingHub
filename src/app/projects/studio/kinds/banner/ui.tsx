@@ -65,9 +65,10 @@ export function useBrandFont(): string | null {
 }
 
 /** The width of a box, kept up to date. */
-export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+export function useWidth<T extends HTMLElement>(guess = 0): [React.RefObject<T | null>, number] {
   const ref = useRef<T | null>(null);
-  const [w, setW] = useState(0);
+  // a first guess draws the banner at about its size before the box is measured (no small first frame)
+  const [w, setW] = useState(guess);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;

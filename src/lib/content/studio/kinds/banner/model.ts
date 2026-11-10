@@ -10,7 +10,7 @@
 
 import { SHOP_PHOTOS, photoLabel } from "./brand";
 
-export type PresetKey = "band" | "cat" | "hero" | "home" | "mail" | "card" | "square" | "portrait" | "story" | "mrec" | "leader" | "sky";
+export type PresetKey = "slider" | "band" | "cat" | "hero" | "home" | "mail" | "card" | "square" | "portrait" | "story" | "mrec" | "leader" | "sky";
 /** The room for each piece of text in a size (characters). 0 = that size has no place for it. */
 export type Limits = { eyebrow: number; headline: number; word: number; line: number; button: number };
 /** Where a place is: the shop, an e-mail, social media, ads. */
@@ -34,6 +34,10 @@ export type Preset = {
 };
 
 export const PRESETS: Preset[] = [
+  // the shop's own banner (read off the live home page 10.11.2026: its slider's five slides are 1920 x 600 pictures, each
+  // with a 1080 x 900 one for phones) - the home page's slider and the top of a page; on a page it goes in as the module
+  // library's campaign banner, its picture this banner's (SARCLA 10.11.2026 point 11: "push the banner directly on a page")
+  { key: "slider", group: "shop", label: "Shop banner", short: "Shop banner", note: "The shop's own banner: the home page's slider or the top of a page - 1920 × 600, and 1080 × 900 on phones", w: 1920, h: 600, out: "image", motion: false, logo: false, limits: { eyebrow: 30, headline: 64, word: 0, line: 150, button: 24 } },
   { key: "band", group: "shop", label: "Home band", short: "Home band", note: "Full width on the home page, like the newsletter band - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 30, line: 220, button: 24 } },
   { key: "cat", group: "shop", label: "Category band", short: "Category band", note: "A slim band over a category's products - stacks on phones", w: 1150, h: null, out: "html", motion: true, logo: false, limits: { eyebrow: 24, headline: 50, word: 26, line: 120, button: 22 } },
   { key: "hero", group: "shop", label: "Page hero", short: "Page hero", note: "The top of a landing page", w: 1092, h: 800, out: "html", motion: true, logo: false, limits: { eyebrow: 28, headline: 60, word: 28, line: 200, button: 24 } },
@@ -47,6 +51,9 @@ export const PRESETS: Preset[] = [
   { key: "leader", group: "ads", label: "Display 728×90", short: "728 × 90", note: "Leaderboard ad", w: 728, h: 90, out: "image", motion: false, logo: true, limits: { eyebrow: 0, headline: 40, word: 0, line: 0, button: 16 } },
   { key: "sky", group: "ads", label: "Display 160×600", short: "160 × 600", note: "Skyscraper ad", w: 160, h: 600, out: "image", motion: false, logo: true, limits: { eyebrow: 18, headline: 40, word: 0, line: 70, button: 14 } },
 ];
+/** A place with a second picture for phones (the shop's slider: 1920 x 600, and 1080 x 900 on phones). */
+export const PHONE: Partial<Record<PresetKey, { w: number; h: number }>> = { slider: { w: 1080, h: 900 } };
+export const hasPhone = (k: PresetKey) => !!PHONE[k];
 export const PRESET: Record<PresetKey, Preset> = Object.fromEntries(PRESETS.map((p) => [p.key, p])) as Record<PresetKey, Preset>;
 export const isPreset = (k: unknown): k is PresetKey => typeof k === "string" && k in PRESET;
 export const sizeLabel = (p: Preset) => (p.h ? `${p.w} × ${p.h}` : `up to ${p.w} wide`);
@@ -54,9 +61,11 @@ export const sizeLabel = (p: Preset) => (p.h ? `${p.w} × ${p.h}` : `up to ${p.w
 export const isBand = (k: PresetKey) => PRESET[k].h === null;
 /** The places a banner can be put into a page with (the shop's own). */
 export const PAGE_PLACES: PresetKey[] = ["band", "cat", "hero", "home"];
+/** The place a banner goes onto a shop page as (the module library's campaign banner, as one picture): the shop's own size. */
+export const ON_PAGE: PresetKey = "slider";
 
 /** The backgrounds - the newsletter band's (newsletter_block.py THEMES) and plain white. */
-export type ThemeKey = "pale" | "white" | "grey" | "sand" | "petrol" | "ink" | "clouds";
+export type ThemeKey = "pale" | "white" | "grey" | "sand" | "petrol" | "ink" | "clouds" | "red";
 export type Theme = { name: string; bg: string; fg: string; mut: string; acc: string; eb: string; fb: string; card: string; dark: boolean };
 export const THEMES: Record<ThemeKey, Theme> = {
   pale: { name: "Pale petrol", bg: "#e6eef2", fg: "#1d2326", mut: "#4a5257", acc: "#274e64", eb: "#4a5257", fb: "#c9d7df", card: "#e9ebed", dark: false },
@@ -69,11 +78,43 @@ export const THEMES: Record<ThemeKey, Theme> = {
     name: "Soft clouds", bg: "radial-gradient(42% 95% at 8% 15%,rgba(39,78,100,.16),transparent 70%),radial-gradient(38% 90% at 92% 85%,rgba(216,9,1,.10),transparent 70%),#f7f8f9",
     fg: "#1d2326", mut: "#4a5257", acc: "#274e64", eb: "#4a5257", fb: "#d3dbe0", card: "#e9ebed", dark: false,
   },
+  red: { name: "Red", bg: "#d80901", fg: "#ffffff", mut: "#ffffff", acc: "#ffffff", eb: "#ffffff", fb: "#d80901", card: "#b00700", dark: true },
 };
 export const THEME_KEYS = Object.keys(THEMES) as ThemeKey[];
 export const isTheme = (k: unknown): k is ThemeKey => typeof k === "string" && k in THEMES;
 
-export type Picture = { url: string; alt: string; label: string };
+/** A picture of the banner. `fit`: a scene photo fills its frame ("cover"); a product photo of the shop (the part on
+ * white) stands free in it ("product") - on a light ground as it is, on a dark one on a light disc. */
+export type Picture = { url: string; alt: string; label: string; fit?: "cover" | "product" };
+
+/* ── its design (Content v7, SARCLA 10.11.2026 point 11: "improve a lot the banner page") ── */
+
+/**
+ * The finished designs a banner takes - each modelled on one of the shop's own best banners, and drawn the same way in
+ * every place (the shop banner, the bands, social media, e-mail, ads): its ground, its type, its button, how the picture
+ * stands. The colours each may take are its `themes` (the first is its own). "band" is the look every banner had before.
+ */
+export type LookKey = "petrol" | "light" | "red" | "campaign" | "photo" | "band";
+export type Look = { key: LookKey; name: string; note: string; themes: ThemeKey[]; from: string };
+export const LOOKS: Look[] = [
+  { key: "petrol", name: "Petrol", note: "Petrol, white words, the red button, the product on the right", themes: ["petrol", "ink"], from: "the shop's Evolast FFKM slide" },
+  { key: "light", name: "Light photo", note: "A bright photo coming in from the right, the headline in red", themes: ["white", "grey", "pale", "sand"], from: "the shop's O-ring guide slide" },
+  { key: "red", name: "Red block", note: "A red block on light grey, white words, a white button", themes: ["grey", "white"], from: "the shop's Variety Series slide" },
+  { key: "campaign", name: "Campaign", note: "Light grey, a black headline with a word in red, the product standing free", themes: ["grey", "white", "sand"], from: "the Black Friday hero" },
+  { key: "photo", name: "Photo behind", note: "The photo across the whole banner, the words on a dark veil", themes: ["ink", "petrol"], from: "" },
+  { key: "band", name: "Newsletter band", note: "Pale petrol, the photo in a card with its label", themes: ["pale", "white", "grey", "sand", "petrol", "ink", "clouds"], from: "the newsletter band" },
+];
+export const LOOK: Record<LookKey, Look> = Object.fromEntries(LOOKS.map((l) => [l.key, l])) as Record<LookKey, Look>;
+export const isLook = (k: unknown): k is LookKey => typeof k === "string" && k in LOOK;
+/** The colour a look's headline takes, unless one is picked ("auto"). */
+export type HeadColor = "auto" | "red" | "petrol" | "ink" | "white";
+export const HEAD_COLORS: { key: HeadColor; label: string; hex: string }[] = [
+  { key: "auto", label: "The design's", hex: "" }, { key: "red", label: "Red", hex: "#d80901" }, { key: "petrol", label: "Petrol", hex: "#274e64" },
+  { key: "ink", label: "Black", hex: "#1d2326" }, { key: "white", label: "White", hex: "#ffffff" },
+];
+const isHeadColor = (k: unknown): k is HeadColor => HEAD_COLORS.some((c) => c.key === k);
+/** The colour a look takes: the one kept when the look allows it, else the look's own. */
+export const themeFor = (look: LookKey, theme: ThemeKey): ThemeKey => (LOOK[look].themes.includes(theme) ? theme : LOOK[look].themes[0]);
 /** Words one size carries instead of the banner's (empty = the banner's). */
 export type OwnWords = { eyebrow: string; headline: string; line: string; button: string };
 
@@ -95,6 +136,11 @@ export type BannerDoc = {
   };
   own: Partial<Record<PresetKey, OwnWords>>;
   theme: ThemeKey;
+  /** its design (LOOKS); a banner made before 10.11.2026 has "band" */
+  look: LookKey;
+  /** the word(s) of the headline drawn in the shop's red (the Black Friday headline's "persönliches") - "" = none */
+  accent: string;
+  headColor: HeadColor;
   language: string;
   notes: string;
 };
@@ -103,20 +149,20 @@ const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.slice(0, max)
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const pic = (v: unknown): Picture => {
   const o = isObj(v) ? v : {};
-  return { url: str(o.url, 1000), alt: str(o.alt, 300), label: str(o.label, 80) };
+  return { url: str(o.url, 1000), alt: str(o.alt, 300), label: str(o.label, 80), ...(o.fit === "product" ? { fit: "product" as const } : {}) };
 };
 
-/** A new banner: the band of the shop, in pale petrol, with the shop's first photo - the newsletter band's look. */
+/** A new banner (Content v7): the shop's own banner size, in the shop slider's petrol design, with the shop's first photo. */
 export function emptyBanner(language?: string | null): BannerDoc {
   const lang = (language || "EN").toUpperCase();
   const first = SHOP_PHOTOS[0];
   return {
-    v: 2, format: "band", sizes: [],
+    v: 2, format: "slider", sizes: [],
     content: {
       eyebrow: "", headline: "", rotatingWords: [], line: "", button: { label: "", url: "" },
       image: { url: first.url, alt: "", label: photoLabel(first, lang) }, photos: [],
     },
-    own: {}, theme: "pale", language: lang, notes: "",
+    own: {}, theme: "petrol", look: "petrol", accent: "", headColor: "auto", language: lang, notes: "",
   };
 }
 
@@ -136,7 +182,10 @@ export function normalizeBanner(raw: unknown): BannerDoc {
       own[k] = { eyebrow: str(v.eyebrow, 200), headline: str(v.headline, 300), line: str(v.line, 600), button: str(v.button, 120) };
     }
   }
-  const format = isPreset(d.format) ? d.format : base.format;
+  // a banner kept before its design could be picked (it has words or a place, no look) opens as it was: the newsletter band
+  const look: LookKey = isLook(d.look) ? d.look : isObj(d.content) || d.v === 1 || typeof d.format === "string" ? "band" : base.look;
+  const format = isPreset(d.format) ? d.format : look === "band" ? "band" : base.format;
+  const theme: ThemeKey = isTheme(d.theme) ? themeFor(look, d.theme) : look === "band" ? "pale" : LOOK[look].themes[0];
   return {
     v: 2,
     format,
@@ -151,7 +200,10 @@ export function normalizeBanner(raw: unknown): BannerDoc {
       photos: Array.isArray(c.photos) ? c.photos.map(pic).filter((p) => p.url).slice(0, 8) : [],
     },
     own,
-    theme: isTheme(d.theme) ? d.theme : base.theme,
+    theme,
+    look,
+    accent: str(d.accent, 60).trim(),
+    headColor: isHeadColor(d.headColor) ? d.headColor : "auto",
     language: typeof d.language === "string" && d.language ? d.language.toUpperCase().slice(0, 5) : base.language,
     notes: str(d.notes, 20000),
   };
