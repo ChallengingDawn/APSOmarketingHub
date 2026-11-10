@@ -28,6 +28,7 @@ import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { field, mainBtn } from "./parts";
 import { whileWorking } from "./working";
+import { readAnswer } from "@/lib/http/answer";
 
 export type Picture = {
   id: number; kind: "generated" | "upload" | "logo"; url: string; width: number | null; height: number | null;
@@ -37,8 +38,8 @@ export type PictureAspect = "1:1" | "4:5" | "16:9" | "3:2";
 type Where = { projectId?: number | null; pieceId?: number | null };
 
 async function post<T>(body: Record<string, unknown>): Promise<T & { ok: boolean; error?: string }> {
-  const r = await fetch("/api/content/assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: r.status === 403 ? "The hub refused it (too big a request)." : `The hub answered ${r.status}.` }));
+  // in plain words, never "The hub answered 200." (Content v7 - a picture is kept alive, its status is always 200)
+  return readAnswer(fetch("/api/content/assets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })) as Promise<T & { ok: boolean; error?: string }>;
 }
 
 /** A picture from a few words, in the house style. Takes 10-40 s. */

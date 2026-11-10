@@ -30,6 +30,7 @@ import { KindTile } from "../work/kinds";
 import { IDEAS_FOR_PROJECT } from "../ideas/Ideas";
 import { AiWorking } from "../studio/parts";
 import { newTodoPeople } from "@/lib/content/people";
+import { readAnswer } from "@/lib/http/answer";
 
 type Kind = { key: string; label: string; blurb: string; language: boolean };
 type Person = { username: string; name: string };
@@ -51,8 +52,10 @@ const newLine = (contentType: string, language: string | null, s: Pick<Setup, "m
   });
 
 async function post(body: Record<string, unknown>) {
-  const r = await fetch("/api/content/projects/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: r.status === 403 ? "The hub refused it - too much at once? Remove a few lines." : `The hub answered ${r.status}.` }));
+  // in plain words, never a bare status (Content v7 - lib/http/answer.ts); the firewall's refusal says what to do here
+  const a = await readAnswer(fetch("/api/content/projects/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (a.ok === false && /firewall/.test(String(a.error)) ? { ...a, error: "The hub refused it - too much at once? Remove a few lines." } : a) as any;
 }
 
 function Step({ n, title, note, children, right }: { n: number; title: string; note?: string; children: React.ReactNode; right?: React.ReactNode }) {
