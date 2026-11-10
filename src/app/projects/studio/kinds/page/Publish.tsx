@@ -19,6 +19,7 @@ import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import Collapse from "@mui/material/Collapse";
+import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
@@ -258,6 +259,45 @@ function NoKeySteps({ envs }: { envs: Env[] }) {
   );
 }
 
+const dayWords = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** Publish now - or only put it on the content calendar (SARCLA 10.11.2026: "you should be able to publish or only send to
+ * the content calendar"): its day on the calendar and nothing written to Magento; its ticket goes to Ready to roll
+ * (lib/content/ticketMoves.ts). On its day it is published from here. */
+function OrCalendar({ api }: { api: StudioApi }) {
+  const due = api.data.piece.dueDate ?? "";
+  const [day, setDay] = useState(due);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+  useEffect(() => { setDay(due); }, [due]);
+  const put = async () => {
+    if (!day) return;
+    setBusy(true);
+    setSaid(null);
+    const r = await api.edit({ dueDate: day });
+    setBusy(false);
+    setSaid(r.ok ? { ok: true, text: `On the content calendar for ${dayWords(day)} - nothing written to Magento. Its ticket goes to Ready to roll.` } : { ok: false, text: r.error ?? "Not put on the calendar." });
+  };
+  return (
+    <Box sx={{ mt: 1.5, p: 1.25, borderRadius: "8px", border: `1px dashed ${HAIRLINE}`, bgcolor: "#fff" }}>
+      <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK }}>Or only put it on the content calendar</Typography>
+      <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25 }}>
+        {due ? `It is on the calendar for ${dayWords(due)}. ` : ""}Nothing goes to Magento - it waits for its day, and is published from here then.
+      </Typography>
+      <Box sx={{ display: "flex", gap: 1, mt: 1, alignItems: "center", flexWrap: "wrap" }}>
+        <TextField type="date" size="small" value={day} onChange={(e) => setDay(e.target.value)} label="Its day"
+          slotProps={{ inputLabel: { shrink: true } }} sx={{ width: 180, "& .MuiInputBase-input": { fontSize: "0.84rem" } }} />
+        <Button size="small" variant="outlined" disabled={!day || busy || day === due} onClick={() => void put()}
+          startIcon={busy ? <CircularProgress size={12} color="inherit" /> : undefined}
+          sx={{ ...btn, height: 38, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
+          {due && day === due ? "On the calendar" : due ? "Move it to this day" : "Put it on the calendar"}
+        </Button>
+      </Box>
+      {said && <Typography sx={{ mt: 0.75, fontSize: "0.78rem", color: said.ok ? GREEN : "#c5221f" }}>{said.text}</Typography>}
+    </Box>
+  );
+}
+
 export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string;
   /** what Magento was read to say (a static check draws the step with it) */
@@ -464,6 +504,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
         })}
         {!on.length && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Pick ACC, production or both above.</Typography>}
       </Box>
+      {canEdit && <OrCalendar api={api} />}
 
       {said && (
         <Box sx={{ mt: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
