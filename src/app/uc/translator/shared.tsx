@@ -83,11 +83,16 @@ export function ModeBadge({ d }: { d: Data | null }) {
   );
 }
 
-/** A page of the app: the header, then its cards. */
-export function Frame({ title, subtitle, d, note, children }: { title: string; subtitle: string; d: Data | null; note?: string | null; children: React.ReactNode }) {
+/** A page of the app: the header (the reporting window top right, as on every report), then its cards. */
+export function Frame({ title, subtitle, d, note, controls, children }: { title: string; subtitle: string; d: Data | null; note?: string | null; controls?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title={title} subtitle={subtitle} rightSlot={<ModeBadge d={d} />} />
+      <PageHeader title={title} subtitle={subtitle} rightSlot={
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <ModeBadge d={d} />
+          {controls}
+        </Box>
+      } />
       {note && <Info>{note}</Info>}
       {children}
     </Box>
