@@ -193,8 +193,8 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
   // first "+" - or, while the AI writes it, the page moving as it chooses its blocks; nothing in Magento's copy
   if (m && !order.length && !mods.length) {
     parts.push(busyB.has("page")
-      ? `<section class="apx-np-empty is-writing"><div class="apx-np-in"><p class="apx-np-empty-t">Writing the page…</p><p class="apx-np-empty-s">The AI is choosing its blocks and modules, then writes them.</p><div class="apx-np-empty-sk"><i></i><i></i><i></i></div></div></section>`
-      : `<section class="apx-np-empty"><div class="apx-np-in"><p class="apx-np-empty-t">An empty page</p><p class="apx-np-empty-s">${adds ? "Add its first block, or write it with AI on the left." : "Nothing on it yet."}</p>${adds ? `<div class="apx-np-empty-add" data-apx-add="1"><b>+</b>Add a block</div>` : ""}</div></section>`);
+      ? `<section class="apx-np-empty is-writing"><div class="apx-np-in"><div class="apx-np-empty-t">Writing the page…</div><div class="apx-np-empty-s">The AI is choosing its blocks and modules, then writes them.</div><div class="apx-np-empty-sk"><i></i><i></i><i></i></div></div></section>`
+      : `<section class="apx-np-empty"><div class="apx-np-in"><div class="apx-np-empty-t">An empty page</div><div class="apx-np-empty-s">${adds ? "Add its first block, or write it with AI on the left." : "Nothing on it yet."}</div>${adds ? `<div class="apx-np-empty-add" data-apx-add="1"><b>+</b>Add a block</div>` : ""}</div></section>`);
   }
   parts.push(modsAfter(""));
   order.forEach((key, i) => {
@@ -224,7 +224,7 @@ export const ADD_CSS = `.apx-np-add{position:relative;height:0;z-index:8;pointer
 [data-apx-making-over]::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,rgba(255,255,255,0) 25%,rgba(194,44,110,.18) 42%,rgba(255,255,255,.7) 50%,rgba(36,89,209,.14) 58%,rgba(255,255,255,0) 75%);background-size:260% 100%;animation:apx-sheen 1.4s linear infinite}
 .apx-np-veil{position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);z-index:2;padding:12px 18px;border-radius:7px;background:#c22c6e;color:#fff;font:600 19px/1.2 system-ui,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 8px 20px rgba(194,44,110,.3)}
 [data-apx-making-over] .apx-np-bar{z-index:2;background:rgba(255,255,255,.6)}
-.apx-np-empty{padding:72px 0}
+.apx-np-empty{padding:56px 24px}
 .apx-np-empty .apx-np-in{display:flex;flex-direction:column;align-items:center;text-align:center;padding:56px 32px;border:2px dashed #c3ccd4;border-radius:18px;background:rgba(255,255,255,.55)}
 .apx-np-empty-t{margin:0;font:600 26px/1.2 var(--head);color:var(--petrol)}
 .apx-np-empty-s{margin:8px 0 0;font:400 16px/1.5 var(--head);color:var(--muted)}

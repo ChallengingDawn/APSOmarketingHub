@@ -359,7 +359,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
                       <Typography sx={{ fontSize: "0.8rem", color: PINK, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
                         <CircularProgress size={13} thickness={6} sx={{ color: PINK }} />{clock} · about a minute
                       </Typography>
-                      <Hint mt={0.5}>The blocks fill in the page as it writes; its pictures and modules come after.</Hint>
+                      <Hint mt={0.5}>The page fills in as it is written; its pictures and modules come after.</Hint>
                     </>
                   ) : (
                     <>
