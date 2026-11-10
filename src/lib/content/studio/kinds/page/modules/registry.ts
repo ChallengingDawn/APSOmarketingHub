@@ -12,6 +12,7 @@
 
 import { BASE, cssStr, drawing, minifyCss, wordsFor } from "./kit";
 import { LIBRARY } from "./library";
+import { withLooks } from "./looks";
 import type { CategoryId, FieldSpec, ModuleDef, ModuleRef, ModuleSettings, Need, Opts } from "./types";
 
 export type { CategoryId, FieldSpec, ModuleDef, Need } from "./types";
@@ -122,6 +123,8 @@ export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: stri
   drawing.store = m.settings.store;
   let r: { html: string; css: string };
   try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; }
+  // what a person changed on it (Content v10: its words' and buttons' looks, its questions open or closed, its split)
+  if (d) r = withLooks(m, r);
   const css = minifyCss(`${BASE}${r.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
   return { cls, css, html: r.html };
 }

@@ -30,12 +30,26 @@ export type Section = { id: string; title: string; text: string; picture: Pic; s
 export type LinkItem = { id: string; label: string; url: string; note: string };
 export type Faq = { id: string; q: string; a: string };
 
-export type TextSize = "s" | "m" | "l";
-export type TextAlign = "left" | "center";
-export type TextColor = "ink" | "petrol" | "red" | "muted";
+export type TextSize = "s" | "m" | "l" | "xl";
+export type TextAlign = "left" | "center" | "right";
+export type TextColor = "ink" | "petrol" | "red" | "muted" | "white";
 export type BlockBg = "white" | "grey" | "petrol" | "sand";
 export type ButtonLook = "red" | "petrol" | "outline";
-export type Look = { size?: TextSize; align?: TextAlign; color?: TextColor; bg?: BlockBg; button?: ButtonLook };
+/** The picture's share of a text-and-picture block's width (Content v10, point 5: dragged, snapped to these). */
+export const SPLITS = [25, 33, 50, 66, 75] as const;
+export type Look = {
+  size?: TextSize; align?: TextAlign; color?: TextColor; bg?: BlockBg; button?: ButtonLook;
+  /** Content v10 (SARCLA point 2, "custom color"): a colour of its own, "#rrggbb" - it wins over `color` */
+  hex?: string;
+  weight?: "regular" | "bold"; italic?: boolean; underline?: boolean;
+  /** a button (point 3): filled / outline / link, its size, its arrow (on unless false), a new tab - its colour is
+   * `color` or `hex` */
+  style?: "filled" | "outline" | "link"; bsize?: "s" | "l"; arrow?: boolean; tab?: boolean;
+  /** a questions block (point 4): all open - else all closed, each opening on a click */
+  open?: boolean;
+  /** point 5: a text-and-picture block's or the hero's picture share (%), a tile's span (columns) */
+  split?: number; span?: number;
+};
 
 export type Fields = {
   hero: { eyebrow: string; title: string; sub: string; picture: Pic; button: Btn };
@@ -114,9 +128,9 @@ const btn = (v: unknown): Btn => {
 const list = <T>(v: unknown, max: number, f: (o: Record<string, unknown>, i: number) => T): T[] =>
   Array.isArray(v) ? v.filter(isObj).slice(0, max).map(f) : [];
 
-const SIZES: TextSize[] = ["s", "m", "l"];
-const ALIGNS: TextAlign[] = ["left", "center"];
-const COLORS: TextColor[] = ["ink", "petrol", "red", "muted"];
+const SIZES: TextSize[] = ["s", "m", "l", "xl"];
+const ALIGNS: TextAlign[] = ["left", "center", "right"];
+const COLORS: TextColor[] = ["ink", "petrol", "red", "muted", "white"];
 const BGS: BlockBg[] = ["white", "grey", "petrol", "sand"];
 const BUTTONS: ButtonLook[] = ["red", "petrol", "outline"];
 const pickOf = <T extends string>(v: unknown, all: T[]): T | undefined => (all.includes(v as T) ? (v as T) : undefined);
@@ -129,6 +143,18 @@ function look(v: unknown): Look | null {
   const color = pickOf(v.color, COLORS); if (color) out.color = color;
   const bg = pickOf(v.bg, BGS); if (bg) out.bg = bg;
   const button = pickOf(v.button, BUTTONS); if (button) out.button = button;
+  // Content v10 (points 2, 3, 4, 5)
+  if (typeof v.hex === "string" && /^#[0-9a-f]{6}$/i.test(v.hex)) out.hex = v.hex.toLowerCase();
+  const weight = pickOf(v.weight, ["regular", "bold"] as ("regular" | "bold")[]); if (weight) out.weight = weight;
+  if (v.italic === true) out.italic = true;
+  if (v.underline === true) out.underline = true;
+  const style = pickOf(v.style, ["filled", "outline", "link"] as ("filled" | "outline" | "link")[]); if (style) out.style = style;
+  const bsize = pickOf(v.bsize, ["s", "l"] as ("s" | "l")[]); if (bsize) out.bsize = bsize;
+  if (v.arrow === false) out.arrow = false;
+  if (v.tab === true) out.tab = true;
+  if (v.open === true) out.open = true;
+  if ((SPLITS as readonly number[]).includes(Number(v.split))) out.split = Number(v.split);
+  if ([2, 3, 4].includes(Number(v.span))) out.span = Number(v.span);
   return Object.keys(out).length ? out : null;
 }
 

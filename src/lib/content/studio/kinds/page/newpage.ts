@@ -9,9 +9,10 @@
 // it is (data-apx-b="sections.ab12"), so a click in the preview selects it; an empty part shows as a quiet dashed slot
 // to click. Nothing of that reaches Magento.
 
-import { blockOrder, type BlockBg, type ButtonLook, type Fields, type Look, type Pic } from "./fields";
+import { SPLITS, blockOrder, type BlockBg, type Fields, type Look, type Pic } from "./fields";
 import { moduleGap } from "./modules/model";
 import { renderModule, renderSkeleton } from "./modules/render";
+import { labelOn } from "./style";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -71,9 +72,18 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
   const tuning = new Set(m ? o.busy?.tuning ?? [] : []);
   const fa = (path: string) => (m ? ` data-apx-f="${esc(path)}"${busyF.has(path) ? " data-apx-busy" : ""}` : "");
   const ba = (path: string) => (m ? ` data-apx-b="${esc(path)}"${busyB.has(path) ? " data-apx-busy" : ""}` : "");
+  // Content v10 (SARCLA points 2, 3): a colour of its own is a rule of this page's stylesheet (never a style attribute -
+  // the same in the preview and in Magento's copy): its class names its code
+  const ownColors = new Set<string>();
+  const ownButtons = new Set<string>();
+  const hexOk = (h: string | undefined): h is string => !!h && /^#[0-9a-f]{6}$/.test(h);
   const textCls = (path: string, base: string) => {
     const l = lk(path);
-    return [base, l.size ? `apx-np-s-${l.size}` : "", l.align === "center" ? "apx-np-ac" : "", l.color ? `apx-np-c-${l.color}` : ""].filter(Boolean).join(" ");
+    const hx = hexOk(l.hex) ? l.hex : null;
+    if (hx) ownColors.add(hx);
+    return [base, l.size ? `apx-np-s-${l.size}` : "", l.align === "center" ? "apx-np-ac" : l.align === "right" ? "apx-np-ar" : "",
+      hx ? `apx-np-hx-${hx.slice(1)}` : l.color ? `apx-np-c-${l.color}` : "",
+      l.weight === "bold" ? "apx-np-wb" : l.weight === "regular" ? "apx-np-wr" : "", l.italic ? "apx-np-it" : "", l.underline ? "apx-np-ul" : ""].filter(Boolean).join(" ");
   };
   const bgOf = (path: string, fallback: BlockBg = "white") => lk(path).bg ?? DEFAULT_BG[path] ?? fallback;
   const slot = (path: string, hint: string, tag = "div") => (m ? `<${tag} class="apx-np-slot"${fa(path)}>${esc(hint)}</${tag}>` : "");
@@ -83,10 +93,19 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     value.trim() ? `<div class="${textCls(path, base)}"${fa(path)}>${wordsHtml(value, link)}</div>` : slot(path, hint);
   const button = (path: string, b: { label: string; url: string }, hint: string) => {
     if (!b.label.trim()) return m ? `<div class="apx-np-btns">${slot(path, hint, "span")}</div>` : "";
-    const look: ButtonLook = lk(path).button ?? (path === "cta.button" && bgOf("cta") === "petrol" ? "red" : "red");
+    const l = lk(path);
+    // its style and colour (Content v10, point 3) - a page from before keeps its red / petrol / outline
+    const style = l.style ?? (l.button === "outline" ? "outline" : "filled");
+    const onPetrol = bgOf(path.split(".")[0]) === "petrol";
+    const color = hexOk(l.hex) ? l.hex : l.color ?? (l.button === "petrol" ? "petrol" : style === "filled" ? "red" : onPetrol ? "white" : "petrol");
+    if (color.startsWith("#")) ownButtons.add(color);
+    const cc = color.startsWith("#") ? `apx-np-bx-${color.slice(1)}` : `apx-np-bc-${color}`;
     const href = b.url ? link(b.url) : "#";
-    return `<div class="apx-np-btns${lk(path).align === "center" ? " apx-np-ac" : ""}"><a class="apx-np-btn apx-np-btn-${look}" href="${esc(href)}"${fa(path)}>${esc(b.label.trim())}${ARROW}</a></div>`;
+    const align = l.align === "center" ? " apx-np-ac" : l.align === "right" ? " apx-np-ar" : "";
+    return `<div class="apx-np-btns${align}"><a class="apx-np-btn apx-np-btn-${style} ${cc}${l.bsize ? ` apx-np-bs-${l.bsize}` : ""}" href="${esc(href)}"${l.tab ? ' target="_blank" rel="noopener"' : ""}${fa(path)}>${esc(b.label.trim())}${l.arrow === false ? "" : ARROW}</a></div>`;
   };
+  /** the picture's share of a text-and-picture block or the hero (Content v10, point 5: dragged in the preview) */
+  const splitCls = (path: string) => { const s = lk(path).split; return s && (SPLITS as readonly number[]).includes(s) && s !== 50 ? ` apx-np-split-${s}` : ""; };
   const picture = (path: string, p: Pic, hint: string) => {
     // the studio's slot (the flow standard, 09.11.2026): empty - the idea in small grey words, "Make it" and "Upload";
     // being made - "Making the picture…" over a moving bar (the studio's marks only, never in Magento's copy)
@@ -112,7 +131,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     if (key === "hero") {
       const heroPic = picture("hero.picture", h.picture, "Hero picture - upload one, or let the AI write this part");
       const heroHasPic = !!h.picture.url || m;
-      return `<section class="apx-np-blk apx-np-hero apx-np-bg-${bgOf("hero")}${heroHasPic ? "" : " apx-np-hero-solo"}"${ba("hero")}><div class="apx-np-in">
+      return `<section class="apx-np-blk apx-np-hero apx-np-bg-${bgOf("hero")}${heroHasPic ? splitCls("hero") : " apx-np-hero-solo"}"${ba("hero")}><div class="apx-np-in">
 <div class="apx-np-hero-t">${h.eyebrow.trim() ? `<div class="${textCls("hero.eyebrow", "apx-np-eb")}"${fa("hero.eyebrow")}>${esc(h.eyebrow.trim())}</div>` : m ? slot("hero.eyebrow", "Small line above the title", "div") : ""}
 ${one("hero.title", "h1", "apx-np-h1", h.title, "The page's title (its H1)")}
 ${many("hero.sub", "apx-np-sub", h.sub, "One or two lines under the title")}
@@ -128,7 +147,7 @@ ${heroHasPic ? heroPic : ""}</div></section>`;
       if (f.benefits.length) {
         return `<section class="apx-np-blk apx-np-bens apx-np-bg-${bgOf("benefits")}"${ba("benefits")}><div class="apx-np-in">
 ${f.benefitsTitle.trim() ? one("benefitsTitle", "h2", "apx-np-h2", f.benefitsTitle, "") : m ? slot("benefitsTitle", "A heading for the benefits") : ""}
-<div class="apx-np-grid">${f.benefits.map((b) => `<div class="apx-np-card"${ba(`benefits.${b.id}`)}>${one(`benefits.${b.id}.title`, "h3", "apx-np-h3", b.title, "Benefit")}${many(`benefits.${b.id}.text`, "apx-np-p", b.text, "What it means for the buyer")}</div>`).join("")}${f.benefits.length < 8 ? addItem("benefits", "Tile") : ""}</div></div></section>`;
+<div class="apx-np-grid">${f.benefits.map((b) => `<div class="apx-np-card${lk(`benefits.${b.id}`).span ? ` apx-np-span-${lk(`benefits.${b.id}`).span}` : ""}"${ba(`benefits.${b.id}`)}>${one(`benefits.${b.id}.title`, "h3", "apx-np-h3", b.title, "Benefit")}${many(`benefits.${b.id}.text`, "apx-np-p", b.text, "What it means for the buyer")}</div>`).join("")}${f.benefits.length < 8 ? addItem("benefits", "Tile") : ""}</div></div></section>`;
       }
       return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("benefits")}><div class="apx-np-in">${slot("benefits", "Benefits - three or four cards")}</div></section>` : "";
     }
@@ -139,7 +158,7 @@ ${f.benefitsTitle.trim() ? one("benefitsTitle", "h2", "apx-np-h2", f.benefitsTit
       const side = s.side;
       const bg = bgOf(`sections.${s.id}`, i % 2 ? "grey" : "white");
       const hasPic = !!s.picture.url || m;
-      return `<section class="apx-np-blk apx-np-sec apx-np-bg-${bg}${side === "left" ? " is-left" : ""}${hasPic ? "" : " is-solo"}"${ba(`sections.${s.id}`)}><div class="apx-np-in">
+      return `<section class="apx-np-blk apx-np-sec apx-np-bg-${bg}${side === "left" ? " is-left" : ""}${hasPic ? splitCls(`sections.${s.id}`) : " is-solo"}"${ba(`sections.${s.id}`)}><div class="apx-np-in">
 <div class="apx-np-sec-t">${one(`sections.${s.id}.title`, "h2", "apx-np-h2", s.title, "Section heading")}${many(`sections.${s.id}.text`, "apx-np-p", s.text, "The section's text")}</div>
 ${hasPic ? picture(`sections.${s.id}.picture`, s.picture, "Picture - upload one, or let the AI write this part") : ""}</div></section>`;
     }
@@ -158,7 +177,7 @@ ${f.linksTitle.trim() ? one("linksTitle", "h2", "apx-np-h2", f.linksTitle, "") :
       if (f.faq.length) {
         return `<section class="apx-np-blk apx-np-faq apx-np-bg-${bgOf("faq")}"${ba("faq")}><div class="apx-np-in apx-np-narrow">
 ${f.faqTitle.trim() ? one("faqTitle", "h2", "apx-np-h2", f.faqTitle, "") : m ? slot("faqTitle", "A heading for the questions") : ""}
-${f.faq.map((q) => `<details class="apx-np-q"${m ? " open" : ""}${ba(`faq.${q.id}`)}><summary${fa(`faq.${q.id}.q`)}>${esc(q.q.trim() || (m ? "A question" : ""))}</summary>${many(`faq.${q.id}.a`, "apx-np-a", q.a, "Its answer")}</details>`).join("")}${f.faq.length < 14 ? addItem("faq", "Question") : ""}</div></section>`;
+${f.faq.map((q) => `<details class="apx-np-q"${lk("faq").open ? " open" : ""}${ba(`faq.${q.id}`)}><summary${fa(`faq.${q.id}.q`)}>${esc(q.q.trim() || (m ? "A question" : ""))}</summary>${many(`faq.${q.id}.a`, "apx-np-a", q.a, "Its answer")}</details>`).join("")}${f.faq.length < 14 ? addItem("faq", "Question") : ""}</div></section>`;
       }
       return m ? `<section class="apx-np-blk apx-np-bg-white"${ba("faq")}><div class="apx-np-in">${slot("faq", "Questions and answers")}</div></section>` : "";
     }
@@ -200,7 +219,15 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
   parts.push(modsAfter("~end"));
   parts.push(inserts("bottom"));
 
-  return { css: NEW_PAGE_CSS, html: `<div class="apx-np">\n${parts.filter(Boolean).join("\n")}\n</div>` };
+  return { css: NEW_PAGE_CSS + ownColorCss(ownColors, ownButtons), html: `<div class="apx-np">\n${parts.filter(Boolean).join("\n")}\n</div>` };
+}
+
+/** The page's own colours (Content v10): a text's colour, a button's fill or line - each a rule under its own class. */
+export function ownColorCss(texts: Iterable<string>, buttons: Iterable<string>): string {
+  const out: string[] = [];
+  for (const h of [...new Set(texts)].sort()) out.push(`.apx-np .apx-np-blk .apx-np-hx-${h.slice(1)}{color:${h}!important}`);
+  for (const h of [...new Set(buttons)].sort()) out.push(`.apx-np .apx-np-bx-${h.slice(1)}{--b:${h};--bt:${labelOn(h)}}`);
+  return out.length ? `\n${out.join("\n")}` : "";
 }
 
 /** The studio's own look for its "+" in the page (the preview only, never in Magento's copy). */
@@ -289,8 +316,40 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-s-l{font-size:1.22em!important}
 .apx-np .apx-np-h1.apx-np-s-s{font-size:36px!important}.apx-np .apx-np-h1.apx-np-s-l{font-size:56px!important}
 .apx-np .apx-np-h2.apx-np-s-s{font-size:26px!important}.apx-np .apx-np-h2.apx-np-s-l{font-size:40px!important}
-.apx-np .apx-np-c-ink{color:var(--ink)!important}.apx-np .apx-np-c-petrol{color:var(--petrol)!important}
-.apx-np .apx-np-c-red{color:var(--red)!important}.apx-np .apx-np-c-muted{color:var(--muted)!important}
+.apx-np .apx-np-blk .apx-np-c-ink{color:var(--ink)!important}.apx-np .apx-np-blk .apx-np-c-petrol{color:var(--petrol)!important}
+.apx-np .apx-np-blk .apx-np-c-red{color:var(--red)!important}.apx-np .apx-np-blk .apx-np-c-muted{color:var(--muted)!important}
+.apx-np .apx-np-blk .apx-np-c-white{color:#fff!important}
+.apx-np .apx-np-blk :is([class*="apx-np-c-"],[class*="apx-np-hx-"]) :is(p,li,strong,em){color:inherit!important}
+.apx-np .apx-np-s-xl{font-size:1.45em!important}
+.apx-np .apx-np-h1.apx-np-s-xl{font-size:64px!important}.apx-np .apx-np-h2.apx-np-s-xl{font-size:46px!important}
+.apx-np .apx-np-blk .apx-np-wb{font-weight:700!important}.apx-np .apx-np-blk .apx-np-wr{font-weight:400!important}
+.apx-np .apx-np-blk .apx-np-it{font-style:italic!important}.apx-np .apx-np-blk .apx-np-ul{text-decoration:underline!important;text-underline-offset:.16em}
+.apx-np .apx-np-ar{text-align:right}
+.apx-np .apx-np-btns.apx-np-ar{justify-content:flex-end}
+.apx-np .apx-np-bc-red{--b:#d80901;--bt:#fff}.apx-np .apx-np-bc-petrol{--b:#274e64;--bt:#fff}.apx-np .apx-np-bc-ink{--b:#1d2326;--bt:#fff}
+.apx-np .apx-np-bc-muted{--b:#66727a;--bt:#fff}.apx-np .apx-np-bc-white{--b:#fff;--bt:#1d2326}
+.apx-np .apx-np-btn-filled{background:var(--b,var(--red));color:var(--bt,#fff)!important;border:0}
+.apx-np .apx-np-btn-filled:hover{filter:brightness(.9)}
+.apx-np .apx-np-btn-outline{background:transparent;color:var(--b,var(--petrol))!important;border:2px solid var(--b,var(--petrol))}
+.apx-np .apx-np-btn-outline:hover{background:rgba(127,127,127,.08)}
+.apx-np .apx-np-btn-link{height:auto;padding:4px 0;border-radius:0;background:transparent;color:var(--b,var(--petrol))!important;text-decoration:underline!important;text-underline-offset:5px;text-decoration-thickness:2px}
+.apx-np .apx-np-bs-s{height:42px;padding:0 18px;font-size:14px!important;border-radius:10px}
+.apx-np .apx-np-bs-l{height:62px;padding:0 32px;font-size:18px!important;border-radius:14px}
+.apx-np .apx-np-btn-link.apx-np-bs-s,.apx-np .apx-np-btn-link.apx-np-bs-l{height:auto;padding:4px 0}
+.apx-np .apx-np-hero.apx-np-split-25 .apx-np-in{grid-template-columns:minmax(0,75fr) minmax(0,25fr)}
+.apx-np .apx-np-hero.apx-np-split-33 .apx-np-in{grid-template-columns:minmax(0,67fr) minmax(0,33fr)}
+.apx-np .apx-np-hero.apx-np-split-66 .apx-np-in{grid-template-columns:minmax(0,34fr) minmax(0,66fr)}
+.apx-np .apx-np-hero.apx-np-split-75 .apx-np-in{grid-template-columns:minmax(0,25fr) minmax(0,75fr)}
+.apx-np .apx-np-sec.apx-np-split-25 .apx-np-in{grid-template-columns:minmax(0,75fr) minmax(0,25fr)}
+.apx-np .apx-np-sec.apx-np-split-33 .apx-np-in{grid-template-columns:minmax(0,67fr) minmax(0,33fr)}
+.apx-np .apx-np-sec.apx-np-split-66 .apx-np-in{grid-template-columns:minmax(0,34fr) minmax(0,66fr)}
+.apx-np .apx-np-sec.apx-np-split-75 .apx-np-in{grid-template-columns:minmax(0,25fr) minmax(0,75fr)}
+.apx-np .apx-np-sec.is-left.apx-np-split-25 .apx-np-in{grid-template-columns:minmax(0,25fr) minmax(0,75fr)}
+.apx-np .apx-np-sec.is-left.apx-np-split-33 .apx-np-in{grid-template-columns:minmax(0,33fr) minmax(0,67fr)}
+.apx-np .apx-np-sec.is-left.apx-np-split-66 .apx-np-in{grid-template-columns:minmax(0,66fr) minmax(0,34fr)}
+.apx-np .apx-np-sec.is-left.apx-np-split-75 .apx-np-in{grid-template-columns:minmax(0,75fr) minmax(0,25fr)}
+.apx-np .apx-np-split-25 .apx-np-pic,.apx-np .apx-np-split-33 .apx-np-pic{aspect-ratio:1/1}
+.apx-np .apx-np-card.apx-np-span-2{grid-column:span 2}.apx-np .apx-np-card.apx-np-span-3{grid-column:span 3}.apx-np .apx-np-card.apx-np-span-4{grid-column:span 4}
 .apx-np .apx-np-slot{display:block;margin:10px 0;padding:14px 16px;border:1.5px dashed #b6c2cb;border-radius:10px;background:rgba(255,255,255,.55);color:#7d8b95;font:500 15px/1.4 var(--head);letter-spacing:0;text-transform:none}
 .apx-np .apx-np-pic-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed #b6c2cb;background:rgba(255,255,255,.5);box-shadow:none;color:#7d8b95;font:500 15px/1.4 var(--head);text-align:center;padding:24px}
 .apx-np [data-apx-module]{max-width:1180px;padding:0 32px;margin:40px auto}
@@ -299,12 +358,16 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-blk{padding:40px 0}
 .apx-np .apx-np-in{padding:0 20px}
 .apx-np .apx-np-hero{border-radius:0;margin:0}
-.apx-np .apx-np-hero .apx-np-in{grid-template-columns:minmax(0,1fr);gap:28px;padding:8px 20px}
+.apx-np .apx-np-hero .apx-np-in{grid-template-columns:minmax(0,1fr)!important;gap:28px;padding:8px 20px}
 .apx-np .apx-np-h1{font-size:32px!important}
 .apx-np .apx-np-h2{font-size:25px!important;margin-bottom:18px!important}
+.apx-np .apx-np-h1.apx-np-s-xl{font-size:38px!important}.apx-np .apx-np-h2.apx-np-s-xl{font-size:30px!important}
 .apx-np .apx-np-sub,.apx-np .apx-np-lead{font-size:17px}
-.apx-np .apx-np-sec .apx-np-in{grid-template-columns:minmax(0,1fr);gap:24px}
+.apx-np .apx-np-sec .apx-np-in{grid-template-columns:minmax(0,1fr)!important;gap:24px}
+.apx-np .apx-np-card[class*="apx-np-span-"]{grid-column:auto}
+.apx-np .apx-np-blk .apx-np-pic{aspect-ratio:4/3}
 .apx-np .apx-np-sec.is-left .apx-np-pic{order:0}
 .apx-np .apx-np-btn{width:100%}
+.apx-np .apx-np-btn-link{width:auto}
 .apx-np .apx-np-cta{border-radius:0;margin:0}
 }`;
