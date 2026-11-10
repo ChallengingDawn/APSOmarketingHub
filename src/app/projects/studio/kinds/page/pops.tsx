@@ -45,6 +45,9 @@ import TuneIcon from "@mui/icons-material/Tune";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { linkInStores } from "@/lib/content/studio/kinds/page/links";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
   SPLITS, addItem, getField, moveItem, removeItem, setField, setLook,
   type BlockBg, type Fields, type ListKey, type Look, type Pic, type TextAlign, type TextSize,
@@ -395,10 +398,12 @@ export type ButtonPopProps = {
   ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
   onClose: () => void;
   hint?: React.ReactNode;
+  /** Content v11: every store view the page goes to - the link as each of them sends its visitor */
+  stores?: string[];
 };
 
 /** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
-export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint }: ButtonPopProps) {
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores }: ButtonPopProps) {
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -437,6 +442,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
       <Box sx={{ mt: 1.75 }}>
         <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
+        {stores && stores.length > 1 && <StoreLinks url={url} stores={stores} />}
       </Box>
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
       {canEdit && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
@@ -868,5 +874,45 @@ export function AskPop({ kicker, title, empty, quick, onAsk, onClose }: {
       )}
       <Typography sx={{ mt: 1, fontSize: "0.72rem", color: MUTED, lineHeight: 1.4 }}>Applied to this block only, at once. The assistant on the right works on the whole page.</Typography>
     </PopCard>
+  );
+}
+
+/* ── a link in every store view the page goes to (Content v11) ────────── */
+
+/**
+ * The link as each store view the page goes to sends its visitor (SARCLA 10.11.2026: "this should also get all the links
+ * from all the locales in a dropdown"): folded under the link, "In every store view (9)"; each row its store view and its
+ * address there - opened on the shop by a click - or, in another language, said: that language's page sets its own.
+ */
+export function StoreLinks({ url, stores }: { url: string; stores: string[] }) {
+  const [open, setOpen] = useState(false);
+  const rows = linkInStores(url, stores);
+  if (!url.trim() || rows.length < 2) return null;
+  const moved = rows.filter((r) => r.moved).length;
+  return (
+    <Box sx={{ mt: -0.25, mb: 1 }}>
+      <Button size="small" onClick={() => setOpen((x) => !x)} endIcon={<ExpandMoreIcon sx={{ fontSize: 17, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />}
+        sx={{ ...btn, px: 0.5, fontSize: "0.78rem", color: open ? PINK : MUTED }}>
+        In every store view ({rows.length}){moved < rows.length ? ` · ${rows.length - moved} in another language` : ""}
+      </Button>
+      {open && (
+        <Box role="list" sx={{ mt: 0.5, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+          {rows.map((r, i) => (
+            <Box key={r.store} role="listitem" sx={{ display: "grid", gridTemplateColumns: "84px minmax(0,1fr) 22px", alignItems: "center", gap: 1, px: 1, py: 0.55, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
+              <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{r.store}</Typography>
+              {r.moved ? (
+                <Typography component="a" href={`https://www.apsoparts.com${r.path.startsWith("/") ? r.path : `/${r.path}`}`} target="_blank" rel="noreferrer" title={`Open ${r.path} on the shop`}
+                  sx={{ minWidth: 0, fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: "none", "&:hover": { color: PINK } }}>
+                  {r.path}
+                </Typography>
+              ) : (
+                <Typography sx={{ minWidth: 0, fontSize: "0.72rem", color: "#a96a12" }}>Another language - its own page sets this link (translate the page)</Typography>
+              )}
+              {r.moved ? <OpenInNewIcon sx={{ fontSize: 13, color: MUTED }} /> : <span />}
+            </Box>
+          ))}
+        </Box>
+      )}
+    </Box>
   );
 }

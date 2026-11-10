@@ -44,7 +44,7 @@ import { Field, Label, PINK, btn, field, mainBtn } from "../../../parts";
 import { PictureDialog } from "../../../pictures";
 import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
-import { PopCard } from "../pops";
+import { PopCard, StoreLinks } from "../pops";
 import type { ModulesCtl } from "./useModules";
 import { ButtonLookBox } from "../Look";
 import { SwitchList } from "../Switch";
@@ -64,7 +64,9 @@ const FILLING = "Filling it from the shop…";
 /** What the AI did for a module, said under its button - with the Undo of what it did. */
 export type AiAnswer = { ok: boolean; text: string; undo: (() => void) | null };
 
-export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top, ai }: {
+export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top, ai, stores }: {
+  /** Content v11: every store view the page goes to - its links as each of them sends its visitor */
+  stores?: string[];
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
   /** Content v11 (SARCLA 10.11.2026: "I can't see launch the AI to fill me the block"): "Fill it with AI" at the top - the
    * same as "Ask AI" on the module with no question (the studio's askBlock) */
@@ -409,7 +411,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
         </>
       )}
 
-      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store}
+      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store} stores={stores}
         onCategoryPhoto={() => setPicking(picking === "picture" ? null : "picture")} onGallery={() => setGallery(true)} />
       {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
 
@@ -448,8 +450,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
 
 /* ── the module's fields, drawn from its settings schema ──────────────── */
 
-function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
-  def: ModuleDef; m: ModuleRef; set: (patch: Partial<ModuleSettings>, label?: string, now?: boolean) => void; canEdit: boolean; store: string;
+function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGallery }: {
+  def: ModuleDef; m: ModuleRef; set: (patch: Partial<ModuleSettings>, label?: string, now?: boolean) => void; canEdit: boolean; store: string; stores?: string[];
   onCategoryPhoto: () => void; onGallery: () => void;
 }) {
   const s = m.settings;
@@ -470,6 +472,7 @@ function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
     if (f.kind === "link" || f.kind === "link2") {
       out.push(<Label key={`${f.kind}l`}>{f.label ?? (f.kind === "link" ? "Button" : "Second button")}</Label>);
       out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} store={store} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
+      if (stores && stores.length > 1 && s[f.kind].url) out.push(<Box key={`${f.kind}stores`} sx={{ mt: 0.75 }}><StoreLinks url={s[f.kind].url} stores={stores} /></Box>);
       // Content v10 (point 3): its look - style, colour, size, arrow, new tab - kept in the module's settings
       if (canEdit && s[f.kind].label.trim()) {
         const key = BUTTON_LOOK_KEY[f.kind];

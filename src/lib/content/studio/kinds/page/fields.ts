@@ -45,6 +45,8 @@ export type Look = {
   /** a button (point 3): filled / outline / link, its size, its arrow (on unless false), a new tab - its colour is
    * `color` or `hex` */
   style?: "filled" | "outline" | "link"; bsize?: "s" | "l"; arrow?: boolean; tab?: boolean;
+  /** Content v11: a button as wide as its block */
+  bwidth?: "full";
   /** a questions block (point 4): all open - else all closed, each opening on a click */
   open?: boolean;
   /** point 5: a text-and-picture block's or the hero's picture share (%), a tile's span (columns) */
@@ -152,6 +154,7 @@ function look(v: unknown): Look | null {
   const bsize = pickOf(v.bsize, ["s", "l"] as ("s" | "l")[]); if (bsize) out.bsize = bsize;
   if (v.arrow === false) out.arrow = false;
   if (v.tab === true) out.tab = true;
+  if (v.bwidth === "full") out.bwidth = "full";
   if (v.open === true) out.open = true;
   if ((SPLITS as readonly number[]).includes(Number(v.split))) out.split = Number(v.split);
   if ([2, 3, 4].includes(Number(v.span))) out.span = Number(v.span);

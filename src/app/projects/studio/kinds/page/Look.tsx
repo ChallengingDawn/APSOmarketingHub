@@ -23,7 +23,7 @@ import FormatAlignRightIcon from "@mui/icons-material/FormatAlignRight";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import {
-  BUTTON_SIZES, BUTTON_STYLES, PALETTE, SIZES, buttonCheck, colorLabel, hexOfColor, normHex, readCheck,
+  BUTTON_ALIGNS, BUTTON_SIZES, BUTTON_STYLES, BUTTON_WIDTHS, PALETTE, SIZES, buttonCheck, colorLabel, hexOfColor, normHex, readCheck,
   type ButtonLook, type ReadCheck, type TextLook,
 } from "@/lib/content/studio/kinds/page/style";
 import { PINK } from "../../parts";
@@ -245,6 +245,19 @@ export function ButtonLookBox({ value, onChange, grounds, fallback, arrowDefault
           <Choice value={value.tab ? "tab" : "same"} onChange={(k) => onChange({ ...value, tab: k === "tab" || undefined }, k === "tab" ? "The button opens a new tab" : "The button opens in the same tab")}
             options={[{ key: "same", label: "Same tab" }, { key: "tab", label: "New tab" }]} />
         </Box>
+      </Box>
+      {/* Content v11 (SARCLA 10.11.2026: "button also large, more options") */}
+      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+        <Box>
+          <Cap>Width</Cap>
+          <Choice value={value.width ?? "auto"} onChange={(k) => onChange({ ...value, width: k === "full" ? "full" : undefined }, k === "full" ? "Made the button as wide as its block" : "Made the button as wide as its words")} options={BUTTON_WIDTHS} />
+        </Box>
+        {value.width !== "full" && (
+          <Box>
+            <Cap>Where it stands</Cap>
+            <Choice value={value.align ?? "left"} onChange={(k) => onChange({ ...value, align: k === "left" ? undefined : k }, `Put the button ${k === "center" ? "in the centre" : `on the ${k}`}`)} options={BUTTON_ALIGNS} />
+          </Box>
+        )}
       </Box>
     </Box>
   );

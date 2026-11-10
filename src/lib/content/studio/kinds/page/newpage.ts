@@ -105,7 +105,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
     const cc = color.startsWith("#") ? `apx-np-bx-${color.slice(1)}` : `apx-np-bc-${color}`;
     const href = b.url ? link(b.url) : "#";
     const align = l.align === "center" ? " apx-np-ac" : l.align === "right" ? " apx-np-ar" : "";
-    return `<div class="apx-np-btns${align}"><a class="apx-np-btn apx-np-btn-${style} ${cc}${l.bsize ? ` apx-np-bs-${l.bsize}` : ""}" href="${esc(href)}"${l.tab ? ' target="_blank" rel="noopener"' : ""}${fa(path)}>${esc(b.label.trim())}${l.arrow === false ? "" : ARROW}</a></div>`;
+    return `<div class="apx-np-btns${align}"><a class="apx-np-btn apx-np-btn-${style} ${cc}${l.bsize ? ` apx-np-bs-${l.bsize}` : ""}${l.bwidth === "full" ? " apx-np-bw" : ""}" href="${esc(href)}"${l.tab ? ' target="_blank" rel="noopener"' : ""}${fa(path)}>${esc(b.label.trim())}${l.arrow === false ? "" : ARROW}</a></div>`;
   };
   /** the picture's share of a text-and-picture block or the hero (Content v10, point 5: dragged in the preview) */
   const splitCls = (path: string) => { const s = lk(path).split; return s && (SPLITS as readonly number[]).includes(s) && s !== 50 ? ` apx-np-split-${s}` : ""; };
@@ -359,6 +359,7 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-btn-link{height:auto;padding:4px 0;border-radius:0;background:transparent;color:var(--b,var(--petrol))!important;text-decoration:underline!important;text-underline-offset:5px;text-decoration-thickness:2px}
 .apx-np .apx-np-bs-s{height:42px;padding:0 18px;font-size:14px!important;border-radius:10px}
 .apx-np .apx-np-bs-l{height:62px;padding:0 32px;font-size:18px!important;border-radius:14px}
+.apx-np .apx-np-btn.apx-np-bw{display:flex;flex:1 1 100%;width:100%}
 .apx-np .apx-np-btn-link.apx-np-bs-s,.apx-np .apx-np-btn-link.apx-np-bs-l{height:auto;padding:4px 0}
 .apx-np .apx-np-hero.apx-np-split-25 .apx-np-in{grid-template-columns:minmax(0,75fr) minmax(0,25fr)}
 .apx-np .apx-np-hero.apx-np-split-33 .apx-np-in{grid-template-columns:minmax(0,67fr) minmax(0,33fr)}

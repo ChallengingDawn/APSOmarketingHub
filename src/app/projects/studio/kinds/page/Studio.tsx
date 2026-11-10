@@ -45,7 +45,7 @@ import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } 
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
   MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, leadOf, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage, tickStore, versionOfStore,
-  viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
+  storesOfView, viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { lookLine, problemsLine } from "@/lib/content/studio/kinds/page/readable";
 import { PICTURE_ASPECT, blockOfPath, blocksOf, busyBlocks, busyOf, previewOf, picturesToMake, type PictureJob } from "@/lib/content/studio/kinds/page/outline";
@@ -1516,6 +1516,8 @@ export default function Studio({ api }: StudioProps) {
   ) : undefined;
 
   /* the popup at the selection */
+  // every store view the page goes to (Content v11: a link as each of them sends its visitor)
+  const pageStores = [...new Set(viewsOf(doc).flatMap((v) => storesOfView(doc, v)))];
   const pageCategory = d.pageKind === "category" && d.path ? { name: d.outline?.path === d.path ? d.outline.h1[0] ?? "This category" : "This category", url: `https://www.apsoparts.com${d.path}` } : null;
   const popup0 = ((): { node: React.ReactNode; at: "below" | "side"; width?: number } | null => {
     if (!pop) return null;
@@ -1540,8 +1542,8 @@ export default function Studio({ api }: StudioProps) {
       if (kind === "button") {
         // Content v10 (point 3): its words, its page, its style, colour, size, arrow and tab
         const b = (getField(d.fields, path) ?? { label: "", url: "" }) as { label: string; url: string };
-        return { at: "below", width: 430, node: (
-          <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)}
+        return { at: "below", width: MODULE_POP_WIDTH, node: (
+          <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)} stores={pageStores}
             api={api} store={d.store} look={buttonLookOfField(d.fields.looks[path])} grounds={groundOfField(d.fields, path)} fallback="red" canEdit={canEdit}
             onLook={(next, label) => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: setLook(cur.fields, path, fieldButtonPatchOf(next)) }, label); }}
             ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} />
@@ -1568,8 +1570,8 @@ export default function Studio({ api }: StudioProps) {
       // Content v10 (point 3): a module's button clicked on the page - its words, page and look
       const modBtn = inMod ? tools.moduleButton(p) : null;
       if (modBtn) {
-        return { at: "below", width: 430, node: (
-          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} />
+        return { at: "below", width: MODULE_POP_WIDTH, node: (
+          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} />
         ) };
       }
       return { at: "below", width: 420, node: (
@@ -1655,7 +1657,7 @@ export default function Studio({ api }: StudioProps) {
         // every module's settings as wide as a module of products' (Content v10: 620 px, so each one's number and link
         // show) - Content v11, SARCLA 10.11.2026: "make the popup wider like the product"
         return { at: "side", width: MODULE_POP_WIDTH, node: (
-          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: () => askBlock(r.key, "") } : null}
+          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: () => askBlock(r.key, "") } : null} stores={pageStores}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }

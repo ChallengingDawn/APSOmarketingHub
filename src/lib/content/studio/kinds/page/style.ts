@@ -211,7 +211,12 @@ export type ButtonLook = {
   arrow?: boolean;
   /** true = the page opens in a new tab */
   tab?: boolean;
+  /** Content v11 (SARCLA 10.11.2026: "button also large, more options"): as wide as its block, and where it stands */
+  width?: "full";
+  align?: "center" | "right";
 };
+export const BUTTON_WIDTHS: { key: "auto" | "full"; label: string }[] = [{ key: "auto", label: "As its words" }, { key: "full", label: "Full width" }];
+export const BUTTON_ALIGNS: { key: "left" | "center" | "right"; label: string }[] = [{ key: "left", label: "Left" }, { key: "center", label: "Centre" }, { key: "right", label: "Right" }];
 
 export const BUTTON_STYLES: { key: ButtonStyle; label: string }[] = [{ key: "filled", label: "Filled" }, { key: "outline", label: "Outline" }, { key: "link", label: "Link" }];
 export const BUTTON_SIZES: { key: ButtonSize; label: string }[] = [{ key: "s", label: "S" }, { key: "m", label: "M" }, { key: "l", label: "L" }];
@@ -225,6 +230,8 @@ export function cleanButtonLook(v: unknown): ButtonLook {
   if (o.size === "s" || o.size === "l") out.size = o.size;
   if (typeof o.arrow === "boolean") out.arrow = o.arrow;
   if (o.tab === true) out.tab = true;
+  if (o.width === "full") out.width = "full";
+  if (o.align === "center" || o.align === "right") out.align = o.align;
   return out;
 }
 
@@ -261,6 +268,7 @@ export function packLook(look: TextLook | ButtonLook): string {
   if (l.style) parts.push(`s=${l.style}`);
   if (typeof l.arrow === "boolean") parts.push(`r=${l.arrow ? 1 : 0}`);
   if (l.tab) parts.push("t=1");
+  if (l.width === "full") parts.push("f=1");
   return parts.join(";");
 }
 
@@ -279,6 +287,7 @@ export function unpackLook(s: unknown): Record<string, unknown> {
     else if (k === "s") o.style = v;
     else if (k === "r") o.arrow = v !== "0";
     else if (k === "t") o.tab = v === "1";
+    else if (k === "f") o.width = v === "1" ? "full" : undefined;
   }
   return o;
 }
@@ -305,7 +314,7 @@ export function buttonLookOfField(l: Look | undefined): ButtonLook {
   const x = l ?? {};
   return cleanButtonLook({
     style: x.style ?? (x.button === "outline" ? "outline" : "filled"), color: x.hex ?? x.color ?? (x.button === "petrol" ? "petrol" : undefined),
-    size: x.bsize, arrow: x.arrow, tab: x.tab,
+    size: x.bsize, arrow: x.arrow, tab: x.tab, width: x.bwidth, align: x.align === "center" || x.align === "right" ? x.align : undefined,
   });
 }
 
@@ -315,6 +324,7 @@ export function fieldButtonPatchOf(b: ButtonLook): Partial<Look> {
   return {
     button: undefined, style: b.style, color: hex ? undefined : (b.color as Look["color"]), hex,
     bsize: b.size === "s" || b.size === "l" ? b.size : undefined, arrow: b.arrow === false ? false : undefined, tab: b.tab || undefined,
+    bwidth: b.width, align: b.align,
   };
 }
 

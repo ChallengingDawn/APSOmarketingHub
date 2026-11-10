@@ -133,6 +133,9 @@ function buttonRules(b: ButtonLook, cls: string): string {
   }
   if (b.style !== "link" && b.size === "s") out.push(`${sel}{height:40px!important;padding:0 16px!important;font-size:14px!important}`);
   if (b.style !== "link" && b.size === "l") out.push(`${sel}{height:58px!important;padding:0 30px!important;font-size:18px!important}`);
+  // Content v11: as wide as its block, or where it stands in it
+  if (b.width === "full") out.push(`${sel}{display:flex!important;width:100%!important;justify-content:center!important}`);
+  else if (b.align) out.push(`${sel}{display:flex!important;width:fit-content!important;margin-left:auto!important;margin-right:${b.align === "center" ? "auto" : "0"}!important}`);
   if (b.arrow === false) out.push(`${sel}::after{display:none!important}`);
   if (b.arrow === true) out.push(`${sel}::after{content:""!important;display:inline-block!important;flex:none;width:7px;height:7px;margin-left:10px;border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg)}`);
   return out.join("\n");

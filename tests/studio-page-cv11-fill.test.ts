@@ -17,6 +17,10 @@ import { renderNewPage } from "../src/lib/content/studio/kinds/page/newpage";
 import { BUTTON_LOOK_KEY, TEXT_LOOK_KEY } from "../src/lib/content/studio/kinds/page/modules/looks";
 import { packLook } from "../src/lib/content/studio/kinds/page/style";
 import { pageDoc } from "../src/lib/content/studio/kinds/page/model";
+import { linkInStores } from "../src/lib/content/studio/kinds/page/links";
+import { buttonLookOfField, cleanButtonLook, fieldButtonPatchOf, unpackLook } from "../src/lib/content/studio/kinds/page/style";
+import { renderModule } from "../src/lib/content/studio/kinds/page/modules/render";
+import { setLook } from "../src/lib/content/studio/kinds/page/fields";
 
 const B = "https://www.apsoparts.com";
 const FFKM = `${B}/en-INT/sealing-technology/o-rings/ffkm.html`;
@@ -201,4 +205,30 @@ test("a section taken out or moved never turns the grounds of the others", () =>
   assert.equal(ground(moved, "s2"), "grey");
   assert.equal(ground(moved, "s3"), "white");
   assert.equal(pinGrounds(pinGrounds(f)).looks["sections.s1"].bg, "white");
+});
+
+/* ── the button: as wide as its block, where it stands, its link in every store view ── */
+
+
+test("a link in every store view the page goes to: its address there in the same language, another language said, never guessed", () => {
+  const rows = linkInStores("https://www.apsoparts.com/en-INT/11442101-ffkm-o-ring.html", ["en-INT", "en-CH", "en-DE", "de-CH"]);
+  assert.deepEqual(rows, [
+    { store: "en-INT", path: "/en-INT/11442101-ffkm-o-ring.html", moved: true },
+    { store: "en-CH", path: "/en-CH/11442101-ffkm-o-ring.html", moved: true },
+    { store: "en-DE", path: "/en-DE/11442101-ffkm-o-ring.html", moved: true },
+    { store: "de-CH", path: "", moved: false },
+  ]);
+  assert.equal(linkInStores("/de-CH/dichtungstechnik.html", ["de-CH/eur"])[0].path, "/de-CH/eur/dichtungstechnik.html");
+});
+
+test("a button as wide as its block, or centred: kept, drawn on a new page and in a module, scoped to it", () => {
+  const b = cleanButtonLook({ style: "filled", width: "full", align: "center" });
+  assert.deepEqual(unpackLook(packLook(b)).width, "full");
+  assert.deepEqual(cleanButtonLook(unpackLook(packLook({ align: "right" }))), { align: "right" });
+  const f = setLook({ ...emptyFields(), cta: { title: "Fragen?", text: "", button: { label: "Kontakt", url: "/de-CH/kontakt" } }, order: ["hero", "cta"] }, "cta.button", fieldButtonPatchOf(b));
+  assert.equal(buttonLookOfField(f.looks["cta.button"]).width, "full");
+  assert.match(renderNewPage(f).html, /class="apx-np-btn [^"]*apx-np-bw"/);
+  const m0 = newModule("cta", "de-CH", "mbtn");
+  const m = { ...m0, settings: { ...m0.settings, title: "Fragen?", link: { label: "Kontakt", url: `${B}/de-CH/kontakt` }, extra: { [BUTTON_LOOK_KEY.link]: packLook({ align: "center" }) } } };
+  assert.match(renderModule(m), /\.apx-mbtn a\.am-b1\{display:flex!important;width:fit-content!important;margin-left:auto!important;margin-right:auto!important\}/);
 });

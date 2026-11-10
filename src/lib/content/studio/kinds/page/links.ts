@@ -80,3 +80,20 @@ export function relinkModule<T extends { items?: { url: string; children?: { url
     ...(settings.link2 ? { link2: { ...settings.link2, url: fx(settings.link2.url) } } : {}),
   };
 }
+
+/**
+ * A link as each store view the page goes to sends its visitor (Content v11, SARCLA 10.11.2026: "this should also get all
+ * the links from all the locales in a dropdown"): a page of the shop in the same language - its address in that store
+ * view; in another language - not moved (`moved` false: that language's own page is found by the shop's links when the
+ * page is translated, never guessed here); an address that is not a page of a store view (a file, an outside page) - as
+ * it is, in every one.
+ */
+export function linkInStores(url: string, stores: string[]): { store: string; path: string; moved: boolean }[] {
+  const u = String(url ?? "").trim();
+  const l = shopLinkOf(u.replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, ""));
+  return [...new Set(stores)].map((store) => {
+    if (!u) return { store, path: "", moved: false };
+    if (!l) return { store, path: inStore(u, store), moved: true };
+    return sameLanguage(l.store, store) ? { store, path: inStore(u, store), moved: true } : { store, path: "", moved: false };
+  });
+}
