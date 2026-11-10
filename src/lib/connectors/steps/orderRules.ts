@@ -777,3 +777,29 @@ export function internalIdsOn(positionsJsonText: string | null | undefined): str
     return [];
   }
 }
+
+/* ── the order's company ───────────────────────────────────────────────── */
+
+/**
+ * The company an order belongs to, from its customer key "110-867552" ({mandant}-{customer number}): the company
+ * carrying that key; else - the key not written yet - the one company with that ERP customer number IN that mandant
+ * (the same number exists in M100 and M110 as two companies). Ambiguous or nothing: null - a person decides, never a
+ * guess (SARCLA 10.11.2026, A26.661694.001: JüLo AG had its number typed on 06.10, the key only came on 08.10 after
+ * the order, which then never got its company).
+ */
+export type CompanyHit = { id: string; un?: string | null; erp?: string | null; mandant?: string | null };
+const digits = (s: string | null | undefined) => (s ?? "").trim().replace(/^0+(?=\d)/, "");
+export function mandantHas(mandant: string | null | undefined, prefix: string): boolean {
+  return (mandant ?? "").split(/[;,&\s]+/).filter(Boolean).includes(`M${prefix}`);
+}
+export function companyForKey(un: string, hits: CompanyHit[]): string | null {
+  const key = (un ?? "").trim();
+  const m = /^(\d+)-(\d+)$/.exec(key);
+  if (!m) return null;
+  const byKey = hits.filter((h) => (h.un ?? "").trim() === key);
+  // two companies with one key: the oldest, as the order step always took
+  if (byKey.length) return byKey.map((h) => h.id).sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1))[0];
+  // ... only a company with no key yet (or this one): a company keyed to another customer is another customer
+  const byErp = hits.filter((h) => digits(h.erp) === digits(m[2]) && mandantHas(h.mandant, m[1]) && (!(h.un ?? "").trim() || (h.un ?? "").trim() === key));
+  return byErp.length === 1 ? byErp[0].id : null;
+}

@@ -285,6 +285,14 @@ export const OTHER_STEPS: Step[] = [
     writes: [{ object: OBJECTS.order, props: ["order_order_number", "hs_order_name", "order_reconcile_state (→ erp_linked)"] }],
   },
   {
+    key: "order_company_link", name: "Orders get their company later", group: "orders", phase: "hub",
+    what: "An order is linked to its company once, when it is made. A new customer's first order often comes before the company has its customer key, so it stayed without its company for good. This looks at the last 45 days' orders without a company: the company with the order's key, else the one company with that ERP number in that mandant; a web order with no customer number gets its only contact's company. Ambiguous or nothing: left for a person.",
+    when: "Every 6 hours, beside the chain - preview until switched on",
+    reads: "Orders created in the last 45 days · their company and contact links · companies by key and by ERP number + mandant",
+    writes: [],
+    associations: ["Order → Company (default)"],
+  },
+  {
     key: "ticket_assoc", name: "Ticket ↔ order and article links", group: "tickets", phase: "preview",
     what: "Finds order and article numbers in a ticket's text and emails and links them; flags cut-to-size tickets. The live path is a HubSpot workflow action - this one only runs by hand.",
     when: "By hand (and a webhook that may no longer be used - to check in the portal)",
