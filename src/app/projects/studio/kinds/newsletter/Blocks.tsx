@@ -285,7 +285,7 @@ export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }:
         <Label mt={0}>Its picture</Label>
         <PictureSlot url={b.imageUrl} alt={b.imageAlt} aspect={aspect} suggestion={pictureIdea(b)} disabled={disabled} startOpen={picked === `${b.id}:image` || !b.imageUrl} {...where}
           onMaking={(on) => onMaking?.(on ? `${b.id}:image` : null)}
-          onPick={(p) => { const f = { imageUrl: p.url, imageAlt: b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
+          onPick={(p) => { const f = { imageUrl: p.url, imageAlt: p.alt || b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
           onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (if pictures are off)" />
       </Box>
     );
