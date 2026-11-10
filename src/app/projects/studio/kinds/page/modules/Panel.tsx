@@ -25,6 +25,7 @@ import {
   ICONS, kindOf, moduleGap, normalizeModule, shopAddress, wordsFor, type Card, type ModuleRef, type ModuleSettings,
 } from "@/lib/content/studio/kinds/page/modules/model";
 import { MODULE_MAX, renderModule } from "@/lib/content/studio/kinds/page/modules/render";
+import { hasField } from "@/lib/content/studio/kinds/page/modules/registry";
 import { Field, Label, PINK, btn, field, mainBtn } from "../../../parts";
 import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
@@ -350,23 +351,23 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
         </>
       )}
 
-      {(k.fields.includes("eyebrow") || k.fields.includes("title") || k.fields.includes("text")) && (
+      {(hasField(k, "eyebrow") || hasField(k, "title") || hasField(k, "text")) && (
         <>
           <Label>Words</Label>
-          {k.fields.includes("eyebrow") && <Field label="Small line above" value={s.eyebrow} max={40} onChange={(v) => set({ eyebrow: v }, "Changed the small line")} disabled={!ctl.canEdit} />}
-          {k.fields.includes("title") && <Field label={m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "Headline" : "Title"} value={s.title} max={90} onChange={(v) => set({ title: v }, "Changed the title")} disabled={!ctl.canEdit}
+          {hasField(k, "eyebrow") && <Field label="Small line above" value={s.eyebrow} max={40} onChange={(v) => set({ eyebrow: v }, "Changed the small line")} disabled={!ctl.canEdit} />}
+          {hasField(k, "title") && <Field label={m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "Headline" : "Title"} value={s.title} max={90} onChange={(v) => set({ title: v }, "Changed the title")} disabled={!ctl.canEdit}
             helper={m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "==word== shows a word in the shop's red" : undefined} />}
-          {k.fields.includes("text") && <Field label={m.type === "textpic" ? "Text (a blank line = a new paragraph, - a list)" : "Line under it"} value={s.text} multiline rows={m.type === "textpic" ? 5 : 2} max={m.type === "textpic" ? 900 : 240} onChange={(v) => set({ text: v }, "Changed the text")} disabled={!ctl.canEdit} />}
+          {hasField(k, "text") && <Field label={m.type === "textpic" ? "Text (a blank line = a new paragraph, - a list)" : "Line under it"} value={s.text} multiline rows={m.type === "textpic" ? 5 : 2} max={m.type === "textpic" ? 900 : 240} onChange={(v) => set({ text: v }, "Changed the text")} disabled={!ctl.canEdit} />}
         </>
       )}
-      {k.fields.includes("link") && (
+      {hasField(k, "link") && (
         <>
           <Label>{m.type === "banner" || m.type === "textpic" || m.type === "cta" ? "Button" : "Link at the top right"}</Label>
           <LinkFields value={s.link} onChange={(link) => set({ link }, "Changed the link")} disabled={!ctl.canEdit} />
-          {k.fields.includes("link2") && <LinkFields value={s.link2} onChange={(link2) => set({ link2 }, "Changed the second button")} disabled={!ctl.canEdit} second />}
+          {hasField(k, "link2") && <LinkFields value={s.link2} onChange={(link2) => set({ link2 }, "Changed the second button")} disabled={!ctl.canEdit} second />}
         </>
       )}
-      {k.fields.includes("feature") && (
+      {hasField(k, "feature") && (
         <>
           <Label>{m.type === "bento" ? "The big tile" : "Picture"}</Label>
           <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
@@ -387,8 +388,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
           {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
         </>
       )}
-      {k.fields.includes("points") && <PointsEditor points={s.points} canEdit={ctl.canEdit} onChange={(points, label) => set({ points }, label)} />}
-      {k.fields.includes("faq") && <FaqEditor faq={s.faq} canEdit={ctl.canEdit} onChange={(faq, label) => set({ faq }, label)} />}
+      {hasField(k, "points") && <PointsEditor points={s.points} canEdit={ctl.canEdit} onChange={(points, label) => set({ points }, label)} />}
+      {hasField(k, "faq") && <FaqEditor faq={s.faq} canEdit={ctl.canEdit} onChange={(faq, label) => set({ faq }, label)} />}
 
       <Label>Layout</Label>
       <Choice value={s.layout} onChange={(layout) => {
