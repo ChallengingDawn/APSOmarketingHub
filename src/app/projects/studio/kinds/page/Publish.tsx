@@ -361,6 +361,8 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang }: { api: Studio
 
       <Kick>Where to</Kick>
       <Targets envs={envs} on={on} onToggle={toggleEnv} />
+      {/* a page of ACC is written to ACC (Content v8, point 7 - the server offers ACC alone for it) */}
+      {doc.source !== "new" && doc.env === "acc" && <Typography sx={{ mt: 0.75, fontSize: "0.78rem", color: MUTED }}>This to-do works on ACC&apos;s page - it is written to ACC.</Typography>}
       <Connection api={api} envs={envs} />
       {multi && <Typography sx={{ mt: 1, fontSize: "0.78rem", color: INK }}>Version <b>{d.letter || "A"}</b> of the page goes to Magento - the one open above the page. Open another there to send it instead.</Typography>}
 

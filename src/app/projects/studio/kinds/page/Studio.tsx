@@ -1013,7 +1013,8 @@ export default function Studio({ api }: StudioProps) {
     const cur = docRef.current;
     if (lang === mainView(cur)) {
       const store = p.store ?? cur.store;
-      setDoc({ ...cur, env: p.env, path: p.path, store, pageKind: p.kind, outline: null, source: cur.source === "new" ? "pick" : cur.source }, cur.path ? "Picked another page" : undefined);
+      // the to-do works where the page was picked: production, or ACC (Content v8, point 7)
+      setDoc({ ...cur, env: p.env, path: p.path, store, pageKind: p.kind, outline: null, source: cur.source === "new" ? "pick" : cur.source }, cur.path ? `Picked another page${p.env !== cur.env ? ` (on ${p.env === "acc" ? "ACC" : "production"})` : ""}` : undefined);
       setLangState(baseStore(store) ?? store);
     } else {
       const add = howToAdd(cur, lang);
@@ -1041,7 +1042,7 @@ export default function Studio({ api }: StudioProps) {
   const addHow = lang !== main ? howToAdd(doc, lang) : null;
   const notOnShop = !isNew && lang !== main && !d.path && presence[lang]?.exists === false;
   const empty = picking || needsPage ? (
-    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : lang} lockStore={lang !== main} current={d.path}
+    <PagePicker api={api} store={lang === main ? d.store || "de-CH" : lang} lockStore={lang !== main} env={doc.env} lockEnv={lang !== main} current={d.path}
       title={lang === main ? undefined : `Which is the ${lang} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined} />
   ) : langEmpty ? (
     <LangEmpty d={d} lang={lang} main={main} store={lang} busy={translating} since={translating ? since : null} canAi={canAi}

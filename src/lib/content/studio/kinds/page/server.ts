@@ -67,6 +67,7 @@ import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
+import { envFilter, publishTargets, targetWhy } from "./env";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -785,7 +786,9 @@ const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/;
 const pages: ServerAction = async (_ctx, _raw, input) => {
   const store = typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null;
   const page = Math.max(0, Math.min(500, Math.floor(Number(input.page) || 0)));
-  return findPages({ q: s(input.q, 120), store, kind: isKind(input.kind) && input.kind !== "system" ? input.kind : null, page, perPage: 40 });
+  // the environment picked above STORE (Content v8, SARCLA 10.11.2026 point 7: "I can't select ACC")
+  const f = envFilter(input);
+  return findPages({ q: s(input.q, 120), store, kind: isKind(input.kind) && input.kind !== "system" ? input.kind : null, page, perPage: 40, env: f.env, onlyAcc: f.onlyAcc });
 };
 
 const convert: ServerAction = async () => ({ rows: await convertPages() });
@@ -834,9 +837,9 @@ const candidates: ServerAction = async (ctx, raw, input) => {
   };
   for (const w of [...new Set(words)]) {
     if (out.length >= 24) break;
-    add((await findPages({ q: w.slice(0, 8), store: d.store, kind: null, page: 0, perPage: 8 })).rows);
+    add((await findPages({ q: w.slice(0, 8), store: d.store, kind: null, page: 0, perPage: 8, env: d.env })).rows);
   }
-  if (out.length < 8) add((await findPages({ q: "", store: d.store, kind: "category", page: 0, perPage: 16 })).rows);
+  if (out.length < 8) add((await findPages({ q: "", store: d.store, kind: "category", page: 0, perPage: 16, env: d.env })).rows);
   return { candidates: out.slice(0, 24) };
 };
 
@@ -871,7 +874,8 @@ const magento: ServerAction = async (ctx, raw) => {
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore });
   return {
     views: views.map(({ want: _want, ...v }) => v),
-    envs: (["acc", "prod"] as Env[]).map((env) => ({
+    // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
+    envs: publishTargets(doc).map((env) => ({
       env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
       // the connection in plain words (Content v6, SARCLA 09.11.2026: "the Magento connection is not working yet"), and
       // the last check's answer while it is fresh
@@ -907,6 +911,7 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
   if (!cmsKeys()[env]) return { env, plans: [], waiting: KEY_WAITING[env] };
   const doc = pageDoc(raw, ctx.piece.language);
+  if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
   for (const v of viewsIn(doc, input)) {
     const m = await magentoOf(raw, v);
@@ -920,6 +925,7 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env });
   if (no) throw new Error(no);
   const doc = pageDoc(raw, ctx.piece.language);
+  if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const views = viewsIn(doc, input);
   if (!views.length) throw new Error("Pick the store views to write.");
   const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
