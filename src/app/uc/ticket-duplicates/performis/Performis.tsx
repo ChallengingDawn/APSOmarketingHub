@@ -1,6 +1,7 @@
 "use client";
 
-// DUPLICATES & MERGES > Companies > Left alone > Performis (SARCLA 10.11.2026: "Left alone should stay as it is, then a
+// DUPLICATES & MERGES > Performis, a topic of the main toggle since 10.11.2026 evening (page.tsx beside this file writes the
+// rule out); first built inside Companies > Left alone (SARCLA 10.11.2026: "Left alone should stay as it is, then a
 // main toggle - switch to Performis: the companies that are true ERP duplicates, two or more ERP numbers; export a table
 // Company unique number | company name | new company name ... MAIN ACCOUNT, SIDE ACCOUNT, DUPLICATE DON'T USE - the
 // title is the only thing we can change in Performis to help the colleagues find the companies"). The rule is in
@@ -32,7 +33,7 @@ import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, KpiTile, MUTED, TINT, bodyC
 import { Chip, Info } from "@/app/connectors/parts";
 import { dayTime } from "@/app/uc/segmentation/lists";
 import { ROLE_TAG, performisCsv, type PerfFamily, type Role } from "@/lib/companyDuplicates/performis";
-import { cap, dmy, link } from "./parts";
+import { cap, dmy, link } from "../companies/parts";
 
 type Data = { at: string; families: PerfFamily[] } | null;
 const PAGE = 25;
@@ -113,10 +114,12 @@ export function PerformisView() {
           {full(shown.length)} of {full(all.length)} companies · the download has the three columns Performis needs: Company unique number, Company name, New company name{shown.length > PAGE ? ` · page ${at + 1} of ${pages}` : ""}
         </Typography>
         <Box sx={{ overflowX: "auto", border: `1px solid ${HAIRLINE}`, borderRadius: "12px" }}>
-          <Table size="small" sx={{ minWidth: 1050 }}>
+          {/* across the page, each column a share of it - nothing runs past the card (10.11.2026) */}
+          <Table size="small" sx={{ tableLayout: "fixed", width: "100%", minWidth: 900, "& td": { overflowWrap: "anywhere", verticalAlign: "top" } }}>
+            <colgroup>{["11%", "18%", "24%", "11%", "14%", "8%", "7%", "7%"].map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
             <TableHead>
               <TableRow>
-                {["Company unique number", "Company name", "New company name", "Customer number", "Place", "Last order", "Revenue this year (EUR)", "Owner"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
+                {["Company unique number", "Company name", "New company name", "Customer number", "Place", "Last order", "Revenue this year (EUR)", "Owner"].map((h) => <TableCell key={h} sx={{ ...headCell, whiteSpace: "normal" }}>{h}</TableCell>)}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -131,7 +134,7 @@ export function PerformisView() {
                 </TableRow>,
                 ...f.accounts.map((a) => (
                   <TableRow key={a.id} sx={{ bgcolor: a.role === "main" ? "rgba(27,122,85,.05)" : undefined }}>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>
                       {a.uniqueNumber ?? "—"}{a.derived && <Box component="span" title="Not in HubSpot - made from the Mandant and the customer number" sx={{ color: FAINT, fontSize: "0.7rem" }}> (made)</Box>}
                     </TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.82rem" }}>{link(a.id, a.name)}</TableCell>
@@ -141,9 +144,9 @@ export function PerformisView() {
                         <Typography component="span" sx={{ fontSize: "0.8rem", color: INK }} title={ROLE_NOTE[a.role]}>{a.newName}</Typography>
                       </Box>
                     </TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}><b>{a.erp}</b> · {a.mandant}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}><b>{a.erp}</b> · {a.mandant}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{[a.address, [a.zip, a.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") || cap(a.country)}</TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap", color: a.buying ? TINT.green.fg : MUTED, fontWeight: a.buying ? 700 : 400 }}>{a.lastOrder ? dmy(a.lastOrder) : a.lastYear ? String(a.lastYear) : "never"}</TableCell>
+                    <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: a.buying ? TINT.green.fg : MUTED, fontWeight: a.buying ? 700 : 400 }}>{a.lastOrder ? dmy(a.lastOrder) : a.lastYear ? String(a.lastYear) : "never"}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{a.revenue ? full(a.revenue) : "—"}</TableCell>
                     <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{a.ownerName ?? "—"}</TableCell>
                   </TableRow>

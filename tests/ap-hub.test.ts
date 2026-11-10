@@ -1,8 +1,39 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asCross, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired } from "../src/lib/auth/access";
+import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired } from "../src/lib/auth/access";
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
-import { SealingSheet, buOf, isSealingHeader, materialOf, monthOf, noCompound, priorities, sumBy, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
+import { SealingSheet, buOf, isSealingHeader, materialOf, monthOf, monthsBetween, noCompound, periodWords, priorities, sealingPeriod, sumBy, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
+import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
+import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
+
+test("cross access: the action plan is closed to every person of Angst+Pfister, its page and its data", () => {
+  for (const p of ["/action-plan", "/action-plan/kpis", "/action-plan/scroll-to-sale?x=1", "/api/action-plan", "/api/action-plan/summit"]) {
+    assert.equal(crossClosed(p), true, p);
+  }
+  for (const p of ["/action-planner", "/reporting/actions", "/api/reporting/kpi-actions/tasks", "/ap", "/"]) {
+    assert.equal(crossClosed(p), false, p);
+  }
+});
+
+test("invitation mail: the way in, never a password or a link that signs in", () => {
+  const c = inviteContent(
+    { fullName: "Anna Muster", email: "anna.muster@angst-pfister.com", signInWith: "anna.muster@angst-pfister.com", role: "user", cross: "user" },
+    { fullName: "Kim Admin", email: "kim.admin@apsoparts.com" },
+  );
+  assert.equal(c.subject, "Your access to the Angst+Pfister hub");
+  assert.match(c.intro, /^Hello Anna, Kim Admin has opened the Angst\+Pfister hub to you\./);
+  const rows = Object.fromEntries(c.rows);
+  assert.equal(rows["Sign in with"], "anna.muster@angst-pfister.com");
+  assert.equal(rows["You will see"], "The Angst+Pfister hub, and the APSOparts hub to look at.");
+  assert.ok(rows["Second factor"], "a cross-user always carries a second factor");
+  assert.ok(!JSON.stringify(c).match(/password:|\/invite\//i), "no password, no invitation token");
+  // a user of the APSOparts hub alone: no second factor asked, the APSOhub named
+  const u = inviteContent({ fullName: "Bo", email: "b@x.ch", signInWith: "b@x.ch", role: "user", cross: null }, { fullName: "Admin", email: null });
+  assert.equal(u.subject, "Your access to the APSOhub");
+  assert.ok(!Object.fromEntries(u.rows)["Second factor"]);
+  assert.equal(u.footer, "Admin added you to the hub.");
+  assert.equal(whatTheySee("admin", "admin"), "The Angst+Pfister hub and the APSOparts hub, as an admin of both.");
+});
 
 test("cross access: the mark as stored", () => {
   assert.equal(asCross("user"), "user");
@@ -151,4 +182,42 @@ test("sealing: the three priorities from the figures", () => {
   assert.match(spread?.evidence ?? "", /Huba reports 71\.1% GM and Hilti 25\.7%/);
   // an unnamed compound is never a priority
   assert.ok(p.every((x) => x.compound !== "No info"));
+});
+
+test("sealing: the months a page shows, within those the figures hold", () => {
+  const held = { first: "2025-03", last: "2026-10" };
+  // none asked: the year so far, up to the last month held
+  assert.deepEqual(sealingPeriod({}, held, "2026-11"), { from: "2026-01", to: "2026-10" });
+  // a past year: as asked
+  assert.deepEqual(sealingPeriod({ from: "2025-04", to: "2025-12" }, held, "2026-11"), { from: "2025-04", to: "2025-12" });
+  // before the first month or after the last: kept within
+  assert.deepEqual(sealingPeriod({ from: "2025-01", to: "2025-12" }, held, "2026-11"), { from: "2025-03", to: "2025-12" });
+  assert.deepEqual(sealingPeriod({ from: "2026-05", to: "2026-12" }, held, "2026-11"), { from: "2026-05", to: "2026-10" });
+  // the last 12 months across two years
+  assert.deepEqual(sealingPeriod({ from: "2025-11", to: "2026-10" }, held, "2026-11"), { from: "2025-11", to: "2026-10" });
+  // nonsense or the wrong way round: the year so far of the month asked last
+  assert.deepEqual(sealingPeriod({ from: "2026-13", to: "x" }, held, "2026-11"), { from: "2026-01", to: "2026-10" });
+  assert.deepEqual(sealingPeriod({ from: "2026-06", to: "2026-02" }, held, "2026-11"), { from: "2026-01", to: "2026-02" });
+  // the figures' first year: from their first month
+  assert.deepEqual(sealingPeriod({ to: "2025-08" }, held, "2026-11"), { from: "2025-03", to: "2025-08" });
+  // no figures yet: up to this month
+  assert.deepEqual(sealingPeriod({}, { first: null, last: null }, "2026-11"), { from: "2026-01", to: "2026-11" });
+});
+
+test("sealing: the months between, a year before, the period in words", () => {
+  assert.deepEqual(monthsBetween("2025-11", "2026-02"), ["2025-11", "2025-12", "2026-01", "2026-02"]);
+  assert.deepEqual(monthsBetween("2026-03", "2026-03"), ["2026-03"]);
+  assert.deepEqual(monthsBetween("2026-04", "2026-03"), []);
+  assert.equal(yearBefore("2026-01"), "2025-01");
+  assert.equal(periodWords("2026-01", "2026-10"), "Jan – Oct 2026");
+  assert.equal(periodWords("2026-10", "2026-10"), "Oct 2026");
+  assert.equal(periodWords("2025-11", "2026-10"), "Nov 2025 – Oct 2026");
+});
+
+test("sealing: the pages the side panel lists", () => {
+  assert.deepEqual(SEALING_PAGES.map((p) => p.href), [
+    "/ap/reporting/sealing", "/ap/reporting/sealing/units", "/ap/reporting/sealing/customers",
+    "/ap/reporting/sealing/articles", "/ap/reporting/sealing/materials", "/ap/reporting/sealing/approvals",
+  ]);
+  assert.equal(new Set(SEALING_PAGES.map((p) => p.slug)).size, SEALING_PAGES.length);
 });

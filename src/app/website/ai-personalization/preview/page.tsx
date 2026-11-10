@@ -357,36 +357,65 @@ const STATE_LABEL = { proposed: "Proposed", approved: "In work", sent: "Sent to 
 const isLanding = (i: Idea | null) => !!i && typeOfIdea(i) === "landing-page";
 const stateOf = (i: Idea): IdeaState => (i.status === "dropped" ? "dropped" : i.sentAt ? "sent" : i.status === "approved" ? "approved" : "proposed");
 
-function IdeaCard({ idea, versions, selected, n, lead, focused, onSelect, onPoint }: {
-  idea: Idea; versions: Version[]; selected: boolean; n?: number; lead?: boolean; focused?: boolean;
-  onSelect: () => void; onPoint?: (on: boolean) => void;
-}) {
-  const st = stateOf(idea);
-  const marked = !!idea.target && n !== undefined;
+/**
+ * THE PAGE'S OPTIMIZATIONS, ONE AT A TIME (SARCLA 10.11.2026: the list of them under More - "I don't like, put them there
+ * like a slider one by one" - "don't increase the header size, it should stay the same"). The optimization's title and
+ * its chips are the slide: the arrows beside it, a swipe, the keyboard's left / right arrows or a dot go to another one,
+ * and it slides in from the side it came from. The header keeps its height: the arrows and the dots sit beside the title.
+ */
+function OptimizationSlider({ items, at, onGo, children }: { items: Idea[]; at: number; onGo: (k: number) => void; children: React.ReactNode }) {
+  const last = useRef(at);
+  const dir = at >= last.current ? 1 : -1;
+  useEffect(() => { last.current = at; }, [at]);
+  const n = items.length;
+  const go = useCallback((k: number) => { if (n > 1 && k >= 0 && k < n && k !== at) onGo(k); }, [n, at, onGo]);
+  useEffect(() => {
+    if (n < 2) return;
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable))) return;
+      if (e.key === "ArrowLeft") go(at - 1);
+      if (e.key === "ArrowRight") go(at + 1);
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [n, at, go]);
+  const down = useRef<number | null>(null);
+  if (n < 2) return <Box sx={{ mt: 1 }}>{children}</Box>;
+  const arrow = { flexShrink: 0, width: 32, height: 32, border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)", "&:hover": { bgcolor: "#fff", borderColor: ACCENT } } as const;
   return (
-    <Box id={`idea-card-${idea.id}`} onClick={onSelect} onMouseEnter={() => onPoint?.(true)} onMouseLeave={() => onPoint?.(false)} sx={{
-      p: 1.25, borderRadius: "12px", border: `1px solid ${focused ? RED : selected ? ACCENT : HAIRLINE}`,
-      bgcolor: selected ? "rgba(36,89,209,.06)" : focused ? "rgba(197,34,31,.04)" : "rgba(255,255,255,.6)",
-      boxShadow: selected ? `0 0 0 2px ${ACCENT}` : "none", transition: "border-color .12s, box-shadow .12s",
-      cursor: "pointer", opacity: st === "dropped" ? 0.6 : 1, display: "grid", gap: 0.6, scrollMarginTop: 16,
-    }}>
-      <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start" }}>
-        {n !== undefined && (
-          <Tooltip title={marked ? "Its block is marked with this number on the page" : "About the page as a whole"}>
-            <Box component="span" sx={{ flexShrink: 0, minWidth: 24, height: 24, px: 0.6, borderRadius: "6px", display: "grid", placeItems: "center", fontSize: "0.76rem", fontWeight: 700, color: "#fff", bgcolor: lead ? RED : marked ? "#6a46c9" : "#9aa6b8" }}>{n}</Box>
-          </Tooltip>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+      <Tooltip title={at > 0 ? `Previous: ${items[at - 1].title}` : ""}>
+        <span><IconButton size="small" disabled={at <= 0} onClick={() => go(at - 1)} aria-label="Previous optimization" sx={arrow}><ChevronLeftRoundedIcon /></IconButton></span>
+      </Tooltip>
+      <Box sx={{ flex: 1, minWidth: 0, overflow: "hidden", touchAction: "pan-y" }}
+        onPointerDown={(e) => { down.current = e.clientX; }}
+        onPointerUp={(e) => { const x0 = down.current; down.current = null; if (x0 === null) return; const dx = e.clientX - x0; if (Math.abs(dx) > 60) go(at + (dx < 0 ? 1 : -1)); }}>
+        <Box key={items[at]?.id ?? at} sx={{
+          animation: `${dir > 0 ? "optSlideIn" : "optSlideBack"} .32s cubic-bezier(.2,.7,.2,1)`,
+          "@keyframes optSlideIn": { from: { opacity: 0, transform: "translateX(36px)" }, to: { opacity: 1, transform: "none" } },
+          "@keyframes optSlideBack": { from: { opacity: 0, transform: "translateX(-36px)" }, to: { opacity: 1, transform: "none" } },
+          "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+        }}>{children}</Box>
+      </Box>
+      <Box sx={{ flexShrink: 0, display: "grid", justifyItems: "center", gap: 0.5 }}>
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{at + 1} / {n}</Typography>
+        {n <= 12 && (
+          <Box sx={{ display: { xs: "none", md: "flex" }, gap: "5px", alignItems: "center" }}>
+            {items.map((x, k) => (
+              <Tooltip key={x.id} title={x.title}>
+                <Box component="button" type="button" aria-label={`Optimization ${k + 1}`} onClick={() => go(k)} sx={{
+                  all: "unset", cursor: "pointer", width: k === at ? 16 : 7, height: 7, borderRadius: 4,
+                  bgcolor: k === at ? ACCENT : "rgba(36,89,209,.22)", transition: "width .2s, background-color .2s", "&:hover": { bgcolor: k === at ? ACCENT : "rgba(36,89,209,.45)" },
+                }} />
+              </Tooltip>
+            ))}
+          </Box>
         )}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          {lead && <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: RED, textTransform: "uppercase", letterSpacing: ".06em" }}>The lead</Typography>}
-          <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{idea.title}</Typography>
-        </Box>
       </Box>
-      <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap" }}>
-        <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>
-        {versions.length > 0 && <Chip tint="purple">{versions.length === 1 ? "1 version" : `${versions.length} versions · ${versions.map((v) => v.letter).join(" ")}`}</Chip>}
-        {iceScore(idea) !== null && <Chip tint="slate">Score {iceScore(idea)}</Chip>}
-        <Typography component="span" sx={{ fontSize: "0.7rem", color: MUTED, ml: "auto" }}>{idea.source === "ai" ? "AI" : idea.createdBy} · {since(idea.createdAt)}</Typography>
-      </Box>
+      <Tooltip title={at < n - 1 ? `Next: ${items[at + 1].title}` : ""}>
+        <span><IconButton size="small" disabled={at >= n - 1} onClick={() => go(at + 1)} aria-label="Next optimization" sx={arrow}><ChevronRightRoundedIcon /></IconButton></span>
+      </Tooltip>
     </Box>
   );
 }
@@ -575,6 +604,8 @@ function ConvertPreview() {
   const [jsonErr, setJsonErr] = useState<string | null>(null);
   const [styles, setStyles] = useState<{ total: number; nfailed: number } | null>(null);
   const [spotFocus, setSpotFocus] = useState<number | null>(null);
+  // a number clicked on the page goes to its optimization in the slider (set below, once the list is known)
+  const byNumber = useRef<((n: number) => void) | null>(null);
   const [showSpots, setShowSpots] = useState(true);
   const [compare, setCompare] = useState<boolean | null>(null);
   const [goN, setGoN] = useState(0);
@@ -629,6 +660,7 @@ function ConvertPreview() {
     return m;
   }, [d]);
   const idea = ideas.find((i) => i.id === ideaSel) ?? null;
+  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped")[n - 1]; if (i) { setCompare(false); select(i.id); } };
   const versions = idea ? versionsOf.get(idea.id) ?? [] : [];
   const version = versions.find((v) => v.letter === letterSel) ?? versions[0] ?? null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
@@ -647,7 +679,7 @@ function ConvertPreview() {
   const onMsg = useCallback((m: Msg, from: string) => {
     if (m.apsoPreview === "spot" && typeof m.n === "number") {
       setSpotFocus(m.n);
-      document.querySelector(`[data-idea-n="${m.n}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      byNumber.current?.(m.n);
     }
     if (m.apsoPreview === "scroll" && typeof m.y === "number") setSync((s) => ({ y: m.y, from, n: (s?.n ?? 0) + 1 }));
     if (m.apsoPreview === "applied" && Array.isArray(m.hit) && from === "after") setHit(m.hit);
@@ -828,13 +860,6 @@ function ConvertPreview() {
         <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
           <Box sx={{ display: "flex", gap: 1, rowGap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
             <Button size="small" component={Link} href={`${CONVERT}/insights`} startIcon={<ArrowBackRoundedIcon />} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Insights</Button>
-            {idea && live.length > 1 && pos >= 0 && (
-              <Box sx={{ display: "flex", alignItems: "center" }}>
-                <IconButton size="small" disabled={pos <= 0} onClick={() => step(-1)} aria-label="Previous optimization"><ChevronLeftRoundedIcon /></IconButton>
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{pos + 1} of {live.length} on this page</Typography>
-                <IconButton size="small" disabled={pos >= live.length - 1} onClick={() => step(1)} aria-label="Next optimization"><ChevronRightRoundedIcon /></IconButton>
-              </Box>
-            )}
             <Box sx={{ flex: 1 }} />
             {idea && data.canEdit && st !== "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "dropped" })} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Drop</Button>}
             {idea && data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ ...btn, fontWeight: 600 }}>Bring back</Button>}
@@ -851,17 +876,21 @@ function ConvertPreview() {
               </Tooltip>
             )}
           </Box>
-          <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, mt: 1, letterSpacing: "-0.01em" }}>
-            {idea ? idea.title : block ? `${block.name} - ${block.goal}` : pg.h1[0] || pg.title || path}
-          </Typography>
-          <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
-            {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
-            {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
-            {block && <Chip tint="amber">Block · {block.name}</Chip>}
-            <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
-            <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.h1[0] || pg.title || path}</Typography>
-            {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 15, color: MUTED }} /></IconButton></Tooltip>}
-          </Box>
+          <OptimizationSlider items={idea && pos >= 0 ? live : []} at={pos} onGo={(k) => step(k - pos)}>
+            <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>
+              {idea ? idea.title : block ? `${block.name} - ${block.goal}` : pg.h1[0] || pg.title || path}
+            </Typography>
+            <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+              {idea && pos === 0 && idea.source === "ai" && live.length > 1 && <Chip tint="pink">The lead</Chip>}
+              {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
+              {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
+              {idea && (versionsOf.get(idea.id)?.length ?? 0) > 1 && <Chip tint="slate">{versionsOf.get(idea.id)!.length} versions</Chip>}
+              {block && <Chip tint="amber">Block · {block.name}</Chip>}
+              <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
+              <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.h1[0] || pg.title || path}</Typography>
+              {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 15, color: MUTED }} /></IconButton></Tooltip>}
+            </Box>
+          </OptimizationSlider>
           {nums && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>{nums}</Typography>}
         </GlassCard>
 
@@ -979,14 +1008,8 @@ function ConvertPreview() {
           <summary>More - every optimization of this page, the version&apos;s code and revisions, the clicks, what the AI reads</summary>
           <Box sx={{ display: "grid", gap: 2, mt: 1.5 }}>
             <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
-              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title={`Optimizations of this page · ${live.length}`} note={block ? `of the ${block.name.toLowerCase()}` : "The lead first"} />
-              <Box sx={{ display: "grid", gap: 1, mt: 1.25, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))" } }}>
-                {ranked.map((i) => (
-                  <IdeaCard key={i.id} idea={i} versions={versionsOf.get(i.id) ?? []} selected={idea?.id === i.id} n={numberOf.get(i.id)} lead={numberOf.get(i.id) === 1 && i.source === "ai"}
-                    onSelect={() => { setCompare(false); select(i.id); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
-                ))}
-              </Box>
-              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mt: 1.5 }}>
+              <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title="More optimizations for this page" note={`${live.length} in the slider at the top${block ? ` - of the ${block.name.toLowerCase()}` : ""}; a new one joins it`} />
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mt: 1.25 }}>
                 {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", ideasBody())}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
                 {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
                   <Button size="small" variant="outlined" disabled={!!making || !!busy} onClick={() => void makeAll()} startIcon={making ? <CircularProgress size={13} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>

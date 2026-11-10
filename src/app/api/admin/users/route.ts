@@ -7,6 +7,7 @@ import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { createInvite, INVITE_HOURS } from '@/lib/auth/invite';
 import { grantStarterApps } from '@/lib/auth/appAccess';
 import { asRole } from '@/lib/auth/access';
+import { sendInviteMail } from '@/lib/auth/inviteMail';
 
 export const runtime = 'nodejs';
 
@@ -24,6 +25,10 @@ const Body = z.object({
    * an admin who can act as you, and the audit log cannot then tell you apart.
    */
   setupByUser: z.boolean().optional(),
+  /** The Angst+Pfister hub's mark, given at creation (SARCLA 10.11.2026): a cross-admin is an admin, a cross-user a user. */
+  cross: z.enum(['user', 'admin']).optional(),
+  /** Mail them the way in - the hub's address and theirs (src/lib/auth/inviteMail.ts); only with setupByUser and an email. */
+  sendMail: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -61,9 +66,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Username already taken' }, { status: 409 });
   }
 
+  // the mark decides the role it goes with, as on the person's panel (./[id]/route.ts): cross-admin = admin, cross-user = user
+  const cross = parsed.data.cross ?? null;
+  const role = cross === 'admin' ? 'admin' : cross === 'user' ? 'user' : parsed.data.role ?? 'user';
   const r = await query<{ id: number }>(
-    `INSERT INTO apsomh_users (username, email, full_name, password_hash, role, is_active, must_change_password, awaiting_setup)
-     VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, $6) RETURNING id`,
+    `INSERT INTO apsomh_users (username, email, full_name, password_hash, role, is_active, must_change_password, awaiting_setup, cross_access)
+     VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, $6, $7) RETURNING id`,
     [
       username,
       email,
@@ -71,29 +79,45 @@ export async function POST(req: Request) {
       // No password yet: a hash of something nobody holds, so the account
       // cannot be signed into until the invitation is spent.
       await hashPassword(parsed.data.initialPassword ?? randomBytes(32).toString('base64url')),
-      parsed.data.role ?? 'user',
+      role,
       setupByUser,
+      cross,
     ],
   );
   const id = r.rows[0].id;
   // Everybody who is not an admin starts with the Datatracker, so a new account
   // opens on something rather than on an empty hall.
-  const role = parsed.data.role ?? 'user';
   await grantStarterApps(id, role);
   const token = setupByUser ? await createInvite(id) : null;
 
   await query(
     `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
     [me.username, 'user.create', JSON.stringify({
-      userId: id, username, role, setupByUser,
+      userId: id, username, role, setupByUser, ...(cross ? { cross } : {}),
     })],
   ).catch(() => { /* never fail the creation because the log did */ });
 
+  // The way in by mail, when asked for: the hub's address and the one to sign in with - never a password, never a
+  // link that signs in (src/lib/auth/inviteMail.ts). A mail that fails leaves the account as it is, and says why.
+  const sent = setupByUser && parsed.data.sendMail && email
+    ? await sendInviteMail(
+      { fullName: parsed.data.fullName, email, signInWith: email, role, cross },
+      { fullName: me.full_name || me.username, email: me.email },
+    )
+    : { mailed: null, mailError: null };
+  if (sent.mailed || sent.mailError) {
+    await query(
+      `INSERT INTO apsomh_audit (actor, action, detail) VALUES ($1, $2, $3)`,
+      [me.username, sent.mailed ? 'user.invite_mailed' : 'user.invite_mail_failed', JSON.stringify({ userId: id, ...sent })],
+    ).catch(() => {});
+  }
+
   return NextResponse.json({
-    user: { id, username, email, role },
-    // Shown to the admin once. There is no mail from the hub yet, so they hand
-    // it over themselves; it is single-use and expires.
+    user: { id, username, email, role, cross },
+    // Shown to the admin once, for handing over by hand; it is single-use and expires.
     invitePath: token ? `/invite/${token}` : null,
     inviteHours: token ? INVITE_HOURS : null,
+    mailed: sent.mailed,
+    mailError: sent.mailError,
   });
 }

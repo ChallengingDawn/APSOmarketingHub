@@ -128,7 +128,9 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import Link from "next/link";
 
-import { adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { AP_HUB_HOME, adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { SEALING_PAGES } from "@/lib/apHub/sealingPages";
+import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
@@ -619,7 +621,26 @@ function SearchProbe({ onChange }: { onChange: (search: string) => void }) {
   return null;
 }
 
-export default function Sidebar() {
+// THE ANGST+PFISTER HUB'S PANEL (SARCLA 10.11.2026: its report "should follow our advanced reports") - its own menu,
+// never the APSOparts apps': the way back to its front page, Advanced reporting, each report and its pages.
+const AP_SECTIONS: NavSection[] = [
+  {
+    title: "Advanced reporting",
+    home: SEALING_PAGES[0].href,
+    back: { href: AP_HUB_HOME, label: "Angst+Pfister hub" },
+    icon: <AssessmentOutlinedIcon />,
+    color: "#0f6b4a",
+    items: [
+      {
+        label: "Sealing Business Review", href: SEALING_PAGES[0].href, icon: <AssessmentOutlinedIcon fontSize="small" />,
+        children: SEALING_PAGES.slice(1).map((p) => ({ label: p.name, href: p.href })),
+      },
+    ],
+  },
+];
+
+export default function Sidebar({ hub }: { hub?: "ap" } = {}) {
+  const sections = hub === "ap" ? AP_SECTIONS : navSections;
   const pathname = usePathname();
   const [search, setSearch] = useState("");
   // a phone: the panel slides in from the bar's menu button, and goes again once a page is picked
@@ -631,7 +652,7 @@ export default function Sidebar() {
   // match. Stops "/docs" collisions and "/" lighting up everywhere. An href that
   // carries a query (the Datatracker's tabs) must match the address exactly.
   const activeHref = (() => {
-    const all = navSections.flatMap((s) => [
+    const all = sections.flatMap((s) => [
       ...(s.home ? [s.home] : []),
       ...s.items.filter((i) => !i.placeholder).flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])]),
     ]);
@@ -650,7 +671,7 @@ export default function Sidebar() {
   // segment only, so a real page deeper inside an app keeps its menu.
   const topSegment = (href: string) => href.split("?")[0].split("/")[1] ?? "";
   const knownTop = new Set(
-    navSections
+    sections
       .flatMap((s) => [...(s.home ? [s.home] : []), ...s.items.flatMap((i) => [i.href, ...(i.children?.map((c) => c.href) ?? [])])])
       .map(topSegment)
       .filter(Boolean),
@@ -660,7 +681,7 @@ export default function Sidebar() {
   // Of the sections listing this page, the one that OWNS it - see
   // src/lib/nav/activeSection.ts. Digital Growth lists UC's Use Cases Overview,
   // and the first match winning meant the UC tile opened Digital Growth's menu.
-  const activeSection = pickActiveSection(navSections, activeHref);
+  const activeSection = pickActiveSection(sections, activeHref);
 
   // WHAT THIS PERSON MAY SEE.
   //
@@ -675,17 +696,20 @@ export default function Sidebar() {
   // their grants, so "view as" shows the hub they actually get rather than
   // yours with a banner on top.
   const { viewed, canOpenPath: canOpenAs } = useViewAs();
-  const [acc, setAcc] = useState<{ role: Role; levels: Record<string, Level> } | null>(null);
+  const [acc, setAcc] = useState<{ role: Role; levels: Record<string, Level>; cross: Cross | null } | null>(null);
   useEffect(() => {
     let alive = true;
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (alive && j?.ok) setAcc({ role: asRole(j.role), levels: (j.levels ?? {}) as Record<string, Level> }); })
+      .then((j) => { if (alive && j?.ok) setAcc({ role: asRole(j.role), levels: (j.levels ?? {}) as Record<string, Level>, cross: asCross(j.cross) }); })
       .catch(() => {});
     return () => { alive = false; };
   }, []);
 
   const role = viewed?.role ?? acc?.role;
+  // a person of Angst+Pfister (a cross-admin too): the action plan is greyed, never a link (access.ts crossClosed,
+  // SARCLA 10.11.2026: "action plan should be grey for AP employees and not be accessible not even as viewer")
+  const crossNow = (viewed ? viewed.cross ?? null : acc?.cross ?? null) !== null;
   const allowed = (item: Pick<Item, "href" | "adminOnly">) => {
     // The flag says so, or the path does. Two ways to spell the same rule, so a
     // governance page added later is covered without anyone remembering to.
@@ -697,7 +721,9 @@ export default function Sidebar() {
     const a = accessAt(item.href, acc.levels);
     return a.specific === null || a.level !== "none";
   };
-  const visibleItems = (s: NavSection) => s.items.filter(allowed);
+  const visibleItems = (s: NavSection) => s.items
+    .filter((i) => (crossNow && crossClosed(i.href)) || allowed(i))
+    .map((i) => (crossNow && crossClosed(i.href) ? { ...i, placeholder: true } : i));
 
   // Inside an app the panel is THAT app's: the way back to all apps, the app
   // itself, then its pages. Anywhere that belongs to no app, every app is listed
@@ -705,7 +731,7 @@ export default function Sidebar() {
   const scoped = pathname !== "/" && !!activeSection;
   const blocks = scoped
     ? groupsOf(visibleItems(activeSection!))
-    : navSections
+    : sections
         .map((s) => ({ name: s.title as string | null, items: visibleItems(s) }))
         .filter((b) => b.items.length > 0);
 

@@ -99,6 +99,9 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
           panel until you are in a category or a report (SARCLA, 11.10.2026); Website's the same since it has
           sections (SARCLA 03.11.2026), UC & HubSpot Apps' and Marketing & Content's too. */}
       {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && !isApHub && <Sidebar />}
+      {/* the Angst+Pfister hub's reports carry its own panel, laid out like Advanced reporting's (SARCLA 10.11.2026: "the
+          layout should follow our advanced reports"); its front page and its Settings keep the bar on top */}
+      {isApHub && matchPrefix(pathname, "/ap/reporting") && <Sidebar hub="ap" />}
       <Box
         component="main"
         sx={{

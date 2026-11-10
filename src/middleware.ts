@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
-import { crossHiddenApi, crossUserMaySend } from "@/lib/auth/access";
+import { crossClosed, crossHiddenApi, crossUserMaySend } from "@/lib/auth/access";
 
 const SESSION_COOKIE = "apsomarketinghub_session";
 const PUBLIC_PREFIXES = [
@@ -98,6 +98,12 @@ export async function middleware(req: NextRequest) {
     // figures), whatever grant a route itself asks for - e.g. my-sales/order-book only checks canOpen("reporting")
     if (payload.cross === "user" && crossHiddenApi(pathname)) {
       return NextResponse.json({ ok: false, error: "This report is not part of your access." }, { status: 403 });
+    }
+    // the action plan: closed to every person of Angst+Pfister, a cross-admin too (access.ts crossClosed)
+    if ((payload.cross === "user" || payload.cross === "admin") && crossClosed(pathname)) {
+      return pathname.startsWith("/api/")
+        ? NextResponse.json({ ok: false, error: "The action plan is not part of your access." }, { status: 403 })
+        : NextResponse.redirect(new URL("/?denied=action-plan", req.url));
     }
     return pass(req);
   } catch {

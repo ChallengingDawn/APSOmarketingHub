@@ -136,6 +136,8 @@ export function scriptJson(v: unknown): string {
  */
 export function runtimeSource(changes: Change[], opts: { report: boolean; waitMs?: number }): string {
   const wait = Math.max(500, Math.min(20_000, opts.waitMs ?? 8_000));
+  // a change made from a Content module carries its module beside it (./modular.ts) - the hub's own, not the browser's
+  const list = changes.map((c) => { const { id: _i, module: _m, off: _o, ...rest } = c as Change & { id?: unknown; module?: unknown; off?: unknown }; return rest; });
   return `(function(C,REPORT,WAIT){
 var D=document,hit=C.map(function(c){return c.op==="css"?1:0}),done=C.map(function(){return false}),seen=[];
 var css=C.filter(function(c){return c.op==="css"}).map(function(c){return c.css}).join("\\n");
@@ -160,5 +162,5 @@ function soon(){if(queued)return;queued=true;(window.requestAnimationFrame||setT
 function start(){run();if(window.MutationObserver){mo=new MutationObserver(soon);mo.observe(D.documentElement,{childList:true,subtree:true});}
 setTimeout(function(){if(mo)mo.disconnect();run();if(REPORT){try{parent.postMessage({apsoPreview:"applied",hit:hit},"*");}catch(e){}}},WAIT);}
 if(D.readyState==="loading")D.addEventListener("DOMContentLoaded",start);else start();
-})(${scriptJson(changes)},${opts.report ? "true" : "false"},${wait});`;
+})(${scriptJson(list)},${opts.report ? "true" : "false"},${wait});`;
 }

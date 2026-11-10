@@ -29,12 +29,12 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import HubIconGlyph from "./HubIcon";
 import QuickLinks from "./QuickLinks";
 import ConnectorsPanel from "./ConnectorsPanel";
-import ActionPlanCard from "./ActionPlanCard";
+import ActionPlanCard, { LockedPlanCard } from "./ActionPlanCard";
 import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { HomeBar } from "./HomeBar";
 import { APPS, HUB_TOOLS, type HubApp } from "./hubApps";
 import { useViewAs } from "./ViewAs";
-import { adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
@@ -82,6 +82,7 @@ export default function FrontPage() {
   // app's layout is what actually refuses; this only saves the trip.
   const [mine, setMine] = useState<Record<string, boolean> | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
+  const [myCross, setMyCross] = useState<Cross | null>(null);
   // every app and sub-app as it comes to for you (src/lib/auth/tree.ts), and where a tile leads when only a sub-app is yours
   const [myLevels, setMyLevels] = useState<Record<string, Level> | null>(null);
   const [first, setFirst] = useState<Record<string, string>>({});
@@ -92,6 +93,7 @@ export default function FrontPage() {
         if (!j?.ok) return;
         setMine(j.open as Record<string, boolean>);
         setMyRole(asRole(j.role));
+        setMyCross(asCross(j.cross));
         setMyLevels((j.levels ?? null) as Record<string, Level> | null);
         setFirst((j.first ?? {}) as Record<string, string>);
       })
@@ -124,6 +126,9 @@ export default function FrontPage() {
   // Declared here, not beside the header: everything below reads it, and a
   // const used above its own line is a blank page, not a type error.
   const role = viewed?.role ?? myRole;
+  // a person of Angst+Pfister (cross-user or cross-admin, a preview follows the person previewed): the action plan is
+  // greyed and closed to them (access.ts crossClosed, SARCLA 10.11.2026)
+  const crossNow = (viewed ? viewed.cross ?? null : myCross) !== null;
   // No count of what is missing. Telling somebody there are four apps they
   // cannot have is a locked door described in words — SARCLA: take it out.
   // Connectors & Integration has its own square under the tiles instead of a tile.
@@ -145,6 +150,7 @@ export default function FrontPage() {
     const path = href.split("?")[0];
     if (!path.startsWith("/")) return true; // the shop, HubSpot — not ours to gate
     if (adminOnlyPath(path) && role !== "admin") return false;
+    if (crossNow && crossClosed(path)) return false;
     // the page's own sub-app decides, else its app; a page of no app is everybody's
     if (viewed) return canOpenPath(path);
     if (!myLevels) return true;
@@ -332,7 +338,10 @@ export default function FrontPage() {
 
           {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
               of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
-          {role === "admin" && panel("missionControl") && <ActionPlanCard glass={glass} focusRing={focusRing} />}
+          {/* greyed for the people of Angst+Pfister, a cross-admin too: shown, never opened (SARCLA 10.11.2026) */}
+          {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
+            ? <LockedPlanCard glass={glass} />
+            : <ActionPlanCard glass={glass} focusRing={focusRing} />)}
         </Box>
 
       </Box>

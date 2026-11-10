@@ -18,6 +18,8 @@ import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfBlock, typeOfIdea, type ChangeType } from "./changeTypes";
 import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
 import { looksEnglish } from "./lang";
+import { moduleVersion } from "./modular";
+import { usesModules } from "./modularRules";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
@@ -792,6 +794,29 @@ export async function writeVersion(ideaId: string, request: string | null, by: s
   }
   const cur = all.find((v) => (v.letter || "A") === letter) ?? null;
   const others = all.filter((v) => (v.letter || "A") !== letter);
+  // a content page: the Content studio's modules make the version (./modular.ts - SARCLA 10.11.2026: "the content agent
+  // ... quality is much higher"); a product page, a block in the footer, or a plan that brings nothing: written below
+  let planNote = "";
+  if (usesModules(page.kind, idea.block)) {
+    const m = await moduleVersion({
+      ask, page: { env: page.env, path: page.path, url: page.url, html: page.html, kind: page.kind }, outline: o.lines, letter, request,
+      brief: `${numbersBrief(idea.numbers)}
+
+THE OPTIMIZATION (approved): ${idea.title}
+Why: ${idea.why}
+Change: ${idea.change}
+Expected: ${idea.expect}`,
+      others: opts.another && others.length ? others.map((v) => ({ letter: v.letter || "A", summary: v.summary })) : null,
+      current: !opts.another && cur && request ? cur.changes : null,
+    });
+    if (m.ok) {
+      const version = await saveRevision(idea, m.changes, m.summary, opts.another ? (request ?? "another version") : request, by, letter);
+      return { ok: true, data: { version, problems: m.problems } };
+    }
+    if (m.budget) return { ok: false, error: m.error };
+    planNote = m.error;
+    console.warn(`[convert-version] ${idea.path}: the module plan brought nothing (${m.error}) - written the other way`);
+  }
   const user = `${pageBrief(page, o, drawn)}
 
 ${numbersBrief(idea.numbers)}
@@ -835,7 +860,7 @@ meets it, with real short words in English; only what cannot be shown becomes ON
   changes = safe.changes;
   if (!changes.length) return { ok: false, error: `The AI's version had no usable change${problems.length ? `: ${problems.join("; ")}` : ""} - ask again.` };
   const version = await saveRevision(idea, changes, summary.slice(0, 600), opts.another ? (request ?? "another version") : request, by, letter);
-  return { ok: true, data: { version, problems } };
+  return { ok: true, data: { version, problems: planNote ? [`No module fitted (${planNote}) - written as a free block`, ...problems] : problems } };
 }
 
 /**

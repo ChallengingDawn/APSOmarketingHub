@@ -7,7 +7,7 @@
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
-import { materialOf, noApproval, noCompound, priorities, sumBy, type CompoundCustomer, type Figure, type Priority, type SealingRow } from "./sealingRules";
+import { materialOf, monthsBetween, noApproval, noCompound, priorities, sumBy, yearBefore, type CompoundCustomer, type Figure, type Priority, type SealingRow } from "./sealingRules";
 
 const TABLE = "apsomh_ap_sealing";
 let ready: Promise<void> | null = null;
@@ -86,14 +86,27 @@ export type SealingFilter = {
   /** first and last month, YYYY-MM */
   from: string;
   to: string;
-  bu?: string;
-  channel?: string;
+  /** the business units to keep - all when none */
+  bus?: string[];
+  /** the selling organisations to keep (the query's Channel) - all when none */
+  channels?: string[];
 };
 
+/** A month of the period: its figures, and the same month a year before (null: before the first month the figures hold). */
+export type SealingMonth = { month: string; rev: number; gp: number; prevRev: number | null; prevGp: number | null };
+
 export type SealingView = {
-  meta: { loadedAt: string | null; firstMonth: string | null; lastMonth: string | null; rows: number; bus: string[]; channels: string[] };
+  meta: {
+    loadedAt: string | null; firstMonth: string | null; lastMonth: string | null; rows: number; bus: string[]; channels: string[];
+    /** the morning delivery's file and sheet the figures were read from */
+    file: string | null; sheet: string | null;
+  };
   period: { from: string; to: string; prevFrom: string; prevTo: string };
-  totals: { rev: number; gp: number; margin: number; customers: number; articles: number; prev: { rev: number; gp: number; margin: number } };
+  totals: { rev: number; gp: number; margin: number; customers: number; articles: number; prev: { rev: number; gp: number; margin: number; customers: number } };
+  /** the period month by month */
+  months: SealingMonth[];
+  /** the period month by month and business unit */
+  buMonths: { month: string; bu: string; rev: number; gp: number }[];
   byBu: Figure[];
   byFamily: Figure[];
   compounds: Figure[];
@@ -107,16 +120,13 @@ export type SealingView = {
   priorities: Priority[];
 };
 
-/** The same months a year before. */
-const yearBefore = (m: string) => `${Number(m.slice(0, 4)) - 1}${m.slice(4)}`;
-
 type Raw = { key: string; name: string | null; rev: string; gp: string };
 
 function where(f: SealingFilter, from: string, to: string): { sql: string; vals: unknown[] } {
   const vals: unknown[] = [from, to];
   let sql = `month >= $1 AND month <= $2`;
-  if (f.bu) { vals.push(f.bu); sql += ` AND bu = $${vals.length}`; }
-  if (f.channel) { vals.push(f.channel); sql += ` AND channel = $${vals.length}`; }
+  if (f.bus?.length) { vals.push(f.bus); sql += ` AND bu = ANY($${vals.length})`; }
+  if (f.channels?.length) { vals.push(f.channels); sql += ` AND channel = ANY($${vals.length})`; }
   return { sql, vals };
 }
 
@@ -133,31 +143,45 @@ async function grouped(key: string, name: string, f: SealingFilter, from: string
   });
 }
 
-/** This period's figures with last year's beside them (`prev`), by key. */
+/** This period's figures with last year's beside them (`prev`, `prevGp`), by key. */
 function withPrev(now: Figure[], before: Figure[]): Figure[] {
-  const b = new Map(before.map((x) => [x.key, x.rev]));
-  return now.map((x) => ({ ...x, prev: b.get(x.key) ?? 0 }));
+  const b = new Map(before.map((x) => [x.key, x]));
+  return now.map((x) => ({ ...x, prev: b.get(x.key)?.rev ?? 0, prevGp: b.get(x.key)?.gp ?? 0 }));
+}
+
+/** The figures by month and business unit. */
+async function byMonth(f: SealingFilter, from: string, to: string): Promise<{ month: string; bu: string; rev: number; gp: number }[]> {
+  const w = where(f, from, to);
+  const r = await query<{ month: string; bu: string; rev: string; gp: string }>(
+    `SELECT month, bu, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} GROUP BY month, bu`, w.vals,
+  );
+  return r.rows.map((x) => ({ month: String(x.month).trim(), bu: x.bu, rev: Number(x.rev), gp: Number(x.gp) }));
 }
 
 export async function readSealing(f: SealingFilter): Promise<SealingView> {
   await ensureSealingTable();
   const prevFrom = yearBefore(f.from), prevTo = yearBefore(f.to);
-  const meta = (await query<{ loaded_at: Date | null; first_month: string | null; last_month: string | null; rows: number | null }>(
-    `SELECT loaded_at, first_month, last_month, rows FROM ${TABLE}_meta WHERE id = 1`,
+  const meta = (await query<{ loaded_at: Date | null; first_month: string | null; last_month: string | null; rows: number | null; file: string | null; sheet: string | null }>(
+    `SELECT loaded_at, first_month, last_month, rows, file, sheet FROM ${TABLE}_meta WHERE id = 1`,
   )).rows[0];
   const bus = (await query<{ bu: string }>(`SELECT DISTINCT bu FROM ${TABLE} WHERE bu <> '' ORDER BY bu`)).rows.map((r) => r.bu);
   const channels = (await query<{ channel: string }>(`SELECT DISTINCT channel FROM ${TABLE} WHERE channel <> '' ORDER BY channel`)).rows.map((r) => r.channel);
 
-  const [buNow, buBefore, compNow, compBefore, custNow, custBefore, artNow, artBefore, appr] = await Promise.all([
+  const [buNow, buBefore, compNow, compBefore, custNow, custBefore, artNow, artBefore, appr, monthsNow, monthsBefore] = await Promise.all([
     grouped("bu", "bu", f, f.from, f.to), grouped("bu", "bu", f, prevFrom, prevTo),
     grouped("compound", "compound", f, f.from, f.to), grouped("compound", "compound", f, prevFrom, prevTo),
     grouped("customer", "customer_name", f, f.from, f.to, 200), grouped("customer", "customer_name", f, prevFrom, prevTo),
     grouped("article", "article_text", f, f.from, f.to, 200), grouped("article", "article_text", f, prevFrom, prevTo),
     grouped("approval", "approval", f, f.from, f.to),
+    byMonth(f, f.from, f.to), byMonth(f, prevFrom, prevTo),
   ]);
   const w = where(f, f.from, f.to);
   const counts = (await query<{ customers: string; articles: string }>(
     `SELECT COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles FROM ${TABLE} WHERE ${w.sql}`, w.vals,
+  )).rows[0];
+  const wb = where(f, prevFrom, prevTo);
+  const countsBefore = (await query<{ customers: string }>(
+    `SELECT COUNT(DISTINCT customer) AS customers FROM ${TABLE} WHERE ${wb.sql}`, wb.vals,
   )).rows[0];
   // each article's compound, for the articles' list
   const artCompound = new Map((await query<{ article: string; compound: string }>(
@@ -179,18 +203,33 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   const familyBefore = sumBy(namedBefore, (c) => materialOf(c.name));
   const noAppr = appr.filter((a) => noApproval(a.name)).reduce((t, a) => t + a.rev, 0);
   const noComp = compNow.filter((c) => noCompound(c.name)).reduce((t, c) => t + c.rev, 0);
+  // the period month by month - a month a year before the figures' first month is not known, never a zero
+  const monthSum = (rows: { month: string; rev: number; gp: number }[]) => {
+    const m = new Map<string, { rev: number; gp: number }>();
+    for (const r of rows) { const x = m.get(r.month) ?? { rev: 0, gp: 0 }; x.rev += r.rev; x.gp += r.gp; m.set(r.month, x); }
+    return m;
+  };
+  const mNow = monthSum(monthsNow), mBefore = monthSum(monthsBefore);
+  const firstHeld = meta?.first_month ?? null;
+  const months = monthsBetween(f.from, f.to).map((month) => {
+    const py = yearBefore(month), known = !!firstHeld && py >= firstHeld;
+    return { month, rev: mNow.get(month)?.rev ?? 0, gp: mNow.get(month)?.gp ?? 0, prevRev: known ? mBefore.get(py)?.rev ?? 0 : null, prevGp: known ? mBefore.get(py)?.gp ?? 0 : null };
+  });
 
   return {
     meta: {
       loadedAt: meta?.loaded_at ? new Date(meta.loaded_at).toISOString() : null,
       firstMonth: meta?.first_month ?? null, lastMonth: meta?.last_month ?? null, rows: meta?.rows ?? 0, bus, channels,
+      file: meta?.file ?? null, sheet: meta?.sheet ?? null,
     },
     period: { from: f.from, to: f.to, prevFrom, prevTo },
     totals: {
       rev: now.rev, gp: now.gp, margin: now.rev ? now.gp / now.rev : 0,
       customers: Number(counts?.customers ?? 0), articles: Number(counts?.articles ?? 0),
-      prev: { rev: before.rev, gp: before.gp, margin: before.rev ? before.gp / before.rev : 0 },
+      prev: { rev: before.rev, gp: before.gp, margin: before.rev ? before.gp / before.rev : 0, customers: Number(countsBefore?.customers ?? 0) },
     },
+    months,
+    buMonths: monthsNow.sort((a, b) => a.month.localeCompare(b.month) || b.rev - a.rev),
     byBu: withPrev(buNow, buBefore),
     byFamily: withPrev(familyNow, familyBefore),
     compounds: withPrev(named, namedBefore),

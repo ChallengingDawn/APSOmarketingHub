@@ -8,6 +8,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 export default async function Layout({ children }: { children: React.ReactNode }) {
   const access = await myAccess();
   if (!access) redirect("/signin");
-  if (access.role !== "admin") redirect("/");
+  // and never a person of Angst+Pfister, a cross-admin included (access.ts crossClosed, SARCLA 10.11.2026)
+  if (access.role !== "admin" || access.cross !== null) redirect("/");
   return <>{children}</>;
 }

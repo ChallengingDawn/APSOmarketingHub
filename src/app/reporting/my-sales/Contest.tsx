@@ -38,7 +38,7 @@ type View = "eso" | "team" | "customers" | Missing;
 type Missing = "action" | "both";
 const VIEWS: { id: View; label: string }[] = [
   { id: "eso", label: "By ESO" }, { id: "team", label: "By team" }, { id: "customers", label: "Customers" },
-  { id: "action", label: "Only a sales action missing" }, { id: "both", label: "No sales action, no order intake" },
+  { id: "action", label: "Not qualified, sales action missing" }, { id: "both", label: "No sales action, no order intake" },
 ];
 const MISSING: Record<Missing, (c: ContestCompany) => boolean> = { action: onlyActionMissing, both: nothingYet };
 

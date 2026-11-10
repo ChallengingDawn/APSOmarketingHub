@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { INTERNAL, kindOf, nameWords, rankCandidates, withOrderCompanies } from "../src/lib/ticketAssoc/shopAccountRules";
+import { INTERNAL, industryOf, kindOf, nameWords, rankCandidates, shopNumberOf, storeOf, withOrderCompanies } from "../src/lib/ticketAssoc/shopAccountRules";
 
 test("a shop account's kind: a company on its domain, a business address, a free address", () => {
   assert.equal(kindOf("cern.ch", true), "match");
@@ -29,4 +29,23 @@ test("the company their orders are booked on comes first, then the domain's, eac
   const ord = [{ id: "2", name: "Sika Technology AG", country: "", orders: 1 }, { id: "9", name: "Sika Services AG", country: "", orders: 4 }];
   assert.deepEqual(withOrderCompanies(ord, dom).map((c) => [c.id, c.orders ?? 0]), [["9", 4], ["2", 1], ["1", 0]]);
   assert.deepEqual(withOrderCompanies([], dom).map((c) => c.id), ["1", "2"]);
+});
+
+test("orders first, then the company of the shop account's customer number, then the domain's - each once, with why", () => {
+  const dom = [{ id: "1", name: "Sika Schweiz AG", country: "" }, { id: "7", name: "Sika Services AG", country: "" }];
+  const ord = [{ id: "9", name: "Sika Technology AG", country: "", orders: 2 }];
+  const num = [{ id: "7", name: "Sika Services AG", country: "" }];
+  assert.deepEqual(withOrderCompanies(ord, dom, num).map((c) => [c.id, c.why]), [["9", "orders"], ["7", "number"], ["1", "domain"]]);
+  assert.deepEqual(withOrderCompanies([], dom, []).map((c) => c.why), ["domain", "domain"]);
+});
+
+test("the shop's record read as people say it: the store, the industry, the customer number", () => {
+  assert.equal(storeOf("Germany EUR DE Store View"), "Germany EUR DE");
+  assert.equal(storeOf(""), null);
+  assert.equal(industryOf("keine Branche"), null);
+  assert.equal(industryOf("Aucune branche"), null);
+  assert.equal(industryOf("nautica"), "nautica");
+  assert.equal(shopNumberOf(" 715700 "), "715700");
+  assert.equal(shopNumberOf("NO ERP ID (LEAD)"), null);
+  assert.equal(shopNumberOf(null), null);
 });
