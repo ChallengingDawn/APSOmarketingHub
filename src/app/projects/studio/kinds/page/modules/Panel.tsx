@@ -12,6 +12,10 @@
 //
 // Every change is drawn at once into the module's change (./useModules.ts), so the preview shows it; while it fills, its
 // skeleton in the page says so (point 6: "added a module didn't appear").
+//
+// Content v8 (SARCLA 10.11.2026, point 4: "a module should be counted as a block - a normal block with editing options
+// there"): the panel is the module's SETTINGS POPUP, beside it in the page (`pop`), as every block's settings are - the
+// Build pane keeps only the list of blocks. Its texts are changed by a click on them in the page.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -38,6 +42,7 @@ import { Field, Label, PINK, btn, field, mainBtn } from "../../../parts";
 import { PictureDialog } from "../../../pictures";
 import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
+import { PopCard } from "../pops";
 import type { ModulesCtl } from "./useModules";
 
 type Way = "category" | "bought" | "viewed" | "numbers" | "ai";
@@ -49,10 +54,12 @@ const GREEN = "#1e7d4f";
 const AMBER = "#a96a12";
 const FILLING = "Filling it from the shop…";
 
-export function ModulePanel({ ctl, api, onBack, pageCategory }: {
+export function ModulePanel({ ctl, api, onBack, pageCategory, pop }: {
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
   /** the page itself, when it is a category page of the shop - what "Most viewed / bought" and the AI look in first */
   pageCategory: { name: string; url: string } | null;
+  /** Content v8: the settings popup beside the module in the page - its number in the list ("Block 3") */
+  pop?: { num: number } | null;
 }) {
   const cur = ctl.current();
   const [m, setM] = useState<ModuleRef | null>(cur?.module ?? null);
@@ -127,7 +134,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   const html = useMemo(() => (m ? renderModule(m) : ""), [m]);
   if (!m || !s || !k) {
     return (
-      <PanelFrame onBack={onBack} title="Module" kicker="">
+      <PanelFrame onBack={onBack} title="Module" kicker="" pop={pop}>
         <Hint mt={0}>This module is no longer on the page (an Undo took it out).</Hint>
       </PanelFrame>
     );
@@ -272,7 +279,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   const siblings = modulesIn(k.category).filter((d) => d.id !== k.id && d.takes === k.takes && (k.takes !== "categories" || d.kids === k.kids));
 
   return (
-    <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"}
+    <PanelFrame onBack={() => { flush(); onBack(); }} title={k.name} kicker={categoryOf(k.category)?.name ?? "Module"} pop={pop}
       right={ctl.canEdit ? <Tooltip title={cur?.replace ? "Take the module out - the page's element shows again" : "Take the module out of the page"}><IconButton size="small" onClick={() => { flush(); ctl.remove(); }}><DeleteOutlineIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip> : null}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
         {busy ? <CircularProgress size={12} sx={{ color: PINK, mt: 0.4, flexShrink: 0 }} /> : <Box sx={{ width: 8, height: 8, mt: 0.65, borderRadius: "2px", bgcolor: status.tone, flexShrink: 0 }} />}
@@ -458,7 +465,14 @@ function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
 
 /* ── the pieces ────────────────────────────────────────────────────────── */
 
-function PanelFrame({ onBack, title, kicker, right, children }: { onBack: () => void; title: string; kicker: string; right?: React.ReactNode; children: React.ReactNode }) {
+function PanelFrame({ onBack, title, kicker, right, children, pop }: { onBack: () => void; title: string; kicker: string; right?: React.ReactNode; children: React.ReactNode; pop?: { num: number } | null }) {
+  if (pop) {
+    return (
+      <PopCard kicker={`Block ${pop.num} · module${kicker ? ` · ${kicker}` : ""}`} title={title} onClose={onBack} right={right} maxBody="min(66vh, 640px)">
+        {children}
+      </PopCard>
+    );
+  }
   return (
     <Box sx={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", borderRadius: "18px", overflow: "hidden", bgcolor: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)", boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.75, borderBottom: `1px solid ${HAIRLINE}` }}>

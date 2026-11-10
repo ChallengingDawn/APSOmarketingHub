@@ -18,6 +18,7 @@ import { HAIRLINE } from "@/app/uc/report/ui";
 import { leftoversIn } from "@/lib/content/studio/kinds/page/model";
 import { lookOf, type Look } from "@/lib/content/studio/kinds/page/readable";
 import { headKey, sectionLevels, type Located } from "@/lib/content/studio/kinds/page/shopParts";
+import type { FoundBlock } from "@/lib/content/studio/kinds/page/blocklist";
 import { drawPending, flashEl, shownWhy, stepElement, type Flash, type Pending } from "./plan/overlay";
 
 export type Device = "desktop" | "mobile";
@@ -42,6 +43,9 @@ export type Picked = {
   look?: Look;
   /** a word or a line selected (inline): the block it stands in - what a replace takes the place of */
   box?: { selector: string; outer: string; tag: string; look: Look } | null;
+  /** Content v8: a page of the shop - the content block it is in (the Build list's row): its selector, or the change
+   * that put it there */
+  inBlock?: { selector: string; change: number | null; changeId?: string } | null;
 };
 
 /** A place between two elements of a page of the shop, where the "+" adds one (Content v6, SARCLA point 9: "we should
@@ -86,6 +90,16 @@ export type SelectOpts = {
   pending?: Pending[];
   flash?: Flash | null;
   onShown?: (f: { key?: string; index?: number }, why: string) => void;
+  /** Content v8 (SARCLA 10.11.2026, points 1-4): a page of the shop's content blocks as the frame finds them, top to
+   * bottom - the Build pane's list of blocks */
+  onBlocks?: (list: FoundBlock[]) => void;
+  /** a row of the list clicked: its block found here ("p:<selector>", "c:<change index>", "mod:<change id>"), selected and
+   * scrolled to (once per ask) */
+  seekRow?: { nonce: number; key: string } | null;
+  /** the block the selection is in, outlined quietly (its key as the page selects it) */
+  selectedBlock?: string | null;
+  /** a double-click started editing words in place (the text popup gives way) */
+  onEditStart?: () => void;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -135,6 +149,7 @@ function sectionBlock(d: Document, heading: string): Element | null {
 
 const SELECT_CSS = `[data-apx-hover]{outline:2px solid rgba(36,89,209,.9)!important;outline-offset:2px!important;cursor:pointer!important}
 [data-apx-sel]{outline:2px solid #c22c6e!important;outline-offset:2px!important}
+[data-apx-selblock]:not([data-apx-sel]){outline:1px dashed rgba(194,44,110,.55)!important;outline-offset:-1px!important}
 [data-apx-editing]{outline:2px solid #c22c6e!important;outline-offset:4px!important;cursor:text!important;background:rgba(194,44,110,.05)!important;-webkit-user-modify:read-write}
 a,button,summary,label,[role=button],[data-apx-f],[data-apx-b]{pointer-events:auto!important}
 mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}
@@ -159,6 +174,46 @@ export function contentBlocks(d: Document): Element[] {
   return kids;
 }
 const isOurs = (el: Element) => el.hasAttribute("data-apx-c") || el.hasAttribute("data-apso-v");
+
+/** The content blocks as the Build list shows them (Content v8): what shows, what a change hid (listed, "hidden"), and a
+ * module drawn while it fills (the studio's <apx-pend>, looked into) - none of the studio's own marks. */
+function listBlocks(d: Document): Element[] {
+  const win = d.defaultView;
+  if (!win) return [];
+  const hiddenByChange = (el: Element) => el.hasAttribute("data-apx-x") && win.getComputedStyle(el).display === "none" && !el.hasAttribute("data-apx-hid");
+  const shown = (el: Element) => {
+    if (SKIP_TAGS.test(el.tagName) || el.hasAttribute("data-apx-addel") || el.hasAttribute("data-apx-hid")) return false;
+    if (el.tagName === "APX-PEND") return !!el.firstElementChild;
+    if (hiddenByChange(el)) return true;
+    return win.getComputedStyle(el).display !== "none" && el.getBoundingClientRect().height >= 24;
+  };
+  let root: Element | null = d.querySelector("#maincontent .column.main") ?? d.getElementById("maincontent");
+  if (!root) return [];
+  let kids = Array.from(root.children).filter(shown);
+  for (let n = 0; kids.length === 1 && !isOurs(kids[0]) && kids[0].tagName !== "APX-PEND" && n < 8; n++) { root = kids[0]; kids = Array.from(root.children).filter(shown); }
+  return kids;
+}
+
+const PB_SKIP = /^(row|column-group|column|column-line|text|html|heading|divider|buttons|button-item|slide|block)$/;
+/** One block of the list, described for the Build pane (lib/content/studio/kinds/page/blocklist.ts shopRows). */
+function foundOf(el: Element, win: Window & typeof globalThis): FoundBlock {
+  const pend = el.tagName === "APX-PEND" ? (el.getAttribute("data-apx-pend") ?? "") : "";
+  const top = pend ? el.firstElementChild ?? el : el;
+  const change = top.hasAttribute("data-apx-c") ? Number(top.getAttribute("data-apx-c")) : null;
+  const h = top.querySelector("h1,h2,h3,h4");
+  const text = ((top as HTMLElement).innerText || top.textContent || "").replace(/\s+/g, " ").trim();
+  const heading = h ? ((h as HTMLElement).innerText || h.textContent || "").replace(/\s+/g, " ").trim() : "";
+  const pb = [top, ...top.querySelectorAll("[data-content-type]")].map((x) => x.getAttribute("data-content-type") ?? "").find((t) => t && !PB_SKIP.test(t)) ?? "";
+  const touched = new Set<number>();
+  for (const x of [top, ...top.querySelectorAll("[data-apx-x]")]) for (const n of (x.getAttribute("data-apx-x") ?? "").split(/\s+/)) if (n && Number.isInteger(Number(n))) touched.add(Number(n));
+  const pictures = top.querySelectorAll("img:not(.pagebuilder-mobile-only)").length + top.querySelectorAll("[data-background-images]").length;
+  return {
+    selector: change !== null || pend ? "" : selectorOf(top), tag: top.tagName.toLowerCase(), heading: heading.slice(0, 120),
+    text: (heading && text.startsWith(heading) ? text.slice(heading.length) : text).trim().slice(0, 160), pictures, pb,
+    change: Number.isInteger(change) ? change : null, ...(pend.startsWith("mod:") ? { changeId: pend.slice(4) } : {}),
+    touched: [...touched], hidden: win.getComputedStyle(top).display === "none",
+  };
+}
 const shortText = (el: Element | null) => ((el as HTMLElement | null)?.innerText ?? el?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 140);
 const nameOf = (el: Element | null) => { if (!el) return ""; const h = el.querySelector("h1,h2,h3,h4"); const t = shortText(h ?? el); return t.length > 40 ? `${t.slice(0, 38)}…` : t; };
 /** A photo of the page near a place (the shop's own, a real size) - for a "Text and picture" block. */
@@ -205,6 +260,20 @@ export function hubAbsolute(html: string): string {
 const SINGLE_LINE = new Set(["H1", "H2", "H3", "H4", "H5", "H6", "A", "BUTTON", "SUMMARY", "SPAN", "LI", "LABEL", "TD", "TH", "DT", "B", "STRONG", "SMALL"]);
 const INLINE = new Set(["B", "STRONG", "EM", "I", "U", "SMALL", "SUP", "SUB", "BR", "FONT", "MARK", "ABBR", "CODE"]);
 const SVG = new Set(["svg", "path", "use", "g", "circle", "rect", "line", "polyline", "polygon"]);
+const TEXTISH = /^(H[1-6]|P|A|SPAN|LI|BUTTON|SUMMARY|SMALL|STRONG|B|EM|I|LABEL|FIGCAPTION|DT|DD|TD|TH|BLOCKQUOTE)$/;
+
+/** The text a click inside a module hit: the nearest element of words (a heading, a paragraph, a button) under `root` -
+ * its bold or small words widened to the line they stand in; null on a picture or the module's ground. */
+function textIn(el: Element, root: Element): Element | null {
+  let cur: Element | null = el;
+  while (cur && cur !== root && SVG.has(cur.tagName.toLowerCase())) cur = cur.parentElement;
+  while (cur && cur !== root && INLINE.has(cur.tagName) && cur.parentElement && cur.parentElement !== root && TEXTISH.test(cur.parentElement.tagName)) cur = cur.parentElement;
+  for (; cur && cur !== root; cur = cur.parentElement) {
+    if (cur.querySelector("img,picture,video")) return null;
+    if (TEXTISH.test(cur.tagName) && ((cur as HTMLElement).innerText ?? cur.textContent ?? "").trim()) return cur;
+  }
+  return null;
+}
 
 /** A selector the page's own elements are found by - ids first, then classes, then their place (as APSOconvert's). */
 export function selectorOf(el: Element): string {
@@ -284,7 +353,7 @@ function markLeftovers(root: Element | null) {
   }
 }
 
-export function Frame({ html, device, title, maxWidth, select, patch, toolbar, fit = true }: {
+export function Frame({ html, device, title, maxWidth, select, patch, toolbar, fit = true, popup }: {
   html: string; device: Device; title: string; maxWidth?: number;
   /** false = the page at its real size (100%), scrolled sideways; true = zoomed to fit the space */
   fit?: boolean;
@@ -293,6 +362,9 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
   patch?: string;
   /** shown over the selected element */
   toolbar?: React.ReactNode;
+  /** Content v8: a popup at the selection - a text's or a picture's editor under it ("below"), a block's settings at its
+   * top right ("side"); with nothing selected in the page, at the page's top right */
+  popup?: { node: React.ReactNode; at: "below" | "side"; width?: number; id?: string } | null;
 }) {
   const box = useRef<HTMLDivElement | null>(null);
   const deviceBox = useRef<HTMLDivElement | null>(null);
@@ -336,7 +408,12 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     let el = t as Element | null;
     if (!el || el.nodeType !== 1) el = (t as Node | null)?.parentElement ?? null;
     if (!el) return null;
-    if (sel.current?.mode === "field") return el.closest("[data-apx-f]") ?? el.closest("[data-apx-insert]") ?? el.closest("[data-apx-b]");
+    if (sel.current?.mode === "field") {
+      // a new page's module (Content v8, point 4): a click on one of its texts selects that text, elsewhere the module
+      const mod = el.closest("[data-apx-mod]");
+      if (mod) return textIn(el, mod) ?? mod;
+      return el.closest("[data-apx-f]") ?? el.closest("[data-apx-insert]") ?? el.closest("[data-apx-b]");
+    }
     const ins = el.closest("[data-apx-insert]");
     if (ins) return ins;
     while (el && SVG.has(el.tagName.toLowerCase()) && el.parentElement) el = el.parentElement;
@@ -346,11 +423,23 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
   };
 
   const pickedOf = (el: Element): Picked => {
+    // a text inside a new page's module: "nt:<module id>:<the way down to it>"
+    const inMod = sel.current?.mode === "field" && !el.hasAttribute("data-apx-mod") ? el.closest("[data-apx-mod]") : null;
+    if (inMod) {
+      const text = ((el as HTMLElement).innerText ?? el.textContent ?? "").replace(/ /g, " ").trim();
+      const clean = cleanCopy(el);
+      return {
+        key: `nt:${inMod.getAttribute("data-apx-mod")}:${pathFrom(inMod, el).join(".")}`, selector: "", tag: el.tagName.toLowerCase(), text: text.slice(0, 4000),
+        inner: clean.innerHTML.slice(0, 20_000), outer: clean.outerHTML.slice(0, 20_000), frag: null, host: null, editable: !!text && !el.querySelector("img,video,iframe,table"),
+        href: el.closest("a")?.getAttribute("href") ?? undefined,
+      };
+    }
     const f = el.getAttribute("data-apx-f");
     const b = el.getAttribute("data-apx-b");
     const ins = el.getAttribute("data-apx-insert");
-    const selector = f || b || ins ? "" : selectorOf(el);
-    const key = f ? `f:${f}` : ins ? `i:${ins}` : b ? `b:${b}` : `e:${selector}`;
+    const mod = el.getAttribute("data-apx-mod");
+    const selector = f || b || ins || mod ? "" : selectorOf(el);
+    const key = f ? `f:${f}` : ins ? `i:${ins}` : mod ? `np:${mod}` : b ? `b:${b}` : `e:${selector}`;
     const clean = cleanCopy(el);
     const top = el.closest("[data-apx-c]");
     const hostEl = el.closest("[data-apx-x]");
@@ -367,7 +456,19 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       editable: !isImg && !ins && !b && !!text && !el.querySelector("img,video,iframe,table") && !(f && /picture$|\.button$|^links\./.test(f) && !f.endsWith(".label")),
       section: sel.current?.mode === "element" && !ins ? sectionOf(el) : undefined,
       ...(sel.current?.mode === "element" && !ins ? lookAndBox(el) : {}),
+      inBlock: sel.current?.mode === "element" && !ins ? blockAround(el) : null,
     };
+  };
+
+  /** a page of the shop: the content block an element is in - the row of the Build list it belongs to */
+  const blockAround = (el: Element): Picked["inBlock"] => {
+    const blocks = listBlocks(el.ownerDocument);
+    const b = blocks.find((x) => x === el || x.contains(el));
+    if (!b) return null;
+    const top = b.tagName === "APX-PEND" ? b.firstElementChild ?? b : b;
+    const pend = b.getAttribute("data-apx-pend") ?? "";
+    const c = top.hasAttribute("data-apx-c") ? Number(top.getAttribute("data-apx-c")) : null;
+    return { selector: c !== null || pend ? "" : selectorOf(top), change: c !== null && Number.isInteger(c) ? c : null, ...(pend.startsWith("mod:") ? { changeId: pend.slice(4) } : {}) };
   };
 
   /** an element of a page of the shop: how it looks, and - a word or a line - the block it stands in (what a replace
@@ -442,6 +543,13 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       // a list part opened in the outline ("b:sections"): its first item when it has items
       if (key.startsWith("b:")) return d.querySelector(`[data-apx-b="${CSS.escape(v)}"]`) ?? (v.includes(".") ? null : d.querySelector(`[data-apx-b^="${CSS.escape(v)}."]`));
       if (key.startsWith("i:")) return d.querySelector(`[data-apx-insert="${CSS.escape(v)}"]`);
+      if (key.startsWith("np:")) return d.querySelector(`[data-apx-mod="${CSS.escape(key.slice(3))}"]`);
+      if (key.startsWith("nt:")) {
+        const [, id, way = ""] = key.split(":");
+        let cur: Element | null = d.querySelector(`[data-apx-mod="${CSS.escape(id)}"]`);
+        for (const i of way.split(".").filter(Boolean).map(Number)) cur = cur?.children[i] ?? null;
+        return cur;
+      }
       return v ? d.querySelector(v) : null;
     } catch { return null; }
   };
@@ -450,6 +558,9 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     const d = docOf();
     if (!d?.body) return;
     d.querySelectorAll("[data-apx-sel]").forEach((x) => x.removeAttribute("data-apx-sel"));
+    d.querySelectorAll("[data-apx-selblock]").forEach((x) => x.removeAttribute("data-apx-selblock"));
+    const blockKey = sel.current?.selectedBlock ?? null;
+    if (blockKey && blockKey !== sel.current?.selected) { const be = findSelected(d, blockKey); be?.setAttribute("data-apx-selblock", ""); }
     const el = findSelected(d, sel.current?.selected ?? null);
     if (!el) { setSelRect(null); return; }
     el.setAttribute("data-apx-sel", "");
@@ -477,8 +588,25 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     markSelected();
     measure();
     drawAdds(d);
+    reportBlocks(d);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markSelected, measure]);
+
+  /** the content blocks for the Build list (Content v8), told when they change */
+  const blocksSent = useRef("");
+  const reportBlocks = (d: Document) => {
+    const s = sel.current;
+    if (!s?.onBlocks || s.mode !== "element" || editing.current) return;
+    const win = d.defaultView as (Window & typeof globalThis) | null;
+    if (!win) return;
+    try {
+      const list = listBlocks(d).map((el) => foundOf(el, win));
+      const sig = JSON.stringify(list);
+      if (sig === blocksSent.current) return;
+      blocksSent.current = sig;
+      s.onBlocks(list);
+    } catch { /* the list stays as it was */ }
+  };
 
   /** the plan's steps in the page (Content v7): a place not found is said */
   const paintPending = (d: Document) => {
@@ -608,6 +736,7 @@ ${SELECT_CSS}`;
         if (!c) return;
         e.preventDefault();
         startEdit(c);
+        if (editing.current) s.onEditStart?.();
       }, true);
       d.addEventListener("keydown", (e) => {
         if (!editing.current) return;
@@ -674,7 +803,7 @@ ${SELECT_CSS}`;
   useEffect(() => {
     const d = docOf();
     if (!d?.body) return;
-    paintPending(d); measure(); drawAdds(d);
+    paintPending(d); measure(); drawAdds(d); reportBlocks(d);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendKey, loaded]);
   // a step applied: scrolled to and lit - and if it does not show, said (once per ask, once its page is in the frame)
@@ -699,7 +828,7 @@ ${SELECT_CSS}`;
     if (d?.body) { showOld(d); drawAdds(d); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [oldKey, addsOn]);
-  useEffect(() => { markSelected(); }, [select?.selected, markSelected, device, avail]);
+  useEffect(() => { markSelected(); }, [select?.selected, select?.selectedBlock, markSelected, device, avail]);
   useEffect(() => {
     if (!select?.editNonce) return;
     const d = docOf();
@@ -752,6 +881,46 @@ ${SELECT_CSS}`;
     setTimeout(() => revealEl(el), 90);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select?.seek?.nonce, loaded]);
+  // a row of the Build list clicked (Content v8): its block found, selected, scrolled to (once per ask)
+  const soughtRow = useRef(0);
+  useEffect(() => {
+    const sk = select?.seekRow;
+    if (!sk?.nonce || soughtRow.current === sk.nonce) return;
+    const d = docOf();
+    if (!d?.body) return;
+    const k = sk.key;
+    let el: Element | null = null;
+    try {
+      if (k.startsWith("p:")) el = Array.from(d.querySelectorAll(k.slice(2))).find((x) => !x.closest("[data-apso-v],[data-apx-pend]")) ?? null;
+      else if (k.startsWith("c:")) el = Array.from(d.querySelectorAll(`[data-apx-c="${CSS.escape(k.slice(2))}"]`)).find((x) => x.tagName !== "STYLE") ?? null;
+      else if (k.startsWith("mod:")) el = d.querySelector(`[data-apx-pend="${CSS.escape(k)}"]`)?.firstElementChild ?? null;
+    } catch { el = null; }
+    if (!el) return;
+    soughtRow.current = sk.nonce;
+    sel.current?.onPick(pickedOf(el));
+    setTimeout(() => revealEl(el), 90);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.seekRow?.nonce, loaded]);
+
+  // a popup opened: the stage scrolls so that it is in view, whole when it fits (Content v8)
+  const popBox = useRef<HTMLDivElement | null>(null);
+  const popId = popup ? popup.id ?? "pop" : "";
+  useEffect(() => {
+    if (!popId) return;
+    const t = setTimeout(() => {
+      const el = popBox.current;
+      const host = box.current?.closest("[data-stage-scroll]") as HTMLElement | null;
+      if (!el || !host) return;
+      const r = el.getBoundingClientRect();
+      const h = host.getBoundingClientRect();
+      const tb = 52;
+      if (r.bottom > h.bottom - 12) host.scrollBy({ top: Math.min(r.bottom - h.bottom + 16, r.top - h.top - tb), behavior: "smooth" });
+      else if (r.top < h.top + 8) host.scrollBy({ top: r.top - h.top - tb, behavior: "smooth" });
+    }, 120);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popId]);
+
   // the bar over the selection stays inside the stage, whatever it holds (a picture's four actions are wider)
   const tbBox = useRef<HTMLDivElement | null>(null);
   const [tbW, setTbW] = useState(340);
@@ -780,6 +949,20 @@ ${SELECT_CSS}`;
       {toolbar && selRect && select?.selected && (
         <Box ref={tbBox} sx={{ position: "absolute", left: Math.max(0, fit ? Math.min(tbLeft, (box.current?.clientWidth ?? 800) - tbW - 4) : tbLeft), top: Math.max(0, tbTop), zIndex: 3, whiteSpace: "nowrap" }}>{toolbar}</Box>
       )}
+      {popup && (() => {
+        const pw = popup.width ?? 380;
+        const avail = box.current?.clientWidth ?? 800;
+        const devLeft = dev ? dev.offsetLeft + border : 0;
+        const devTop = dev ? dev.offsetTop + border : 0;
+        let left: number;
+        let top: number;
+        if (selRect && select?.selected) {
+          if (popup.at === "below") { left = devLeft + selRect.x * zoom; top = devTop + (selRect.y + selRect.h) * zoom + 10; }
+          else { left = devLeft + (selRect.x + selRect.w) * zoom - pw - 12; top = devTop + selRect.y * zoom + 12; }
+        } else { left = devLeft + w * zoom - pw - 12; top = devTop + 12; }
+        left = Math.max(4, Math.min(left, avail - pw - 4));
+        return <Box ref={popBox} data-apx-popup sx={{ position: "absolute", left, top: Math.max(0, top), width: pw, maxWidth: "calc(100% - 8px)", zIndex: 4 }}>{popup.node}</Box>;
+      })()}
     </Box>
   );
 }

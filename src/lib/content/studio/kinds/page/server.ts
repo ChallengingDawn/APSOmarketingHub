@@ -390,6 +390,43 @@ Write this one field's new words only.${s(input.request, 1500) ? `\nTHE PERSON A
   },
 };
 
+/* ── words: one text of the page written again (Content v8) ───────────── */
+//
+// SARCLA 10.11.2026 (point 2): the text editor popup at a text in the page, with "Ask AI for this text". A page of the
+// shop's text, a module's text: those words only, written again as asked - the studio puts them where the text is (a
+// change of the page, or the module's setting), never a new block. A new page's field has its own task (fill_field).
+
+const words: AiTask = {
+  label: "Write this text again",
+  maxTokens: 1500,
+  effort: "low",
+  schema: { type: "object", additionalProperties: false, required: ["text"], properties: { text: { type: "string", description: "The text's new words, plain, in the page's language" } } },
+  system: `You write ONE text of a page of the shop again, as the person asks: its words only - plain text, no HTML, no
+markdown, no quotes around it, no note. The same language as the text, the same role on the page (a heading stays a
+short heading, a button's words stay a few words, a paragraph stays a paragraph). Keep product names, norms, material
+codes and figures exactly as they are.
+
+${SHOP}
+
+${RULES}`,
+  user: (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
+    const tag = s(input.tag, 12).toLowerCase();
+    const role = /^h1$/.test(tag) ? "the page's main heading (H1)" : /^h[2-6]$/.test(tag) ? "a heading" : /^(a|button)$/.test(tag) ? "a link's or a button's words" : /^li$/.test(tag) ? "a line of a list" : "a text";
+    return `${context(ctx, d)}
+
+PAGE: ${d.source === "new" ? `a new page for ${d.store}` : shopUrl(d.env, d.path)} (language: ${langOf(d)})
+${s(input.block, 120) ? `IN THE BLOCK: ${s(input.block, 120)}\n` : ""}THE TEXT (${role}, <${tag || "p"}>):
+${s(input.text, 3000) || "(empty)"}
+
+THE PERSON ASKS: ${s(input.request, 1500) || "Write it again: clearer and more useful for a buyer."}`;
+  },
+  clean: (raw) => {
+    const text = s((raw as { text?: unknown })?.text, 3000).replace(/^["“„'«]+|["”“'»]+$/g, "").trim();
+    return { text, leftovers: leftoversIn(text) };
+  },
+};
+
 /* ── translate: the whole page into another language ──────────────────── */
 
 const TRANSLATE_SCHEMA = {
@@ -970,6 +1007,8 @@ export const pageKind: KindDef = {
     fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
+    // Content v8: the text popup's "Ask AI for this text" on a page of the shop's text or a module's
+    words,
     // the module gallery's "Fill with AI" (Content v6): the page as the AI sees it, then the candidates - ./modules/ai.ts
     module_fill: moduleFillTask((ctx, raw, input) => { const d = viewFor(ctx, raw, input); return `${context(ctx, d)}
 

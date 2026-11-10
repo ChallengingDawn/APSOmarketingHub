@@ -255,7 +255,7 @@ function SelBar({ label, canWords, onWords, onAi, onClose, pic }: { label: strin
 
 /* ── the stage ────────────────────────────────────────────────────────── */
 
-export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip, plan }: {
+export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onView, preview, selected, picked, onPick, onEdit, editNonce, reveal, onEditWords, onAskAi, inserts, shell, onFix, empty, children, fold, writing, working, workingLabel, onMap, seek, selLabel, picActs, onAct, adds, onAddEl, oldShown, strip, plan, bar, popup, blocks }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; lang: string; onLang: (l: string) => void; view: View; onView: (v: View) => void;
   /** every store view of the shop, by language; for a page of the shop, whether it is there */
   groups: StoreGroup[]; presence: Record<string, Presence>;
@@ -293,6 +293,13 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   strip?: React.ReactNode;
   /** Content v7: the AI plan's steps drawn in the page at once, one lit, whether it shows (./plan/overlay.ts) */
   plan?: Pick<SelectOpts, "pending" | "flash" | "onShown">;
+  /** Content v8 (SARCLA 10.11.2026, points 1-4): the bar over the selection, made by the studio (the block it is in, its
+   * settings, the AI) - in place of the default one */
+  bar?: React.ReactNode;
+  /** a popup at the selection: a text's or a picture's editor, a block's settings (./pops.tsx) */
+  popup?: { node: React.ReactNode; at: "below" | "side"; width?: number; id?: string } | null;
+  /** the Build list's ways into the page: the blocks found, a row to find, the block around the selection, a double-click */
+  blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart">;
 }) {
   const [device, setDevice] = useState<Device>("desktop");
   const [zoom, setZoom] = useState<"fit" | "full">("fit");
@@ -318,13 +325,13 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   const selectOpts = {
     mode: (isNew ? "field" : "element") as "field" | "element",
     selected, onPick, onEdit, editNonce, reveal, onMap, seek, onAct, onAdd: adds?.onAdd, onAddItem: adds?.onAddItem,
-    onAddEl: working ? undefined : onAddEl, oldShown, ...(plan ?? {}),
+    onAddEl: working ? undefined : onAddEl, oldShown, ...(plan ?? {}), ...(blocks ?? {}),
   };
   // a whole block says its number and name ("4 · Proof tiles" - the studio's selLabel), a field its own ("Tile 2 · title")
   const label = !selected ? "" : selLabel ? selLabel : selected.startsWith("f:") || selected.startsWith("b:") ? fieldLabel(d.fields, selected.slice(2)).replace(/^\w/, (c) => c.toUpperCase())
     : selected.startsWith("i:") ? "Banner" : picked ? `<${picked.tag}>${picked.text ? ` ${picked.text.slice(0, 28)}` : ""}` : "";
   const canWords = !!selected && (selected.startsWith("f:") ? !/picture$|\.button$|^f:links\./.test(selected) || selected.endsWith(".label") : !!picked?.editable);
-  const toolbar = selected ? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} pic={picActs} /> : undefined;
+  const toolbar = selected ? bar ?? <SelBar label={label} canWords={canWords} onWords={onEditWords} onAi={onAskAi} onClose={() => onPick(null)} pic={picActs} /> : undefined;
 
   const frameOf = (side: Side, h: Held, b: boolean, tag?: string) => {
     const out = h?.out;
@@ -341,7 +348,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
         {out?.ok && (
           <Box sx={{ position: "relative", opacity: b ? 0.6 : 1, transition: "opacity .2s" }}>
             <Frame html={out.html} device={device} title={side === "before" ? "The page as it is" : "The page with its changes"}
-              select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} />
+              select={side === "after" ? selectOpts : undefined} toolbar={side === "after" ? toolbar : undefined} fit={fit || want.length === 2} popup={side === "after" ? popup : undefined} />
             {side === "after" && working && <Working since={working} label={workingLabel} />}
           </Box>
         )}
@@ -408,16 +415,16 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
               </Box>
             )}
             <Typography sx={{ fontSize: "0.74rem", color: MUTED, textAlign: "center", mb: 1.25 }}>
-              {viewName(d.store)}{isNew ? " · a new page" : ""} · click an element to select it, double-click to edit its words
+              {viewName(d.store)}{isNew ? " · a new page" : ""} · click a text or a picture to change it, a block for its settings
             </Typography>
             {isNew ? (
               !shell ? <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Opening the store&apos;s page…</Box>
                 : !shell.ok ? (
                   <Box sx={{ maxWidth: 520, mx: "auto", my: 4 }}>
                     <Typography sx={{ fontSize: "0.82rem", color: AMBER, textAlign: "center", mb: 1.5 }}>{shell.error} The page shows without the shop around it.</Typography>
-                    <Frame html={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:Jost,Arial,sans-serif"><div id="apx-root"></div></body></html>`} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} />
+                    <Frame html={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:Jost,Arial,sans-serif"><div id="apx-root"></div></body></html>`} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} popup={popup} />
                   </Box>
-                ) : <Frame html={shell.html} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} />
+                ) : <Frame html={shell.html} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} popup={popup} />
             ) : want.length === 2 ? (
               <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 2, alignItems: "start" }}>
                 {frameOf("before", held.before, busy.before, "Before")}

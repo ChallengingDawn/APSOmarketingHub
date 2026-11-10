@@ -253,7 +253,7 @@ test("a new page keeps its modules, each after a block; a module still lacking s
   assert.equal((magento.match(/data-apx-module="row"/g) ?? []).length, 1, "the empty row is not in Magento's copy");
   // Content v7 (point 6): never nothing - its skeleton, in its own shape, with the reason
   assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><div class="apx-mempty" data-apx-module="row" data-apx-wait="1">/);
-  assert.ok(preview.includes("Product row<small>Fill it with products first - on the left.</small>"), "the reason in plain words");
+  assert.ok(preview.includes("Product row<small>Fill it with products first - in its settings (click it).</small>"), "the reason in plain words");
   assert.ok(magento.lastIndexOf('data-apx-module="usp"') > magento.indexOf('data-apx-module="row"'));
   assert.doesNotMatch(magento, /data-apx-mod=/, "the studio's marks stay out of Magento");
   assert.deepEqual(blockOrder(f), ["hero", "intro"], "the blocks' order is the blocks'");

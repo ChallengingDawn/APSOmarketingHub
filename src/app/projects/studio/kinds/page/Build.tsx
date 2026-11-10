@@ -11,6 +11,11 @@
 //   last step  pinned at the bottom: "To Magento" - each store view written into ACC and/or production through
 //              Magento's API (./Publish.tsx; SARCLA 09.11.2026), the hand-over for what is not a CMS page - or, for a
 //              test's winner, "Publish" (./Winner.tsx), the winner's card first in the outline
+//
+// Content v8 (SARCLA 10.11.2026: "on the left side leave only the blocks"): the page's parts are its BLOCKS, one row each
+// (./BlockList.tsx, made by the studio) - no field forms here any more: a text is changed by a click on it in the page, a
+// block's look in its settings beside it there. The page-level rows that are not blocks (search engines, store views, notes,
+// the last step) stay short below the list.
 
 import { useEffect, useState } from "react";
 import TextField from "@mui/material/TextField";
@@ -38,13 +43,11 @@ import {
 } from "@/lib/content/studio/kinds/page/model";
 import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
 import type { ChangeHit, InsertOut, Presence } from "@/lib/content/studio/kinds/page/shop";
-import type { ShopPart } from "@/lib/content/studio/kinds/page/shopParts";
 import { Field, Pane, PINK, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Changes } from "./Changes";
-import { ElementPane, type Selection } from "./Element";
-import type { FillRun, PictureCtl } from "./Fields";
-import { BlocksOutline, Row, RowList, ShopPartsOutline, type ChangeExtra } from "./Outline";
+import { BlockBody, type FillRun, type PictureCtl } from "./Fields";
+import { Row, RowList } from "./Outline";
 import { ToMagento } from "./Publish";
 import { AbTest, Texts } from "./Sections";
 import { SeoPanel, type SeoProposal } from "./Seo";
@@ -139,11 +142,13 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
   );
 }
 
-export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, sel, setSel, fill, busy, canAi, onEditInPage, onAskAi, inserts, record, onPickPage, removeInsert,
-  open, onOpen, onOpenBlock, onSelectKey, onFocusPath, pictures, makingIn, since, shop, onAdd, onAddText, onRefine, appBrief, moduleSlot, onSeoPropose }: {
+export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, fill, busy, canAi, inserts, onPickPage, removeInsert,
+  open, onOpen, pictures, since, appBrief, onSeoPropose, blocks, blocksTitle, blocksRight, readyLine }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
-  /** the module gallery's way in (Content v6, ./modules/Actions.tsx): over the element selected, else over the page's parts */
-  moduleSlot?: React.ReactNode;
+  /** Content v8: the page's blocks (./BlockList.tsx) - its title and what stands right of it ("Write it all again") */
+  blocks: React.ReactNode; blocksTitle: string; blocksRight?: React.ReactNode;
+  /** how far the page is, over the last step (the list's own count, modules with it) */
+  readyLine?: string;
   /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
   lang: string; onLang: (l: string) => void;
   /** every store view of the shop by language; for a page of the shop, whether it is there */
@@ -153,39 +158,17 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   /** this language's view */
   setView: (next: PageDoc, label?: string) => void;
   hits: ChangeHit[] | null; step: Step; onStep: (s: Step) => void;
-  sel: Selection | null; setSel: (s: Selection | null) => void;
-  fill: FillRun; busy: string | null; canAi: boolean; onEditInPage: () => void; onAskAi: () => void;
-  inserts: InsertOut[] | null; record: (label: string) => void; onPickPage: () => void; removeInsert: (id: string) => void;
-  /** the row open in the outline (a part of a new page, or "selected", "changes", "texts", "test", "banners", "languages", "notes") */
+  fill: FillRun; busy: string | null; canAi: boolean;
+  inserts: InsertOut[] | null; onPickPage: () => void; removeInsert: (id: string) => void;
+  /** the page-level row open ("changes", "texts", "seo", "test", "banners", "languages", "notes") */
   open: string | null; onOpen: (row: string | null) => void;
-  /** a part opened from here: selected in the preview, which scrolls to it */
-  onOpenBlock: (block: string | null) => void;
-  /** an item of a block (a tile, a question, a link) selected from its row (null = the block) */
-  onSelectKey: (key: string | null) => void;
-  /** the "+" between two blocks: the squared menu, at that place */
-  onAdd: (at: number, el: HTMLElement) => void;
-  /** a text-and-picture block put in the sections' empty slot */
-  onAddText: (at: number) => void;
-  /** "Fine-tune" on a picture */
-  onRefine?: (path: string) => void;
   /** where the project came from - its app and brief (null while asked) */
   appBrief: AppBrief | null;
   /** a page of the shop: the AI's search engine fields for the store view shown (Content v6) */
   onSeoPropose: () => Promise<SeoProposal | string>;
-  /** a field in focus here: selected in the preview */
-  onFocusPath: (path: string) => void;
-  pictures: PictureCtl; makingIn: (block: string) => number;
+  pictures: PictureCtl;
   /** when the AI started on what it is doing now */
   since: number | null;
-  /** a page of the shop: its own parts (SARCLA's night list, 09.11.2026), each with its changes */
-  shop?: {
-    parts: ShopPart[]; whole: number[]; elsewhere: number[]; busyPart: string | null;
-    onOpen: (p: ShopPart | null) => void; onAsk: (p: ShopPart) => void; onRemove: (i: number) => void;
-    /** Content v6: "Show the old one" for a replace, "Show it anyway" for a change the check held back */
-    extra?: ChangeExtra;
-    /** the part selected as a whole, and the part an element selected in the page is in */
-    selPart: string | null; selIn: string | null;
-  } | null;
 }) {
   const canEdit = api.data.access.canEdit;
   const isNew = d.source === "new";
@@ -258,45 +241,26 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
     const lost = hits.filter((h) => h.state === "missing").length;
     return lost ? `${d.changes.length - lost} found on the page · ${lost} not found` : `All ${d.changes.length} found on the page`;
   })();
-  const changed = shop ? shop.parts.filter((p) => p.changes.length).length : 0;
   // the search engine fields (Content v6): set here for Magento, else what the page has on the shop
   const seoSet = !!(d.fields.seo.title.trim() || d.fields.seo.description.trim() || d.fields.seo.urlKey.trim());
   const seoNow = d.outline && d.outline.path === d.path ? d.outline : null;
   const seoLine = seoSet ? `New for Magento · title ${d.fields.seo.title.trim().length || "as it is"}${d.fields.seo.title.trim() ? ` / ${LIMIT.seoTitle}` : ""}`
     : seoNow ? `On the shop: title ${seoNow.title.length} / ${LIMIT.seoTitle} · description ${seoNow.description.length} / ${LIMIT.seoDescription}` : "Title, description, URL key";
-  const selPane = sel ? (
-    <>{moduleSlot}<ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-      onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} /></>
-  ) : null;
-  const shopParts = !isNew && d.path && shop ? (
+  // the page's blocks (Content v8): the list the studio made, under its title
+  const blockSection = (isNew || d.path) ? (
     <Box sx={{ mb: 2 }}>
-      <Kick right={busy === "rewrite" ? (
+      <Kick right={busy === "rewrite" && !isNew ? (
         <Typography sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
           <CircularProgress size={12} thickness={6} sx={{ color: PINK }} />Changing the page · {clock}
         </Typography>
-      ) : undefined}>
-        The page{shop.parts.length ? ` · ${shop.parts.length} parts${changed ? ` · ${changed} changed` : ""}` : ""}
+      ) : blocksRight}>
+        {blocksTitle}
       </Kick>
-      {!sel && moduleSlot}
-      {shop.parts.length ? (
-        <ShopPartsOutline parts={shop.parts} whole={shop.whole} elsewhere={shop.elsewhere} changes={d.changes} hits={hits} open={open} onOpen={shop.onOpen}
-          busyPart={shop.busyPart} canEdit={canEdit} canAi={canAi} onAsk={shop.onAsk} onRemove={shop.onRemove} extra={shop.extra}
-          selected={sel && shop.selIn && !shop.selPart ? { part: shop.selIn, node: selPane } : null} />
-      ) : (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, p: 1.5, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, color: MUTED, fontSize: "0.82rem" }}>
-          {d.outline && d.outline.path === d.path ? "This page has no headings to cut it into parts - its changes are listed below." : <><CircularProgress size={13} /> Reading the page&apos;s parts…</>}
-        </Box>
-      )}
+      {blocks}
     </Box>
   ) : null;
   const shopRows = !isNew && d.path ? (
     <>
-      {sel && !(shop?.selIn && !shop.selPart) && !shop?.selPart && (
-        <Row id="selected" title="Selected" accent="pink" state="none" open={open === "selected"} onToggle={() => onOpen(open === "selected" ? null : "selected")}
-          summary={sel.picked ? `<${sel.picked.tag}> ${sel.picked.text.slice(0, 60)}` : sel.key.startsWith("i:") ? "A banner" : ""}>
-          {selPane}
-        </Row>
-      )}
       <Row id="changes" title="All changes" count={d.changes.length || null} state={busy === "rewrite" ? "busy" : d.changes.length ? "written" : "empty"} busyLabel="The AI is changing the page…"
         summary={hitLine} open={open === "changes"} onToggle={() => onOpen(open === "changes" ? null : "changes")}>
         <Changes changes={d.changes} set={(changes: Change[]) => setView({ ...d, changes }, undefined)} hits={hits} canEdit={canEdit} />
@@ -337,7 +301,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   const lastWrite = doc.magento.find((r) => r.action === "created" || r.action === "updated");
   const onMagento = lastWrite ? `On ${lastWrite.env === "acc" ? "ACC" : "production"} · ${[...new Set(doc.magento.filter((r) => r.env === lastWrite.env && (r.action === "created" || r.action === "updated")).map((r) => r.store))].join(", ")}` : null;
   const ready = !isWinner && onMagento ? onMagento : isWinner ? (doc.published ? "Published" : api.data.piece.status === "approved" ? "Approved - ready to publish" : "Published once its reviewer approves it")
-    : isNew ? `${writtenParts} of ${parts.length} blocks written${missing ? ` · ${missing} picture${missing === 1 ? "" : "s"} missing` : ""}`
+    : isNew ? readyLine ?? `${writtenParts} of ${parts.length} blocks written${missing ? ` · ${missing} picture${missing === 1 ? "" : "s"} missing` : ""}`
       : d.changes.length ? `${d.changes.length} change${d.changes.length === 1 ? "" : "s"} on the ${lang} page` : "No change yet";
 
   const menuItems = canEdit && !atStart ? sources.filter((s) => (s.key === "new") !== isNew && s.key !== "convert") : [];
@@ -421,35 +385,25 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
                   <Hint>It still shows in the preview. &quot;Write it all with AI&quot; moves its good parts into the parts below - final words, no placeholders.</Hint>
                 </Box>
               )}
-              <Kick right={writingAll ? (
-                <Typography sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700, display: "inline-flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
+              {writingAll && (
+                <Typography sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums", mb: 0.75 }}>
                   <CircularProgress size={12} thickness={6} sx={{ color: PINK }} />Writing the page · {clock}
                 </Typography>
-              ) : !atStart && canEdit ? (
-                <Button size="small" disabled={!canAi || !!busy} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-                  sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : empty ? "Write it all with AI" : "Write it all again"}</Button>
-              ) : undefined}>
-                The page{writingAll ? "" : ` · ${parts.length} blocks · ${writtenParts} written`}
-              </Kick>
-              <BlocksOutline api={api} f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
-                open={open} onOpen={onOpenBlock} focusPath={sel?.key.startsWith("f:") ? sel.key.slice(2) : null} selKey={sel?.key ?? null} onSelect={onSelectKey}
-                onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} onAdd={onAdd} onAddText={onAddText} onRefine={onRefine} />
-              {!sel && moduleSlot}
-              {sel?.key.startsWith("i:") && (
-                <Box sx={{ mt: 1.5 }}>
-                  <RowList>
-                    <Row id="selected" title="Selected banner" accent="pink" state="none" open onToggle={() => setSel(null)}>
-                      <ElementPane api={api} view={d} setView={setView} sel={sel} onClose={() => setSel(null)} fill={fill} busy={busy} canAi={canAi}
-                        onEditInPage={onEditInPage} onAskAi={onAskAi} inserts={inserts} record={record} />
-                    </Row>
-                  </RowList>
-                </Box>
               )}
             </>
           )}
 
-          {shopParts}
+          {blockSection}
           {shopRows && <RowList>{shopRows}</RowList>}
+          {isNew && (
+            <RowList>
+              <Row id="seo" title="Search engines" state={d.fields.seo.title.trim() && d.fields.seo.description.trim() ? "written" : d.fields.seo.title.trim() || d.fields.seo.description.trim() ? "partly" : "empty"}
+                summary={d.fields.seo.title.trim() || "Title, description, URL key"} open={open === "seo"} onToggle={() => onOpen(open === "seo" ? null : "seo")}>
+                <BlockBody api={api} block="seo" f={d.fields} set={(fields, label) => setView({ ...d, fields }, label)} store={d.store} canEdit={canEdit} canAi={canAi} fill={fill} busy={busy}
+                  focusPath={null} selKey={null} onFocusPath={() => undefined} onSelect={() => undefined} pictures={pictures} />
+              </Row>
+            </RowList>
+          )}
 
           <Box sx={{ mt: 2 }}>
             <Kick>Around it</Kick>
