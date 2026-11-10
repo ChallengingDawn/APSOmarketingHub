@@ -57,7 +57,7 @@ import { AddElementMenu } from "./AddElement";
 import { Assistant, type Entry, type Idea, type Said, type SeoCard } from "./Assistant";
 import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
-import { applyElementEdit, lookCss, lookOf as elementLook } from "./edits";
+import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
 import { BlockSettingsPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop } from "./pops";
 import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
@@ -83,7 +83,6 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import TuneIcon from "@mui/icons-material/Tune";
 import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
@@ -593,6 +592,19 @@ export default function Studio({ api }: StudioProps) {
     setView({ ...cur, changes }, "Another picture");
     setSelState((s) => (s && s.key === p.key && s.picked ? { ...s, picked: { ...s.picked, src: pic.url } } : s));
   };
+  /** one edit of a page of the shop's element (its link, hidden), into the change list */
+  const elEdit = (p: Picked, ed: ElementEdit) => {
+    const cur = viewOf(docRef.current, langRef.current);
+    const r = applyElementEdit(cur, p, ed);
+    if ("error" in r) { window.alert(r.error); return; }
+    setView({ ...cur, changes: r.changes }, r.label);
+  };
+  /** a page of the shop's element's look: one stylesheet for it, a rule set or cleared */
+  const setElLook = (p: Picked, rule: string, value: string | undefined) => {
+    if (!p.selector) return;
+    const cur = viewOf(docRef.current, langRef.current);
+    elEdit(p, { kind: "look", css: lookCss(p.selector, { ...elementLook(cur.changes, p.selector), [rule]: value ?? "" }) });
+  };
   const putAlt = (p: Picked, alt: string) => {
     const cur = viewOf(docRef.current, langRef.current);
     const r = applyElementEdit(cur, p, { kind: "attr", name: "alt", value: alt });
@@ -992,6 +1004,8 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the selection, as the assistant says it ──────────────────────────── */
 
+  /** "Section 1 · title" -> "title"; "Tile 2" stays */
+  const partName = (label: string) => (label.includes(" · ") ? label.split(" · ").slice(1).join(" · ") : label);
   const scope = sel?.picked ?? null;
   const inModule = !!scope?.frag && !!moduleOfChange(d.changes[scope.frag.change]);
   // the row of the list the selection is in (Content v8): a new page's block or module; a page of the shop's block
@@ -1009,7 +1023,8 @@ export default function Studio({ api }: StudioProps) {
   const wholeBlock = blockInfo && sel && previewOf(blockInfo.key) === sel.key.slice(2) ? blockInfo : null;
   const blockName = wholeBlock && selRow ? `${selRow.num} · ${selRow.name}` : wholeBlock ? `${wholeBlock.num} · ${wholeBlock.name}` : null;
   const scopeLabel = !sel ? null : blockName ?? (shopBlock ? `${shopBlock.num} · ${shopBlock.name}`
-    : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner"
+    : (sel.key.startsWith("f:") || sel.key.startsWith("b:")) && selRow ? `${selRow.num} · ${selRow.name} · ${partName(fieldLabel(d.fields, sel.key.slice(2)))}`
+      : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? fieldLabel(d.fields, sel.key.slice(2)) : sel.key.startsWith("i:") ? "A banner"
       : (sel.key.startsWith("np:") || sel.key.startsWith("nt:")) && selRow ? `${selRow.num} · ${selRow.name}` : scope ? `<${scope.tag}> ${scope.text.slice(0, 60)}` : null);
   const fieldPath = sel?.key.startsWith("f:") ? sel.key.slice(2) : null;
   const blockPart = sel?.key.startsWith("b:") ? sel.key.slice(2) : null;
@@ -1363,7 +1378,12 @@ export default function Studio({ api }: StudioProps) {
       return { at: "below", width: 420, node: (
         <TextPop key={k} kicker={kick} title={inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={p.text} multiline={!heading}
           rich={richOk ? p.inner : null} canEdit={canEdit} live={false} onClose={closePop}
-          onDone={(text, html) => {
+          // the look, a link's address, hidden - a page of the shop's own element (a module's are its settings')
+          shopLook={!inMod && p.selector && !p.frag ? { value: elementLook(d.changes, p.selector), set: (rule, v) => setElLook(p, rule, v) } : null}
+          onHide={!inMod ? () => { elEdit(p, { kind: "hide", on: true }); setSel(null); } : null}
+          href={!inMod && p.tag === "a" ? p.href ?? "" : null}
+          onDone={(text, html, href) => {
+            if (href) elEdit(p, { kind: "attr", name: "href", value: href });
             if (text === p.text && (html === undefined || html === p.inner)) { closePop(); return; }
             const err = putWords(p, text, html && /<(?!br\b)[a-z]/i.test(html) ? html : undefined);
             if (err) { window.alert(err); return; }
@@ -1396,7 +1416,7 @@ export default function Studio({ api }: StudioProps) {
         <PicturePop key={k} kicker={kick} title="Picture" api={api} store={d.store} aspect="3:2" url={p.src ?? ""} alt={p.alt ?? ""} idea={null} making={null}
           canEdit={canEdit} canMake={aiHere && imagesOn !== false}
           onUpload={() => { upTo.current = { path: "", lang, el: p }; upInput.current?.click(); }}
-          onPick={(x) => putPicture(p, x)} onAlt={(alt) => putAlt(p, alt)}
+          onPick={(x) => putPicture(p, x)} onAlt={(alt) => putAlt(p, alt)} onHide={() => { elEdit(p, { kind: "hide", on: true }); setSel(null); }}
           onRefine={hub && aiHere && imagesOn !== false ? async (ask) => { const r = await refinePicture(p.src!, ask, PICTURE_ASPECT, { projectId: api.data.piece.projectId, pieceId: api.data.piece.id }); if (!r.ok) return r.error; putPicture(p, r.picture); return null; } : null}
           onClose={closePop} />
       ) };

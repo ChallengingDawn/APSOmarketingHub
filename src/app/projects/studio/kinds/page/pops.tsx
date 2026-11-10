@@ -133,6 +133,9 @@ function AskAi({ run, busy, placeholder = "Ask AI for this text…" }: { run: (a
 
 /* ── a text ───────────────────────────────────────────────────────────── */
 
+/** A colour or size set as a rule, named back ("#274e64" -> "petrol"). */
+function keyOf(map: Record<string, string>, v: string | undefined): string | undefined { return Object.entries(map).find(([, x]) => x === v)?.[0]; }
+
 /** What a text may carry: bold / italic, a list, a link (a new page's longer texts and a page of the shop's paragraphs). */
 export type Marks = { bold: boolean; list: boolean; link: boolean };
 
@@ -177,6 +180,9 @@ export function cleanRich(html: string): string {
   return t.innerHTML.replace(/&nbsp;/g, " ").trim();
 }
 
+const SHOP_COLOR: Record<string, string> = { petrol: "#274e64", ink: "#1d2326", red: "#d80901", grey: "#6b767c", white: "#ffffff" };
+const SHOP_SIZE: Record<string, string> = { s: "0.88em", l: "1.2em", xl: "1.45em" };
+
 const SIZE_OPTS = [{ key: "s", label: "Small" }, { key: "m", label: "Normal" }, { key: "l", label: "Large" }];
 const COLOR_OPTS = [{ key: "auto", label: "Standard" }, { key: "petrol", label: "Petrol" }, { key: "ink", label: "Ink" }, { key: "red", label: "Red" }, { key: "muted", label: "Grey" }];
 
@@ -194,12 +200,18 @@ export type TextPopProps = {
   /** live: each change drawn into the page as it is typed (a new page); else Done puts it there */
   live: boolean;
   onChange?: (v: string) => void;
-  onDone: (v: string, html?: string) => void;
+  onDone: (v: string, html?: string, href?: string) => void;
   onClose: () => void;
   /** "Ask AI for this text": its answer (null = done, the words are in the box), or what went wrong */
   ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
   /** its look: size and colour (a new page's field) */
   look?: { value: Look; set: (p: Partial<Look>) => void } | null;
+  /** a page of the shop's element: its look (colour, size, weight, alignment - one stylesheet for it) */
+  shopLook?: { value: Record<string, string>; set: (rule: string, value: string | undefined) => void } | null;
+  /** a page of the shop's element: hidden on the page (or shown again) */
+  onHide?: (() => void) | null;
+  /** a page of the shop's link: where it goes, put on the page with Done */
+  href?: string | null;
   /** a button or a link: where it goes */
   link?: { api: StudioApi; store: string; value: string; onChange: (v: string) => void; label?: string } | null;
   /** a link of the links block: what the visitor finds there */
@@ -208,7 +220,10 @@ export type TextPopProps = {
   hint?: React.ReactNode;
 };
 
-export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, look, link, note, hint }: TextPopProps) {
+export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, look, shopLook, onHide, href, link, note, hint }: TextPopProps) {
+  const [hrefDraft, setHrefDraft] = useState(href ?? "");
+  useEffect(() => { setHrefDraft(href ?? ""); }, [href]);
+  const hrefOut = href !== null && href !== undefined && hrefDraft.trim() && hrefDraft.trim() !== href ? hrefDraft.trim() : undefined;
   const [draft, setDraft] = useState(value);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
@@ -237,10 +252,10 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
     if (rich !== undefined && rich !== null && richBox.current) {
       const html = cleanRich(richBox.current.innerHTML);
       const text = (richBox.current.innerText ?? "").replace(/ /g, " ").replace(/\n{3,}/g, "\n\n").trim();
-      onDone(text, html);
+      onDone(text, html, hrefOut);
       return;
     }
-    onDone(draft);
+    onDone(draft, undefined, hrefOut);
   };
   const mark = (before: string, after = before) => {
     const el = box.current;
@@ -276,12 +291,15 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
   const over = max != null && count !== null && count > max;
   const iconBtn = { p: 0.45, borderRadius: "6px", color: INK, "&:hover": { bgcolor: "rgba(21,34,58,.06)" } } as const;
   const lk = look?.value ?? {};
+  const sl = shopLook?.value ?? {};
+  const lookSet = look ? Object.keys(lk).length > 0 : Object.values(sl).some(Boolean);
 
   return (
     <PopCard kicker={kicker} title={title} onClose={() => { flush(); if (live && onChange && draft !== value) onChange(draft); onClose(); }}
       foot={canEdit ? (
         <>
-          {look && <Button size="small" onClick={() => setShowLook((x) => !x)} sx={{ ...quiet, color: showLook || Object.keys(lk).length ? PINK : MUTED }}>Aa  Look{Object.keys(lk).length ? " · changed" : ""}</Button>}
+          {(look || shopLook) && <Button size="small" onClick={() => setShowLook((x) => !x)} sx={{ ...quiet, color: showLook || lookSet ? PINK : MUTED }}>Aa  Look{lookSet ? " · changed" : ""}</Button>}
+          {onHide && <Tooltip title="Hide it on the page"><IconButton size="small" onClick={onHide} aria-label="Hide it on the page" sx={{ color: MUTED }}><VisibilityOffOutlinedIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>}
           <Box sx={{ flex: 1 }} />
           <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>{live ? "Shows in the page as you type" : "Ctrl+Enter"}</Typography>
           <Button size="small" variant="contained" disableElevation onClick={done} sx={doneBtn}>Done</Button>
@@ -329,10 +347,27 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
       {note && (
         <TextField fullWidth size="small" label="What the visitor finds there" value={note.value} disabled={!canEdit} onChange={(e) => note.onChange(e.target.value.slice(0, note.max))} sx={{ ...field, mt: 0.25 }} />
       )}
+      {href !== null && href !== undefined && (
+        <TextField fullWidth size="small" label="Where the link goes" value={hrefDraft} disabled={!canEdit} onChange={(e) => setHrefDraft(e.target.value)} sx={{ ...field, mt: 1.25 }} />
+      )}
       {showLook && look && (
         <Box sx={{ display: "grid", gap: 0.75, mt: 1.25, p: 1, borderRadius: "8px", bgcolor: "#f7f8fa" }}>
           <Setting mt={0} label="Size" value={lk.size ?? "m"} onChange={(v: string) => look.set({ size: v === "m" ? undefined : (v as TextSize) })} options={SIZE_OPTS} />
           <Setting mt={0.5} label="Colour" value={lk.color ?? "auto"} onChange={(v: string) => look.set({ color: v === "auto" ? undefined : (v as TextColor) })} options={COLOR_OPTS} />
+        </Box>
+      )}
+      {showLook && shopLook && (
+        <Box sx={{ display: "grid", gap: 0.75, mt: 1.25, p: 1, borderRadius: "8px", bgcolor: "#f7f8fa" }}>
+          <Setting mt={0} label="Colour" value={keyOf(SHOP_COLOR, sl.color) ?? "auto"} onChange={(v: string) => shopLook.set("color", v === "auto" ? undefined : SHOP_COLOR[v])}
+            options={[{ key: "auto", label: "As it is" }, { key: "petrol", label: "Petrol" }, { key: "ink", label: "Ink" }, { key: "red", label: "Red" }, { key: "grey", label: "Grey" }, { key: "white", label: "White" }]} />
+          <Setting mt={0.5} label="Size" value={keyOf(SHOP_SIZE, sl["font-size"]) ?? "auto"} onChange={(v: string) => shopLook.set("font-size", v === "auto" ? undefined : SHOP_SIZE[v])}
+            options={[{ key: "auto", label: "As it is" }, { key: "s", label: "Smaller" }, { key: "l", label: "Larger" }, { key: "xl", label: "Much larger" }]} />
+          <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+            <Setting mt={0.5} label="Weight" value={sl["font-weight"] === "700" ? "bold" : sl["font-weight"] === "400" ? "regular" : "auto"} onChange={(v: string) => shopLook.set("font-weight", v === "bold" ? "700" : v === "regular" ? "400" : undefined)}
+              options={[{ key: "auto", label: "As it is" }, { key: "regular", label: "Regular" }, { key: "bold", label: "Bold" }]} />
+            <Setting mt={0.5} label="Align" value={sl["text-align"] ?? "auto"} onChange={(v: string) => shopLook.set("text-align", v === "auto" ? undefined : v)}
+              options={[{ key: "auto", label: "As it is" }, { key: "left", label: "Left" }, { key: "center", label: "Centre" }]} />
+          </Box>
         </Box>
       )}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: msg.tone === "warn" ? AMBER : "#1b7a55", mt: 0.75, lineHeight: 1.4 }}>{msg.text}</Typography>}
@@ -361,12 +396,14 @@ export type PicturePopProps = {
   onPick: (p: Picture) => void;
   onAlt: (alt: string) => void;
   onRemove?: () => void;
+  /** a page of the shop's picture: hidden on the page */
+  onHide?: (() => void) | null;
   /** the same picture with one thing changed - its answer: what went wrong, or null */
   onRefine?: ((ask: string) => Promise<string | null>) | null;
   onClose: () => void;
 };
 
-export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onRefine, onClose }: PicturePopProps) {
+export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onHide, onRefine, onClose }: PicturePopProps) {
   const [tab, setTab] = useState<PicTab>("picture");
   const [ideaDraft, setIdeaDraft] = useState(idea ?? "");
   const [altDraft, setAltDraft] = useState(alt);
@@ -392,6 +429,7 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
       foot={canEdit ? (
         <>
           {onRemove && url && <Button size="small" onClick={onRemove} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED }}>Take it out</Button>}
+          {onHide && <Button size="small" onClick={onHide} startIcon={<VisibilityOffOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED }}>Hide it</Button>}
           <Box sx={{ flex: 1 }} />
           <Button size="small" variant="contained" disableElevation onClick={() => { if (onIdea && ideaDraft !== (idea ?? "")) onIdea(ideaDraft); if (altDraft !== alt) onAlt(altDraft); onClose(); }} sx={doneBtn}>Done</Button>
         </>
@@ -402,7 +440,7 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
           <Box sx={{ position: "relative", borderRadius: "8px", overflow: "hidden", bgcolor: "#eef1f6", border: `1px solid ${HAIRLINE}`, height: 128, display: "grid", placeItems: "center",
             ...(isMaking ? { backgroundImage: SHEEN_BG, backgroundSize: "260% 100%", animation: `${sheen} 1.4s linear infinite` } : {}) }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {url ? <img src={url} alt={alt} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block", opacity: isMaking ? 0.5 : 1 }} />
+            {url ? <img src={url} alt={alt} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain", display: "block", opacity: isMaking ? 0.5 : 1 }} />
               : isMaking ? <AutoAwesomeOutlinedIcon sx={{ color: PINK }} /> : <ImageOutlinedIcon sx={{ color: MUTED, fontSize: 30 }} />}
             {isMaking && (
               <Box sx={{ position: "absolute", left: 12, right: 12, bottom: 10 }}>
@@ -424,9 +462,9 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
           )}
           {onIdea && (
             <TextField fullWidth multiline minRows={2} maxRows={5} size="small" label="What should the picture show?" value={ideaDraft} disabled={!canEdit} onChange={(e) => setIdeaDraft(e.target.value)}
-              helperText={!canMake ? "Pictures cannot be made on this hub - upload one, or choose one already made." : "Make it uses these words - a picture, not a text in it."} sx={{ ...field, mt: 1.5 }} />
+              helperText={!canMake ? "Pictures cannot be made on this hub - upload one, or choose one already made." : "Make it uses these words - a picture, not a text in it."} sx={{ ...field, mt: 2 }} />
           )}
-          <TextField fullWidth size="small" label="What it shows (alt text)" value={altDraft} disabled={!canEdit} onChange={(e) => setAltDraft(e.target.value.slice(0, 140))} sx={{ ...field, mt: 1.25 }}
+          <TextField fullWidth size="small" label="What it shows (alt text)" value={altDraft} disabled={!canEdit} onChange={(e) => setAltDraft(e.target.value.slice(0, 140))} sx={{ ...field, mt: 2 }}
             helperText={`${altDraft.length} / 140 · read by search engines and screen readers`} />
         </Box>
       )}
@@ -581,7 +619,6 @@ export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, bus
 /* ── a page of the shop's block ───────────────────────────────────────── */
 
 const SHOP_BG: Record<string, string> = { grey: "#f2f4f5", petrol: "#274e64", sand: "#f7f2ea", white: "#ffffff" };
-const keyOf = (map: Record<string, string>, v: string | undefined) => Object.entries(map).find(([, x]) => x === v)?.[0];
 
 export function ShopBlockPop({ row, look, onLook, hidden, onHide, onReplace, onAskAi, onRemove, onKeep, old, canEdit, canAi, onClose }: {
   row: BlockRow;
