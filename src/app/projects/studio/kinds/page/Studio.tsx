@@ -80,7 +80,7 @@ import { ModulesTab } from "./modules/ModulesTab";
 import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
-import { MODULES, moduleDef } from "@/lib/content/studio/kinds/page/modules/registry";
+import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
 import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
