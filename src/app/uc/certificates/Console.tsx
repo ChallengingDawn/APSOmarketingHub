@@ -497,7 +497,7 @@ function MakerCard({ d, onChanged }: { d: Data; onChanged: () => void }) {
 // ---------------- the rules ----------------
 const RULES: { lane: string; steps: StepName[]; then?: string }[] = [
   { lane: "New request", steps: ["wayin", "start-avor", "start-bo"], then: "EC 1935/2004 → AVOR, else → Back Office" },
-  { lane: "AVOR", steps: ["avor48", "avor96", "avorWeek", "avorRose"], then: "Article received → Back Office" },
+  { lane: "AVOR", steps: ["avor-entry", "avor-sent", "avor48", "avor96", "avorWeek", "avorRose"], then: "Article received → Back Office" },
   { lane: "Back Office", steps: ["bo-entry", "bo3days", "boToday", "bo48", "bo96", "boWeek", "boRose"], then: "Assign to Conformity Expert → the expert" },
   { lane: "Conformity expert", steps: ["expert-entry", "today", "late", "late96", "lateWeek", "lateRose"], then: "Sent out to customer and EDA → done" },
   { lane: "Done and merged", steps: ["close", "merge-clear"] },

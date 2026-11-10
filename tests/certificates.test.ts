@@ -48,6 +48,34 @@ test("AVOR: 48 h, 96 h, over a week, then 15 days to Rose with the note - the ar
   assert.equal(phaseOf(base({ actions: ACT.article, actionsAt: a + 50 * H }))!.phase, "backOffice");
 });
 
+test("AVOR set by hand before the start: New goes to Certificates; the hub's mail to AVOR sent: Waiting Internally, once", () => {
+  // ticket 448865182967: made on the order card 15:06:21 (stage New), AVOR set by hand 15:09:27 - before the hub's start
+  const made = Date.parse("2026-11-09T15:06:21Z");
+  const set = Date.parse("2026-11-09T15:09:27Z");
+  const f = base({ stage: STAGE.new, certs: ["FDA", "EC 1935/2004"], createdAt: made, actions: ACT.avor, actionsAt: set });
+  assert.deepEqual(names(f), ["avor-entry", "avor48", "avor96", "avorWeek", "avorRose"]);
+  assert.deepEqual(merge(f, owed(f, new Set(), set + 60_000), () => null, DEFAULT_PEOPLE).props, { hs_pipeline_stage: STAGE.certificates });
+  // the card's mail to AVOR went out the next morning (a reminder after it does not count)
+  const avor = JSON.stringify({ v: 1, status: "sent", sent: [{ at: "2026-11-10T07:41:10Z", to: "avor@angst-pfister.com" }, { at: "2026-11-12T08:00:00Z", remind: true }] });
+  const sent = { ...f, stage: STAGE.certificates, startedAt: set + 60_000, avor };
+  assert.deepEqual(names(sent), ["avor-sent", "avor48", "avor96", "avorWeek", "avorRose"]);
+  const st = stepsOf(sent)!.steps[0];
+  assert.equal(new Date(st.at).toISOString(), "2026-11-10T07:41:10.000Z");
+  assert.deepEqual(merge(sent, owed(sent, new Set(), Date.parse("2026-11-10T07:43:00Z")), () => null, DEFAULT_PEOPLE).props, { hs_pipeline_stage: STAGE.waiting });
+  // still in New when the mail went: both in one look, Waiting Internally last
+  const both = { ...f, avor };
+  assert.deepEqual(merge(both, owed(both, new Set(), Date.parse("2026-11-10T07:43:00Z")), () => null, DEFAULT_PEOPLE).props, { hs_pipeline_stage: STAGE.waiting });
+  // once done - or a stage a person chose since (Waiting Internally by hand, Remind, ...) - nothing more
+  assert.deepEqual(owed(sent, new Set([st.key]), Date.parse("2026-11-10T08:00:00Z")).map((x) => x.name), []);
+  assert.deepEqual(names({ ...sent, stage: STAGE.waiting }), ["avor48", "avor96", "avorWeek", "avorRose"]);
+  assert.deepEqual(names({ ...sent, stage: STAGE.remind }), ["avor48", "avor96", "avorWeek", "avorRose"]);
+  // the mail not sent by the hub (queued, failed, written by hand): no move
+  assert.deepEqual(names({ ...sent, avor: JSON.stringify({ v: 1, status: "queued" }) }), ["avor48", "avor96", "avorWeek", "avorRose"]);
+  assert.deepEqual(names({ ...sent, avor: "not json" }), ["avor48", "avor96", "avorWeek", "avorRose"]);
+  // started by the hub (start-avor took it to Certificates): no entry step
+  assert.deepEqual(names({ ...f, stage: STAGE.certificates, startedAt: made + 2 * 60_000 }), ["avor48", "avor96", "avorWeek", "avorRose"]);
+});
+
 test("Back Office: rotation on Article received, then 3 days before delivery at 07:00 - or at once if past; no date, nothing", () => {
   const b = Date.parse("2026-11-04T23:00:00Z");
   const f = base({ actions: ACT.article, actionsAt: b });

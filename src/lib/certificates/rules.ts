@@ -50,7 +50,7 @@ export const REMIND_OFF_AT = Date.parse("2026-11-05T05:28:11Z");
 /** 05.11.2026 07:15:07 Swiss - the reminder on every other ticket in Remind (Remind switched off, revision 77) */
 export const OTHERS_OFF_AT = Date.parse("2026-11-05T06:15:07.500Z");
 export const BO_PIPELINE = "1726786777";
-export const STAGE = { new: "2338266325", remind: "2338266327", certificates: "3640065212", resolved: "2338266328" } as const;
+export const STAGE = { new: "2338266325", remind: "2338266327", certificates: "3640065212", waiting: "2726922455", resolved: "2338266328" } as const;
 export const ACT = {
   avor: "New article number for 1935 - AVOR",
   article: "Article received and order changed",
@@ -166,7 +166,7 @@ export type Act =
 /** remind = the Remind workflow's own step: the hub's only from the switch-over (REMIND_WORKFLOW_ID) */
 export type Step = { key: string; name: StepName; at: number; acts: Act[]; remind?: true };
 export type StepName =
-  | "start-avor" | "start-bo" | "avor48" | "avor96" | "avorWeek" | "avorRose"
+  | "start-avor" | "start-bo" | "avor-entry" | "avor-sent" | "avor48" | "avor96" | "avorWeek" | "avorRose"
   | "bo-entry" | "bo3days" | "boToday" | "bo48" | "bo96" | "boWeek" | "boRose"
   | "expert-entry" | "today" | "late" | "late96" | "lateWeek" | "lateRose" | "close" | "merge-clear"
   /** the way in's part for a certificate ticket (Back Office Ticket Created): requester = who created it */
@@ -205,6 +205,8 @@ export const MAIL_TEXT: Record<MailName, { line: string; ask: string }> = {
 export const STEP_WORDS: Record<StepName, string> = {
   "start-avor": "Started: EC 1935/2004 needs a new article number - stage Certificates, owner = the requester, action AVOR",
   "start-bo": "Started: stage Certificates, owner = next of the Back Office rotation",
+  "avor-entry": "Set to AVOR by hand before the start, still in New - stage Certificates",
+  "avor-sent": "The mail to AVOR sent from the ticket card - stage Waiting Internally (unless a person chose another stage)",
   avor48: "48 h without the new article - remind AVOR (subject)",
   avor96: "96 h without the new article - remind AVOR (subject)",
   avorWeek: "Over a week without the new article (subject)",
@@ -309,6 +311,18 @@ export function subjectOf(head: string, f: Facts): string {
 // ---------------- where a ticket stands ----------------
 const isCert = (f: Facts) => f.certs.length > 0 || !!f.actions;
 
+/** When the hub first sent the mail to AVOR from the ticket card (makerRules.ts AVOR_PROP's `sent`, not a reminder);
+ *  null = not sent by the hub. Read here, not through makerRules (it imports this file). */
+export function avorSentAt(f: Pick<Facts, "avor">): number | null {
+  if (!f.avor) return null;
+  try {
+    const s = JSON.parse(f.avor) as { sent?: { at?: string; remind?: boolean }[] } | null;
+    const first = (s?.sent ?? []).find((x) => x?.at && !x.remind);
+    const at = first?.at ? Date.parse(first.at) : NaN;
+    return Number.isNaN(at) ? null : at;
+  } catch { return null; }
+}
+
 /** The phase the ticket is in and the moment it started (the anchor of its steps); null = not in the process. */
 export function phaseOf(f: Facts): { phase: Phase; anchor: number } | null {
   if (f.stage === STAGE.resolved || !isCert(f)) return null;
@@ -345,6 +359,15 @@ export function stepsOf(f: Facts, t: Timing = DEFAULT_TIMING, settleMs = 2 * 60_
     if (f.certs.includes(EC1935)) s.push(step(phase, a, "start-avor", a + settleMs, [stage(STAGE.certificates), subj(HEAD.std), { kind: "ownerFrom", prop: "back_office_ticket_requester" }, { kind: "set", prop: "actions_for_certificates", value: ACT.avor }]));
     else s.push(step(phase, a, "start-bo", a + settleMs, [stage(STAGE.certificates), subj(HEAD.std), { kind: "rotate", who: "backOffice", prop: "hubspot_owner_id" }]));
   } else if (phase === "avor") {
+    // set to AVOR by hand before the hub's start (within its 2 minutes): no start ran, the request stayed in New -
+    // it goes to Certificates as the start takes it (SARCLA 10.11.2026: "directly after creation these tickets should go
+    // to certificates", ticket 448865182967)
+    if (f.stage === STAGE.new && f.startedAt === null) s.push(step(phase, a, "avor-entry", a, [stage(STAGE.certificates)]));
+    // the hub has sent the mail to AVOR: the request waits on AVOR - Waiting Internally, once; a stage a person chose
+    // (anything but New or Certificates) is left as it is (SARCLA 10.11.2026: "why didn't it move to waiting internally
+    // after the user clicked send to AVOR and sent out the mail")
+    const sent = avorSentAt(f);
+    if (sent !== null && (f.stage === STAGE.new || f.stage === STAGE.certificates)) s.push(step(phase, a, "avor-sent", Math.max(sent, a), [stage(STAGE.waiting)]));
     s.push(step(phase, a, "avor48", a + t.avorEveryH * H, [subj(HEAD.avor48)]));
     s.push(step(phase, a, "avor96", a + 2 * t.avorEveryH * H, [subj(HEAD.avor96)]));
     s.push(step(phase, a, "avorWeek", a + 3 * t.avorEveryH * H, [subj(HEAD.avorWeek)]));
