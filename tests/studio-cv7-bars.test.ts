@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { answerOf, plainStatus, readAnswer } from "../src/lib/http/answer";
 import { STATE_WORD, checkConnection, noKeySteps, verdictOf } from "../src/lib/content/studio/kinds/page/magentoCheck";
 import { AB_TESTING_HREF, plannedList, plannedOf } from "../src/lib/content/abPlanned";
+import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, planViews, toggleAll, viewsOfCountry, viewsOfLanguage } from "../src/lib/content/studio/kinds/page/makeViews";
+import { pageDoc } from "../src/lib/content/studio/kinds/page/model";
+import { missingPeople } from "../src/lib/content/people";
 
 // Content v7 (10.11.2026) - the studio's bars and loose ends: SARCLA's points 8 and 12.
 
@@ -102,4 +105,43 @@ test("a page with its A/B test on is a row: page, versions, the two that run, pl
   const list = plannedList([{ ...row, pieceId: 1, updatedAt: "2026-11-01T00:00:00.000Z" }, row]);
   assert.deepEqual(list.map((x) => x.pieceId), [7, 1]);
   assert.equal(AB_TESTING_HREF, "/website/ab-testing#pages");
+});
+
+/* ── point 2: several store views in one go ─────────────────────────────── */
+
+test("the plan: a language the page has is copied (no AI), another is translated once and its others copied from it", () => {
+  const d = pageDoc({ source: "pick", store: "de-CH", path: "/de-CH/privacy", changes: [{ op: "text", selector: "h1", text: "Datenschutz" }] });
+  const steps = planViews(d, ["fr-FR", "de-DE", "fr-CH", "de-CH/eur", "fr-CH/eur", "de-CH", "it-CH"]);
+  // the page's own language first: copies of de-CH (its EUR twin from de-CH)
+  assert.deepEqual(steps.slice(0, 2), [{ key: "de-CH/eur", how: "copy", from: "de-CH" }, { key: "de-DE", how: "copy", from: "de-CH" }]);
+  // French: translated ONCE into fr-CH (the language's own), then fr-CH/eur and fr-FR copied from it
+  assert.deepEqual(steps.slice(2, 5), [
+    { key: "fr-CH", how: "translate", from: "de-CH" }, { key: "fr-CH/eur", how: "copy", from: "fr-CH" }, { key: "fr-FR", how: "copy", from: "fr-CH" },
+  ]);
+  assert.deepEqual(steps[5], { key: "it-CH", how: "translate", from: "de-CH" });
+  assert.equal(steps.length, 6, "de-CH (the page's own) is left out");
+  assert.equal(planSummary(steps), "6 store views: 4 copies (no AI), 2 translations - 2 AI calls, one at a time");
+  assert.equal(planSummary([]), "Tick the store views to make.");
+});
+
+test("all of a language, all of a country, and ticking a set twice takes it off", () => {
+  assert.deepEqual(viewsOfLanguage("nl"), ["nl-NL", "nl-INT"]);
+  assert.deepEqual(viewsOfCountry("CH"), ["de-CH", "fr-CH", "it-CH", "en-CH", "de-CH/eur", "fr-CH/eur", "it-CH/eur", "en-CH/eur"]);
+  const once = toggleAll(["pl-PL"], viewsOfLanguage("nl"));
+  assert.deepEqual(once, ["pl-PL", "nl-NL", "nl-INT"]);
+  assert.deepEqual(toggleAll(once, viewsOfLanguage("nl")), ["pl-PL"]);
+  assert.ok(SHOP_COUNTRIES.some((c) => c.cc === "INT" && c.name === "International"));
+  assert.deepEqual(SHOP_LANGUAGES.map((l) => l.lang).sort(), ["de", "en", "fr", "it", "nl", "pl"]);
+});
+
+/* ── point 4: Who does it, prefilled ───────────────────────────────────── */
+
+test("a to-do without its people gets the maker as owner and Claudio as reviewer - only what is missing", () => {
+  const base = { kind: "page-refresh", writer: null, reviewer: null, maker: "anna", me: "sarcla", people: ["anna", "sarcla", "claudio"], defaultReviewer: "claudio" };
+  assert.deepEqual(missingPeople(base), { writer: "anna", reviewer: "claudio" });
+  assert.deepEqual(missingPeople({ ...base, maker: "left.the.company" }), { writer: "sarcla", reviewer: "claudio" }, "a maker no longer here: the one opening it");
+  assert.deepEqual(missingPeople({ ...base, writer: "anna" }), { reviewer: "claudio" });
+  assert.equal(missingPeople({ ...base, writer: "anna", reviewer: "sarcla" }), null);
+  assert.deepEqual(missingPeople({ ...base, kind: "task" }), { writer: "anna" }, "an action has no reviewer");
+  assert.deepEqual(missingPeople({ ...base, defaultReviewer: null }), { writer: "anna" });
 });
