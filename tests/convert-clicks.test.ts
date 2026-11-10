@@ -72,3 +72,13 @@ test("dayRange and untilDay: Swiss days, 1-90 back, 30 ahead", () => {
   assert.equal(untilDay("2026-11-09"), "2026-12-09");
   assert.equal(untilDay("2026-03-20", 30), "2026-04-19", "over the clock change");
 });
+
+test("every page (10.11.2026): a page no person switched on is counted by the shop's 'every page'", async () => {
+  const { mapOn, everyPage } = await import("../src/lib/convert/clickRules");
+  const m = mapOn([], "prod", "/de-CH/any.html", "2026-11-10");
+  assert.equal(m.id, "everywhere-www");
+  assert.deepEqual(m.paths, ["*"]);
+  assert.equal(everyPage("acc").host, "acc.apsoparts.com");
+  const own = { id: "x", host: "www.apsoparts.com", paths: ["/de-CH/a.html"], until: "2026-12-01", by: "Claudio" };
+  assert.equal(mapOn([own], "prod", "/de-CH/a.html", "2026-11-10").id, "x", "a person's map still says who switched it on");
+});

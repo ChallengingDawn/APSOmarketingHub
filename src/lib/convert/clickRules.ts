@@ -5,6 +5,8 @@
 // element for the Preview frame to draw, and the element named in words a person reads.
 
 import { createHash } from "node:crypto";
+import type { Env } from "./model";
+import { HOST } from "./contract";
 
 /** One count as the gateway answers it: the element, the tenth inside it, desktop (d) or phone (m), how many. */
 export type ClickRow = { s: string; x: number; y: number; dev: "d" | "m"; n: number };
@@ -76,3 +78,13 @@ export function dayRange(today: string, days: number): { from: string; to: strin
 export function untilDay(today: string, days: number = CLICKMAP.days): string {
   return new Date(Date.parse(`${today}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
+
+export type ClickMap = { id: string; host: string; paths: string[]; until: string | null; by: string | null };
+
+/** EVERY PAGE (SARCLA 10.11.2026: "every session where we are allowed to track"): since the gateway of 10.11.2026 the
+ *  shop counts clicks on every page of its hosts for every visitor with statistics consent - nobody switches a page on. */
+export const everyPage = (env: Env): ClickMap => ({ id: `everywhere-${HOST[env].split(".")[0]}`, host: HOST[env], paths: ["*"], until: null, by: "every page" });
+
+/** The map counting on this page (of this host): a person's, else every page. */
+export const mapOn = (maps: ClickMap[], env: Env, path: string, today: string) =>
+  maps.find((m) => m.host === HOST[env] && m.paths.includes(path) && (m.until === null || m.until >= today)) ?? everyPage(env);

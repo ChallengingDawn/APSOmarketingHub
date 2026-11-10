@@ -15,10 +15,10 @@
 import { adminKey, gateway } from "@/lib/directup/gateway";
 import { HOST } from "./contract";
 import type { Env } from "./model";
-import { CLICKMAP, dayRange, heatOf, mapIdFor, untilDay, type ClickRow, type Dev, type Heat } from "./clickRules";
+import { CLICKMAP, dayRange, everyPage, heatOf, mapIdFor, mapOn, untilDay, type ClickMap, type ClickRow, type Dev, type Heat } from "./clickRules";
+export { everyPage, mapOn, type ClickMap };
 import { swissNow } from "./scanRules";
 
-export type ClickMap = { id: string; host: string; paths: string[]; until: string | null; by: string | null };
 /** What the gateway can say about click maps: counting there, not there yet, or not reachable (and why). */
 export type ClickState = { deployed: boolean; error: string | null };
 
@@ -52,9 +52,31 @@ export async function clickMaps(): Promise<ClickState & { maps: ClickMap[] }> {
   }
 }
 
-/** The map counting on this page (of this host), if any. */
-export const mapOn = (maps: ClickMap[], env: Env, path: string, today = swissNow().day) =>
-  maps.find((m) => m.host === HOST[env] && m.paths.includes(path) && (m.until === null || m.until >= today)) ?? null;
+/** ADD-TO-CARTS BY WHERE (SARCLA 10.11.2026: "count also the search bar interaction since maybe they don't go to the
+ *  product any more and put in the cart via the search or the chat"): what the shop's gateway counted - the search bar,
+ *  the chat, the pages' own cart buttons - in all and by day. null = the gateway cannot say (not deployed, no key). */
+export type CartsFrom = { from: string; to: string; search: number; chat: number; page: number; days: { day: string; search: number; chat: number; page: number }[]; pages: { path: string; src: "s" | "c" | "p"; n: number }[] };
+export async function cartsFrom(env: Env, days = 28): Promise<CartsFrom | null> {
+  if (!adminKey()) return null;
+  const { from, to } = dayRange(swissNow().day, days);
+  try {
+    const r = await gateway<{ totals: { src: string; n: number }[]; days: { day: string; src: string; n: number }[]; pages: { host: string; path: string; src: string; n: number }[] }>(
+      `/convert/actions?from=${from}&to=${to}&host=${encodeURIComponent(HOST[env])}`, { timeoutMs: 12_000 });
+    const sum = (src: string) => (r?.totals ?? []).filter((t) => t.src === src).reduce((a, t) => a + Number(t.n || 0), 0);
+    const byDay = new Map<string, { day: string; search: number; chat: number; page: number }>();
+    for (const d of r?.days ?? []) {
+      const row = byDay.get(d.day) ?? { day: d.day, search: 0, chat: 0, page: 0 };
+      if (d.src === "s") row.search += Number(d.n || 0); else if (d.src === "c") row.chat += Number(d.n || 0); else row.page += Number(d.n || 0);
+      byDay.set(d.day, row);
+    }
+    return {
+      from, to, search: sum("s"), chat: sum("c"), page: sum("p"), days: [...byDay.values()],
+      pages: (r?.pages ?? []).filter((x) => x.src === "s" || x.src === "c" || x.src === "p").map((x) => ({ path: x.path, src: x.src as "s" | "c" | "p", n: Number(x.n || 0) })),
+    };
+  } catch {
+    return null;
+  }
+}
 
 export type PageClicks = ClickState & { map: ClickMap | null; heat: Heat | null; from: string; to: string };
 
@@ -63,7 +85,7 @@ export async function clicksOf(env: Env, path: string, days: number = CLICKMAP.d
   const { from, to } = dayRange(swissNow().day, days);
   const st = await clickMaps();
   if (!st.deployed) return { deployed: st.deployed, error: st.error, map: null, heat: null, from, to };
-  const map = mapOn(st.maps, env, path);
+  const map = mapOn(st.maps, env, path, swissNow().day);
   try {
     const q = `host=${encodeURIComponent(HOST[env])}&path=${encodeURIComponent(path)}&from=${from}&to=${to}`;
     const r = await gateway<{ rows: ClickRow[]; total: number }>(`/convert/clicks?${q}`, { timeoutMs: 15_000 });

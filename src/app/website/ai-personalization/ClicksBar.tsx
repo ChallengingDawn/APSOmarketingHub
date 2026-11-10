@@ -67,9 +67,9 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, 
     const counted = heat?.total ?? 0;
     status = (
       <Box component="span" sx={{ display: "grid", gap: 0.25 }}>
-        <b>{data.map ? `Counting on this page${data.map.until ? ` until ${day(data.map.until)}` : ""}` : "Not counting on this page"}</b>
+        <b>{data.map?.id.startsWith("everywhere") ? "Counted - the shop counts on every page" : data.map ? `Counting on this page${data.map.until ? ` until ${day(data.map.until)}` : ""}` : "Not counting on this page"}</b>
         <Box component="span" sx={{ color: MUTED, fontSize: "0.78rem" }}>
-          {counted ? `${full(counted)} click${counted === 1 ? "" : "s"}` : "No click"} from {day(data.from)} to {day(data.to)}{data.map?.by ? ` · switched on by ${data.map.by}` : ""}
+          {counted ? `${full(counted)} click${counted === 1 ? "" : "s"}` : "No click"} from {day(data.from)} to {day(data.to)}{data.map?.by && !data.map.id.startsWith("everywhere") ? ` · switched on by ${data.map.by}` : ""}
         </Box>
       </Box>
     );
@@ -84,7 +84,7 @@ export function ClicksBar({ data, error, loading, dev, onDev, env, path, focus, 
           <SquareChoice<ClickDev> label="On" value={dev} onChange={onDev}
             options={[{ key: "all", label: "Both", count: heat.desktop + heat.phone }, { key: "d", label: "Desktop", count: heat.desktop }, { key: "m", label: "Phone", count: heat.phone }]} />
         )}
-        {data?.deployed && data.canEdit && (
+        {data?.deployed && data.canEdit && !data.map?.id.startsWith("everywhere") && (
           <Button size="small" variant={data.map ? "outlined" : "contained"} color="warning" disableElevation disabled={busy} onClick={() => void switchIt(!data.map)}
             sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>
             {busy ? "…" : data.map ? "Stop counting" : "Count clicks here for 30 days"}

@@ -39,6 +39,8 @@ import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUT
 import { usePaged } from "@/app/connectors/parts";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
+import { CartsBySource } from "@/app/website/ai-personalization/CartsBySource";
+import type { CartsFrom } from "@/lib/convert/clicks";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
 import { PageShot } from "@/app/website/ai-personalization/PageShot";
 import { journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
@@ -246,6 +248,11 @@ function MainJourneysInner() {
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const url = `/api/website/journeys?from=${win.from}&to=${win.to}${q.store ? `&store=${q.store}` : ""}${q.device ? `&device=${q.device}` : ""}&n=${tick}`;
   const held = useHeld<JourneysData>(url, [url]);
+  // the add-to-carts the shop itself counted, by where (search bar, chat, the pages' buttons) - GA4 sees no product page
+  // for them (SARCLA 10.11.2026: "maybe they don't go to the product any more and put in the cart via the search or the chat")
+  const cartsUrl = `/api/website/ai-personalization/clicks?carts=1&days=28&n=${tick}`;
+  const cartsHeld = useHeld<{ carts: CartsFrom | null }>(cartsUrl, [cartsUrl]);
+  const carts = cartsHeld.result?.state === "ok" ? cartsHeld.result.data.carts : null;
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
   useEffect(() => { setPick(null); }, [url]);
@@ -293,6 +300,14 @@ function MainJourneysInner() {
           <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<ShoppingBagOutlinedIcon />} tint="green" label="Ordered" value={t.visits ? pct(rate(t.orders, t.visits)) : "—"}
             note={`${full(t.orders)} of the visits · ${full(t.transactions)} orders`} delta={b ? { ratio: ratio(rate(t.orders, t.visits), rate(b.orders, b.visits)), versus } : undefined} /></Grid>
         </Grid>
+
+        {carts && (
+          <GlassCard>
+            <CardTitle icon={<AddShoppingCartOutlinedIcon />} tint="green" title="Put in the cart - from where"
+              note="Counted by the shop itself: many add-to-carts come from the search bar or the chat, with no product page in between" />
+            <Box sx={{ mt: 1.25 }}><CartsBySource carts={carts} compact /></Box>
+          </GlassCard>
+        )}
 
         {t.visits > 0 && (
           <SquareChoice<"journeys" | "inout" | "flow"> label="Show" value={view} onChange={setView} options={[

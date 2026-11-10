@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { isEnv } from "@/lib/convert/model";
-import { clickMaps, clicksOf, pageTotals, switchClicks } from "@/lib/convert/clicks";
+import { cartsFrom, clickMaps, clicksOf, pageTotals, switchClicks } from "@/lib/convert/clicks";
 import { swissNow } from "@/lib/convert/scanRules";
 import { CLICKMAP, type Dev } from "@/lib/convert/clickRules";
 import { body, fail, failOf, ok, who } from "@/lib/convert/api";
@@ -23,6 +23,8 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const canEdit = access.levelAt(PAGE) === "write";
   try {
+    // the add-to-carts by where (search bar, chat, the pages' buttons), for Journeys
+    if (q.get("carts") === "1") return ok({ carts: await cartsFrom(isEnv(q.get("env")) ? (q.get("env") as "acc" | "prod") : "prod", Math.min(90, Number(q.get("days")) || 28)) });
     const raw = q.get("path");
     if (raw === null) {
       const st = await clickMaps();
