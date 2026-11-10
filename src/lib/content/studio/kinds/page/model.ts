@@ -501,11 +501,12 @@ export function copyView(d: PageDoc, to: string, from: string, path = "", at = n
     from: sourceHash(src), source: viewKey(d, from), made: "copy", at,
     // its versions come along (B, C of the page there too), the same one open
     letter: src.letter || "A", versions: cloneOf(src.versions ?? []),
-    // a copy is a store view with its own words (Content v10): it goes to itself - and leaves the version it was in
-    stores: [k],
+    // a copy is a store view with its own words (Content v10): it goes to itself - and leaves the version it was in; copied
+    // again, it keeps the store views it had
+    stores: d.langs[k]?.stores ?? [k],
   };
   const out = { ...d, langs: { ...d.langs, [k]: v } };
-  return dropFromOthers(out, k, [k]);
+  return dropFromOthers(out, k, v.stores ?? [k]);
 }
 
 /** The page without one store view's version (the main one stays). */

@@ -193,7 +193,7 @@ export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicke
     if (!canTick || running) return null;
     const st = storeState(d, k);
     if (st.own && !st.lead && k !== viewsOf(d)[0]) return { icon: "join" as const, tip: `Same words as the ${langName(k)} page - ${k}'s own words go (they stay in Versions)`, run: () => setSaid(mv!.join(k)) };
-    if (st.version && !st.own) return { icon: "split" as const, tip: `Its own words for ${k} - a copy of the ${st.version} page, then changed on its own`, run: () => { const m = mv!.split(k); setSaid(m); if (!m) onPick(k); } };
+    if (st.version && !st.own) return { icon: "split" as const, tip: `Its own words for ${k} - a copy of the ${st.version} page, then changed on its own`, run: () => { const m = mv!.split(k); setSaid(m); if (!m) setTimeout(() => onPick(k), 80); } };
     return null;
   };
   const langs = SHOP_LANGUAGES.filter((l) => all.some((k) => k.startsWith(`${l.lang}-`)));
