@@ -27,10 +27,10 @@ const sameLanguage = (a: string, b: string) => a.slice(0, 2).toLowerCase() === b
 /** A link of the shop put in this store view when it is of the same language (its address there); else as it is. Its
  * host is dropped - the page's own host serves it (ACC and production alike). */
 export function inStore(url: string, store: string | null | undefined): string {
-  const l = shopLinkOf(url);
-  if (!l || !store || !/^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/.test(store) || !sameLanguage(l.store, store)) {
-    return l ? String(url).replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, "") : url;
-  }
+  // the shop's host dropped from every address of it (its files too: /media/...) - the page's own host serves it
+  const path = String(url ?? "").replace(/^https:\/\/(www|acc)\.apsoparts\.com(?=\/)/i, "");
+  const l = shopLinkOf(path);
+  if (!l || !store || !/^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/.test(store) || !sameLanguage(l.store, store)) return path;
   return `/${store}/${l.rest}`;
 }
 

@@ -203,16 +203,20 @@ export function header(s: ModuleSettings, all = true): string {
   return `<div class="am-hd"><div>${ey ? `<p class="am-ey">${esc(ey)}</p>` : ""}${t ? `<h2 class="am-h">${marked(t)}</h2>` : ""}${sub ? `<p class="am-sub">${esc(sub)}</p>` : ""}</div>${link}</div>`;
 }
 
+/** What a card says under its name: the shop's count - or, a product without one, its number (Content v10, SARCLA point 9:
+ * "product bento since more technical" - the number a buyer orders by). */
+const metaOf = (c: Card) => c.meta || (c.kind === "product" && c.number ? c.number : "");
+
 /** The kit's finished card: photo, name in two lines, the shop's count; "Zum Produkt" takes the count's place on hover. */
 export function card(c: Card, o: Opts, label = ""): string {
   return `<a class="am-pc${c.kind === "category" ? " is-cat" : ""}" href="${href(c.url)}"><i>${pic(c, o)}</i>${label ? `<small>${esc(label)}</small>` : ""}`
-    + `<b>${nameOf(c.name)}</b><em>${esc(c.meta)}</em></a>`;
+    + `<b>${nameOf(c.name)}</b><em>${esc(metaOf(c))}</em></a>`;
 }
 
 /** The big tile: a category's photo filling it (a product's on white), a white caption with its name and "Alle anzeigen". */
 export function big(c: Card, o: Opts, small: string, go: string): string {
   return `<a class="am-big${c.kind === "product" ? " is-prod" : ""}" href="${href(c.url)}">${pic(c, o, false)}<span class="am-cap">${small ? `<small>${esc(small)}</small>` : ""}`
-    + `<b>${esc(c.name)}</b>${c.meta ? `<em>${esc(c.meta)}</em>` : ""}<span class="am-go">${esc(go)}</span></span></a>`;
+    + `<b>${esc(c.name)}</b>${metaOf(c) ? `<em>${esc(metaOf(c))}</em>` : ""}<span class="am-go">${esc(go)}</span></span></a>`;
 }
 
 /* ── icons (line icons, the shop's stroke) ─────────────────────────────── */

@@ -34,7 +34,6 @@ import { PINK, mainBtn } from "../../parts";
 import { RunLine, StepTag, useMakeViewsCtx, type Run } from "./MakeViews";
 
 const BLUE = "#2459d1";
-const GREEN = "#1b7a55";
 
 /** A tick - squared, as every choice. `part`: some of a group ticked. */
 function Tick({ on, part, disabled, label, onClick, tip }: { on: boolean; part?: boolean; disabled?: boolean; label: string; onClick: () => void; tip?: string }) {
@@ -57,10 +56,10 @@ function Whose({ d, k, picked, step }: { d: PageDoc; k: string; picked: boolean;
   const st = storeState(d, k);
   const lead = st.version ? leadOf(d, k.slice(0, 2)) : null;
   const t = step ? (step.how === "translate" ? { c: PINK, w: "Translate · AI" } : { c: PINK, w: `${langName(k)} page` })
-    : st.lead ? { c: PINK, w: "Shown here" }
+    : st.lead ? { c: PINK, w: `${langName(k)} page` }
       : st.own ? { c: "#8a3ffc", w: "Own words" }
         : st.version ? { c: BLUE, w: lead === st.version ? `${langName(k)} page` : `${st.version} words` }
-          : picked ? { c: PINK, w: "Translate · AI" } : { c: MUTED, w: leadOf(d, k.slice(0, 2)) ? "Not ticked" : "No page yet" };
+          : picked ? { c: PINK, w: "Translate · AI" } : { c: MUTED, w: leadOf(d, k.slice(0, 2)) ? "Not ticked" : `No ${langName(k)} page` };
   return (
     <Box component="span" sx={{ flexShrink: 0, fontSize: "0.66rem", fontWeight: 700, px: 0.55, py: 0.1, borderRadius: "3px", color: t.c, bgcolor: `${t.c}12`, whiteSpace: "nowrap" }}>{t.w}</Box>
   );
@@ -85,10 +84,10 @@ function ViewRow({ d, k, shown, presence, onOpen, tick, step, run, act }: {
           all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, flex: 1, minWidth: 0, px: 0.75, py: 0.55, borderRadius: "4px",
           "&:hover": { bgcolor: "rgba(36,89,209,.05)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
         }}>
-          <Typography component="span" sx={{ width: 64, flexShrink: 0, fontSize: "0.76rem", fontWeight: 800, letterSpacing: ".02em", color: off || !covered ? "#7d8799" : INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+          {/* the store view as Magento's list writes it - its language is its first two letters (the tooltip says it) */}
+          <Typography component="span" sx={{ flex: 1, minWidth: 0, fontSize: "0.76rem", fontWeight: 800, letterSpacing: ".02em", color: off || !covered ? "#7d8799" : INK, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
             {k.split("/")[0].toUpperCase()}{k.includes("/") && <Box component="span" sx={{ fontSize: "0.6rem", fontWeight: 800, color: BLUE, ml: 0.4 }}>{k.split("/")[1].toUpperCase()}</Box>}
           </Typography>
-          <Typography component="span" sx={{ flex: 1, minWidth: 0, fontSize: "0.78rem", color: off ? "#9aa5b8" : INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{langName(k)}</Typography>
           {/* Magento's id the write puts in store_id - said, never guessed */}
           <Typography component="span" title={known.id ? `Magento store id ${known.id}` : "Magento has this store view; the hub does not know its id (its front page is not open on the shop)"}
             sx={{ width: 30, flexShrink: 0, textAlign: "right", fontSize: "0.68rem", color: known.id ? MUTED : AMBER, fontVariantNumeric: "tabular-nums", fontWeight: known.id ? 500 : 700 }}>
@@ -254,7 +253,7 @@ export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicke
             Magento gets one page per language, for all its ticked store views. A store view that needs other words:{" "}
             <CallSplitIcon sx={{ fontSize: 13, verticalAlign: "-2px" }} /> Own words. Another language is translated by the AI once, for all of its store views.
           </Typography>
-          <Typography sx={{ fontSize: "0.72rem", color: GREEN, display: "inline-flex", alignItems: "center", gap: 0.5 }}>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, display: "inline-flex", alignItems: "center", gap: 0.5 }}>
             <Box component="span" sx={{ fontSize: "0.68rem", color: AMBER, fontWeight: 700 }}>id ?</Box> Magento has it; its id is not known to the hub
           </Typography>
         </Box>

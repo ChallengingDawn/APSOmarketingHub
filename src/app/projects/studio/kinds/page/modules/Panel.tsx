@@ -426,7 +426,7 @@ function Fields({ def, m, set, canEdit, store, onCategoryPhoto, onGallery }: {
   for (const f of def.fields) {
     if (f.kind === "link" || f.kind === "link2") {
       out.push(<Label key={`${f.kind}l`}>{f.label ?? (f.kind === "link" ? "Button" : "Second button")}</Label>);
-      out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
+      out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} store={store} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
     }
     if (f.kind === "feature") {
       out.push(<Label key="fl">{f.label ?? "Picture"}</Label>);
@@ -589,10 +589,11 @@ function ItemList({ items, canEdit, onMove, onDrop, store }: { items: Card[]; ca
             </Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, minWidth: 0 }}>
               <Typography component="a" href={`https://www.apsoparts.com${path.startsWith("/") ? path : `/${path}`}`} target="_blank" rel="noreferrer" title={other ? `${path} - another language's page than ${store}'s: fill it again in ${store}` : `${path} - in ${store}, as the page links it`}
-                sx={{ flex: 1, minWidth: 0, fontSize: "0.7rem", color: other ? "#a14b12" : MUTED, textDecoration: "none", fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", "&:hover": { color: PINK } }}>
+                sx={{ flex: "0 1 auto", minWidth: 0, fontSize: "0.7rem", color: other ? "#a14b12" : MUTED, textDecoration: "none", fontFamily: "ui-monospace, SFMono-Regular, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", "&:hover": { color: PINK } }}>
                 {path}
               </Typography>
               <OpenInNewIcon sx={{ fontSize: 11, color: MUTED, flexShrink: 0 }} />
+              <Box sx={{ flex: 1 }} />
               <Typography component="span" sx={{ flexShrink: 0, fontSize: "0.68rem", color: MUTED, whiteSpace: "nowrap" }}>
                 {[c.meta, c.children.length ? `${c.children.length} ${c.children[0].kind === "product" ? "products" : "subcategories"} inside` : ""].filter(Boolean).join(" · ") || (c.kind === "category" ? "category" : "product")}
               </Typography>
@@ -613,15 +614,18 @@ function ItemList({ items, canEdit, onMove, onDrop, store }: { items: Card[]; ca
   );
 }
 
-function LinkFields({ value, onChange, disabled, second }: { value: { label: string; url: string }; onChange: (v: { label: string; url: string }) => void; disabled: boolean; second?: boolean }) {
+function LinkFields({ value, onChange, disabled, second, store }: { value: { label: string; url: string }; onChange: (v: { label: string; url: string }) => void; disabled: boolean; second?: boolean; store?: string }) {
   const [url, setUrl] = useState(value.url);
   useEffect(() => { setUrl(value.url); }, [value.url]);
   const bad = !!url.trim() && !shopAddress(url);
+  // where the page sends a visitor of the store view shown (Content v10, point 9: "the link should lead to correct locale")
+  const here = store && url.trim() && !bad ? inStore(url, store) : "";
+  const other = !!here && !!shopLinkOf(url) && shopLinkOf(url)!.store.slice(0, 2) !== store!.slice(0, 2);
   return (
     <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 1 }}>
       <TextField size="small" label={second ? "Second button" : "Words"} value={value.label} disabled={disabled} onChange={(e) => onChange({ ...value, label: e.target.value.slice(0, 60) })} sx={field} />
       <TextField size="small" label="A page of the shop" value={url} disabled={disabled} error={bad}
-        helperText={bad ? "An address on www.apsoparts.com, or a path (/de-CH/...)" : undefined}
+        helperText={bad ? "An address on www.apsoparts.com, or a path (/de-CH/...)" : other ? `Another language's page - pick its ${store} page` : here ? `In this page: ${here}` : undefined}
         onChange={(e) => { setUrl(e.target.value); const u = shopAddress(e.target.value); if (u || !e.target.value.trim()) onChange({ ...value, url: u }); }} sx={field} />
     </Box>
   );
