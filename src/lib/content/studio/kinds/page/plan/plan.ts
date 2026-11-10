@@ -20,7 +20,8 @@
 import { SHOP_TOKENS, blockRules, cleanBlock, prefixOf } from "../block";
 import { insertChange, leftoversIn, replaceChange, type PageChange } from "../model";
 import type { Card, ModuleRef } from "../modules/types";
-import { emptyWords, libModule, library, libraryText, moduleIdOf, pickModule, type LibModule, type PlanWords } from "./library";
+import { moduleDef } from "../modules/registry";
+import { emptyWords, fullGap, isTeaser, libModule, library, libraryText, listsFrom, makeModule, moduleIdOf, pickModule, teaserField, teasersFrom, withWords, type LibModule, type PlanWords } from "./library";
 import type { PagePart } from "./places";
 
 /* ── the plan ─────────────────────────────────────────────────────────── */
@@ -193,6 +194,10 @@ How a good plan looks:
   campaign): never add a module that says what a picture of the page already says.
 - "note" and "why" are ENGLISH, short (the person approving reads English): note under 12 words, why under 10.
 - A word the module does not take stays "". A list it does not take stays [].
+- Every module you add is FULL: its headline and every point or question it shows, written for this page. A module you
+  cannot fill completely: leave it out, never half-filled. Teasers that each show a picture and a page (two banners, three
+  teasers, story cards, a gallery) get their pictures and pages from the shop, never from you: give their "fill" (a
+  category whose subcategories they show, or "technologies") and, if you like, a title per teaser naming one of them.
 
 THE LIBRARY (by category: "id" name: what it is. what the hub fills. layouts. the words it takes):
 ${libraryText(lib)}
@@ -366,6 +371,8 @@ export type CleanCtx = {
   pageText: string;
   /** a new id per step (the change it becomes) */
   newId: () => string;
+  /** the store view ("de-CH") - a module's own words and points are its store view's (Content v10) */
+  store?: string;
   /** the page's language ("de") - a module's words in another are left out */
   lang?: string;
 };
@@ -457,7 +464,7 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     if (key) touched.add(key);
     const lib = id ? libModule(id) : null;
     const layouts = lib?.layouts.map((l) => l.key) ?? [];
-    const layout = layouts.includes(str(x.layout, 30)) ? str(x.layout, 30) : "";
+    let layout = layouts.includes(str(x.layout, 30)) ? str(x.layout, 30) : "";
     const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && lib?.extras.some((s) => s.key === e.key)).slice(0, 8);
     const okLink = (v: unknown) => { const u = str(v, 400); return u && (ctx.categories.includes(u) || (ctx.links ?? []).includes(u) || u === ctx.pageUrl) ? u : ""; };
@@ -482,6 +489,26 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
       if (/chemours/i.test(html)) { problems.push("A free block named a brand we never write - left out."); continue; }
     }
     if (doing === "words" && !Object.values(words).some((v) => (Array.isArray(v) ? v.length : !!v))) { problems.push(`The step for ${at.id} brought no words - left out.`); continue; }
+    // a module the plan adds is FULL or not added (Content v10, SARCLA 10.11.2026: a "Three teasers" came back empty): a
+    // module of words the AI's words do not fill - one of its kind they fill takes its place, else the step is left out
+    // and said. A module of the shop (products, categories, photos, teasers) is checked once filled (the studio).
+    if ((doing === "add" || doing === "replace") && id && lib && !shopFilled(lib)) {
+      const store = ctx.store ?? "de-CH";
+      const full = (mid: string, w: PlanWords, lay: string, ex: { key: string; value: string }[]) => {
+        const m0 = makeModule(mid, store);
+        if (!m0) return "It is not in the module library";
+        const m1 = withWords(m0, w, link, ex, link2);
+        return fullGap(lay ? { ...m1, settings: { ...m1.settings, layout: lay } } : m1);
+      };
+      const gap = full(id, words, layout, extras);
+      if (gap) {
+        // one of its kind that THESE words fill (not its own sample words)
+        const alt = library().find((o2) => o2.id !== id && o2.category === lib.category && !shopFilled(o2) && !ownPoints(o2.id) && listsFrom(o2.id, words) && !full(o2.id, words, "", []) && !!full(o2.id, emptyWords(), "", []));
+        if (!alt) { problems.push(`"${lib.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
+        said.push(`"${lib.name}" could not be filled (${lowerFirst(gap)}) - "${alt.name}" in its place`);
+        id = alt.id; layout = ""; extras.length = 0;
+      }
+    }
     const s: PlanStep = {
       id: stepId, do: doing, module: id ?? "", at: at.id, where: place.how === "insert" ? (where || "after") : "", place, target: { kind: at.kind, fp: partFp(at) }, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""), link2,
       fill, html, line: "", why: looksEnglish(str(x.why, 120)) ? str(x.why, 120) : "", problems: [...new Set(said)].slice(0, 4),
@@ -491,6 +518,15 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
   }
   return { note: noteOf(str(o.note, 400), steps), steps, problems: [...new Set(problems)].slice(0, 6) };
 }
+
+/** A module the shop fills (products, categories, a photo, teasers' pictures and pages) - checked once filled. */
+const shopFilled = (m: LibModule) => m.takes !== "none" || m.needs.includes("picture") || isTeaser(m.id);
+/** A module whose pictured or linked points are its own (tools, brands) - never a stand-in for the AI's words. */
+const ownPoints = (id: string) => {
+  const pf = moduleDef(id)?.fields.find((f) => f.kind === "points") as { links?: boolean; pictures?: boolean } | undefined;
+  return !!pf && !!(pf.links || pf.pictures);
+};
+const lowerFirst = (t: string) => (t ? `${t.charAt(0).toLowerCase()}${t.slice(1)}` : t);
 
 /* ── a step's place found again when it is applied ─────────────────────── */
 
@@ -522,11 +558,14 @@ export function placeNow(s: Pick<PlanStep, "do" | "where" | "target">, now: { pa
  * panel does the same. */
 export function withFill(m: ModuleRef, out: { items: Card[]; feature: Card | null; missing?: string[] }, spec: FillSpec, at = new Date().toISOString()): ModuleRef {
   const how = spec.how === "viewed" || spec.how === "bought" || spec.how === "numbers" ? spec.how : spec.how === "none" ? "ai" : "category";
+  // a module of teasers (Content v10): the shop's cards become its teasers - each its picture and its page
+  const teaser = teaserField(m.type);
   return {
     ...m,
     settings: {
       ...m.settings,
-      items: out.items.length ? out.items : m.settings.items,
+      ...(teaser ? { points: teasersFrom(m.settings.points, out.items, teaser.n) } : {}),
+      items: teaser ? m.settings.items : out.items.length ? out.items : m.settings.items,
       feature: out.feature ?? m.settings.feature,
       fill: { how, category: spec.category, numbers: spec.numbers, ask: "", at, missing: (out.missing ?? []).slice(0, 30) },
     },

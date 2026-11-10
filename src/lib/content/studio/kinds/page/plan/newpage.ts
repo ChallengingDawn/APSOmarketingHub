@@ -22,7 +22,7 @@ import { blockOrder, removeBlock, type Fields, type PageModule } from "../fields
 import { FILL_SCHEMA, type FillAnswer } from "../fill";
 import { moduleDef } from "../modules/registry";
 import type { ModuleRef } from "../modules/types";
-import { emptyWords, library, libraryText, libModule, makeModule, moduleGapOf, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
+import { emptyWords, fullGap, isTeaser, library, libraryText, libModule, listsFrom, makeModule, moduleIdOf, withWords, type LibModule, type PlanWords } from "./library";
 import { buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "./plan";
 
 const BASE = "https://www.apsoparts.com";
@@ -348,7 +348,7 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
       const gap = gapWith({ module: id, words, link, link2, extras, layout }, store);
       if (gap) {
         // one of the same kind that THESE words fill (not its own sample words)
-        const alt = lib.find((o) => o.id !== id && o.category === m.category && !taken.has(o.id) && !needsShop(o.id) && !ownPointsField(o.id)
+        const alt = lib.find((o) => o.id !== id && o.category === m.category && !taken.has(o.id) && !needsShop(o.id) && !ownPointsField(o.id) && listsFrom(o.id, words)
           && !gapWith({ module: o.id, words, link, link2, extras: [], layout: "" }, store)
           && !!gapWith({ module: o.id, words: emptyWords(), link: "", link2: "", extras: [], layout: "" }, store));
         if (!alt) { problems.push(`"${m.name}" left out: ${lowerFirst(gap)} - it came back without them.`); continue; }
@@ -406,10 +406,11 @@ export function moduleOfStep(s: Pick<NewPageModule, "module" | "words" | "link" 
   return s.layout ? { ...m1, settings: { ...m1.settings, layout: s.layout } } : m1;
 }
 
-/** Does the module need the shop (products, categories or a photo)? */
+/** Does the module need the shop (products, categories, a photo - or its teasers' pictures and pages, ./library.ts
+ * teaserField)? */
 export function needsShop(module: string): boolean {
   const m = libModule(module);
-  return !!m && (m.takes !== "none" || m.needs.includes("picture"));
+  return !!m && (m.takes !== "none" || m.needs.includes("picture") || isTeaser(module));
 }
 
 const lowerFirst = (t: string) => (t ? `${t.charAt(0).toLowerCase()}${t.slice(1)}` : t);
@@ -419,15 +420,7 @@ const lowerFirst = (t: string) => (t ? `${t.charAt(0).toLowerCase()}${t.slice(1)
  * with all their words" - a module that draws nothing but its frame is not full). */
 export function gapWith(s: Pick<NewPageModule, "module" | "words" | "link" | "link2" | "extras" | "layout">, store: string): string {
   const m = moduleOfStep(s, store);
-  if (!m) return "It is not in the module library";
-  const gap = moduleGapOf(m);
-  if (gap) return gap;
-  const keys = new Set((libModule(s.module)?.words ?? []).map((w) => w.key));
-  const st = m.settings;
-  if (keys.has("title") && !st.title.trim()) return "Give it a headline";
-  const lists = keys.has("points") || keys.has("faq");
-  if (lists && !st.points.some((p) => p.title.trim()) && !st.faq.some((x) => x.q.trim() && x.a.trim())) return keys.has("points") ? "Write its points" : "Write its questions and their answers";
-  return "";
+  return m ? fullGap(m) : "It is not in the module library";
 }
 
 /** The AI's modules of words that are not full taken out before they go on the page - the studio's own check of what the
@@ -467,6 +460,9 @@ export function fillTries(s: Pick<NewPageModule, "module" | "fill" | "layout">, 
       const other = s.fill.how === "bought" ? "viewed" : "bought";
       out.push({ module: s.module, fill: { how: other, category: cat, numbers: "", count }, layout: s.layout, why: `the most ${other} products` });
     }
+  } else if (isTeaser(s.module)) {
+    // teasers: the category's subcategories (or its products); then the shop's technologies, each with its photo
+    if (cat) out.push({ module: s.module, fill: { how: "technologies", category: "", numbers: "", count }, layout: s.layout, why: "the shop's technologies" });
   } else if (m.takes === "categories" && cat) {
     // a family's module of products ("bentos", "showcases"), else the library's first module of products
     const prods = lib.filter((o) => o.takes === "products" && !o.needs.includes("picture"));

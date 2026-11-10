@@ -19,7 +19,7 @@
 import { CATEGORIES, MODULES, countFor, gapOf, moduleDef } from "../modules/registry";
 import { normalizeModule, newModule, isModuleType } from "../modules/model";
 import { fitModule, renderModule, renderSkeleton } from "../modules/render";
-import type { FieldSpec, ModuleRef, ModuleSettings, Point } from "../modules/types";
+import type { Card, FieldSpec, ModuleRef, ModuleSettings, Point } from "../modules/types";
 
 export type Need = "products" | "categories" | "picture" | "text";
 /** The words a module takes (the plan's `words` object). */
@@ -162,6 +162,65 @@ export function withWords(m: ModuleRef, w: Partial<PlanWords>, link = "", extras
     s.extra[spec.key] = v.slice(0, spec.max);
   }
   return { type: m.type, settings: s };
+}
+
+/* ── a module the AI brings is FULL (Content v9/v10, SARCLA 10.11.2026: a "Three teasers" came back empty) ── */
+
+/** What a module still lacks ("" = full): the registry's own check, then its words - a headline when it takes one, its
+ * points or its questions when it takes them. A module that would draw nothing but its frame is not full. */
+export function fullGap(m: ModuleRef): string {
+  const gap = moduleGapOf(m);
+  if (gap) return gap;
+  const keys = new Set((libModule(m.type)?.words ?? []).map((w) => w.key));
+  const s = m.settings;
+  if (keys.has("title") && !s.title.trim()) return "Give it a headline";
+  if ((keys.has("points") || keys.has("faq")) && !s.points.some((p) => p.title.trim()) && !s.faq.some((x) => x.q.trim() && x.a.trim())) return keys.has("points") ? "Write its points" : "Write its questions and their answers";
+  return "";
+}
+
+/** May a module stand in for another with these words? Its points or questions, when it shows any, must be the AI's own
+ * (never a contact list or sample points of its defaults under the AI's headline). */
+export function listsFrom(id: string, w: Pick<PlanWords, "points" | "faq">): boolean {
+  const keys = new Set((libModule(id)?.words ?? []).map((x) => x.key));
+  if (!keys.has("points") && !keys.has("faq")) return true;
+  return (keys.has("points") && w.points.some((p) => p.title.trim())) || (keys.has("faq") && w.faq.some((x) => x.q.trim() && x.a.trim()));
+}
+
+/** Categories whose pictured points are the shop's own (its brands, its tools) - never filled from the catalogue. */
+const OWN_POINT_CATEGORIES = ["references", "tools"];
+/** A module of TEASERS: points that each carry a picture and a page of the shop (two banners, three teasers, story
+ * cards, a gallery) - the hub fills those from the shop's catalogue, the AI never invents them. How many it shows: its
+ * points field's max. null for any other module. */
+export function teaserField(id: string): { n: number } | null {
+  const d = moduleDef(id);
+  if (!d || d.takes !== "none" || OWN_POINT_CATEGORIES.includes(d.category)) return null;
+  const pf = d.fields.find((f) => f.kind === "points") as { pictures?: boolean; links?: boolean; max?: number; min?: number } | undefined;
+  return pf && pf.pictures && pf.links ? { n: Math.max(1, Math.min(pf.max ?? 3, 6)) } : null;
+}
+export const isTeaser = (id: string) => !!teaserField(id);
+
+const tokensOf = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 4);
+/**
+ * A teaser module's points from the shop's cards: a point that already has its picture and its page (the shop's own)
+ * stays; each other slot takes a card - its picture, its page, its name - with the AI's words for it when they name it
+ * (a word in common), else the card's own name and the shop's own line ("31 Produkte"). Never a picture or a page the
+ * shop does not have.
+ */
+export function teasersFrom(points: Point[], cards: Card[], n: number): Point[] {
+  const own = points.filter((p) => p.img && p.url).slice(0, n);
+  const words = points.filter((p) => !(p.img && p.url) && p.title.trim());
+  const used = new Set(own.map((p) => p.url));
+  const out: Point[] = [...own];
+  for (const c of cards) {
+    if (out.length >= n) break;
+    if (!c.img || !c.url || used.has(c.url)) continue;
+    used.add(c.url);
+    const ct = tokensOf(c.name);
+    const i = words.findIndex((w) => tokensOf(w.title).some((t) => ct.some((x) => x.slice(0, 5) === t.slice(0, 5))));
+    const w = i >= 0 ? words.splice(i, 1)[0] : null;
+    out.push({ icon: w?.icon ?? "check", title: (w?.title ?? c.name).slice(0, 60), text: (w?.text || c.meta || "").slice(0, 160), img: c.img, url: c.url });
+  }
+  return out;
 }
 
 /** The library as the AI is shown it: by category, each module one line - its id, what it is, what the hub fills it with,

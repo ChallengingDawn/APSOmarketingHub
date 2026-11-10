@@ -15,7 +15,7 @@
 import type { Card } from "../modules/types";
 import { moduleDef } from "../modules/registry";
 import { cardsForNumbers, categoryCard, cleanCards, cleanedNote, shopCategory, shopTree, topCards } from "../modules/source";
-import { libModule } from "./library";
+import { libModule, teaserField } from "./library";
 import type { FillSpec } from "./plan";
 
 export type FillOut = { items: Card[]; feature: Card | null; note: string; missing: string[] };
@@ -100,6 +100,27 @@ export async function fillModule(o: { module: string; fill: FillSpec; store: str
       items = r.cards; missing.push(...r.missing);
       note = "The shop's technologies, from its menu.";
     }
+  }
+
+  // teasers (two banners, three teasers, story cards, a gallery - Content v10, SARCLA 10.11.2026: a "Three teasers" came
+  // back empty): each a picture and a page of the shop, never invented - the category's subcategories, then its
+  // products, then the shop's technologies, each with the shop's own photo (./library.ts teasersFrom puts them in)
+  const teaser = teaserField(o.module);
+  if (teaser && lib.takes === "none") {
+    const card = (x: { name: string; url: string; img: string }): Card => ({ kind: "category", name: x.name, url: x.url, img: x.img, meta: "", number: "", children: [] });
+    if (f.how !== "technologies" && category) {
+      const c = await shopCategory(category, store);
+      items = c.subs.filter((x) => x.img).map((x) => ({ ...x, children: [] }));
+      if (items.length < teaser.n) { const k = await cleanCards(c.products.filter((x) => x.img), teaser.n + 4); items.push(...k.cards); }
+      note = `${c.name || "The category"}'s pages and photos, from the shop.`;
+    }
+    if (items.length < teaser.n) {
+      const t = await shopTree(store);
+      items.push(...t.tree.filter((x) => t.photos[x.url]).map((x) => card({ name: x.name, url: x.url, img: t.photos[x.url] })));
+      note = note || "The shop's technologies, each with its photo, from its menu.";
+    }
+    const seen = new Set<string>();
+    items = items.filter((x) => x.img && x.url && !seen.has(x.url) && (seen.add(x.url), true)).slice(0, teaser.n + 2);
   }
 
   if (lib.needs.includes("picture")) {
