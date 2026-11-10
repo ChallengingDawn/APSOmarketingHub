@@ -69,7 +69,7 @@ export type PlanMode = "ideas" | "convincing" | "part" | "ask";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
-const WORDS_SCHEMA = {
+export const WORDS_SCHEMA = {
   type: "object", additionalProperties: false, required: ["eyebrow", "title", "text", "button", "button2", "points", "faq"],
   properties: {
     eyebrow: { type: "string" }, title: { type: "string" }, text: { type: "string" }, button: { type: "string" }, button2: { type: "string" },
@@ -247,8 +247,10 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 const NEVER: RegExp[] = [
   /\d+([.,]\d+)?\s*%/, /\b(CHF|EUR|USD|PLN)\b|€|\$/i,
   /\b(rabatt|discount|remise|sconto|korting|rabat|reduziert|reduced|soldes|saldi|sale)\b/i,
-  /\b(ab lager|auf lager|lagernd|lagerhaltig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i,
-  /\b(in|within|innerhalb( von)?|en|entro|binnen|w ciągu)\s+\d+\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i,
+  /\b(ab lager|auf lager|lagernd|lagerhaltig|lagerartikel|lagerware|vorrätig|sofort lieferbar|in stock|en stock|disponible en stock|disponibile a magazzino|pronta consegna|op voorraad|na stanie)\b/i,
+  // "in 24 h", "innert 2 Tagen" - and (Content v8, a real write of 10.11.2026) "in 48/72 h"
+  /\b(in|within|innerhalb( von)?|innert|en|entro|binnen|w ciągu)\s+\d+(\s*[/-]\s*\d+)?\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i,
+  /\b\d+\s*[/-]\s*\d+\s*(h|std|stunden|hours?)\b/i,
   /\bchemours\b/i,
 ];
 /** Certificates and approvals: only when the page itself names them. */
@@ -395,7 +397,7 @@ export function placeOf(doing: StepDo, at: PagePart, where: "before" | "after" |
   return { place: null, problem: `No place was found ${side} ${at.id}` };
 }
 
-function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanWords {
+export function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanWords {
   const o = isObj(v) ? v : {};
   const sw = (t: string) => safeWords(t, pageText, said, lang);
   const w = (k: string, n: number) => sw(str(o[k], n * 2)).slice(0, n);
@@ -406,7 +408,7 @@ function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanW
   };
 }
 
-function fillIn(v: unknown, lib: LibModule | null, ctx: CleanCtx): FillSpec {
+export function fillIn(v: unknown, lib: LibModule | null, ctx: CleanCtx): FillSpec {
   const o = isObj(v) ? v : {};
   let how = (["page", "category", "technologies", "viewed", "bought", "numbers", "none"] as FillHow[]).find((h) => h === o.how) ?? "none";
   const cat = str(o.category, 400);

@@ -20,6 +20,7 @@ export function wholeTaskLabel(kind: string, task: string, input: Record<string,
   const say = (what: string) => `${AUTO_MARK} ${what}`;
   switch (`${kind}:${task}`) {
     case "page:fill_all": return say("wrote the page");
+    case "page:fill_page": return say("wrote the page");
     case "page:rewrite": return say(input.selector ? "changed a part of the page" : "changed the page");
     case "page:translate": return say(typeof input.to === "string" && input.to ? `translated the page into ${input.to.toUpperCase()}` : "translated the page");
     case "social:write": return say("wrote the post's texts");

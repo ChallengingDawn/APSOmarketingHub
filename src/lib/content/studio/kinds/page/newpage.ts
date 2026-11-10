@@ -22,7 +22,7 @@ export type RenderOpts = {
   link?: (url: string) => string;
   /** the preview only (`marks`): what the AI is writing now - those blocks and fields shimmer - and the pictures being
    * made (SARCLA 08.11.2026: "an AI animation as soon as it starts working") */
-  busy?: { blocks?: string[]; fields?: string[]; pictures?: string[]; tuning?: string[] };
+  busy?: { blocks?: string[]; fields?: string[]; pictures?: string[]; tuning?: string[]; modules?: Record<string, string>; moduleWhy?: Record<string, string> };
   /** the preview only (`marks`), for someone who may change the page: the "+" between blocks and in a block with items */
   adds?: boolean;
 };
@@ -178,8 +178,12 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
     .map((x) => {
       // one that still lacks something: its skeleton in the preview with the reason (Content v7, SARCLA point 6: "added a
       // module didn't appear" - never nothing), nothing in Magento's copy
+      // Content v8 (point 5): a module the AI put on the new page fills in front of the person - its skeleton moving with
+      // what is happening ("Filling it from the shop…"), or why it could not fill
+      const filling = m ? o.busy?.modules?.[x.id] : undefined;
+      if (filling) return `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { busy: filling })}</div>`;
       const gap = moduleGap(x.module);
-      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: `${gap} - in its settings (click it).` })}</div>` : "";
+      if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: o.busy?.moduleWhy?.[x.id] ?? `${gap} - in its settings (click it).` })}</div>` : "";
       const h = renderModule(x.module, o.picture ? { picture: o.picture } : {});
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
     }).join("\n");

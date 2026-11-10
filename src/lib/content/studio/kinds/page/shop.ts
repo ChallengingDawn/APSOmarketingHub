@@ -304,11 +304,12 @@ export async function presenceOf(d: PageDoc, stores: readonly string[]): Promise
   try {
     await ensureConvertSchema();
     const want = list.flatMap((s) => [`${s}|${rest}`, ...(alts[s] ? [`${s}|${classify(alts[s]).rest}`] : [])]);
+    // the page's own environment only (Content v8, point 7): a to-do on ACC finds ACC's pages, never production's
     const r = await query<{ store: string; rest: string; url: string; env: string }>(
       `SELECT DISTINCT ON (store, rest) store, rest, url, env FROM apsomh_convert_pages
-        WHERE gone_at IS NULL AND kind <> 'system' AND (store || '|' || rest) = ANY($1::text[]) ORDER BY store, rest, (env = $2) DESC`,
+        WHERE gone_at IS NULL AND kind <> 'system' AND env = $2 AND (store || '|' || rest) = ANY($1::text[]) ORDER BY store, rest`,
       [want, d.env]);
-    const held = await query<{ store: string }>(`SELECT DISTINCT store FROM apsomh_convert_pages WHERE gone_at IS NULL`);
+    const held = await query<{ store: string }>(`SELECT DISTINCT store FROM apsomh_convert_pages WHERE gone_at IS NULL AND env = $1`, [d.env]);
     const indexed = new Set(held.rows.map((x) => baseStore(x.store)).filter(Boolean));
     for (const s of list) {
       const same = r.rows.find((x) => x.store === s && x.rest === rest);
@@ -331,18 +332,28 @@ export async function presenceOf(d: PageDoc, stores: readonly string[]): Promise
 
 /* ── the shop's pages, for the list to pick from ──────────────────────── */
 
-export type PageRow = { store: string; rest: string; kind: PageKind; product: string | null; name: string; path: string; env: Env; convert: { status: string; rev: number; idea: string } | null };
+export type PageRow = {
+  store: string; rest: string; kind: PageKind; product: string | null; name: string; path: string; env: Env; convert: { status: string; rev: number; idea: string } | null;
+  /** an ACC page production does not have (Content v8: the picker says "only on ACC") */
+  onlyAcc?: boolean;
+};
 
 /**
- * The shop's indexed pages (production first, ACC where a page is only there), searched by words - every word must be
- * in the address (umlauts as the shop writes them: "dichtung", "o-ring") or be the product number. Plain and fast:
- * one table, no join, 40 a time.
+ * The shop's indexed pages, searched by words - every word must be in the address (umlauts as the shop writes them:
+ * "dichtung", "o-ring") or be the product number. Plain and fast: one table, 40 a time. `env` (Content v8, SARCLA
+ * 10.11.2026 point 7 - "I can't select ACC"): production's pages, or ACC's (each saying when production has no such page;
+ * `onlyAcc` lists those alone); none (an older caller) = production first, ACC where a page is only there.
  */
-export async function findPages(f: { q: string; store: string | null; kind: PageKind | null; page: number; perPage: number }): Promise<{ rows: PageRow[]; total: number; more: boolean }> {
+export async function findPages(f: { q: string; store: string | null; kind: PageKind | null; page: number; perPage: number; env?: Env | null; onlyAcc?: boolean }): Promise<{ rows: PageRow[]; total: number; more: boolean }> {
   await ensureConvertSchema();
   const words = f.q.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ß/g, "ss").split(/[\s/,]+/).map((w) => w.replace(/[^a-z0-9-]/g, "")).filter((w) => w.length > 1).slice(0, 5);
   const args: unknown[] = [];
   const where: string[] = ["gone_at IS NULL", "kind <> 'system'"];
+  // the environment's own pages; an ACC page is "only on ACC" when production's index holds its store view, not this page
+  const prodHas = (t: string) => `EXISTS (SELECT 1 FROM apsomh_convert_pages q WHERE q.env = 'prod' AND q.gone_at IS NULL AND q.store = ${t}.store AND q.rest = ${t}.rest)`;
+  const prodStore = (t: string) => `EXISTS (SELECT 1 FROM apsomh_convert_pages s WHERE s.env = 'prod' AND s.gone_at IS NULL AND s.store = ${t}.store)`;
+  if (f.env) { args.push(f.env); where.push(`env = $${args.length}`); }
+  if (f.env === "acc" && f.onlyAcc) where.push(`NOT ${prodHas("c")} AND ${prodStore("c")}`);
   if (f.store) { args.push(f.store); where.push(`store = $${args.length}`); }
   if (f.kind) { args.push(f.kind); where.push(`kind = $${args.length}`); }
   for (const w of words) {
@@ -350,10 +361,12 @@ export async function findPages(f: { q: string; store: string | null; kind: Page
     const like = `$${args.length}`;
     if (/^\d{8}$/.test(w)) { args.push(w); where.push(`(rest ILIKE ${like} OR product = $${args.length})`); } else where.push(`rest ILIKE ${like}`);
   }
-  const base = `SELECT DISTINCT ON (store, rest) store, rest, kind, product, env, url FROM apsomh_convert_pages WHERE ${where.join(" AND ")} ORDER BY store, rest, (env = 'prod') DESC`;
+  const base = `SELECT DISTINCT ON (store, rest) store, rest, kind, product, env, url FROM apsomh_convert_pages c WHERE ${where.join(" AND ")} ORDER BY store, rest, (env = 'prod') DESC`;
   args.push(f.perPage + 1, f.page * f.perPage);
-  const r = await query<{ store: string; rest: string; kind: string; product: string | null; env: string; url: string }>(
-    `SELECT * FROM (${base}) x ORDER BY CASE kind WHEN 'home' THEN 0 WHEN 'cms' THEN 1 WHEN 'category' THEN 2 ELSE 3 END, (store = 'de-CH') DESC, store, length(rest), rest LIMIT $${args.length - 1} OFFSET $${args.length}`,
+  // "only on ACC" worked out for the rows shown (41), never for the whole count
+  const onlyCol = f.env === "acc" ? `, (NOT ${prodHas("x")} AND ${prodStore("x")}) AS only_acc` : f.env ? "" : ", (x.env = 'acc') AS only_acc";
+  const r = await query<{ store: string; rest: string; kind: string; product: string | null; env: string; url: string; only_acc?: boolean }>(
+    `SELECT x.*${onlyCol} FROM (${base}) x ORDER BY CASE kind WHEN 'home' THEN 0 WHEN 'cms' THEN 1 WHEN 'category' THEN 2 ELSE 3 END, (store = 'de-CH') DESC, store, length(rest), rest LIMIT $${args.length - 1} OFFSET $${args.length}`,
     args);
   const countArgs = args.slice(0, -2);
   const c = await query<{ n: string }>(`SELECT count(*)::text AS n FROM (SELECT 1 FROM (${base}) y LIMIT 5000) z`, countArgs);
@@ -365,6 +378,7 @@ export async function findPages(f: { q: string; store: string | null; kind: Page
     return {
       store: x.store, rest: x.rest, kind: x.kind as PageKind, product: x.product, path, env,
       name: x.kind === "home" ? "Home page" : nameFromRest(x.rest) || x.rest, convert: work.get(`${env}${path}`) ?? null,
+      ...(x.only_acc ? { onlyAcc: true } : {}),
     };
   });
   return { rows, total: Number(c.rows[0]?.n ?? 0), more: r.rows.length > f.perPage };

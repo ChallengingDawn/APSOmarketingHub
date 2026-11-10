@@ -67,6 +67,13 @@ import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
+import { envFilter, publishTargets, targetWhy } from "./env";
+import { runningOn } from "./abState";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
+import { readStore, treeFor } from "./plan/fill";
+import { categoryFacts, type CategoryFacts } from "./modules/source";
+import { readBrain } from "@/lib/brain";
+import { listTests } from "@/lib/convert/tests";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -353,6 +360,68 @@ function fillTask(part: Exclude<Part, "field">): AiTask {
     clean: (raw, _doc, _ctx, input) => cleanFill(raw, candidatesOf(input)),
   };
 }
+
+/* ── fill_page: a new page written whole WITH ITS MODULES (Content v8, SARCLA 10.11.2026 point 5: "when the AI is
+ *    generating a new page it should also generate the modules") ── */
+//
+// The whole-page write ("Write the page with AI", "Write it all again", an app's brief writing it by itself): the text
+// blocks as fill_all writes them, and 2 to 4 modules of the library among them - each checked, placed after its block
+// (or in place of one), filled from the shop by the studio through `plan_fill` (./plan/newpage.ts, ./plan/fill.ts). The
+// text blocks' words pass the same word rules as the modules'. The asks that only rework the words ("Make it shorter")
+// stay fill_all: the modules on the page stay as they are.
+
+/** What a new page's words may name: the brief, the person's ask, the brand's facts, the shop's pages offered. */
+async function newPageFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, unknown>): Promise<string> {
+  const brain = await readBrain().catch(() => null);
+  const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
+  return [context(ctx, d), s(input.request, 1500), candidatesOf(input).map((c) => c.name).join(" "), facts].join(" ");
+}
+
+/**
+ * The page's subject among the shop's categories (the brief's own words matched to the candidates' categories and the
+ * category tree - ./plan/newpage.ts subjectOf) and what the shop itself says on it: its description and its first
+ * product's technical summary (../modules/source.ts categoryFacts - read once, the shop reader keeps it ten minutes, so
+ * the question and the check read the same). The lead 10.11.2026: "figures only from those facts or the brand brain".
+ */
+async function subjectFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, unknown>, tree: { name: string; url: string }[]): Promise<CategoryFacts | null> {
+  const cats = [...candidatesOf(input).filter((c) => c.kind === "category").map((c) => ({ name: c.name, url: c.url })), ...tree.map((t) => ({ name: t.name, url: t.url }))];
+  const subject = subjectOf([ctx.projectTitle, ctx.piece.title, ...ctx.brief.keywords, s(input.request, 600), d.fields.hero.title], cats);
+  if (!subject) return null;
+  return categoryFacts(new URL(subject.url, "https://www.apsoparts.com").toString(), readStore(d.store)).catch(() => null);
+}
+
+const fillPage: AiTask = {
+  label: "Write the page",
+  schema: NEWPAGE_SCHEMA,
+  system: `${FILL_SYSTEM}\n\n${newPageSystem()}`,
+  maxTokens: 16_000,
+  effort: "medium",
+  user: async (ctx, raw, input) => {
+    const d = viewFor(ctx, raw, input);
+    const tree = await treeFor(d.store).catch(() => []);
+    const facts = factsBlock(await subjectFacts(ctx, d, input, tree));
+    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts })}`;
+  },
+  clean: async (raw, docRaw, ctx, input) => {
+    const d = viewFor(ctx, docRaw, input);
+    const cands = candidatesOf(input);
+    const base = cleanFill(raw, cands);
+    const tree = await treeFor(d.store).catch(() => []);
+    const store = d.store.split("/")[0];
+    const subject = factsBlock(await subjectFacts(ctx, d, input, tree));
+    // what a word may name: the brief, the brand facts, the shop's pages, the subject's own facts - and the shop's own
+    // points the library's modules show (a norm such as ISO 3601 is the shop's own words there)
+    const own = ownPoints(store).flatMap((x) => x.titles).join(" ");
+    const pageText = `${await newPageFacts(ctx, d, input)} ${subject} ${own}`;
+    // the figures a word may carry: only those the facts given hold
+    const facts = factKeys(pageText);
+    const lang = d.store.slice(0, 2);
+    // the text blocks' words under the shop's word rules too
+    const g = guardFill(base.answer, pageText, lang, facts);
+    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang, store, facts });
+    return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...new Set([...g.problems, ...mods.problems, ...mods.modules.flatMap((m) => m.problems.filter((p) => / left out/.test(p)))])].slice(0, 12) };
+  },
+};
 
 const ROLE: Record<string, string> = {
   "hero.eyebrow": `a small line above the page's title, at most ${LIMIT.eyebrow} characters`,
@@ -822,7 +891,9 @@ const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/;
 const pages: ServerAction = async (_ctx, _raw, input) => {
   const store = typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null;
   const page = Math.max(0, Math.min(500, Math.floor(Number(input.page) || 0)));
-  return findPages({ q: s(input.q, 120), store, kind: isKind(input.kind) && input.kind !== "system" ? input.kind : null, page, perPage: 40 });
+  // the environment picked above STORE (Content v8, SARCLA 10.11.2026 point 7: "I can't select ACC")
+  const f = envFilter(input);
+  return findPages({ q: s(input.q, 120), store, kind: isKind(input.kind) && input.kind !== "system" ? input.kind : null, page, perPage: 40, env: f.env, onlyAcc: f.onlyAcc });
 };
 
 const convert: ServerAction = async () => ({ rows: await convertPages() });
@@ -871,13 +942,22 @@ const candidates: ServerAction = async (ctx, raw, input) => {
   };
   for (const w of [...new Set(words)]) {
     if (out.length >= 24) break;
-    add((await findPages({ q: w.slice(0, 8), store: d.store, kind: null, page: 0, perPage: 8 })).rows);
+    add((await findPages({ q: w.slice(0, 8), store: d.store, kind: null, page: 0, perPage: 8, env: d.env })).rows);
   }
-  if (out.length < 8) add((await findPages({ q: "", store: d.store, kind: "category", page: 0, perPage: 16 })).rows);
+  if (out.length < 8) add((await findPages({ q: "", store: d.store, kind: "category", page: 0, perPage: 16, env: d.env })).rows);
   return { candidates: out.slice(0, 24) };
 };
 
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
+
+/** The A/B test of AI testing & personalization that runs on this page, for the bar's "A/B test · Running" (Content v8,
+ * SARCLA 10.11.2026 point 6) - read only; none while its tables are not there. */
+const abState: ServerAction = async (ctx, raw, input) => {
+  const d = viewFor(ctx, raw, input);
+  if (d.source === "new" || !d.path) return { running: null };
+  const tests = await listTests("test").catch(() => []);
+  return { running: runningOn(tests, d.env, d.path) };
+};
 const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
 /** For each store view of the shop: is this page of the shop there (the page index; its own address there)? */
 const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), shopList(await shopStores())) });
@@ -908,7 +988,8 @@ const magento: ServerAction = async (ctx, raw) => {
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore });
   return {
     views: views.map(({ want: _want, ...v }) => v),
-    envs: (["acc", "prod"] as Env[]).map((env) => ({
+    // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
+    envs: publishTargets(doc).map((env) => ({
       env, label: ENVS[env].label, base: ENVS[env].base, key: keys[env], waiting: keys[env] ? null : KEY_WAITING[env], why: gate(env), restoreWhy: gate(env, true),
       // the connection in plain words (Content v6, SARCLA 09.11.2026: "the Magento connection is not working yet"), and
       // the last check's answer while it is fresh
@@ -944,6 +1025,7 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
   if (!cmsKeys()[env]) return { env, plans: [], waiting: KEY_WAITING[env] };
   const doc = pageDoc(raw, ctx.piece.language);
+  if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
   for (const v of viewsIn(doc, input)) {
     const m = await magentoOf(raw, v);
@@ -957,6 +1039,7 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env });
   if (no) throw new Error(no);
   const doc = pageDoc(raw, ctx.piece.language);
+  if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const views = viewsIn(doc, input);
   if (!views.length) throw new Error("Pick the store views to write.");
   const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string }[] = [];
@@ -1004,7 +1087,7 @@ export const pageKind: KindDef = {
     rewrite, ideas, texts, translate, seo, english, block: blockTask(false), block_fix: blockTask(true),
     // Content v7: the AI composes the page with the module library - a plan of steps (./plan/*)
     plan: planTask(context),
-    fill_all: fillTask("all"), fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
+    fill_all: fillTask("all"), fill_page: fillPage, fill_hero: fillTask("hero"), fill_intro: fillTask("intro"), fill_benefits: fillTask("benefits"),
     fill_sections: fillTask("sections"), fill_section: fillTask("section"), fill_links: fillTask("links"), fill_faq: fillTask("faq"),
     fill_cta: fillTask("cta"), fill_seo: fillTask("seo"), fill_field: fillField,
     // Content v8: the text popup's "Ask AI for this text" on a page of the shop's text or a module's
@@ -1016,7 +1099,7 @@ ${pageBlock(d).slice(0, 6000)}`; }),
   },
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
-    english: englishAction, brief,
+    english: englishAction, brief, ab_state: abState,
     magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
     convert_letter: convertLetter,
     // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts

@@ -124,6 +124,18 @@ export function countOf(sentence: string): string {
   return m ? `${m[1]} ${m[2]}` : "";
 }
 
+/** A category page's own words: its description (Magento's .category-description, at the foot of the main column - the
+ * shop's text on the category, its figures and norms), plain, cut. Content v8: what a new page about it may say. */
+export function categoryDescription(html: string, max = 3000): string {
+  const s = String(html ?? "");
+  const i = s.search(/class\s*=\s*"[^"]*\bcategory-description\b/i);
+  if (i < 0) return "";
+  const end = s.indexOf("</main>", i);
+  const part = s.slice(s.indexOf(">", i) + 1, end > i ? Math.min(end, i + 40_000) : i + 40_000).replace(/<(script|style|noscript|template)\b[\s\S]*?<\/\1\s*>/gi, " ");
+  const t = textOf(part);
+  return t.length <= max ? t : `${t.slice(0, max).replace(/\s+\S*$/, "")}…`;
+}
+
 /** A category page as a module reads it: its name and count, its subcategory tiles, its products (the first page). */
 export function parseCategory(html: string, url: string): CategoryPage {
   const base = url;

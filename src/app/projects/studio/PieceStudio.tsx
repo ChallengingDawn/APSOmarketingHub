@@ -50,6 +50,7 @@ import { InlineTitle } from "../work/InlineTitle";
 import { AiLine, AiWorking, PINK, STUDIO_BAR, btn, field, mainBtn } from "./parts";
 import { DOWNLOADS, STUDIOS } from "./registry";
 import { DownloadButton, FrameProvider, TimelineButton, useFrameStore } from "./frame";
+import { AbBarProvider, AbTestButton, useAbBarStore } from "./abBar";
 import { missingPeople } from "@/lib/content/people";
 import { lookApi, useStudio, type StudioApi } from "./useStudio";
 
@@ -269,6 +270,8 @@ export function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onClose
       <StatusChip status={p.status} />
       <OnCalendar api={api} />
       <Box sx={{ display: { xs: "none", md: "block" } }}><People api={api} onError={setErr} /></Box>
+      {/* the page's A/B test, when the kind's studio hands one (Content v8, SARCLA 10.11.2026 point 6) - ./abBar.tsx */}
+      {!look && <AbTestButton />}
       <Box sx={{ flex: 1 }} />
       {err && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", maxWidth: 260 }}>{err}</Typography>}
       {look && <LookBar api={api} look={look} busy={lookBusy} onBringBack={onBringBack} onClose={onCloseLook} />}
@@ -306,6 +309,8 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
   const { api, error } = useStudio(pieceId);
   // what the kind's studio hands to the bar: its "Changes made here" (./frame.tsx)
   const frame = useFrameStore();
+  // and its A/B test, for the bar's control (Content v8)
+  const ab = useAbBarStore();
   // a version looked at, read-only (SARCLA 09.11.2026: Versions "not working correctly")
   const [look, setLook] = useState<Look | null>(null);
   const [opening, setOpening] = useState<number | null>(null);
@@ -339,6 +344,7 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
   const Studio = STUDIOS[api.data.kind];
   return (
     <FrameProvider value={frame}>
+    <AbBarProvider value={ab}>
     <Box sx={{ minHeight: "100vh" }}>
       <Bar api={api} look={look} lookBusy={lookBusy} opening={opening} onLook={(v) => void openLook(v)} onBringBack={() => void bringBack()} onCloseLook={() => setLook(null)} />
       {!api.data.access.canEdit && (
@@ -348,6 +354,7 @@ export default function PieceStudio({ pieceId }: { pieceId: number }) {
       {/* the kind's studio opens again on a version brought back (epoch) or looked at - a studio's own state never keeps the old one */}
       <Studio key={look ? `look-${look.v.id}` : `live-${api.epoch ?? 0}`} api={look ? lookApi(api, look.v, look.doc) : api} />
     </Box>
+    </AbBarProvider>
     </FrameProvider>
   );
 }

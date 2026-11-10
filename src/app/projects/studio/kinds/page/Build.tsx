@@ -38,7 +38,7 @@ import { KIND_LABEL } from "@/lib/convert/model";
 import type { Change } from "@/lib/convert/versions";
 import { LIMIT, filledCount } from "@/lib/content/studio/kinds/page/fields";
 import {
-  INSERT_WHERE_LABEL, SOURCE_LABEL, abLine, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, viewName, viewShort, viewState, viewsLine, viewsOf,
+  INSERT_WHERE_LABEL, SOURCE_LABEL, isLegacyBody, langName, mainView, pageModesFor, pageSourceFix, placeholdersOf, shopCountries, shopUrl, unwritten, viewName, viewShort, viewState, viewsLine, viewsOf,
   type PageDoc, type PageSource, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { blocksOf } from "@/lib/content/studio/kinds/page/outline";
@@ -49,7 +49,7 @@ import { Changes } from "./Changes";
 import { BlockBody, type FillRun, type PictureCtl } from "./Fields";
 import { Row, RowList } from "./Outline";
 import { ToMagento } from "./Publish";
-import { AbTest, Texts } from "./Sections";
+import { Texts } from "./Sections";
 import { SeoPanel, type SeoProposal } from "./Seo";
 import { Chip, Choice, Hint } from "./ui";
 import { viewNote } from "./Stage";
@@ -143,12 +143,14 @@ function StoreViews({ doc, lang, onLang, groups, presence }: { doc: PageDoc; lan
 }
 
 export function Build({ api, doc, d, lang, onLang, groups, presence, set, setView, hits, step, onStep, fill, busy, canAi, inserts, onPickPage, removeInsert,
-  open, onOpen, pictures, since, appBrief, onSeoPropose, blocks, blocksTitle, blocksRight, readyLine }: {
+  open, onOpen, pictures, since, appBrief, onSeoPropose, blocks, blocksTitle, blocksRight, readyLine, abPart }: {
   api: StudioApi; doc: PageDoc; d: PageDoc;
   /** Content v8: the page's blocks (./BlockList.tsx) - its title and what stands right of it ("Write it all again") */
   blocks: React.ReactNode; blocksTitle: string; blocksRight?: React.ReactNode;
   /** how far the page is, over the last step (the list's own count, modules with it) */
   readyLine?: string;
+  /** the A/B test's setup, shown in the last step (Content v8, SARCLA 10.11.2026 point 6 - the bar activates it) */
+  abPart?: React.ReactNode;
   /** the store view shown, and opening one (made at once as a copy when it is of a language the page has) */
   lang: string; onLang: (l: string) => void;
   /** every store view of the shop by language; for a page of the shop, whether it is there */
@@ -228,6 +230,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>
             {isWinner ? (doc.published ? "Published on the shop" : "Publish on the shop") : "To Magento"}
           </Typography>
+          {abPart}
           {isWinner ? <WinnerPublish api={api} doc={doc} {...won} /> : <ToMagento api={api} doc={doc} d={d} setView={(v) => setView(v)} canEdit={canEdit} lang={lang} />}
         </Box>
       </Pane>
@@ -273,9 +276,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
       <Row id="seo" title="Search engines" state={seoSet ? "written" : "none"} summary={seoLine} open={open === "seo"} onToggle={() => onOpen(open === "seo" ? null : "seo")}>
         <SeoPanel d={d} setView={setView} canEdit={canEdit} canAi={canAi} onPropose={onSeoPropose} />
       </Row>
-      <Row id="test" title="A/B test" state="none" summary={abLine(d).replace("A/B test · ", "")} open={open === "test"} onToggle={() => onOpen(open === "test" ? null : "test")}>
-        <AbTest d={d} set={(v) => setView(v)} canEdit={canEdit} />
-      </Row>
+      {/* the A/B test: in the top bar, its setup in the last step (Content v8, point 6 - Studio hands it as `abPart`) */}
     </>
   ) : null;
 

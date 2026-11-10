@@ -27,7 +27,7 @@ import { shopPage } from "@/lib/convert/studio";
 import { engageData } from "@/lib/marketingKpis/engage";
 import { loadReport } from "@/lib/integrations/articleReport";
 import type { Card } from "./model";
-import { clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos, type CategoryPage, type TreeNode } from "./parse";
+import { categoryDescription, clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos, type CategoryPage, type TreeNode } from "./parse";
 import { photoBad, photoFlaws } from "./photo";
 import { sharpImg } from "./kit";
 import { factsHead, parseFacts, type ProductFacts } from "./library2/facts";
@@ -302,6 +302,27 @@ export async function cardsForPicks(numbers: string[], store: string, count: num
     if (k.cards[0]) cards.push(k.cards[0]);
   }
   return cards;
+}
+
+/* ── a category's own facts, for a new page about it (Content v8) ──────────────────────────────────────── */
+
+export type CategoryFacts = { name: string; url: string; words: string; product: { name: string; url: string; rows: string[][] } | null };
+
+/** What the shop itself says on a category: its description (its words and figures) and its first product's technical
+ * summary (a product not on clearance) - read like every other shop page here (kept ten minutes, at a person's pace).
+ * The words a new page about it may use for its figures (lead 10.11.2026: "figures only from those facts"). */
+export async function categoryFacts(url: string, store: string): Promise<CategoryFacts> {
+  const path = pathOf(url);
+  if (!path.startsWith(`/${store}/`) || !/\.html$/.test(path)) throw new Error("That is not a category of this store view.");
+  const html = await readShop(path);
+  const c = parseCategory(html, `${BASE}${path}`);
+  const first = c.products.find((p) => !clearanceOf(p.name, p.url));
+  let product: CategoryFacts["product"] = null;
+  if (first) {
+    const f = await productFacts(first.url, store).catch(() => null);
+    if (f?.table.length) product = { name: first.name, url: first.url, rows: f.table.slice(0, 16) };
+  }
+  return { name: c.name, url: `${BASE}${path}`, words: categoryDescription(html), product };
 }
 
 /* ── a product's facts (Content v7, the library part 2: "Technical summary", "Downloads") ──────────────── */
