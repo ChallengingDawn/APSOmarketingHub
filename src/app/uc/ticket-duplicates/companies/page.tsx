@@ -104,11 +104,17 @@ const Tiles = ({ items }: { items: { label: string; value: number; icon: React.R
 
 /** The hub merges: Live chosen and the workflow off. */
 const merging = (d: Data) => d.settings.mode === "live" && d.workflow === false;
+/** What Live merges by itself, as the rules stand - said on the switch, its question and the status line. */
+const MERGE_HOUR = 60;
+function liveWhat(r: Rules): string {
+  const kinds = [r.erp.on && r.erp.autoMerge ? "the same customer number (into the oldest company)" : null, r.both.autoMerge ? "the same name, postcode and website (into the company with the customer number)" : null].filter(Boolean);
+  return kinds.length ? `${kinds.join(" and ")} - at most ${MERGE_HOUR} merges an hour` : "nothing by itself - both automatic rules are off";
+}
 function Status({ d }: { d: Data }) {
   const s = d.settings, l = d.last;
   const live = merging(d), waiting = s.mode === "live" && !live;
   const tone = live ? "#1f8a4c" : waiting ? "#c47a00" : s.mode === "off" ? "#8a94a6" : TINT.blue.fg;
-  const title = live ? "Live - the hub merges the same customer number into the oldest company"
+  const title = live ? `Live - the hub merges ${liveWhat(s.rules)}`
     : waiting ? (d.workflow === null ? "Live is chosen - the workflow's state cannot be read, the hub waits" : "Live is chosen - the hub waits for the COMPANIES FULL DUPLICATE CHECK workflow to be switched off")
     : s.mode === "off" ? "Off - nothing is read" : "Shadow - every company read every hour, nothing merged by itself";
   const line = [
@@ -236,7 +242,7 @@ function useSave(onSaved: () => void) {
 function NumberTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
   const r = d.settings.rules, f = d.snapshot?.found;
   const { busy, msg, save } = useSave(onSaved);
-  const AUTO_ASK = "Let the hub merge the same customer number by itself?\n\nOnce Live, every hour: two companies with the same customer number in the same Mandant merged into the oldest (at most 20 merges an hour). A merge cannot be undone in HubSpot.";
+  const AUTO_ASK = `Let the hub merge the same customer number by itself?\n\nOnce Live, every hour: two companies with the same customer number in the same Mandant merged into the oldest (at most ${MERGE_HOUR} merges an hour, with the other automatic rule). A merge cannot be undone in HubSpot.`;
   return (
     <>
       <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
@@ -371,7 +377,7 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
   const [cid, setCid] = useState("");
   const [check, setCheck] = useState<{ company?: Company; groups?: Group[]; error?: string } | null>(null);
   const [checking, setChecking] = useState(false);
-  const LIVE_ASK = "Switch company duplicates LIVE?\n\nEvery hour the hub merges the same customer number (same number, same Mandant) into the oldest company - at most 20 merges an hour. A merge cannot be undone in HubSpot.";
+  const LIVE_ASK = `Switch company duplicates LIVE?\n\nEvery hour the hub merges by itself ${liveWhat(s.rules)}. Every company is read again first. A merge cannot be undone in HubSpot.`;
   const doCheck = async () => {
     setChecking(true); setCheck(null);
     try {
@@ -392,9 +398,9 @@ function SettingsTab({ d, onChanged }: { d: Data; onChanged: () => void }) {
               text="Off: nothing is read. On: every hour every company is read and its groups kept for these pages." />
           </Grid>
           <Grid size={{ xs: 12, md: wfOff ? 6 : 4 }}>
-            <SwitchRow title="Live - merge the same customer number" checked={s.mode === "live"} disabled={!d.admin || busy || s.mode === "off"} onChange={(v) => void save({ mode: v ? "live" : "shadow" }, v ? LIVE_ASK : undefined)}
+            <SwitchRow title="Live - merge by itself" checked={s.mode === "live"} disabled={!d.admin || busy || s.mode === "off"} onChange={(v) => void save({ mode: v ? "live" : "shadow" }, v ? LIVE_ASK : undefined)}
               chips={merging(d) ? <Chip tint="pink">LIVE</Chip> : s.mode === "live" ? <Chip tint="amber">waiting</Chip> : <Chip tint="slate">shadow</Chip>}
-              text={s.mode !== "live" ? "Shadow: found and listed, nothing merged by itself - Merge on a click still works." : merging(d) ? "The hub merges the same customer number every hour." : "Chosen - the hub starts once the workflow is off."} />
+              text={s.mode !== "live" ? "Shadow: found and listed, nothing merged by itself - Merge on a click still works." : merging(d) ? `Every hour: ${liveWhat(s.rules)}.` : `Chosen - once the workflow is off, every hour: ${liveWhat(s.rules)}.`} />
           </Grid>
           {!wfOff && (
             <Grid size={{ xs: 12, md: 4 }}>

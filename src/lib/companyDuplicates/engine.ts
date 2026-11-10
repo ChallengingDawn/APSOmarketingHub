@@ -5,7 +5,8 @@
 // 25.09.2026). Here, every hour, one copy of the hub at a time (advisory lock 4107280):
 //   - every company read (about 615 pages of 100), its groups found by the rules (rules.ts), kept (kv companyDup:snapshot);
 //   - live - only while the page says Live AND the workflow is off, so the two never merge at once -: the same ERP customer
-//     merged into the oldest company, every company read again first (at most 20 merges an hour, 4 companies a group);
+//     merged into the oldest company, every company read again first (at most 60 merges an hour, 4 companies a group);
+//     since 10.11.2026 also the same name, postcode and website (rules.ts autoBoth), into the company with the number;
 //   - a possible duplicate waits for a person: Merge or Not duplicates on the page (admins) - done at once.
 // Once a day the merges of the last 400 days are read back from HubSpot's history of hs_merged_object_ids on every company
 // others went into (lock 4107281): who merged - the workflow, the hub, a person - and when.
