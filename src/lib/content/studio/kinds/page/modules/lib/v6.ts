@@ -198,9 +198,31 @@ function row(m: ModuleRef, o: Opts) {
 
 /* ── campaign banner (the campaign row) ───────────────────────────────── */
 
+/**
+ * The banner made in the banner studio, as ONE picture (builder D, Content v7 - SARCLA 10.11.2026 point 11: "push the
+ * banner directly on a page after editing"): its picture (the shop's 1920 x 600) and, on phones, its 1080 x 900
+ * (`extra.phone`), its link, its alt text (`extra.alt`, else the title). In the home page's slider (`extra.place` =
+ * "slider") it fills the slide; elsewhere it stands in the shop's container.
+ */
+function bannerPicture(m: ModuleRef, o: Opts) {
+  const s = m.settings;
+  const desk = s.feature?.img ?? "";
+  const phone = s.extra.phone ?? "";
+  const alt = (s.extra.alt || s.title).trim();
+  const src = (u: string) => esc(o.picture ? o.picture(u) : u);
+  const img = desk ? `<picture>${phone ? `<source media="(max-width:767px)" srcset="${src(phone)}">` : ""}<img src="${src(desk)}" alt="${esc(alt)}" width="1920" height="600"></picture>` : "";
+  const link = s.feature?.url || s.link.url;
+  const css = `${s.extra.place === "slider" ? "@@{margin:0 auto;padding:0;max-width:none}" : ""}
+@@ .am-bpic{display:block;overflow:hidden;border-radius:${s.extra.place === "slider" ? "0" : "6px"};background:#eef1f3}
+@@ .am-bpic img{display:block;width:100%;height:auto;aspect-ratio:1920/600;object-fit:cover}
+@media (max-width:767px){@@ .am-bpic img{aspect-ratio:1080/900}}`;
+  return { css, html: link ? `<a class="am-bpic" href="${href(link)}">${img}</a>` : `<div class="am-bpic">${img}</div>` };
+}
+
 function banner(m: ModuleRef, o: Opts) {
   const s = m.settings;
   const lay = s.layout;
+  if (lay === "picture") return bannerPicture(m, o);
   const p = s.feature;
   const picture = p ? `<div class="am-bp${p.kind === "product" ? " is-prod" : ""}">${pic(p, o, false)}</div>` : "";
   const text = `<div class="am-bt">${s.eyebrow.trim() ? `<p class="am-ey">${esc(s.eyebrow.trim())}</p>` : ""}<h2 class="am-bh">${marked(s.title.trim())}</h2>`
@@ -361,7 +383,7 @@ export const V6: ModuleDef[] = [
   {
     id: "banner", category: "campaigns", name: "Campaign banner", note: "A headline, a line and a button beside a picture",
     needs: ["text"], takes: "none", min: 0, max: 0, from: "home page campaign row (Black Friday)",
-    layouts: [{ key: "right", label: "Picture right" }, { key: "left", label: "Picture left" }, { key: "behind", label: "Picture behind" }],
+    layouts: [{ key: "right", label: "Picture right" }, { key: "left", label: "Picture left" }, { key: "behind", label: "Picture behind" }, { key: "picture", label: "A banner from the banner studio" }],
     fields: [{ kind: "eyebrow", label: "Small line above", max: 40 }, { kind: "title", label: "Headline", max: 90, red: true }, { kind: "text", label: "Line under it", max: 240, rows: 2 }, { kind: "link", label: "Button" }, { kind: "feature", label: "Picture" }],
     defaults: moreLink, render: banner, tags: ["banner", "campaign", "promotion"],
   },

@@ -1,14 +1,17 @@
 "use client";
 // THE BANNER'S MAP (09.11.2026, the studio flow standard - SARCLA: "banner also": the editing "very confusing"; "the
 // features are there, but the editing and the flow is not logical yet"). The left pane, as in the page studio:
-//   start      while nothing is written: "What are you making?" - where it is for (squared) - and ONE pink "Write the
-//              whole banner with AI"; or open a part below and write it yourself
-//   the banner its parts - headline, small line, line, button, picture, label, background - each with its state and
+//   start      while nothing is written: "What are you making?" - where it is for (squared) - its design (the shop's own
+//              banners, drawn with this banner's words: Content v7) - and ONE pink "Write the whole banner with AI"; or
+//              open a part below and write it yourself
+//   the banner its parts - design, headline, small line, line, button, picture (label: the newsletter band's) - each with its state and
 //              what it holds; a click opens its fields under its row and selects it on the banner in the middle (a click
 //              on the banner opens its row here); while the AI writes, the parts it writes shimmer
 //   its places every place the banner is used in, with its state (ready, to look at, not yet); a click shows it in the
-//              middle; "In a page", "All places", "+ Add a place"
-//   last step  pinned at the foot: "Get it" - the paste block for Magento, the PNGs - in its own view, "← The banner"
+//              middle; "On shop pages", "All places", "+ Add a place"
+//   last step  pinned at the foot (Content v7, SARCLA 10.11.2026 point 11: "push the banner directly on a page after
+//              editing"): "Put it on a page" (./ToPage.tsx) - and under it "Get the pictures or the paste block" (the PNGs,
+//              the paste block for Magento) - each in its own view, "← The banner"
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
@@ -20,28 +23,35 @@ import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import { MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { placeChecks, placeState } from "@/lib/content/studio/kinds/banner/checks";
-import { PRESET, THEMES, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
+import { unreadable } from "@/lib/content/studio/kinds/banner/looks";
+import { LOOK, PRESET, sizeLabel, sizesOf, togglePlace, wordsFor, type BannerDoc, type PresetKey } from "@/lib/content/studio/kinds/banner/model";
 import type { PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Kick, LastStep, MapList, MapPane, MapRow, StartCard, Writing, useClock, type Mark } from "../video/map";
 import PartFields, { PART_NAME, inLine, type Set } from "./Editor";
+import { LookGrid } from "./Design";
 import { CheckLines, GetItView, type BannerAi, type usePng } from "./Output";
 import type { Pages } from "./Place";
 import { AddPlace, Shape, type View } from "./Preview";
+import ToPageView from "./ToPage";
 
 /** Where a new banner is for, the first question (the others are added later in "Its places"). */
-const START_PLACES: PresetKey[] = ["band", "cat", "hero", "mail", "card", "story"];
+const START_PLACES: PresetKey[] = ["slider", "band", "home", "card", "story", "mail"];
 
 const STATE_TEXT = { ready: "Ready", look: "To look at", stop: "Not yet" } as const;
 
-export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title, focusLeft = true }: {
+export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title, focusLeft = true, font, showPage }: {
   api: StudioApi; doc: BannerDoc; set: Set; view: View; setView: (v: View) => void; pick: PickPart | null; setPick: (p: PickPart | null) => void;
   pages: Pages; ai: BannerAi; png: ReturnType<typeof usePng>; prefix: string; title: string;
   /** the part opened from the map takes the cursor; one selected on the banner does not */
   focusLeft?: boolean;
+  /** the brand's type, for the pictures the last step draws */
+  font: string | null;
+  /** a page to-do with the banner on it, shown in the middle */
+  showPage: (pageId: number) => void;
 }) {
-  const [step, setStep] = useState<"map" | "get">("map");
+  const [step, setStep] = useState<"map" | "get" | "page">("map");
   const [placeOpen, setPlaceOpen] = useState<PresetKey | null>(null);
   const [fitMsg, setFitMsg] = useState<string | null>(null);
   const piece = api.data.piece;
@@ -55,6 +65,13 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   const busy = ai.busy;
   const clock = useClock(busy?.since ?? null);
 
+  if (step === "page") {
+    return (
+      <Box sx={{ height: "100%", overflowY: "auto" }}>
+        <ToPageView api={api} doc={doc} prefix={prefix} title={title} font={font} pages={pages} onBack={() => setStep("map")} onShowPage={showPage} />
+      </Box>
+    );
+  }
   if (step === "get") {
     return (
       <Box sx={{ height: "100%", overflowY: "auto" }}>
@@ -66,15 +83,17 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   // the parts the banner has room for somewhere
   const room = (f: "eyebrow" | "line" | "button") => made.some((k) => PRESET[k].limits[f] > 0);
   const pic = c.photos.length >= 2 ? c.photos[0] : c.image;
-  const parts: PickPart[] = ["headline", ...(room("eyebrow") ? ["eyebrow" as const] : []), ...(room("line") ? ["line" as const] : []), ...(room("button") ? ["button" as const] : []), "picture", ...(pic.url ? ["label" as const] : []), "background"];
+  // the design first (Content v7: a banner starts from a finished design, as in Canva); the label is the newsletter band's
+  const parts: PickPart[] = ["background", "headline", ...(room("eyebrow") ? ["eyebrow" as const] : []), ...(room("line") ? ["line" as const] : []), ...(room("button") ? ["button" as const] : []), "picture", ...(pic.url && doc.look === "band" ? ["label" as const] : [])];
+  const unread = unreadable(doc);
   const summary = (p: PickPart): string => {
     if (p === "headline") return [w.headline, w.words.length ? `/ ${w.words.join(" / ")}` : ""].filter(Boolean).join(" ") || "Not written yet";
     if (p === "eyebrow") return w.eyebrow || (PRESET[shown].limits.eyebrow ? "Not written yet" : "Not in this place");
     if (p === "line") return w.line || (PRESET[shown].limits.line ? "Not written yet" : "Not in this place");
     if (p === "button") return w.button ? `${w.button}${c.button.url ? ` → ${c.button.url}` : " · goes nowhere yet"}` : PRESET[shown].limits.button ? "Not written yet" : "Not in this place";
-    if (p === "picture") return c.photos.length >= 2 ? `${c.photos.length} pictures in turn` : pic.url ? (pic.label || "A picture") : "No picture yet";
+    if (p === "picture") return c.photos.length >= 2 ? `${c.photos.length} pictures in turn` : pic.url ? (pic.fit === "product" ? `A product · ${pic.alt || "the shop's photo"}` : pic.label || pic.alt || "A picture") : "No picture yet";
     if (p === "label") return pic.label || "No label";
-    return THEMES[doc.theme].name;
+    return unread.length ? `${LOOK[doc.look].name} · ${unread.length} word${unread.length === 1 ? "" : "s"} cannot be read` : `${LOOK[doc.look].name}${doc.accent ? ` · "${doc.accent}" in red` : ""}`;
   };
   const mark = (p: PickPart): Mark => {
     if (busy && (busy.part === "all" ? ["headline", "eyebrow", "line", "button"].includes(p) : busy.part === p)) return "busy";
@@ -82,6 +101,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
     if (p === "eyebrow" || p === "line") return w[p] ? "written" : PRESET[shown].limits[p] ? "empty" : "none";
     if (p === "button") return w.button ? "written" : PRESET[shown].limits.button ? "empty" : "none";
     if (p === "picture") return pic.url ? "written" : "picture";
+    if (p === "background") return unread.length ? "stop" : "written";
     return "none";
   };
   const writtenN = parts.filter((p) => mark(p) === "written").length;
@@ -97,10 +117,18 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   const st = placeState(checks);
   const line = st === "ready" ? `${PRESET[shown].label} · ready to go out`
     : <><Box component="span" sx={{ color: st === "stop" ? "#c5221f" : "#8a5a00", fontWeight: 600 }}>{STATE_TEXT[st]}</Box>{` · ${PRESET[shown].label} · ${checks.length} thing${checks.length === 1 ? "" : "s"}`}</>;
-  const placedN = pages.placed.reduce((n, x) => n + x.mine.length, 0);
+  const onPages = (pages.pages ?? []).filter((x) => x.onPage || x.mine.length);
 
   return (
-    <MapPane foot={!empty ? <LastStep name="Get it" line={line} onClick={() => { setPick(null); if (view === "all" || view === "pages") setView(shown); setStep("get"); }} /> : undefined}>
+    <MapPane foot={!empty ? (
+      <Box>
+        <LastStep name="Put it on a page" line={line} onClick={() => { setPick(null); setStep("page"); }} />
+        <Box sx={{ px: 2, pb: 1, mt: -0.5, bgcolor: "rgba(255,255,255,.92)" }}>
+          <Button size="small" onClick={() => { setPick(null); if (view === "all" || view === "pages") setView(shown); setStep("get"); }}
+            sx={{ ...btn, color: MUTED, px: 0.5, fontSize: "0.76rem", minWidth: 0 }}>or get the pictures and the paste block</Button>
+        </Box>
+      </Box>
+    ) : undefined}>
       {empty && (
         <StartCard>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Where it is for</Typography>
@@ -110,7 +138,10 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
             set((d) => ({ ...d, format: k, sizes: d.sizes.filter((x) => x !== k).concat(d.format !== k && !START_PLACES.includes(d.format) ? [d.format] : []) }));
             setView(k);
           }} options={START_PLACES.map((k) => ({ key: k, label: PRESET[k].short, disabled: !canEdit }))} />
-          <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.6, mb: 1.75 }}>{PRESET[shown].note}. More places below, once it is written.</Typography>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.6, mb: 1.5 }}>{PRESET[shown].note}. More places below, once it is written.</Typography>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Its design</Typography>
+          <LookGrid doc={doc} set={set} canEdit={canEdit} pieceId={piece.id} width={140} />
+          <Box sx={{ mb: 1.75 }} />
           <Button fullWidth variant="contained" disableElevation disabled={!canAi || !!busy} onClick={writeAll}
             startIcon={busy ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlinedIcon />} sx={{ ...mainBtn, borderRadius: "8px", height: 42 }}>
             {busy ? `Writing the banner · ${clock}` : "Write the whole banner with AI"}
@@ -163,8 +194,10 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
             </MapRow>
           );
         })}
-        <MapRow id="p-pages" title="In a page" summary={placedN ? `In ${pages.placed.length} page${pages.placed.length === 1 ? "" : "s"} of the project` : "Put it in a page of the project and see it there"} state="none"
-          accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); setView("pages"); }} />
+        {onPages.length > 0 && (
+          <MapRow id="p-pages" title="On shop pages" summary={`On ${onPages.length} page${onPages.length === 1 ? "" : "s"}: ${onPages.map((x) => x.path || x.title).join(", ")}`} state="written"
+            accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); showPage(onPages[0].id); }} />
+        )}
         {made.length > 1 && (
           <MapRow id="p-all" title="All places" summary={`${made.length} places side by side`} state="none" accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); setView("all"); }} />
         )}

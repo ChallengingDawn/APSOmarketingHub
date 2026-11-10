@@ -7,15 +7,28 @@
 //   unplace    one of this banner's inserts out of a page again
 // The page list and the page with the banner in it are read through GET /api/content/studio/banner/[pieceId]/in-page,
 // so a reviewer who only comments sees them too. Nothing is written outside the hub: the paste block and the PNGs are made in the browser, nothing goes to Magento.
+// Content v7 (10.11.2026, SARCLA point 11: "allow to push the banner directly on a page after editing") - the last step
+// "Put it on a page", on any page of the shop:
+//   shop_pages   the shop's pages from the page index (as the Page builder's picker) - read only
+//   page_places  where on a page it can stand: the slider, the top, after each block (./pagePlaces.ts) - read only
+//   to_page      that page's Page builder to-do in this project, made when there is none, with the banner on it as the
+//                module library's campaign banner (./topage.ts) - the page studio shows it; nothing goes to Magento
 
 import type { KindDef, StudioCtx } from "../../contract";
 import { LANGUAGE_BY_CODE } from "@/lib/content/languages";
-import { accessFor } from "@/lib/content/sharing";
-import { getPiece, listPieces } from "@/lib/content/workflow";
+import { PAGE_BUILDER } from "@/lib/content/contentTypes";
+import { defaultReviewerOf } from "@/lib/content/people";
+import { accessFor, shareCandidates } from "@/lib/content/sharing";
+import { syncPieceTasks } from "@/lib/content/todos";
+import { addEvent, addPiece, getPiece, listPieces } from "@/lib/content/workflow";
+import { classify, isKind } from "@/lib/convert/model";
 import { studioKindOf } from "../../kinds";
 import { docOrNew, readDoc, saveOps } from "../../store";
 import type { Op } from "../../doc";
-import { emptyPage, pageDoc, shopUrl } from "../page/model";
+import { emptyPage, pageDoc, shopUrl, type PageChange } from "../page/model";
+import { findPages, readShopPage } from "../page/shop";
+import { placesIn } from "./pagePlaces";
+import { bannerChange, bannerOn, changeIdFor, withBanner, type PageWhere } from "./topage";
 import { COPY_SCHEMA, VARIANTS_SCHEMA, cleanCopy, cleanVariants, sizesBrief } from "./ai";
 import { PAGE_PLACES, PRESET, bannerText, emptyBanner, isPreset, normalizeBanner, roomiest, type BannerDoc } from "./model";
 import { insertsOf, isWhere, placeOps, unplaceOp } from "./place";
@@ -63,6 +76,8 @@ const ask = (input: Record<string, unknown>) => (typeof input.ask === "string" &
 
 export type PageRow = {
   id: number; title: string; status: string;
+  /** this banner stands on the page as a module (Content v7, "Put it on a page") */
+  onPage: boolean;
   /** What the page is: a shop page's address, or a new page's title. */
   source: string; path: string; url: string | null; isNew: boolean; newTitle: string;
   /** This banner's inserts in the page. */
@@ -80,7 +95,7 @@ export async function pageRows(projectId: number, pieceId: number): Promise<Page
     const d = pageDoc(stored?.doc ?? null, p.language);
     const ins = insertsOf(stored?.doc ?? null);
     out.push({
-      id: p.id, title: p.title, status: p.status, source: d.source, path: d.path,
+      id: p.id, title: p.title, status: p.status, onPage: bannerOn(d.changes, pieceId), source: d.source, path: d.path,
       url: d.path && d.source !== "new" ? shopUrl(d.env, d.path) : null, isNew: d.source === "new", newTitle: d.newPage.title,
       mine: ins.filter((i) => i.pieceId === pieceId).map((i) => ({ id: i.id, preset: i.preset, where: i.where })),
       total: ins.length,
@@ -98,6 +113,94 @@ async function editablePage(ctx: StudioCtx, raw: unknown) {
   if (!access?.canEdit) throw new Error("You can look at this project's pages, not change them.");
   return page;
 }
+
+/* ── put it on a page of the shop (Content v7) ───────────────────────── */
+
+const STORE_RE = /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/;
+const HUB_PICTURE = /^\/api\/content\/picture\/\d{1,12}-[A-Za-z0-9_-]{4,40}$/;
+/** A page of the shop as the page index names it: its path, its store view, its kind - or why not. */
+function shopPathIn(input: Record<string, unknown>): { path: string; store: string; env: "prod" | "acc"; kind: string } {
+  const path = typeof input.path === "string" ? input.path.trim().split(/[?#]/)[0] : "";
+  if (!/^\/[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?(\/[^\s"'<>]*)?$/.test(path) || path.length > 300 || /\.\.\//.test(path)) throw new Error("Pick a page of the shop first.");
+  const c = classify(path);
+  if (!c.store || c.kind === "system") throw new Error("That page of the shop cannot take a banner.");
+  return { path, store: c.store, env: input.env === "acc" ? "acc" : "prod", kind: c.kind };
+}
+
+/** The project's Page builder to-do for this page of the shop, if it has one (the newest). */
+async function pageTodoFor(projectId: number, path: string) {
+  const pieces = (await listPieces(projectId)).filter((p) => studioKindOf(p.contentType) === "page");
+  for (const p of [...pieces].reverse()) {
+    const stored = await readDoc(p.id);
+    const d = pageDoc(stored?.doc ?? null, p.language);
+    if (d.source !== "new" && d.path === path) return p;
+  }
+  return null;
+}
+
+const shopPages = async (_ctx: StudioCtx, _doc: unknown, input: Record<string, unknown>) => {
+  const store = typeof input.store === "string" && STORE_RE.test(input.store) ? input.store : null;
+  const kind = isKind(input.kind) && input.kind !== "system" ? input.kind : null;
+  const page = Math.max(0, Math.min(200, Math.floor(Number(input.page) || 0)));
+  return findPages({ q: typeof input.q === "string" ? input.q.slice(0, 120) : "", store, kind, page, perPage: 30 });
+};
+
+const pagePlaces = async (ctx: StudioCtx, _doc: unknown, input: Record<string, unknown>) => {
+  const at = shopPathIn(input);
+  const r = await readShopPage(pageDoc({ source: "pick", env: at.env, path: at.path, store: at.store }));
+  if (!r.ok) throw new Error(r.error);
+  const places = placesIn(r.page.html);
+  const todo = await pageTodoFor(ctx.projectId, at.path);
+  return { ...places, kind: at.kind, url: r.page.url, todo: todo ? { id: todo.id, title: todo.title } : null };
+};
+
+const toPage = async (ctx: StudioCtx, _doc: unknown, input: Record<string, unknown>) => {
+  if (!ctx.canEdit) throw new Error("You can look at this banner, not put it on a page.");
+  const at = shopPathIn(input);
+  const where: PageWhere = input.where === "slider" || input.where === "after" ? input.where : "top";
+  const desktop = typeof input.desktop === "string" && HUB_PICTURE.test(input.desktop) ? input.desktop : "";
+  const phone = typeof input.phone === "string" && HUB_PICTURE.test(input.phone) ? input.phone : "";
+  if (!desktop) throw new Error("The banner's picture was not kept - try again.");
+  const selector = typeof input.selector === "string" ? input.selector.slice(0, 300) : "";
+  if (where === "after" && (!selector || /[<{};]/.test(selector))) throw new Error("Say after which block of the page it goes.");
+  // the page's to-do: the one this project has, or a new Page builder to-do for it (its owner who puts it there,
+  // its reviewer the default one - as every new to-do)
+  let page = await pageTodoFor(ctx.projectId, at.path);
+  let created = false;
+  if (!page) {
+    page = await addPiece({
+      projectId: ctx.projectId, contentType: PAGE_BUILDER, language: at.store.slice(0, 2).toUpperCase(), title: `Page builder · ${at.path}`.slice(0, 200),
+      writer: ctx.me.username, reviewer: defaultReviewerOf(await shareCandidates()), dueDate: null, by: ctx.me.username,
+    });
+    created = true;
+    await addEvent(ctx.projectId, page.id, ctx.me.username, "piece", { piece: page.title });
+    await syncPieceTasks(ctx.projectId, ctx.me.username).catch((e) => console.warn(`[content] banner to page: sub-action not made (${String((e as Error)?.message ?? e)})`));
+  } else {
+    const access = await accessFor(page.projectId, { username: ctx.me.username, role: ctx.me.admin ? "admin" : "user" });
+    if (!access?.canEdit) throw new Error("You can look at this project's pages, not change them.");
+  }
+  const lang = at.store.slice(0, 2).toUpperCase();
+  const stored = await docOrNew(page.id, "page", () => ({ ...emptyPage(lang), source: "pick", env: at.env, path: at.path, store: at.store, pageKind: at.kind }), ctx.me.username);
+  const d = pageDoc(stored.doc, lang);
+  const ops: Op[] = [];
+  // a to-do made before its page was picked: the page now
+  if (!d.path) {
+    ops.push({ op: "set", path: ["source"], value: "pick" }, { op: "set", path: ["env"], value: at.env }, { op: "set", path: ["path"], value: at.path },
+      { op: "set", path: ["store"], value: at.store }, { op: "set", path: ["pageKind"], value: at.kind });
+  }
+  const change = bannerChange({
+    pieceId: ctx.pieceId, store: at.store, desktop, phone, where,
+    alt: typeof input.alt === "string" ? input.alt.slice(0, 200) : ctx.piece.title, link: typeof input.link === "string" ? input.link.slice(0, 600) : "",
+  }, { selector, before: input.before === true });
+  const changes: PageChange[] = withBanner(d.changes, change);
+  ops.push({ op: "set", path: ["changes"], value: changes });
+  const r = await saveOps(page.id, ops, ctx.me.username);
+  if (!r.ok) throw new Error(r.error);
+  return {
+    pieceId: page.id, title: page.title, created, moved: bannerOn(d.changes, ctx.pieceId), change: changeIdFor(ctx.pieceId),
+    href: `/projects/${ctx.projectId}/pieces/${page.id}`, pages: await pageRows(ctx.projectId, ctx.pieceId),
+  };
+};
 
 export const bannerKind: KindDef = {
   kind: "banner",
@@ -130,6 +233,7 @@ export const bannerKind: KindDef = {
     },
   },
   actions: {
+    shop_pages: shopPages, page_places: pagePlaces, to_page: toPage,
     place: async (ctx, _doc, input) => {
       const page = await editablePage(ctx, input.pageId);
       const preset = isPreset(input.preset) && PAGE_PLACES.includes(input.preset) ? input.preset : null;

@@ -19,6 +19,7 @@ import { normalizeBanner } from "@/lib/content/studio/kinds/banner/model";
 import { anchorOf, insertsOf, placeOf } from "@/lib/content/studio/kinds/banner/place";
 import { pageParts, prefixFor } from "@/lib/content/studio/kinds/banner/render";
 import { pageRows } from "@/lib/content/studio/kinds/banner/server";
+import { bannerOn, hubPicturesAbsolute, moduleIdFor } from "@/lib/content/studio/kinds/banner/topage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,8 +70,11 @@ export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: stri
   const doc = { ...(raw && typeof raw === "object" ? raw : {}), inserts: [], changes: [...d.changes, ...extra] };
   const out = await previewOf(doc, "after", req.nextUrl.searchParams.get("fresh") === "1");
   if (!out.ok) return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
+  // the banner put on the page as a module (Content v7, "Put it on a page"): scrolled to, its pictures read from the hub
+  if (bannerOn(d.changes, banner.id)) mine.push(`apx-${moduleIdFor(banner.id)}`);
   const tail = `${scripts.join("\n")}${TELL([...new Set(mine)])}`;
-  const html = /<\/body\s*>/i.test(out.html) ? out.html.replace(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i, `${tail}</body>`) : `${out.html}${tail}`;
+  const drawn = hubPicturesAbsolute(out.html, hub);
+  const html = /<\/body\s*>/i.test(drawn) ? drawn.replace(/<\/body\s*>(?![\s\S]*<\/body\s*>)/i, `${tail}</body>`) : `${drawn}${tail}`;
   const missing = out.hits.filter((h) => d.changes.length <= h.index && h.state === "missing").length;
   if (missing) notes.push("A banner's spot was not found on this page - it shows nowhere; pick another spot.");
   return NextResponse.json({

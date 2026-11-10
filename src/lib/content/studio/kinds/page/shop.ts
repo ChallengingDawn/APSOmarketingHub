@@ -651,8 +651,12 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
   const hasSeo = !!(seo.metaTitle || seo.metaDescription || (seo.urlKey && seo.urlKey !== target.identifier));
   if (!final.changes.length && !inserts.length && !hasSeo) return { ...base, cms: true, why: "There are no changes to write yet.", path: d.path };
   const box = (x: InsertOut) => `<div class="apx-ins" style="margin:24px 0">${x.paste}</div>`;
+  // the hub's own pictures in the changes (a banner put on the page from the banner studio, Content v7): named in Magento's
+  // media as a new page's are - uploaded there by hand first, the hand-over lists them; the hub is not public
+  const files = await pictureFiles([...new Set(final.changes.flatMap((ch) => ("html" in ch ? (ch.html.match(/\/api\/content\/picture\/\d+-[\w-]+/g) ?? []) : [])))]);
+  const changes = files.size ? final.changes.map((ch) => ("html" in ch ? { ...ch, html: [...files].reduce((h, [u, f]) => h.split(u).join(`{{media url='wysiwyg/content/${f.file}'}}`), ch.html) } : ch)) : final.changes;
   const want: Want = {
-    kind: "changes", identifier: target.identifier, changes: final.changes, tag: `content-${view}`,
+    kind: "changes", identifier: target.identifier, changes, tag: `content-${view}`,
     inserts: {
       top: inserts.filter((x) => x.where === "top").map(box).join(""),
       afterIntro: inserts.filter((x) => x.where === "after-intro").map(box).join(""),
@@ -664,7 +668,7 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
     ...base, cms: true, blocked: blocked ?? (final.problems.length ? `Some changes cannot go out: ${final.problems.slice(0, 2).join("; ")}` : null), want, path: d.path,
     sent: {
       kind: "changes", title: d.outline?.h1[0] ?? "", identifier: target.identifier, metaTitle: seo.metaTitle ?? "", metaDescription: seo.metaDescription ?? "",
-      newIdentifier: seo.urlKey && seo.urlKey !== target.identifier ? seo.urlKey : "", size: 0, active: true, pictures: [], changes: final.changes.length, banners: inserts.length,
+      newIdentifier: seo.urlKey && seo.urlKey !== target.identifier ? seo.urlKey : "", size: 0, active: true, pictures: [...files.values()], changes: final.changes.length, banners: inserts.length,
       letter: d.versions.length ? d.letter : "",
     },
   };
