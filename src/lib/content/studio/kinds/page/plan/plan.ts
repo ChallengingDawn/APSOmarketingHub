@@ -345,6 +345,8 @@ export type CleanCtx = {
   categories: string[];
   /** every address a button may go to: the categories and the page's own links the AI was shown */
   links?: string[];
+  /** what each of those addresses is called (the menu's name, the link's words) - a button's words must say it */
+  linkNames?: Record<string, string>;
   /** the page's own address (a category page fills "page" from itself) and kind */
   pageUrl: string; pageKind: string;
   /** every word of the page and the brand facts (what a word may name) */
@@ -446,8 +448,13 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && lib?.extras.some((s) => s.key === e.key)).slice(0, 8);
     const okLink = (v: unknown) => { const u = str(v, 400); return u && (ctx.categories.includes(u) || (ctx.links ?? []).includes(u) || u === ctx.pageUrl) ? u : ""; };
-    const link = okLink(x.link);
-    const link2 = okLink(x.link2);
+    let link = okLink(x.link);
+    let link2 = okLink(x.link2);
+    // a button goes where its words say ("Alle Technologien" to Dichtungstechnik does not): else it is left out
+    const says = (button: string, url: string) => !button || !url || buttonSays(button, `${ctx.linkNames?.[url] ?? ""} ${url}`);
+    if (!says(words.button, link)) { said.push(`The button "${words.button}" went to ${ctx.linkNames?.[link] || link} - its words do not say that; it was left out`); link = ""; words.button = ""; }
+    if (!says(words.button2, link2)) { said.push(`The button "${words.button2}" went to ${ctx.linkNames?.[link2] || link2} - left out`); link2 = ""; words.button2 = ""; }
+    if (words.button2 && !link2) words.button2 = "";
     const fill = doing === "words" || doing === "block" ? { how: "none" as FillHow, category: "", numbers: "", count: 0 } : fillIn(x.fill, lib, ctx);
     const stepId = ctx.newId();
     let html = "";
@@ -526,6 +533,16 @@ export function stepChange(step: Pick<PlanStep, "id" | "place" | "line">, html: 
   }
   if (step.place.how === "replace") return replaceChange(step.place.selector, html, { id: step.id, note, ...mod });
   return insertChange(step.place.selector, step.place.where, html, { id: step.id, note, ...mod });
+}
+
+const STOP = new Set(["alle", "allen", "zum", "zur", "zu", "den", "der", "die", "das", "und", "the", "all", "view", "voir", "tous", "toutes", "tutti", "vai", "naar", "wszystkie", "jetzt", "mehr", "more", "plus", "entdecken", "ansehen", "anzeigen", "shop", "page", "seite", "html", "https", "www", "apsoparts", "com"]);
+const tokens = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !STOP.has(w) && !/^[a-z]{2}-[a-z]{2,3}$/.test(w));
+/** Do a button's words name the page it goes to (its name or its address)? A word in common, by its first five letters. */
+export function buttonSays(button: string, target: string): boolean {
+  const b = tokens(button);
+  if (!b.length) return true;
+  const t = tokens(target);
+  return b.some((x) => t.some((y) => x.slice(0, 5) === y.slice(0, 5) || y.includes(x) || x.includes(y)));
 }
 
 /** The whole page's words (its parts) - what a word of a plan may name. */

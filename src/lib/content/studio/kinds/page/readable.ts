@@ -178,7 +178,19 @@ export function checkBlock(doc: Document, win: Win, index: number): Problem[] {
   if (!tops.length) return [{ kind: "empty", text: "", why: "The new block is not on the page - its place was not found." }];
   const page = doc.documentElement.clientWidth;
   let shown = 0;
+  /** inside a row that scrolls sideways (a strip of cards, a menu of pills): reached by scrolling, not running off */
+  const scrolls = (el: Element, top: Element) => {
+    for (let cur = el.parentElement; cur && cur !== top.parentElement; cur = cur.parentElement) {
+      const ox = win.getComputedStyle(cur).overflowX;
+      if (ox === "auto" || ox === "scroll") return true;
+    }
+    return false;
+  };
   for (const top of tops) {
+    // Content v7: a module of the library (data-apx-module) shows some of its parts only on a hover, a click or a wider
+    // screen by design (a finder's other panels, a question's answer, a card's line): those are not faults - its colours,
+    // its words and its width are still checked
+    const designed = top.hasAttribute("data-apx-module");
     const r = top.getBoundingClientRect();
     if (r.width > 1 && r.height > 1) shown++;
     // wider than its place, or out of the page
@@ -189,7 +201,7 @@ export function checkBlock(doc: Document, win: Win, index: number): Problem[] {
     for (const el of [top, ...Array.from(top.querySelectorAll("*"))]) {
       if (/^(STYLE|SCRIPT|BR|SVG|PATH|USE|IMG)$/i.test(el.tagName)) continue;
       const er = el.getBoundingClientRect();
-      if (er.right > page + 2 && er.width > 0) add({ kind: "overflow", text: cut(words(el)), why: `Something in the new block runs past the edge of the screen (${Math.round(er.right)} px on a ${page} px page).` });
+      if (er.right > page + 2 && er.width > 0 && !scrolls(el, top)) add({ kind: "overflow", text: cut(words(el)), why: `Something in the new block runs past the edge of the screen (${Math.round(er.right)} px on a ${page} px page).` });
       const t = words(el);
       if (!t || t.length < 2) continue;
       const cs = win.getComputedStyle(el);
@@ -200,11 +212,11 @@ export function checkBlock(doc: Document, win: Win, index: number): Problem[] {
         const all = ((el as HTMLElement).innerText ?? t).replace(/\s+/g, " ").trim();
         add({ kind: "split", text: cut(all), why: `"${cut(all)}" falls apart into columns: its words stand in a flex or grid row beside a <${inlineKid.tagName.toLowerCase()}> - they must sit in one element (a <span> or <p>) inside that row.` });
       }
-      if (cs.display === "none" || cs.visibility === "hidden") { add({ kind: "invisible", text: cut(t), why: `"${cut(t)}" is hidden.` }); continue; }
+      if (cs.display === "none" || cs.visibility === "hidden") { if (!designed) add({ kind: "invisible", text: cut(t), why: `"${cut(t)}" is hidden.` }); continue; }
       let op = 1;
       for (let cur: Element | null = el; cur; cur = cur.parentElement) op *= Number(win.getComputedStyle(cur).opacity || 1);
       const size = Number.parseFloat(cs.fontSize) || 0;
-      if (size < 9 || er.width < 1 || er.height < 1 || op < 0.15) { add({ kind: "invisible", text: cut(t), why: `"${cut(t)}" has no size or cannot be seen (${size < 9 ? `${size}px text` : op < 0.15 ? "almost transparent" : "no room"}).` }); continue; }
+      if (size < 9 || er.width < 1 || er.height < 1 || op < 0.15) { if (designed && size >= 9) continue; add({ kind: "invisible", text: cut(t), why: `"${cut(t)}" has no size or cannot be seen (${size < 9 ? `${size}px text` : op < 0.15 ? "almost transparent" : "no room"}).` }); continue; }
       if ((cs.overflow === "hidden" || cs.overflowX === "hidden" || cs.overflowY === "hidden" || cs.textOverflow === "ellipsis") && cs.webkitLineClamp === "none"
         && (el.scrollHeight > el.clientHeight + 3 || el.scrollWidth > el.clientWidth + 3)) {
         add({ kind: "clipped", text: cut(t), why: `"${cut(t)}" is cut off - its box is too small for its words.` });

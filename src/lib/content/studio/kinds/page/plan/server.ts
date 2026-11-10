@@ -90,7 +90,8 @@ The page's H1 (above its content - it stays as it is): ${o.h1.join(" | ") || "-"
       const brain = await readBrain().catch(() => null);
       const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
       const plan = cleanPlan(raw, {
-        parts: p.parts, container: p.container, categories: p.tree.map((t) => t.url), links: pageLinks(p.html, p.d.store).map((l) => l.url), pageUrl: shopUrl("prod", p.d.path), pageKind: c.kind,
+        parts: p.parts, container: p.container, categories: p.tree.map((t) => t.url), links: pageLinks(p.html, p.d.store).map((l) => l.url),
+        linkNames: Object.fromEntries([...p.tree.map((t) => [t.url, t.name]), ...pageLinks(p.html, p.d.store).map((l) => [l.url, l.text])]), pageUrl: shopUrl("prod", p.d.path), pageKind: c.kind,
         pageText: `${pageWords(p.parts)} ${facts}`, newId: () => changeId(), lang: p.d.store.slice(0, 2),
       });
       // the parts the steps aim at, for the studio's lines and its "+" (small: ids, headings, selectors)
