@@ -258,6 +258,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Incoming tickets", href: "/reporting/sales-leader/tickets", icon: "description" },
           { name: "GQS", href: "/reporting/sales-leader/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/sales-leader/system-tickets", icon: "bolt" },
+          // the same contest as My Sales Reports' (Diana Fehr 06.11.2026, for Bernd) - it is ESO's whole, not a team's
+          { name: "New customer contest", href: "/reporting/sales-leader/contest", icon: "target" },
         ],
       },
     ],
