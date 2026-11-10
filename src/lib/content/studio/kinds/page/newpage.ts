@@ -30,13 +30,31 @@ export type RenderOpts = {
 export const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const ARROW = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 
-/** Plain words as HTML: a blank line = a new paragraph, lines starting "- " = a list, a line break kept. */
-export function wordsHtml(text: string): string {
+/** A link a text may carry: a page of the shop (its path, or its own address) - nothing else. */
+const shopLink = (u: string) => (/^\/[^\s"'<>()]*$/.test(u) || /^https:\/\/(www|acc)\.apsoparts\.com(\/[^\s"'<>()]*)?$/i.test(u) ? u : "");
+
+/** One line's words with the text editor's marks (Content v8, the text popup): **bold**, *italic*, [words](a page of the
+ * shop) - anything else stays as typed. */
+export function inlineHtml(line: string, link: (u: string) => string = (u) => u): string {
+  let out = esc(line);
+  out = out.replace(/\[([^[\]\n]{1,120})\]\(([^()\s]{1,600})\)/g, (all, words: string, url: string) => {
+    const u = shopLink(url.replace(/&amp;/g, "&"));
+    return u ? `<a href="${esc(link(u))}">${words}</a>` : all;
+  });
+  out = out.replace(/\*\*(?=\S)([^*\n]{0,200}?\S)\*\*/g, "<strong>$1</strong>");
+  out = out.replace(/(^|[^*\w])\*(?=\S)([^*\n]{0,200}?\S)\*(?![*\w])/g, "$1<em>$2</em>");
+  return out;
+}
+
+/** Plain words as HTML: a blank line = a new paragraph, lines starting "- " = a list, a line break kept; **bold**,
+ * *italic* and [a link](/de-CH/...) as the text editor writes them. */
+export function wordsHtml(text: string, link?: (u: string) => string): string {
   const blocks = text.replace(/\r\n?/g, "\n").trim().split(/\n\s*\n/);
+  const il = (l: string) => inlineHtml(l, link);
   return blocks.map((b) => {
     const lines = b.split("\n").map((l) => l.trim()).filter(Boolean);
-    if (lines.length && lines.every((l) => /^[-•–]\s+/.test(l))) return `<ul>${lines.map((l) => `<li>${esc(l.replace(/^[-•–]\s+/, ""))}</li>`).join("")}</ul>`;
-    return `<p>${lines.map(esc).join("<br>")}</p>`;
+    if (lines.length && lines.every((l) => /^[-•–]\s+/.test(l))) return `<ul>${lines.map((l) => `<li>${il(l.replace(/^[-•–]\s+/, ""))}</li>`).join("")}</ul>`;
+    return `<p>${lines.map(il).join("<br>")}</p>`;
   }).join("");
 }
 
@@ -62,7 +80,7 @@ export function renderNewPage(f: Fields, o: RenderOpts = {}): { css: string; htm
   const one = (path: string, tag: string, base: string, value: string, hint: string) =>
     value.trim() ? `<${tag} class="${textCls(path, base)}"${fa(path)}>${esc(value.trim())}</${tag}>` : slot(path, hint, tag === "h1" || tag === "h2" || tag === "h3" ? "div" : tag);
   const many = (path: string, base: string, value: string, hint: string) =>
-    value.trim() ? `<div class="${textCls(path, base)}"${fa(path)}>${wordsHtml(value)}</div>` : slot(path, hint);
+    value.trim() ? `<div class="${textCls(path, base)}"${fa(path)}>${wordsHtml(value, link)}</div>` : slot(path, hint);
   const button = (path: string, b: { label: string; url: string }, hint: string) => {
     if (!b.label.trim()) return m ? `<div class="apx-np-btns">${slot(path, hint, "span")}</div>` : "";
     const look: ButtonLook = lk(path).button ?? (path === "cta.button" && bgOf("cta") === "petrol" ? "red" : "red");

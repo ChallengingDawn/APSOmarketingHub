@@ -933,7 +933,8 @@ export const unwritten = (doc: PageDoc) => {
 const LEFTOVER: RegExp[] = [
   /\[Text from Content:[^\]]*\]/gi,
   // "[Intro paragraph part 1 in German]", "[Product name]" - a capital, then words with small letters ("[NBR 70]" is not one)
-  /\[(?=[^\]\n]*[a-zäöüàâçéèêëîïôûùÿñ])[A-ZÄÖÜÀ-Ý][^\[\]\n<>]{2,160}\]/g,
+  // ... but never the words of a link the text editor wrote ("[Jetzt filtern](/de-CH/...)" - Content v8)
+  /\[(?=[^\]\n]*[a-zäöüàâçéèêëîïôûùÿñ])[A-ZÄÖÜÀ-Ý][^\[\]\n<>]{2,160}\](?!\()/g,
   /\[(?:x{2,}|\.{2,}|…|\?{2,}|_{2,}|#+|\d+\s*%?\s*x*)\]/gi,
   /\blorem ipsum\b[^.<\n]{0,40}/gi,
   /\b(?:TODO|TBD|FIXME)\b/g,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { addItem, blockOrder, emptyFields, setField, type Fields } from "../src/lib/content/studio/kinds/page/fields";
-import { duplicateRow, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows, type FoundBlock } from "../src/lib/content/studio/kinds/page/blocklist";
+import { duplicateRow, moduleWordsEdit, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows, type FoundBlock } from "../src/lib/content/studio/kinds/page/blocklist";
 import { newModule } from "../src/lib/content/studio/kinds/page/modules/model";
 import type { PageChange } from "../src/lib/content/studio/kinds/page/model";
 
@@ -142,4 +142,15 @@ test("a page of the shop: its own blocks, what the hub put, and what is not on t
   assert.equal(rows[0].movable, false, "the shop's own blocks keep their order");
   assert.equal(shopRowOf(rows, { change: 0 }), "c:c1");
   assert.equal(shopRowOf(rows, { block: "div.x" }), "p:div.x");
+});
+
+test("a module's words changed in the page go back into its settings, its red marks kept", () => {
+  const m = newModule("row", "de-CH", "mrowq");
+  const r0 = { ...m, settings: { ...m.settings, title: "Die ==besten== O-Ringe", link: { label: "Alle anzeigen", url: "/de-CH/x" }, faq: [{ q: "Wie?", a: "So." }] } };
+  const a = moduleWordsEdit(r0, "Die besten O-Ringe", "Die besten O-Ringe für Lebensmittel");
+  assert.equal(a?.field, "title");
+  assert.equal(a?.module.settings.title, "Die ==besten== O-Ringe für Lebensmittel");
+  assert.equal(moduleWordsEdit(r0, "Alle anzeigen", "Alle O-Ringe")?.module.settings.link.label, "Alle O-Ringe");
+  assert.equal(moduleWordsEdit(r0, "So.", "So und so.")?.field, "faq.0.a");
+  assert.equal(moduleWordsEdit(r0, "O-Ring NBR 70 (a product's name)", "x"), null);
 });

@@ -12,7 +12,7 @@
 
 import { blockOrder, emptyPic, itemId, removeBlock, withOrder, type Fields, type PageModule, type Section } from "./fields";
 import { blocksOf, previewOf, type BlockInfo, type PartState } from "./outline";
-import { kindOf, moduleGap, moduleId, moduleOfChange } from "./modules/model";
+import { kindOf, moduleGap, moduleId, moduleOfChange, type ModuleRef } from "./modules/model";
 import type { PageChange } from "./model";
 
 /** a block of the page itself, a module of the library, a page of the shop's own block, a block the hub put on it */
@@ -293,5 +293,48 @@ export function shopRows(found: FoundBlock[], changes: PageChange[]): BlockRow[]
 export function shopRowOf(rows: BlockRow[], at: { change?: number | null; block?: string | null }): string | null {
   if (at.change !== null && at.change !== undefined) { const r = rows.find((x) => x.change === at.change); if (r) return r.key; }
   if (at.block) { const r = rows.find((x) => x.selector === at.block); if (r) return r.key; }
+  return null;
+}
+
+/* ── a module's words, edited in the page ─────────────────────────────── */
+
+const plainOf = (t: string) => t.replace(/==/g, "").replace(/\s+/g, " ").trim();
+/** The new words with the old ones' red marks kept where the marked words still stand. */
+function keepRed(old: string, next: string): string {
+  let out = next;
+  for (const m of old.matchAll(/==([^=]{1,60})==/g)) {
+    const w = m[1];
+    if (out.includes(`==${w}==`)) continue;
+    const i = out.indexOf(w);
+    if (i >= 0) out = `${out.slice(0, i)}==${w}==${out.slice(i + w.length)}`;
+  }
+  return out;
+}
+
+/**
+ * A module's text clicked and changed in the page (Content v8, point 4: "their texts by clicking them on the page"): the
+ * setting that holds those words takes the new ones, so the module is drawn again from its settings and stays editable
+ * there. null when the words are not the module's own (a product's or a category's name comes from the shop).
+ */
+export function moduleWordsEdit(m: ModuleRef, was: string, now: string): { module: ModuleRef; field: string } | null {
+  const w = plainOf(was);
+  const next = now.replace(/\s+\n/g, "\n").trim();
+  if (!w || !next) return null;
+  const s = m.settings;
+  const put = (field: string, settings: ModuleRef["settings"]) => ({ module: { ...m, settings }, field });
+  for (const k of ["title", "eyebrow", "text"] as const) if (plainOf(s[k]) === w) return put(k, { ...s, [k]: keepRed(s[k], next) });
+  if (plainOf(s.link.label) === w) return put("link", { ...s, link: { ...s.link, label: next.slice(0, 60) } });
+  if (plainOf(s.link2.label) === w) return put("link2", { ...s, link2: { ...s.link2, label: next.slice(0, 60) } });
+  for (let i = 0; i < s.points.length; i++) {
+    const p = s.points[i];
+    if (plainOf(p.title) === w) return put(`points.${i}.title`, { ...s, points: s.points.map((x, j) => (j === i ? { ...x, title: next.slice(0, 80) } : x)) });
+    if (plainOf(p.text) === w) return put(`points.${i}.text`, { ...s, points: s.points.map((x, j) => (j === i ? { ...x, text: next.slice(0, 240) } : x)) });
+  }
+  for (let i = 0; i < s.faq.length; i++) {
+    const q = s.faq[i];
+    if (plainOf(q.q) === w) return put(`faq.${i}.q`, { ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, q: next.slice(0, 300) } : x)) });
+    if (plainOf(q.a) === w) return put(`faq.${i}.a`, { ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, a: next.slice(0, 1500) } : x)) });
+  }
+  for (const [k, v] of Object.entries(s.extra)) if (v && plainOf(v) === w) return put(`extra.${k}`, { ...s, extra: { ...s.extra, [k]: next.slice(0, 600) } });
   return null;
 }
