@@ -183,7 +183,7 @@ function tabs(m: ModuleRef, o: Opts) {
 @@ .am-ti{flex:none;display:block;width:34px;height:34px;border-radius:9px;overflow:hidden;background:var(--tile)}
 @@ .am-ti img{width:100%;height:100%;object-fit:cover}
 @@ .am-tps{margin-top:14px}
-@@ .am-tp{display:none;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,.92fr);gap:12px;animation:am${s.id}in .35s cubic-bezier(.2,.7,.2,1)}
+@@ .am-tp{display:none;grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,.92fr);gap:12px}
 @@ .am-tp .am-pc>i{flex:none;aspect-ratio:1/.9}
 @@ .am-te{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-height:250px;border-radius:18px;overflow:hidden;background:var(--pet-d);color:#fff!important;isolation:isolate}
 @@ .am-te img{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:cover;z-index:-2;transition:transform .5s}
@@ -196,7 +196,6 @@ function tabs(m: ModuleRef, o: Opts) {
 @@ .am-te i::after{content:"";width:7px;height:7px;border:solid #fff;border-width:1.8px 1.8px 0 0;transform:rotate(45deg);transition:transform .2s}
 @@ .am-te:hover i::after{transform:translateX(3px) rotate(45deg)}
 ${on.join("\n")}
-@keyframes am${s.id}in{from{transform:translateY(8px);opacity:.4}to{transform:none;opacity:1}}
 @media (max-width:1100px) and (min-width:901px){@@ .am-tp{grid-template-columns:repeat(3,minmax(0,1fr)) minmax(0,.92fr)}@@ .am-tp>.am-pc:nth-of-type(4){display:none}@@ .am-tl label{font-size:14px;padding-right:12px}}
 @media (max-width:900px){
 @@ .am-tl{border-radius:14px}
@@ -205,8 +204,7 @@ ${on.join("\n")}
 @@ .am-ti{width:28px;height:28px}
 @@ .am-tp{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 @@ .am-te{grid-column:1/-1;min-height:120px}
-}
-@media (prefers-reduced-motion:reduce){@@ .am-tp{animation:none}}`;
+}`;
   return { css, html: `<div class="am-box"><div class="am-tb">${inputs}${header(s)}<div class="am-tl" role="tablist">${labels}</div><div class="am-tps">${panels}</div></div></div>` };
 }
 
