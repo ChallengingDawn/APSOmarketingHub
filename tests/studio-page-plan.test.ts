@@ -6,7 +6,7 @@ import { renderModule } from "../src/lib/content/studio/kinds/page/modules/rende
 import { MODULES } from "../src/lib/content/studio/kinds/page/modules/registry";
 import { drawModule, libModule, library, libraryText, makeModule, moduleIdOf, pickModule, withWords, wordsOfModule } from "../src/lib/content/studio/kinds/page/plan/library";
 import { mapText, pageMap, partOfSelection } from "../src/lib/content/studio/kinds/page/plan/places";
-import { PLAN_SCHEMA, cleanPlan, looksEnglish, noteOf, placeNow, planSystem, planUser, safeWords, stepChange, stepLine, withFill, workedExamples, type CleanCtx } from "../src/lib/content/studio/kinds/page/plan/plan";
+import { PLAN_SCHEMA, buttonSays, cleanPlan, inLanguage, looksEnglish, noteOf, placeNow, planSystem, planUser, safeWords, stepChange, stepLine, withFill, workedExamples, type CleanCtx } from "../src/lib/content/studio/kinds/page/plan/plan";
 
 // Content v7 (SARCLA 10.11.2026, points 5 and 13): "the quality of generation is far from good" - "the AI could directly
 // bring modules and adjust text". The AI composes the page with the module LIBRARY: a plan of steps on the page's real
@@ -117,7 +117,7 @@ test("a canned plan is kept where it makes sense: library ids, real parts, place
   // the lines SARCLA reads: short, English, concrete
   assert.match(plan.steps[0].line, /^Add an? .+ before "Datenschutzerklärung an die…"$/);
   assert.ok(!/ uSP /.test(plan.steps[0].line));
-  assert.match(plan.steps[1].line, /^Add a .+ after "Cookie Policy"$/);
+  assert.match(plan.steps[1].line, /^Add (an? )?.+ after "Cookie Policy"$/);
 });
 
 test("beside a module the hub put: before the next part of the page's own, or at the end of the content", () => {
@@ -261,6 +261,27 @@ test("the question carries the page's parts, the shop's categories, the language
 test("stepLine says each kind of step plainly", () => {
   const map = pageMap(PAGE, view());
   const p2 = map.parts[1];
-  assert.match(stepLine({ do: "replace", module: cats().id, at: "P2", where: "", place: { how: "replace", selector: p2.selector } }, map.parts), /^Replace "Cookie Policy" with a /);
-  assert.match(stepLine({ do: "add", module: prod().id, at: "P2", where: "after", place: { how: "insert", selector: p2.selector, where: "after" } }, map.parts), /^Add a .+ after "Cookie Policy"$/);
+  assert.match(stepLine({ do: "replace", module: cats().id, at: "P2", where: "", place: { how: "replace", selector: p2.selector } }, map.parts), /^Replace "Cookie Policy" with (an? )?[a-z]/);
+  assert.match(stepLine({ do: "add", module: prod().id, at: "P2", where: "after", place: { how: "insert", selector: p2.selector, where: "after" } }, map.parts), /^Add (an? )?.+ after "Cookie Policy"$/);
+});
+
+
+test("a button goes where its words say, and every word is in the page's language", () => {
+  assert.equal(buttonSays("Alle O-Ringe", `O-Ringe / X-Ringe ${B}/de-CH/dichtungstechnik/o-ringe-x-ringe.html`), true);
+  assert.equal(buttonSays("Kontakt aufnehmen", `Kontakt / Retouren ${B}/de-CH/support/contact`), true);
+  assert.equal(buttonSays("Zu Tools & Services", `Tools & Services ${B}/de-CH/service`), true);
+  assert.equal(buttonSays("Alle Technologien", `Dichtungstechnik ${B}/de-CH/dichtungstechnik.html`), false);
+  assert.equal(inLanguage("Engineering solutions. One click away.", "de"), false);
+  assert.equal(inLanguage("Wir sind für Sie da", "de"), true);
+  assert.equal(inLanguage("APSOseal® O-Ringe", "de"), true);
+  assert.equal(inLanguage("Engineering solutions. One click away.", "en"), true);
+  const map = pageMap(PAGE, view());
+  const cat = `${B}/de-CH/dichtungstechnik.html`;
+  const plan = cleanPlan({ note: "x", steps: [step({ module: prod().id, at: "P2", words: words({ title: "Engineering solutions. One click away.", eyebrow: "Beliebt", button: "Alle Technologien" }), link: cat, fill: { how: "bought", category: "", numbers: "", count: 5 } })] },
+    ctxOf(map, { lang: "de", linkNames: { [cat]: "Dichtungstechnik" } }));
+  const st = plan.steps[0];
+  assert.equal(st.words.title, "");
+  assert.equal(st.words.button, "");
+  assert.equal(st.link, "");
+  assert.match(st.problems.join(" "), /not in the page's language/);
 });

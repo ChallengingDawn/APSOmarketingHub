@@ -56,7 +56,7 @@ export function usePlan(o: {
   lang: () => string;
   view: (lang: string) => PageDoc;
   /** the view's change list put back, with a line for "Changes made here" (the AI's) */
-  put: (lang: string, make: (cur: PageDoc) => PageDoc, label: string, note: string) => Promise<void>;
+  put: (lang: string, make: (cur: PageDoc) => PageDoc, label: string, note: string, change?: string) => Promise<void>;
   /** the check after a change (Studio's checkAndPlace): null = it reads well and is applied */
   check: (id: string, lang: string, o: { fix: boolean }) => Promise<string | null>;
   /** a line of "Changes made here" gets a warning */
@@ -169,7 +169,7 @@ export function usePlan(o: {
     setState(step.id, { state: "checking" });
     const note = runRef.current?.plan.note ?? "";
     placed.current = [...placed.current.filter((x) => x !== change.id), change.id];
-    await ref.current.put(forLang, (cur) => ({ ...cur, changes: withChange(cur.changes, { ...change, off: "Not checked yet - the check did not finish. Show it anyway, or ask again." } as PageChange) }), `AI: ${step.line}`, note);
+    await ref.current.put(forLang, (cur) => ({ ...cur, changes: withChange(cur.changes, { ...change, off: "Not checked yet - the check did not finish. Show it anyway, or ask again." } as PageChange) }), `AI: ${step.line}`, note, change.id);
     // 4. the check: it must read well (a free block is fixed once by the AI when it does not)
     let msg: string | null = null;
     try { msg = await ref.current.check(change.id, forLang, { fix: step.do === "block" }); } catch (e) { msg = `The check did not finish (${String((e as Error)?.message ?? e).slice(0, 80)}) - it is kept back; "Show it anyway" applies it.`; }

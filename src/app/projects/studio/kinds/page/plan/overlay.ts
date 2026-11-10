@@ -53,7 +53,8 @@ export function drawPending(d: Document, list: Pending[]): string[] {
   });
   const lost: string[] = [];
   for (const p of list) {
-    const box = d.createElement("div");
+    // its own element (not a <div>): a place by position ("div:nth-of-type(3)") stays the same while it is drawn
+    const box = d.createElement("apx-pend");
     box.setAttribute("data-apx-pend", p.key);
     const t = d.createElement("template");
     t.innerHTML = p.html;

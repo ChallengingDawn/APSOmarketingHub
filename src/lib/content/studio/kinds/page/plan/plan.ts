@@ -302,9 +302,19 @@ export function looksEnglish(s: string): boolean {
 /** "Product row" -> "product row"; "USP bar" stays (a short word in capitals is a name). */
 const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 /** "a" or "an" as it sounds: "an FAQ", "a USP bar", "an O-ring row" */
-const headNoun = (s: string) => (s.split(" of ")[0].trim().split(" ").pop() ?? "");
+/** The word a name is about: before its first "with", "over", "of"... ("Hero with three products" -> "Hero"); a name
+ * that starts with a number is plural ("Two banners side by side"). */
+const headNoun = (s: string) => {
+  if (/^(two|three|four|five|six|\d+)\b/i.test(s)) return "items";
+  return s.split(/\s+(?:with|over|beside|of|in|on|for|from|and|under|above|by|at|to|as)\s+/i)[0].trim().split(" ").pop() ?? "";
+};
 const article = (s: string) => (/[^su]s$/i.test(headNoun(s)) ? "" : /^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
-const withArticle = (s: string) => { const a = article(s); return a ? `${a} ${s}` : s; };
+const withArticle = (s: string) => {
+  // a name that is a sentence ("Help is near") is said as the module's name
+  if (/\b(is|are)\b/i.test(s)) return `"${s.charAt(0).toUpperCase()}${s.slice(1)}"`;
+  const a = article(s);
+  return a ? `${a} ${s}` : s;
+};
 const quoteOf = (p: PagePart | undefined): string => {
   if (!p) return "the page";
   if (p.kind !== "page") return `the ${lower(libModule(p.module)?.name ?? "block")}${p.heading ? ` "${cutWords(p.heading, 26)}"` : ""}`;
@@ -312,6 +322,7 @@ const quoteOf = (p: PagePart | undefined): string => {
   if (p.h1) return "the page's title";
   if (p.text && !p.text.startsWith("(no words")) return `"${cutWords(p.text, 26)}"`;
   const n = p.holds.pictures;
+  if (p.pb === "slider" || p.pb === "banner") return `the ${p.pb}${p.id === "P1" ? " at the top" : ""}`;
   return n ? `the ${n > 1 ? `${n} pictures` : "picture"}${p.id === "P1" ? " at the top" : ` (part ${p.id.slice(1)})`}` : `part ${p.id.slice(1)}`;
 };
 const cutWords = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n).replace(/\s+\S*$/, "")}…`);
@@ -345,6 +356,8 @@ export type CleanCtx = {
   categories: string[];
   /** every address a button may go to: the categories and the page's own links the AI was shown */
   links?: string[];
+  /** what each of those addresses is called (the menu's name, the link's words) - a button's words must say it */
+  linkNames?: Record<string, string>;
   /** the page's own address (a category page fills "page" from itself) and kind */
   pageUrl: string; pageKind: string;
   /** every word of the page and the brand facts (what a word may name) */
@@ -446,8 +459,13 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && lib?.extras.some((s) => s.key === e.key)).slice(0, 8);
     const okLink = (v: unknown) => { const u = str(v, 400); return u && (ctx.categories.includes(u) || (ctx.links ?? []).includes(u) || u === ctx.pageUrl) ? u : ""; };
-    const link = okLink(x.link);
-    const link2 = okLink(x.link2);
+    let link = okLink(x.link);
+    let link2 = okLink(x.link2);
+    // a button goes where its words say ("Alle Technologien" to Dichtungstechnik does not): else it is left out
+    const says = (button: string, url: string) => !button || !url || buttonSays(button, `${ctx.linkNames?.[url] ?? ""} ${url}`);
+    if (!says(words.button, link)) { said.push(`Button "${words.button}" left out: it went to ${ctx.linkNames?.[link] || "another page"}`); link = ""; words.button = ""; }
+    if (!says(words.button2, link2)) { said.push(`Button "${words.button2}" left out: it went to ${ctx.linkNames?.[link2] || "another page"}`); link2 = ""; words.button2 = ""; }
+    if (words.button2 && !link2) words.button2 = "";
     const fill = doing === "words" || doing === "block" ? { how: "none" as FillHow, category: "", numbers: "", count: 0 } : fillIn(x.fill, lib, ctx);
     const stepId = ctx.newId();
     let html = "";
@@ -526,6 +544,16 @@ export function stepChange(step: Pick<PlanStep, "id" | "place" | "line">, html: 
   }
   if (step.place.how === "replace") return replaceChange(step.place.selector, html, { id: step.id, note, ...mod });
   return insertChange(step.place.selector, step.place.where, html, { id: step.id, note, ...mod });
+}
+
+const STOP = new Set(["alle", "allen", "zum", "zur", "zu", "den", "der", "die", "das", "und", "the", "all", "view", "voir", "tous", "toutes", "tutti", "vai", "naar", "wszystkie", "jetzt", "mehr", "more", "plus", "entdecken", "ansehen", "anzeigen", "shop", "page", "seite", "html", "https", "www", "apsoparts", "com"]);
+const tokens = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !STOP.has(w) && !/^[a-z]{2}-[a-z]{2,3}$/.test(w));
+/** Do a button's words name the page it goes to (its name or its address)? A word in common, by its first five letters. */
+export function buttonSays(button: string, target: string): boolean {
+  const b = tokens(button);
+  if (!b.length) return true;
+  const t = tokens(target);
+  return b.some((x) => t.some((y) => x.slice(0, 5) === y.slice(0, 5) || y.includes(x) || x.includes(y)));
 }
 
 /** The whole page's words (its parts) - what a word of a plan may name. */
