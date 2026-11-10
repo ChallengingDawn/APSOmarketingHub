@@ -6,8 +6,8 @@
 // invented: every name, sentence, figure, picture and address is the shop's own. Never a price, stock or a discount.
 // German words for the German store views; the other store views get the addresses (./kit.ts pathFor) and write their words.
 
-import type { Card } from "../model";
-import { card } from "./kit";
+import type { Card } from "../types";
+import { mk } from "./kit";
 
 export const SHOP = "https://www.apsoparts.com";
 const D = `${SHOP}/de-CH`;
@@ -42,12 +42,12 @@ export const LINKS = {
 
 /** The six technologies: the home page's own tiles (photo, line) and the category pages' counts. */
 export const TECH: Card[] = [
-  card("category", "Dichtungstechnik", `${D}/dichtungstechnik.html`, `${M}/wysiwyg/1_Sealing_Technology_1.jpg`, "258 Produkte"),
-  card("category", "Kunststofftechnik", `${D}/kunststofftechnik.html`, `${M}/wysiwyg/2_EngeneeringPlasticsTechnology_1.jpg`, "180 Produkte"),
-  card("category", "Schwingungstechnik", `${D}/schwingungstechnik.html`, `${M}/wysiwyg/3_Antivibration_Technology_1.jpg`, "154 Produkte"),
-  card("category", "Fluidtechnik", `${D}/fluidtechnik.html`, `${M}/wysiwyg/4_Fluid_Handling_Technology_1.jpg`, "490 Produkte"),
-  card("category", "Antriebstechnik", `${D}/antriebstechnik.html`, `${M}/wysiwyg/5_Mechanical_Drive_Technology_1.jpg`, "341 Produkte"),
-  card("category", "Sensoren und Powertechnik", `${D}/sensoren-und-powertechnik.html`, `${M}/wysiwyg/6_Sensors_Power_1.jpg`, "137 Produkte"),
+  mk("category", "Dichtungstechnik", `${D}/dichtungstechnik.html`, `${M}/wysiwyg/1_Sealing_Technology_1.jpg`, "258 Produkte"),
+  mk("category", "Kunststofftechnik", `${D}/kunststofftechnik.html`, `${M}/wysiwyg/2_EngeneeringPlasticsTechnology_1.jpg`, "180 Produkte"),
+  mk("category", "Schwingungstechnik", `${D}/schwingungstechnik.html`, `${M}/wysiwyg/3_Antivibration_Technology_1.jpg`, "154 Produkte"),
+  mk("category", "Fluidtechnik", `${D}/fluidtechnik.html`, `${M}/wysiwyg/4_Fluid_Handling_Technology_1.jpg`, "490 Produkte"),
+  mk("category", "Antriebstechnik", `${D}/antriebstechnik.html`, `${M}/wysiwyg/5_Mechanical_Drive_Technology_1.jpg`, "341 Produkte"),
+  mk("category", "Sensoren und Powertechnik", `${D}/sensoren-und-powertechnik.html`, `${M}/wysiwyg/6_Sensors_Power_1.jpg`, "137 Produkte"),
 ];
 /** The home page's lines under each technology (its banner row "Weitere Produkte"), with the product brand. */
 export const TECH_LINES: Record<string, { brand: string; line: string }> = {
@@ -61,77 +61,77 @@ export const TECH_LINES: Record<string, { brand: string; line: string }> = {
 
 /** The home page's large category banners (the "Top-Produkte" row): wide photos of the range. */
 export const BANNERS: Card[] = [
-  card("category", "O-Ringe / X-Ringe", `${D}/dichtungstechnik/o-ringe-x-ringe.html`, `${M}/wysiwyg/1_ORings_XRings_1.jpg`, "Mehr als 24.000 Sortimentsartikel"),
-  card("category", "Rotationsdichtungen", `${D}/dichtungstechnik/rotationsdichtungen.html`, `${M}/wysiwyg/2_RotarySeals_1.jpg`, "In verschiedenen Abmessungen und Materialien"),
-  card("category", "Kunststoff-Platten", `${D}/kunststofftechnik/platte.html`, `${M}/wysiwyg/3_EngineeringPlasticsTechnology_Plates_1.jpg`, "Kunststoffhalbzeuge in Plattenform"),
-  card("category", "Profile, Rundschnüre und Bänder", `${D}/dichtungstechnik/profile-rundschnure-und-bander.html`, `${M}/wysiwyg/4_Profiles_RoundCords_Strips_1.jpg`, "Elastomerprofile in diversen Dimensionen"),
-  card("category", "Dichtungsplatten und Beläge", `${D}/dichtungstechnik/dichtungsplatten-und-belage.html`, `${M}/wysiwyg/5_Sealing_Plates_Coverings_2.jpg`, "Kautschuk, Faser und PTFE im Zuschnitt"),
-  card("category", "Kunststoff-Rundstäbe", `${D}/kunststofftechnik/rundstab.html`, `${M}/wysiwyg/6_EngineeringPlasticsTechnology_RoundBars_1.jpg`, "Kunststoffhalbzeuge in Stangenform"),
+  mk("category", "O-Ringe / X-Ringe", `${D}/dichtungstechnik/o-ringe-x-ringe.html`, `${M}/wysiwyg/1_ORings_XRings_1.jpg`, "Mehr als 24.000 Sortimentsartikel"),
+  mk("category", "Rotationsdichtungen", `${D}/dichtungstechnik/rotationsdichtungen.html`, `${M}/wysiwyg/2_RotarySeals_1.jpg`, "In verschiedenen Abmessungen und Materialien"),
+  mk("category", "Kunststoff-Platten", `${D}/kunststofftechnik/platte.html`, `${M}/wysiwyg/3_EngineeringPlasticsTechnology_Plates_1.jpg`, "Kunststoffhalbzeuge in Plattenform"),
+  mk("category", "Profile, Rundschnüre und Bänder", `${D}/dichtungstechnik/profile-rundschnure-und-bander.html`, `${M}/wysiwyg/4_Profiles_RoundCords_Strips_1.jpg`, "Elastomerprofile in diversen Dimensionen"),
+  mk("category", "Dichtungsplatten und Beläge", `${D}/dichtungstechnik/dichtungsplatten-und-belage.html`, `${M}/wysiwyg/5_Sealing_Plates_Coverings_2.jpg`, "Kautschuk, Faser und PTFE im Zuschnitt"),
+  mk("category", "Kunststoff-Rundstäbe", `${D}/kunststofftechnik/rundstab.html`, `${M}/wysiwyg/6_EngineeringPlasticsTechnology_RoundBars_1.jpg`, "Kunststoffhalbzeuge in Stangenform"),
 ];
 
 /** The O-ring materials: the category tiles of O-Ringe / X-Ringe. */
 const OR = `${D}/dichtungstechnik/o-ringe-x-ringe`;
 export const ORING: Record<string, Card> = {
-  NBR: card("category", "O-Ring NBR", `${OR}/o-ring-nbr.html`, CAT("44/02/resize/540-null/314402.jpg")),
-  FKM: card("category", "O-Ring FKM", `${OR}/o-ring-fkm.html`, CAT("43/99/resize/540-null/314399.jpg")),
-  EPDM: card("category", "O-Ring EPDM", `${OR}/o-ring-epdm.html`, CAT("44/01/resize/540-null/314401.jpg")),
-  VMQ: card("category", "O-Ring VMQ", `${OR}/o-ring-vmq.html`, CAT("44/00/resize/540-null/314400.jpg")),
-  HNBR: card("category", "O-Ring HNBR", `${OR}/o-ring-hnbr.html`, CAT("74/38/resize/540-null/457438.jpg")),
-  PTFE: card("category", "O-Ring PTFE", `${OR}/o-ring-ptfe.html`, CAT("74/39/resize/540-null/457439.jpg")),
-  FFKM: card("category", "O-Ring FFKM", `${OR}/o-ring-ffkm.html`, CAT("43/98/resize/540-null/314398.jpg")),
-  FEP: card("category", "O-Ring mit FEP-Ummantelung", `${OR}/o-ring-mit-fep-ummantelung.html`, CAT("44/03/resize/540-null/314403.jpg")),
-  X: card("category", "X-Ringe", `${OR}/x-ringe.html`, CAT("44/04/resize/540-null/314404.jpg")),
+  NBR: mk("category", "O-Ring NBR", `${OR}/o-ring-nbr.html`, CAT("44/02/resize/540-null/314402.jpg")),
+  FKM: mk("category", "O-Ring FKM", `${OR}/o-ring-fkm.html`, CAT("43/99/resize/540-null/314399.jpg")),
+  EPDM: mk("category", "O-Ring EPDM", `${OR}/o-ring-epdm.html`, CAT("44/01/resize/540-null/314401.jpg")),
+  VMQ: mk("category", "O-Ring VMQ", `${OR}/o-ring-vmq.html`, CAT("44/00/resize/540-null/314400.jpg")),
+  HNBR: mk("category", "O-Ring HNBR", `${OR}/o-ring-hnbr.html`, CAT("74/38/resize/540-null/457438.jpg")),
+  PTFE: mk("category", "O-Ring PTFE", `${OR}/o-ring-ptfe.html`, CAT("74/39/resize/540-null/457439.jpg")),
+  FFKM: mk("category", "O-Ring FFKM", `${OR}/o-ring-ffkm.html`, CAT("43/98/resize/540-null/314398.jpg")),
+  FEP: mk("category", "O-Ring mit FEP-Ummantelung", `${OR}/o-ring-mit-fep-ummantelung.html`, CAT("44/03/resize/540-null/314403.jpg")),
+  X: mk("category", "X-Ringe", `${OR}/x-ringe.html`, CAT("44/04/resize/540-null/314404.jpg")),
 };
-export const ORING_CAT = card("category", "O-Ringe / X-Ringe", `${OR}.html`, `${M}/wysiwyg/1_ORings_XRings_1.jpg`, "31 Produkte");
+export const ORING_CAT = mk("category", "O-Ringe / X-Ringe", `${OR}.html`, `${M}/wysiwyg/1_ORings_XRings_1.jpg`, "31 Produkte");
 
 /** Sealing technology's subcategories (its own tiles). */
 const DT = `${D}/dichtungstechnik`;
 export const SEALING: Card[] = [
-  card("category", "O-Ringe / X-Ringe", `${DT}/o-ringe-x-ringe.html`, CAT("44/46/resize/540-null/314446.jpg")),
-  card("category", "Rotationsdichtungen", `${DT}/rotationsdichtungen.html`, CAT("43/92/resize/540-null/314392.jpg")),
-  card("category", "Hubdichtungen und Führungsbänder", `${DT}/hubdichtungen-und-fuhrungsbander.html`, CAT("43/93/resize/540-null/314393.jpg")),
-  card("category", "Profile, Rundschnüre und Bänder", `${DT}/profile-rundschnure-und-bander.html`, CAT("43/96/resize/540-null/314396.jpg")),
-  card("category", "Dichtungsplatten und Beläge", `${DT}/dichtungsplatten-und-belage.html`, CAT("43/94/resize/540-null/314394.jpg")),
-  card("category", "Flachdichtungen", `${DT}/flachdichtungen.html`, CAT("43/95/resize/540-null/314395.jpg")),
-  card("category", "Formteile", `${DT}/formteile.html`, CAT("44/47/resize/540-null/314447.jpg")),
-  card("category", "Filter, Technische Gewebe, Isolationsmaterial", `${DT}/filter-technische-gewebe-isolationsmaterial.html`, CAT("07/46/resize/540-null/320746.jpg")),
+  mk("category", "O-Ringe / X-Ringe", `${DT}/o-ringe-x-ringe.html`, CAT("44/46/resize/540-null/314446.jpg")),
+  mk("category", "Rotationsdichtungen", `${DT}/rotationsdichtungen.html`, CAT("43/92/resize/540-null/314392.jpg")),
+  mk("category", "Hubdichtungen und Führungsbänder", `${DT}/hubdichtungen-und-fuhrungsbander.html`, CAT("43/93/resize/540-null/314393.jpg")),
+  mk("category", "Profile, Rundschnüre und Bänder", `${DT}/profile-rundschnure-und-bander.html`, CAT("43/96/resize/540-null/314396.jpg")),
+  mk("category", "Dichtungsplatten und Beläge", `${DT}/dichtungsplatten-und-belage.html`, CAT("43/94/resize/540-null/314394.jpg")),
+  mk("category", "Flachdichtungen", `${DT}/flachdichtungen.html`, CAT("43/95/resize/540-null/314395.jpg")),
+  mk("category", "Formteile", `${DT}/formteile.html`, CAT("44/47/resize/540-null/314447.jpg")),
+  mk("category", "Filter, Technische Gewebe, Isolationsmaterial", `${DT}/filter-technische-gewebe-isolationsmaterial.html`, CAT("07/46/resize/540-null/320746.jpg")),
 ];
 /** Plastics, fluid, drive and antivibration subcategories the modules use (their own tiles). */
 export const PLASTICS: Card[] = [
-  card("category", "Platte", `${D}/kunststofftechnik/platte.html`, CAT("95/32/resize/540-null/299532.jpg")),
-  card("category", "Rundstab", `${D}/kunststofftechnik/rundstab.html`, CAT("95/34/resize/540-null/299534.jpg")),
-  card("category", "Rohr", `${D}/kunststofftechnik/rohr.html`, CAT("95/35/resize/540-null/299535.jpg")),
-  card("category", "Gleitlager", `${D}/kunststofftechnik/gleitlager.html`, CAT("95/85/resize/540-null/299585.jpg")),
+  mk("category", "Platte", `${D}/kunststofftechnik/platte.html`, CAT("95/32/resize/540-null/299532.jpg")),
+  mk("category", "Rundstab", `${D}/kunststofftechnik/rundstab.html`, CAT("95/34/resize/540-null/299534.jpg")),
+  mk("category", "Rohr", `${D}/kunststofftechnik/rohr.html`, CAT("95/35/resize/540-null/299535.jpg")),
+  mk("category", "Gleitlager", `${D}/kunststofftechnik/gleitlager.html`, CAT("95/85/resize/540-null/299585.jpg")),
 ];
 export const FLUID: Card[] = [
-  card("category", "Schläuche", `${D}/fluidtechnik/schlauche.html`, CAT("31/75/resize/540-null/323175.jpg")),
-  card("category", "Armaturen", `${D}/fluidtechnik/armaturen.html`, CAT("31/76/resize/540-null/323176.jpg")),
-  card("category", "Automation/Pneumatik", `${D}/fluidtechnik/automation-pneumatik.html`, CAT("31/77/resize/540-null/323177.jpg")),
-  card("category", "KAPSTO Schutzelemente", `${D}/fluidtechnik/kapsto-schutzelemente.html`, CAT("41/70/resize/540-null/324170.jpg")),
-  card("category", "Kompensator", `${D}/fluidtechnik/kompensator.html`, CAT("03/97/resize/540-null/970397.jpg")),
-  card("category", "Wellschlauch", `${D}/fluidtechnik/wellschlauch.html`, CAT("31/78/resize/540-null/323178.jpg")),
+  mk("category", "Schläuche", `${D}/fluidtechnik/schlauche.html`, CAT("31/75/resize/540-null/323175.jpg")),
+  mk("category", "Armaturen", `${D}/fluidtechnik/armaturen.html`, CAT("31/76/resize/540-null/323176.jpg")),
+  mk("category", "Automation/Pneumatik", `${D}/fluidtechnik/automation-pneumatik.html`, CAT("31/77/resize/540-null/323177.jpg")),
+  mk("category", "KAPSTO Schutzelemente", `${D}/fluidtechnik/kapsto-schutzelemente.html`, CAT("41/70/resize/540-null/324170.jpg")),
+  mk("category", "Kompensator", `${D}/fluidtechnik/kompensator.html`, CAT("03/97/resize/540-null/970397.jpg")),
+  mk("category", "Wellschlauch", `${D}/fluidtechnik/wellschlauch.html`, CAT("31/78/resize/540-null/323178.jpg")),
 ];
 export const DRIVE: Card[] = [
-  card("category", "Zahnriemen", `${D}/antriebstechnik/zahnriemen.html`, CAT("47/76/resize/540-null/324776.jpg")),
-  card("category", "Keilriemen", `${D}/antriebstechnik/keilriemen.html`, CAT("47/79/resize/540-null/324779.jpg")),
-  card("category", "Kupplungen", `${D}/antriebstechnik/kupplungen.html`, CAT("47/78/resize/540-null/324778.jpg")),
+  mk("category", "Zahnriemen", `${D}/antriebstechnik/zahnriemen.html`, CAT("47/76/resize/540-null/324776.jpg")),
+  mk("category", "Keilriemen", `${D}/antriebstechnik/keilriemen.html`, CAT("47/79/resize/540-null/324779.jpg")),
+  mk("category", "Kupplungen", `${D}/antriebstechnik/kupplungen.html`, CAT("47/78/resize/540-null/324778.jpg")),
 ];
 export const VIB: Card[] = [
-  card("category", "Isolationsmatten", `${D}/schwingungstechnik/isolationsmatten.html`, CAT("93/22/resize/540-null/299322.jpg")),
-  card("category", "Maschinenrichtelemente", `${D}/schwingungstechnik/maschinenrichtelemente.html`, CAT("93/23/resize/540-null/299323.jpg")),
-  card("category", "Federelemente und Luftfedern", `${D}/schwingungstechnik/federelemente-und-luftfedern.html`, CAT("93/24/resize/540-null/299324.jpg")),
+  mk("category", "Isolationsmatten", `${D}/schwingungstechnik/isolationsmatten.html`, CAT("93/22/resize/540-null/299322.jpg")),
+  mk("category", "Maschinenrichtelemente", `${D}/schwingungstechnik/maschinenrichtelemente.html`, CAT("93/23/resize/540-null/299323.jpg")),
+  mk("category", "Federelemente und Luftfedern", `${D}/schwingungstechnik/federelemente-und-luftfedern.html`, CAT("93/24/resize/540-null/299324.jpg")),
 ];
 
 /** Products as the category pages list them (name, photo, the shop's own article count). */
 export const PRODUCTS: Card[] = [
-  card("product", "HITEC® O-Ring NBR 70.10-02", `${D}/11400511-hitecr-o-ring-nbr-70-10-02.html`, PROD("62/50/296250.jpg"), "1043 Artikel", [], "11400511"),
-  card("product", "HITEC® O-Ring FKM 75.16-04", `${D}/11400711-hitecr-o-ring-fkm-75-16-04.html`, PROD("62/52/296252.jpg"), "719 Artikel", [], "11400711"),
-  card("product", "HITEC® O-Ring VMQ 70.10-01", `${D}/11400901-hitecr-o-ring-vmq-70-10-01.html`, PROD("62/53/296253.jpg"), "314 Artikel", [], "11400901"),
-  card("product", "FFKM O-Ring evolast® PN896", `${D}/10341001-ffkm-o-ring-evolastr-pn896.html`, PROD("73/94/977394.jpg"), "610 Artikel", [], "10341001"),
-  card("product", "FFKM O-Ring evolast® PN894", `${D}/10341002-ffkm-o-ring-evolastr-pn894.html`, PROD("73/95/977395.jpg"), "1756 Artikel", [], "10341002"),
-  card("product", "HITEC® O-Ring DW EPDM 70.503-00", `${D}/11400101-hitecr-o-ring-dw-epdm-70-503-00-nachfolge-von-hitecr-o-ring-epdm-70-10-02.html`, PROD("01/01/11400101.jpg"), "702 Artikel", [], "11400101"),
-  card("product", "PEEK Rundstab natur (braun-grau)", `${D}/01171545-peek-rundstab-natur-braun-grau.html`, PROD("58/71/295871.jpg"), "27 Artikel", [], "01171545"),
-  card("product", "PEEK Platte natur (braun-grau)", `${D}/02530001-peek-platte-natur-braun-grau.html`, PROD("56/83/295683.jpg"), "16 Artikel", [], "02530001"),
+  mk("product", "HITEC® O-Ring NBR 70.10-02", `${D}/11400511-hitecr-o-ring-nbr-70-10-02.html`, PROD("62/50/296250.jpg"), "1043 Artikel", [], "11400511"),
+  mk("product", "HITEC® O-Ring FKM 75.16-04", `${D}/11400711-hitecr-o-ring-fkm-75-16-04.html`, PROD("62/52/296252.jpg"), "719 Artikel", [], "11400711"),
+  mk("product", "HITEC® O-Ring VMQ 70.10-01", `${D}/11400901-hitecr-o-ring-vmq-70-10-01.html`, PROD("62/53/296253.jpg"), "314 Artikel", [], "11400901"),
+  mk("product", "FFKM O-Ring evolast® PN896", `${D}/10341001-ffkm-o-ring-evolastr-pn896.html`, PROD("73/94/977394.jpg"), "610 Artikel", [], "10341001"),
+  mk("product", "FFKM O-Ring evolast® PN894", `${D}/10341002-ffkm-o-ring-evolastr-pn894.html`, PROD("73/95/977395.jpg"), "1756 Artikel", [], "10341002"),
+  mk("product", "HITEC® O-Ring DW EPDM 70.503-00", `${D}/11400101-hitecr-o-ring-dw-epdm-70-503-00-nachfolge-von-hitecr-o-ring-epdm-70-10-02.html`, PROD("01/01/11400101.jpg"), "702 Artikel", [], "11400101"),
+  mk("product", "PEEK Rundstab natur (braun-grau)", `${D}/01171545-peek-rundstab-natur-braun-grau.html`, PROD("58/71/295871.jpg"), "27 Artikel", [], "01171545"),
+  mk("product", "PEEK Platte natur (braun-grau)", `${D}/02530001-peek-platte-natur-braun-grau.html`, PROD("56/83/295683.jpg"), "16 Artikel", [], "02530001"),
 ];
 
 /** The shop's own pictures of its tools and pages (media/wysiwyg). */
@@ -156,14 +156,14 @@ export const PICS = {
 /** The sales brochure, in the six languages the tutorials page offers it (HubSpot files of the shop). */
 export const BROCHURES: Card[] = [
   ["Deutsch", "DE"], ["Englisch", "en"], ["Französisch", "FR"], ["Italienisch", "IT"], ["Niederländisch", "NL"], ["Polnisch", "PL"],
-].map(([name, c]) => card("product", name, `https://campaigns.apsoparts.com/hubfs/APSOparts_Sales_Brochure_${c}.pdf`, "", "PDF"));
+].map(([name, c]) => mk("product", name, `https://campaigns.apsoparts.com/hubfs/APSOparts_Sales_Brochure_${c}.pdf`, "", "PDF"));
 
 /** A product page's downloads (HITEC® O-Ring DW EPDM 70.503-00: its "Downloads" list). */
 export const DOWNLOADS: Card[] = [
-  card("product", "A+P Technical Data Sheet EPDM 70.503-00", `${M}/downloads/asset//std.lang.all/c_/dw/EPDM_70_503-00_HITEC_DW.pdf`, "", "PDF · Datenblatt"),
-  card("product", "APSOseal Performance Compound Table", `${M}/downloads/asset//std.lang.all/e_/en/APSOseal%20Performance%20Compound%20Table_EN.pdf`, "", "PDF · Tabelle"),
-  card("product", "Broschüre APSOseal® O-Ringe", `${M}/downloads/asset//std.lang.all/s_/de/APSOseal%20O-Rings_DE.pdf`, "", "PDF · Broschüre"),
-  card("product", "O-Ringe Technische Grundlagen", `${M}/downloads/asset//std.lang.all/e_/fr/O-Ring%20Basic%20Catalogue_DE_FR.pdf`, "", "PDF · Katalog"),
+  mk("product", "A+P Technical Data Sheet EPDM 70.503-00", `${M}/downloads/asset//std.lang.all/c_/dw/EPDM_70_503-00_HITEC_DW.pdf`, "", "PDF · Datenblatt"),
+  mk("product", "APSOseal Performance Compound Table", `${M}/downloads/asset//std.lang.all/e_/en/APSOseal%20Performance%20Compound%20Table_EN.pdf`, "", "PDF · Tabelle"),
+  mk("product", "Broschüre APSOseal® O-Ringe", `${M}/downloads/asset//std.lang.all/s_/de/APSOseal%20O-Rings_DE.pdf`, "", "PDF · Broschüre"),
+  mk("product", "O-Ringe Technische Grundlagen", `${M}/downloads/asset//std.lang.all/e_/fr/O-Ring%20Basic%20Catalogue_DE_FR.pdf`, "", "PDF · Katalog"),
 ];
 
 /** The O-ring materials as the O-Ring selection guide's German table and "Kurzantwort" say them (word for word). */

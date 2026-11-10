@@ -6,7 +6,9 @@
 
 import type { ModuleDef } from "./types";
 import { V6 } from "./lib/v6";
+import { LIBRARY2 } from "./library2";
 
 export const LIBRARY: ModuleDef[] = [
   ...V6,
+  ...LIBRARY2,
 ];

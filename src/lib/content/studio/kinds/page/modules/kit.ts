@@ -9,6 +9,7 @@
 // Every rule is written `@@ ...`: the registry (./registry.ts drawModule) puts the module's own class there (.apx-<id>).
 
 import type { Card, ModuleSettings, Opts, Point } from "./types";
+import { L2_ICON_LABEL, L2_ICON_PATHS } from "./library2/icons";
 
 export const esc = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 /** A CSS string's content (for `content: "..."`). */
@@ -219,6 +220,7 @@ export function big(c: Card, o: Opts, small: string, go: string): string {
 /* ── icons (line icons, the shop's stroke) ─────────────────────────────── */
 
 const ICON: Record<string, string> = {
+  ...L2_ICON_PATHS,
   box: '<path d="M4 8.5 12 4l8 4.5v7L12 20l-8-4.5z"/><path d="M4 8.5 12 13l8-4.5M12 13v7"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   cut: '<circle cx="6" cy="18" r="2.6"/><circle cx="18" cy="18" r="2.6"/><path d="M7.8 16.2 17 4M16.2 16.2 7 4"/>',
@@ -248,6 +250,7 @@ const ICON: Record<string, string> = {
 };
 export const ICONS = Object.keys(ICON);
 export const ICON_LABEL: Record<string, string> = {
+  ...L2_ICON_LABEL,
   box: "Box", clock: "Clock", cut: "Cut", quick: "Fast", truck: "Delivery", check: "Check", upload: "Upload", cube: "3D", flask: "Lab", book: "Guide",
   expert: "Expert", star: "Star", shield: "Shield", globe: "Globe", chat: "Chat", cart: "Cart", layers: "Range", gear: "Machine", search: "Search", doc: "Document",
   phone: "Phone", euro: "Price", leaf: "Leaf", spark: "Spark", ruler: "Measure", users: "People",
