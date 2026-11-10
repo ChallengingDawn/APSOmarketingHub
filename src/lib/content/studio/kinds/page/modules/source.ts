@@ -30,6 +30,7 @@ import type { Card } from "./model";
 import { clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos, type CategoryPage, type TreeNode } from "./parse";
 import { photoBad, photoFlaws } from "./photo";
 import { sharpImg } from "./kit";
+import { factsHead, parseFacts, type ProductFacts } from "./library2/facts";
 
 const BASE = "https://www.apsoparts.com";
 /** The shop's data is read from production: ACC's catalogue lags behind (the links a module writes follow the page's own host). */
@@ -337,4 +338,17 @@ export async function cardsForPicks(numbers: string[], store: string, count: num
     if (k.cards[0]) cards.push(k.cards[0]);
   }
   return cards;
+}
+
+/* ── a product's facts (Content v7, the library part 2: "Technical summary", "Downloads") ──────────────── */
+
+/** A product page's own facts for the library's technical summary and downloads: its card, its line under the title, its
+ * "Technische Zusammenfassung" as table rows (never its approvals or certificates) and its downloads - read like every
+ * other shop page here (kept ten minutes, at a person's pace). */
+export async function productFacts(url: string, store: string): Promise<{ card: Card | null } & ProductFacts> {
+  const path = pathOf(url);
+  const sv = String(store).split("/")[0];
+  if (!STORE_RE.test(sv) || !path.startsWith(`/${sv}/`) || !/\.html$/.test(path)) throw new Error("That is not a product page of this store view.");
+  const html = await readShop(path);
+  return { card: parseProduct(html, `${BASE}${path}`), ...parseFacts(html, factsHead(store)) };
 }

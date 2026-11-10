@@ -13,6 +13,7 @@ import { BENTOS } from "./lib/bentos";
 import { NAVIGATION } from "./lib/navigation";
 import { CAMPAIGNS } from "./lib/campaigns";
 import { TRUST } from "./lib/trust";
+import { LIBRARY2 } from "./library2";
 
 export const LIBRARY: ModuleDef[] = [
   ...HEROES,
@@ -22,4 +23,5 @@ export const LIBRARY: ModuleDef[] = [
   ...NAVIGATION,
   ...CAMPAIGNS,
   ...TRUST,
+  ...LIBRARY2,
 ];
