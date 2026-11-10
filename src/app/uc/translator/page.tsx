@@ -61,7 +61,9 @@ const FIELDS: Field[] = ["inboxes", "channels", "agents", "hours", "convs", "eng
 function together(xs: { d: Day }[]) {
   const t = { fig: ZERO, langs: {} as Record<string, number>, replyLangs: {} as Record<string, number>, inboxes: {} as Record<string, number>, channels: {} as Record<string, number>,
     agents: {} as Record<string, number>, kinds: {} as Record<string, number>, hours: Array(24).fill(0) as number[], weekdays: Array(7).fill(0) as number[], broken: 0,
-    history: 0, lacks: Object.fromEntries(FIELDS.map((k) => [k, 0])) as Record<Field, number> };
+    history: 0, lacks: Object.fromEntries(FIELDS.map((k) => [k, 0])) as Record<Field, number>,
+    /** the days without that breakdown (the hub's first day, 09.11.2026, before it counted them) */
+    lackDays: Object.fromEntries(FIELDS.map((k) => [k, [] as string[]])) as Record<Field, string[]> };
   for (const x of xs as { key?: string; d: Day }[]) {
     const f = figures(x.d);
     t.fig = plus(t.fig, f);
@@ -71,7 +73,7 @@ function together(xs: { d: Day }[]) {
     if (x.key) { const wd = (new Date(`${x.key}T12:00:00Z`).getUTCDay() + 6) % 7; t.weekdays[wd] += f.inc + f.notes; }
     if (x.d.n && !x.d.kinds) t.broken++;
     if (x.d.src === "history") t.history++;
-    if (x.d.n) for (const k of FIELDS) if (x.d[k] === undefined) t.lacks[k]++;
+    if (x.d.n) for (const k of FIELDS) if (x.d[k] === undefined) { t.lacks[k]++; if (x.key) t.lackDays[k].push(x.key); }
   }
   return t;
 }
@@ -146,7 +148,14 @@ function Board({ d }: { d: Data }) {
   // a breakdown counted only from some day on (the hub's from 09.11.2026): say so where the period starts earlier
   const keys = Object.keys(d.days).sort();
   const sinceOf = (k: Field) => keys.find((x) => d.days[x][k] !== undefined);
-  const partlyOf = (k: Field) => (cur.lacks[k] > 0 ? `counted since ${sinceOf(k) ? dm(sinceOf(k)!) : "today"}` : "");
+  // a few days without it: named; more: the day it is counted from
+  const partlyOf = (k: Field) => {
+    if (!cur.lacks[k]) return "";
+    const ds = cur.lackDays[k];
+    if (ds.length && ds.length <= 3) return `not counted on ${ds.map(dm).join(", ")}`;
+    const after = ds.length ? keys.find((x) => x > ds[ds.length - 1] && d.days[x][k] !== undefined) : sinceOf(k);
+    return `counted since ${after ? dm(after) : "today"}`;
+  };
   const hint = (s: string, k?: Field) => [s, k ? partlyOf(k) : ""].filter(Boolean).join(" · ");
   const partly = partlyOf("convs");
   // the days before the hub, read back from HubSpot's conversations: named on the graphs that show them

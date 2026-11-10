@@ -28,7 +28,8 @@ export const OUTCOME: Record<Outcome, { label: string; tint: Tint }> = {
   skipped: { label: "Nothing to do", tint: "slate" }, failed: { label: "Failed", tint: "pink" },
 };
 export const CHANNEL: Record<Row["channel"], string> = { chat: "Chat", email: "E-mail", other: "Other" };
-export const lang = (code: string | null | undefined) => (code ? LANG_NAMES[code.split("-")[0].toUpperCase()] ?? code : "—");
+// XX: a language the old translator guessed on a short text and the hub does not know (the history, 10.11.2026)
+export const lang = (code: string | null | undefined) => (code === "XX" ? "Other or unclear" : code ? LANG_NAMES[code.split("-")[0].toUpperCase()] ?? code : "—");
 export const dayKey = (d: Date) => d.toLocaleDateString("sv-SE", { timeZone: "Europe/Zurich" });
 export const EMPTY: Day = { n: 0, chars: 0, replies: 0, langs: {} };
 /** The last n days, oldest first, each with its figures (an empty day where there are none). */
