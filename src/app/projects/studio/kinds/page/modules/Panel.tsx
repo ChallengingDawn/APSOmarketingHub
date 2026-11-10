@@ -51,7 +51,7 @@ import { SwitchList } from "../Switch";
 import { FAMILY_WORDS, compatibleModules, familyOf, questionsToggle } from "@/lib/content/studio/kinds/page/modules/switch";
 import { BUTTON_LOOK_KEY, buttonLookOf, openOf } from "@/lib/content/studio/kinds/page/modules/looks";
 import { packLook, type ButtonLook } from "@/lib/content/studio/kinds/page/style";
-import { aboutOf, fillHint, followNeedsShop, followPicture, followSig, followable, personPicture, pictureFrom, rewordOf, withoutReword, type FollowInfo } from "@/lib/content/studio/kinds/page/modules/follow";
+import { aboutOf, fillHint, followNeedsShop, followPicture, followSig, followable, personPicture, pictureFrom as originOf, rewordOf, withoutReword, type FollowInfo } from "@/lib/content/studio/kinds/page/modules/follow";
 
 type Way = "category" | "bought" | "viewed" | "numbers" | "ai";
 type TreeNode = { name: string; url: string; img: string; children: TreeNode[] };
@@ -326,7 +326,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
     const was = cur0.settings.feature;
     const featureIsProduct = was?.kind === "product";
     // a picture of the hub's own (uploaded, made by AI) belongs to no store view: it stays (Content v12)
-    const keepPic = !!was && !featureIsProduct && pictureFrom(was) === "person" && /^\/api\/content\/picture\//.test(was.img);
+    const keepPic = !!was && !featureIsProduct && originOf(was) === "person" && /^\/api\/content\/picture\//.test(was.img);
     const cards = r.result.cards;
     const product = featureIsProduct ? cards.shift() ?? null : null;
     const feature = product ? { ...product, ...(was?.from ? { from: was.from } : {}) } : keepPic ? was : null;
@@ -556,7 +556,7 @@ function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGaller
             {/* Content v12: whose picture it is - the fill's follows the products, the person's stays */}
             {followable(def) && (following || s.feature) && (
               <Typography sx={{ fontSize: "0.7rem", color: following ? PINK : MUTED, lineHeight: 1.3 }}>
-                {following ? "Finding its products' own picture…" : pictureFrom(s.feature) === "person" ? "Your pick - it stays when the products change" : "Follows its products - their category's photo"}
+                {following ? "Finding its products' own picture…" : originOf(s.feature) === "person" ? "Your pick - it stays when the products change" : "Follows its products - their category's photo"}
               </Typography>
             )}
             {canEdit && (
