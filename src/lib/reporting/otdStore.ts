@@ -8,6 +8,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { kvGet, kvSet } from "@/lib/db/init";
 import {
   buildOtdCube, DATES_FILE, fromErpLines, HISTORY_FILE, mergeCubes, otdMainOf, parseDates, parseHistory, parseTransport, TRANSPORT_FILE,
@@ -15,6 +16,7 @@ import {
 } from "./otdRules";
 import { transitOf, type ErpLine } from "./boErpLines";
 import { zurichToday } from "./boDeliveryStore";
+import { buildLineStore, type ArtInfo, type LineStore } from "./otdLines";
 
 export const KV_OTD_ERP = "otd:cube:erp";
 export const KV_OTD_FILE = "otd:cube:file";
@@ -37,11 +39,30 @@ export type OtdErpContext = {
   customerDaysOf?: (customer: string) => number | undefined;
   /** lineKey -> the ERP's date at the customer from the OTD analysis file (otdDates) */
   fileDateOf?: (key: string) => string | undefined;
+  /** article -> its text and groups from the nightly article master (otdArticles.ts) */
+  infoOf?: (article: string) => ArtInfo | undefined;
+  /** an order of DirectCut -> "L" a leftover off the shelf, "C" cut on the saw */
+  glcOf?: (order: string) => "L" | "C" | undefined;
 };
+
+/** every line of the cube one by one, for OTD Reports > Customers (otdLines.ts): gzipped JSON in one kv entry */
+export const KV_OTD_LINES = "otd:lines";
+type LinesKept = { at: string; gz: string };
+let linesCache: { at: string; store: LineStore } | null = null;
+/** the lines kept - decoded once per morning run, then from memory */
+export async function otdLinesNow(): Promise<LineStore | null> {
+  const k = await kvGet<LinesKept>(KV_OTD_LINES).catch(() => null);
+  if (!k?.gz) return null;
+  if (linesCache?.at === k.at) return linesCache.store;
+  const store = JSON.parse(gunzipSync(Buffer.from(k.gz, "base64")).toString("utf8")) as LineStore;
+  linesCache = { at: k.at, store };
+  return store;
+}
 
 /** the morning lines -> the "erp" cube; nothing kept when no line qualifies */
 export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}): Promise<Record<string, unknown>> {
-  const { lines: otd, skipped, exactDays, dated } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf, ctx.customerDaysOf, ctx.fileDateOf);
+  const { lines: otd, skipped, exactDays, dated } = fromErpLines(lines, transitOf, ctx.supplierOf, ctx.planningOf, ctx.customerDaysOf, ctx.fileDateOf,
+    ctx.infoOf ? (a) => ctx.infoOf!(a)?.g : undefined);
   const k = buildOtdCube(otd, "erp", zurichToday());
   k.dated = dated;
   for (const [w, n] of Object.entries(skipped)) k.skipped[w] = (k.skipped[w] ?? 0) + n;
@@ -51,7 +72,21 @@ export async function saveOtdFromErp(lines: ErpLine[], ctx: OtdErpContext = {}):
     if (x?.owner) c.owner = x.owner;
   }
   if (k.lines) { await kvSet(KV_OTD_ERP, k); await saveMain(); }
-  return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, suppliers: k.suppliers.length, kept: k.lines > 0,
+  // every line one by one, for OTD Reports > Customers - never the cube's problem
+  let lineStore: Record<string, unknown> | string = "no line";
+  if (k.lines) {
+    try {
+      const store = buildLineStore(otd, zurichToday(), { namesOf: ctx.customerOf, infoOf: ctx.infoOf, glcOf: ctx.glcOf });
+      const gz = gzipSync(Buffer.from(JSON.stringify(store), "utf8")).toString("base64");
+      await kvSet(KV_OTD_LINES, { at: store.at, gz } satisfies LinesKept);
+      lineStore = { lines: store.rows.length, customers: store.cust.length, named: Object.keys(store.names).length, articles: store.art.length,
+        with_text: Object.keys(store.info).length, groups: store.grp.length, leftover: store.rows.filter((r) => r[11] === 1).length,
+        cut_to_size: store.rows.filter((r) => r[11] === 2).length, kb: Math.round(gz.length / 1024) };
+    }
+    catch (e) { lineStore = `not kept: ${(e as Error)?.message ?? e}`; }
+  }
+  return { lines: k.lines, first: k.first, last: k.last, skipped: k.skipped, suppliers: k.suppliers.length, kept: k.lines > 0, line_store: lineStore,
+    with_group: otd.filter((l) => l.group).length,
     erp_date_at_customer: exactDays, dated, planned_known: otd.filter((l) => l.planned).length, wish_dates: otd.filter((l) => l.wishDay).length,
     customers_kept: k.customers?.length ?? 0, customers_named: (k.customers ?? []).filter((c) => c.name).length };
 }

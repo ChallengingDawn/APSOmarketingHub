@@ -53,6 +53,7 @@ import {
   onTimeShare, sumSlices, type ImpactRow, type OtdAxis, type OtdCube, type OtdFilter, type Slice, type Trio,
 } from "@/lib/reporting/otdRules";
 import { OTD_PAGES, type OtdSlug } from "@/lib/reporting/otdPages";
+import { CustomerExplorer } from "./OtdCustomers";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -146,12 +147,18 @@ const trioRow = (t: Trio) => ({ n: t[0], late: t[1], onTime: share(t), avgDays: 
 
 /* ── a graph ───────────────────────────────────────────────────────────── */
 
-type ChartDef = { id: string; title: string; hint: (f: Frame) => string; body: (f: Frame) => React.ReactNode; wide?: boolean };
+/** `bare`: the body draws its own boxes (the customers' explorer) */
+type ChartDef = { id: string; title: string; hint: (f: Frame) => string; body: (f: Frame) => React.ReactNode; wide?: boolean; bare?: boolean };
 const NONE = (what = "No line in these months with these filters.") => <Typography sx={{ fontSize: "0.85rem", color: MUTED, py: 2 }}>{what}</Typography>;
 /** a few views only the OTD analysis file's months carry (planned articles, product groups, the customers' comments) */
 const FILE_ONLY = "from the OTD analysis file's months only - the morning lines do not carry it yet";
 
 const CHARTS: ChartDef[] = [
+  /* ── Customers: the list, a click opens one (OtdCustomers.tsx) ── */
+  {
+    id: "custExplorer", wide: true, bare: true, title: "", hint: () => "",
+    body: (f) => <CustomerExplorer q={{ from: f.from, to: f.to, axis: f.axisKey, filter: f.filter, yms: f.yms }} />,
+  },
   /* ── Overview ─────────────────────────────────────────────── */
   {
     id: "otd", wide: true, title: "On time, month by month",
@@ -695,11 +702,14 @@ function Points({ items }: { items: [string, string][] }) {
 
 type TabDef = { id: string; label: string; title: string; note: string; icon: React.ReactNode; tint: Tint; charts: string[] };
 const TABS: Record<OtdSlug, TabDef[]> = {
+  customers: [
+    { id: "list", label: "Customers", title: "OTD per customer", note: "every customer's lines, late lines and orders late - a click opens one: its figures, orders line by line, articles and suppliers", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["custExplorer"] },
+  ],
   overview: [
     { id: "ontime", label: "On time", title: "On time", note: "the lines that reached the customer by their first confirmed date - per mandant and article type", icon: <LocalShippingOutlinedIcon />, tint: "green", charts: ["otd", "lines", "mandant", "type"] },
     { id: "late", label: "How late", title: "How late", note: "the file's categories, month by month - and the days late of the late lines", icon: <EventRepeatOutlinedIcon />, tint: "amber", charts: ["catMix", "catAvg", "catTable", "depth", "over10"] },
     { id: "pcs", label: "Profit centres", title: "Per profit centre", note: "each article's profit centre", icon: <ApartmentOutlinedIcon />, tint: "blue", charts: ["pcBars", "pcMonths"] },
-    { id: "customers", label: "Customers", title: "Per customer", note: "the customers with the most late lines, their company and its owner", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["ownersBars", "customers"] },
+    { id: "customers", label: "Customers", title: "Per customer", note: "every customer's lines, late lines and orders late - a click opens one", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["custExplorer"] },
   ],
   suppliers: [
     { id: "impact", label: "Impact ranking", title: "Which suppliers make us late", note: "the file's \"Supplier Impact Rank\": each supplier's late days, its index against the largest, its priority", icon: <FactoryOutlinedIcon />, tint: "pink", charts: ["top10", "supRate", "impact"] },
@@ -842,7 +852,7 @@ function TabCard({ slug, f }: { slug: OtdSlug; f: Frame }) {
             const def = CHARTS.find((x) => x.id === id);
             return def ? (
               <Box key={id} sx={{ minWidth: 0, ...(def.wide ? { gridColumn: "1 / -1" } : {}) }}>
-                <ChartBox title={def.title} hint={def.hint(f)}>{def.body(f)}</ChartBox>
+                {def.bare ? def.body(f) : <ChartBox title={def.title} hint={def.hint(f)}>{def.body(f)}</ChartBox>}
               </Box>
             ) : null;
           })}

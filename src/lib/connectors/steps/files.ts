@@ -100,7 +100,7 @@ async function batchUpdate(obj: string, rows: { id: string; properties: Record<s
 }
 
 /** Every row of a ';' CSV as Python's csv.reader gives it, streamed (dim_article is ~300 MB). */
-async function eachCsvRow(file: string, fatal: boolean, beat: Beat, onRow: (r: string[]) => void): Promise<void> {
+export async function eachCsvRow(file: string, fatal: boolean, beat: Beat, onRow: (r: string[]) => void): Promise<void> {
   // utf-8-sig: TextDecoder drops the BOM; fatal = strict decoding, else U+FFFD (errors="replace")
   const dec = new TextDecoder("utf-8", { fatal });
   const csv = new PyCsvReader(";");

@@ -35,6 +35,7 @@ import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 import { saveOrderBook } from "@/lib/reporting/orderBookStore";
 import { loadOtdHistory, otdDates, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
+import { otdArticleInfo } from "@/lib/reporting/otdArticles";
 import { saveSealing } from "@/lib/apHub/sealingStore";
 import path from "node:path";
 import { query } from "@/lib/db/client";
@@ -296,14 +297,18 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
       const notRead = (e: unknown) => ({ days: undefined, status: `not read: ${(e as Error)?.message ?? e}` });
       const [tr, fd] = await Promise.all([otdTransport(dir).catch(notRead), otdDates(dir).catch(notRead)]);
       const days = tr.days, fileDays = fd.days;
+      // each article's text and product group from the nightly article master beside the workbook (dim_article.csv)
+      const ai = await otdArticleInfo(dir, wb.erpLines.lines.map((l) => l.article), beat)
+        .catch((e: unknown) => ({ infoOf: undefined, status: `not read: ${(e as Error)?.message ?? e}` }));
       out.otd = {
         ...(await saveOtdFromErp(wb.erpLines.lines, {
           supplierOf, planningOf: plan ? (a) => plan.get(a) : undefined,
           customerOf: who ? (c) => ({ name: who.nameOf(c), owner: who.ownerOf(c) }) : undefined,
           customerDaysOf: days ? (c) => days.get(c) : undefined,
           fileDateOf: fileDays ? (k) => fileDays.get(k) : undefined,
+          infoOf: ai.infoOf,
         })),
-        transport_file: tr.status, dates_file: fd.status,
+        transport_file: tr.status, dates_file: fd.status, articles_file: ai.status,
       };
     }
     catch (e) { out.otd = `not kept: ${(e as Error).message}`; }

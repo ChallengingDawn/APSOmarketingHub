@@ -382,6 +382,8 @@ export function fromErpLines<L extends { company: string; order: string; line: s
   customerDaysOf?: (customer: string) => number | undefined,
   /** lineKey -> the ERP's date at the customer from the OTD analysis file (otd_dates.csv) */
   fileDateOf?: (key: string) => string | undefined,
+  /** article -> its product group (the nightly article master's MainGroupName, otdArticles.ts) */
+  groupOf?: (article: string) => string | undefined,
 ): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number; dated: Dated } {
   const dated: Dated = { own: 0, file: 0, mode: 0, customer: 0, country: 0 };
   const out: OtdLine[] = [], skipped: Record<string, number> = {};
@@ -410,13 +412,14 @@ export function fromErpLines<L extends { company: string; order: string; line: s
       dated[why]++;
       atCustomer = addWorkdays(l.shipDay, days);
     }
-    const plan = planningOf?.(l.article);
+    const plan = planningOf?.(l.article), group = groupOf?.(l.article);
     out.push({
       company: l.company, order: l.order, line: l.line, source: l.source, orderDay: l.orderDay, firstDay: l.firstDay, confDay: l.confDay,
       shipDay: l.shipDay, atCustomer, article: l.article, st, pc: l.pc,
       supplier: supplierOf?.(l.article) ?? "",
       ...(l.customer ? { customer: l.customer } : {}), ...(l.wishDay ? { wishDay: l.wishDay } : {}),
       ...(plan ? { planned: plan[0] === "J" ? "J" : plan[0] === "N" ? "N" : "", replen: plan[1] } : {}),
+      ...(group ? { group } : {}),
     });
   }
   return { lines: out, skipped, exactDays: dated.own, dated };
