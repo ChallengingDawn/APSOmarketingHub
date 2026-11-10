@@ -132,7 +132,7 @@ function SeoCard({ r, name }: { r: SeoRow; name: string | null }) {
         </Box>
       )}
       <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", flexWrap: "wrap", mt: 0.25 }}>
-        <AiButton size="small" href={`${previewHref("prod", r.path)}&ask=1&seo=1`}>Find optimizations</AiButton>
+        <AiButton size="small" href={`${previewHref("prod", r.path)}&ask=1&seo=1`}>Find landing pages</AiButton>
         <Button size="small" component="a" href={r.url} target="_blank" rel="noopener" sx={btn}>Open on the shop</Button>
       </Box>
     </WideCard>

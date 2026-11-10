@@ -105,6 +105,14 @@ export function qualityOf(changes: Change[]): string[] {
   const visible = text.replace(/<[^>]+>/g, " ");
   // whole words of the shop's other languages (letters on both sides checked the Unicode way: "quantità" ends in à)
   if (/(?<!\p{L})(der|und|nicht|für|mit|bestellen|verfügbar|une|les|des|pour|avec|commander|disponible|della|questa|quantità|superiore|allo|richiedi|disponibile|het|voor|niet|bestellen)(?!\p{L})/iu.test(visible)) out.push("its words are not in English - every new word is English");
+  // a new block inside the page's coloured title band (SARCLA 10.11.2026: tiles squeezed under "Über uns" in the band -
+  // "still not up to expected"): after the h1 / the title, or into the band itself, lands in the band
+  for (const c of changes) {
+    if (c.op !== "insert") continue;
+    const last = c.selector.split(",")[0].trim().split(/\s*[>+~]\s*|\s+/).filter(Boolean).pop() ?? "";
+    const band = /^h1(?![\w-])|\.page-title(?![\w-])|\.base(?![\w-])|breadcrumb/i.test(last) || (/page-title-wrapper/i.test(last) && (c.where === "prepend" || c.where === "append"));
+    if (band) { out.push(`it puts a new block into the page's title band ("${c.selector.slice(0, 60)}") - put it in the page's content, after the section it belongs to`); break; }
+  }
   return out;
 }
 

@@ -104,3 +104,10 @@ export function seoPages(pages: GscPageRow[], pairs: GscPairRow[], opts: { host?
   rows.sort((a, b) => b.missed - a.missed || b.impressions - a.impressions || a.path.localeCompare(b.path));
   return { rows, bands };
 }
+
+/** An SEO page's Google numbers as one line for the AI (the searches it is shown for, with how often). */
+export function seoLine(row: SeoRow, from: string, to: string): string {
+  const typical = row.typical !== null ? `, ${(row.typical * 100).toFixed(1)}% is typical at its position` : "";
+  const searches = row.queries.length ? `; searches: ${row.queries.map((q) => `"${q.q}" ${q.impressions} shown, ${q.clicks} clicked`).join(", ")}` : "";
+  return `Google (Search Console, ${from} to ${to}): shown ${row.impressions} times, ${row.clicks} clicks (${(row.ctr * 100).toFixed(1)}%${typical}), average position ${row.position.toFixed(1)}${searches}`;
+}

@@ -15,8 +15,9 @@ import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
-import { cleanChangeType, typeOfIdea, type ChangeType } from "./changeTypes";
+import { cleanChangeType, typeOfBlock, typeOfIdea, type ChangeType } from "./changeTypes";
 import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
+import { looksEnglish } from "./lang";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
@@ -515,12 +516,36 @@ WHERE ITS VISITORS COME FROM AND GO NEXT (Google Analytics, ${from} to ${to}, ${
 /** A block of the shop shown on many pages (the newsletter band, the home slider...): ./blocks.ts. */
 export type BlockFocus = { key?: string; name: string; selector: string; about: string; goal: string };
 
-export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null, block: BlockFocus | null = null): Promise<AiResult<Idea[]>> {
+/**
+ * NEW LANDING PAGES for what Google shows a page for and the page does not answer (SARCLA 10.11.2026: "we should have
+ * already SEO pages waiting for design") - the SEO landing page type: each optimization is a NEW page for Content to
+ * write, not a change of this one, so it needs no version on this page.
+ */
+const LANDING_SYSTEM = `You are the SEO and conversion specialist of a B2B web shop. Google shows THIS page for searches it
+answers badly - the numbers below say how often it was shown, how few clicked, and the searches. Propose 2 to 4 NEW
+LANDING PAGES the shop should have, each for one group of those searches - one clearly different search intent each.
+For each one:
+- title: the new page's H1, under 10 words
+- why: the searches it is for, with their numbers, and why this page does not answer them
+- change: what the new page holds - its opening line, the shop's ranges and products that answer the search (only ones
+  this page or the shop's ranges name), the questions a buyer has there, and the links to it (from this page, from the
+  category) and from it (into the products)
+- expect: more clicks from Google on those searches, and what buyers do next
+- type: always landing-page; target: empty
+Rank them by the size of their searches - the biggest leads. A short reading first: which searches Google shows the page
+for, and what the page lacks for them. When the numbers name no search, propose from the page's own subject and say in
+why that the searches are to be checked.`;
+
+export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null, block: BlockFocus | null = null, landing = false): Promise<AiResult<Idea[]>> {
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
   const existing = (await pageWork(env, path)).ideas.map((i) => `- ${i.title} (${i.status})`).join("\n");
-  const system = block
+  const system = landing ? `${LANDING_SYSTEM}
+
+${SHOP_FACTS}
+
+${RULES}` : block
     ? `You are the conversion specialist of a B2B web shop. You look at ONE BLOCK the shop shows on many pages - not the
 page around it - and propose 3 to 5 optimizations of that block to test, each one a clearly different direction a
 version can make (layout, order, emphasis, a picture, the call to action, its words). Rank them: the one most likely to
@@ -539,7 +564,7 @@ reading of the page first: what it does well and what most likely stops buyers.
 ${SHOP_FACTS}
 
 ${RULES}`;
-  const flow = block ? "" : await flowBrief(path, numbers);
+  const flow = block || landing ? "" : await flowBrief(path, numbers);
   const focus = block ? `
 
 THE BLOCK TO OPTIMIZE: ${block.name} - selector ${block.selector}
@@ -560,9 +585,92 @@ ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` :
   const out: Idea[] = [];
   for (const i of (r.data.ideas ?? []).slice(0, 5)) {
     if (!i.title?.trim()) continue;
-    out.push(await addIdea(env, path, { ...i, block: block?.key ?? null }, by, "ai", numbers));
+    // a new landing page is one by nature; a block's optimizations are the block's type (the slider a banner, the
+    // newsletter band the newsletter) - the AI's own type only for a page's optimizations
+    const type = landing ? "landing-page" : block?.key ? typeOfBlock(block.key) : i.type;
+    out.push(await addIdea(env, path, { ...i, type, target: landing ? null : i.target, block: block?.key ?? null }, by, "ai", numbers));
   }
   return { ok: true, data: out };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// EVERYTHING IN ENGLISH, ALSO WHAT WAS WRITTEN BEFORE (SARCLA 10.11.2026: "still text in German"): the optimizations, the
+// pages' readings and the versions' summaries that do not read as English (./lang.ts) are put into English by the AI,
+// a few at a time, inside the day's AI budget. Run by ./scan.ts after a start and every hour; a text already English is
+// never touched, so it costs nothing once done.
+
+const ENGLISH_SYSTEM = `You put a web shop team's notes into plain English. Translate faithfully: the same meaning, the
+same facts and numbers, about the same length - nothing added, nothing left out. A label, button or category the shop
+shows is given by its English meaning, with the shop's own words once in quotes where that helps to find it on the page
+(e.g. Sealing technology ("Dichtungstechnik")). CSS selectors, addresses, product numbers and figures stay exactly as they
+are. Plain, concrete words. Answer with the same ids.`;
+
+const IDEAS_EN_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["items"],
+  properties: { items: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "title", "why", "change", "expect"],
+    properties: { id: { type: "string" }, title: { type: "string" }, why: { type: "string" }, change: { type: "string" }, expect: { type: "string" } } } } },
+};
+const TEXTS_EN_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["items"],
+  properties: { items: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "text"],
+    properties: { id: { type: "string" }, text: { type: "string" } } } } },
+};
+
+export async function englishPass(maxCalls = 8): Promise<{ ideas: number; readings: number; summaries: number; left: number; note: string }> {
+  await ensureStudioSchema();
+  let calls = 0, ideas = 0, readings = 0, summaries = 0, left = 0, stop = "";
+  const spentToday = (e: string) => /times today/.test(e);
+
+  const rows = (await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE status <> 'dropped' ORDER BY id DESC LIMIT 800`)).rows
+    .filter((r) => !looksEnglish(`${r.title}\n${r.why}\n${r.change}\n${r.expect}`));
+  for (let k = 0; k < rows.length; k += 8) {
+    if (calls >= maxCalls || stop) { left += rows.length - k; break; }
+    const batch = rows.slice(k, k + 8);
+    calls++;
+    const r = await ask<{ items: { id: string; title: string; why: string; change: string; expect: string }[] }>(ENGLISH_SYSTEM,
+      `Put these optimizations into English:\n${JSON.stringify(batch.map((b) => ({ id: String(b.id), title: b.title, why: b.why, change: b.change, expect: b.expect })), null, 1)}`,
+      IDEAS_EN_SCHEMA, 12000);
+    if (!r.ok) { if (spentToday(r.error)) stop = r.error; left += batch.length; continue; }
+    for (const it of r.data.items ?? []) {
+      const src = batch.find((b) => String(b.id) === String(it.id));
+      const t = { title: (it.title ?? "").trim(), why: (it.why ?? "").trim(), change: (it.change ?? "").trim(), expect: (it.expect ?? "").trim() };
+      if (!src || !t.title || !looksEnglish(`${t.title}\n${t.why}\n${t.change}\n${t.expect}`)) continue;
+      await query(`UPDATE apsomh_convert_ideas SET title = $2, why = $3, change = $4, expect = $5 WHERE id = $1`,
+        [src.id, t.title.slice(0, 200), (t.why || src.why).slice(0, 1500), (t.change || src.change).slice(0, 2000), (t.expect || src.expect).slice(0, 600)]);
+      ideas++;
+    }
+  }
+
+  // the pages' readings and the versions' summaries: plain texts, by a made-up id
+  const texts = async (list: { id: string; text: string }[], save: (id: string, text: string) => Promise<void>): Promise<number> => {
+    let n = 0;
+    for (let k = 0; k < list.length; k += 12) {
+      if (calls >= maxCalls || stop) { left += list.length - k; break; }
+      const batch = list.slice(k, k + 12);
+      calls++;
+      const r = await ask<{ items: { id: string; text: string }[] }>(ENGLISH_SYSTEM, `Put these notes into English:\n${JSON.stringify(batch, null, 1)}`, TEXTS_EN_SCHEMA, 10000);
+      if (!r.ok) { if (spentToday(r.error)) stop = r.error; left += batch.length; continue; }
+      for (const it of r.data.items ?? []) {
+        const text = (it.text ?? "").trim();
+        if (!batch.some((b) => b.id === it.id) || !text || !looksEnglish(text)) continue;
+        await save(it.id, text);
+        n++;
+      }
+    }
+    return n;
+  };
+  const an = (await query<{ env: Env; path: string; text: string }>(`SELECT env, path, text FROM apsomh_convert_analyses WHERE text <> ''`)).rows.filter((a) => !looksEnglish(a.text));
+  readings = await texts(an.map((a, i) => ({ id: String(i), text: a.text })), async (id, text) => {
+    const a = an[Number(id)];
+    if (a) await query(`UPDATE apsomh_convert_analyses SET text = $3 WHERE env = $1 AND path = $2`, [a.env, a.path, text.slice(0, 1200)]);
+  });
+  const vs = (await query<{ id: string; summary: string }>(`SELECT id, summary FROM apsomh_convert_versions WHERE summary <> ''`)).rows.filter((v) => !looksEnglish(v.summary));
+  summaries = await texts(vs.map((v) => ({ id: String(v.id), text: v.summary })), async (id, text) => {
+    await query(`UPDATE apsomh_convert_versions SET summary = $2 WHERE id = $1`, [id, text.slice(0, 600)]);
+  });
+
+  const note = `${ideas} optimizations, ${readings} readings, ${summaries} version summaries put into English${left ? `; ${left} still to do` : ""}${stop ? ` (${stop})` : ""}`;
+  return { ideas, readings, summaries, left, note };
 }
 
 const CHANGE_SCHEMA = {
@@ -611,9 +719,20 @@ How to write it:
   example values taken from the page (an article it lists, a quantity, a date the page shows). No placeholder, no
   "[Text from ...]", no note to the reader inside the page. Never invent a fact (see the hard rules): where the page
   does not give a value, word the example so it needs none ("Need more? Ask for this quantity").
-- THE SHOP'S LOOK: font inherit, the colours below, 4px corners, 13-15px text, no dashed borders, no shadows; a new
-  button looks like the shop's own (petrol, white text) or a plain text link. Class names you add start with "apx-".
-  Every new block also reads well on a phone (390 px): give it a mobile rule in the CSS.
+- WHERE A NEW BLOCK GOES (SARCLA 10.11.2026, a tile block squeezed into the page's coloured title band: "still not up
+  to expected"): inside the page's CONTENT - the main column, between the page's own content blocks - never inside the
+  title band (.page-title-wrapper, the heading's coloured band, the h1 itself), the breadcrumbs, the header, the menus
+  or the footer. "Under the section X" means after the whole section - its text and pictures - not right after its
+  heading. Insert after/before a content block of the page (a Page Builder row, a text block), not into a heading.
+- A NEW BLOCK IS FINISHED DESIGN, NOT A WIREFRAME - it looks like the shop made it: a heading in the shop's style
+  (petrol #274e64, 20-22px, weight 600, 24px above, 12px below), then the content with room around it (24-32px from
+  its neighbours). Link tiles are white cards (1px solid #dde3e6, 4px corners, padding 14px 16px) with the name in 15px
+  semi-bold petrol and a "›" at the right, in a grid of 3 (2 on a tablet, 1 on a phone), hover background #f2f4f5,
+  the whole card the link; a picture only when its address is on the page. Never grey boxes, tiny text or a bare list
+  of links pretending to be tiles.
+- THE SHOP'S LOOK: font inherit, the colours below, 4px corners, 13-15px text (headings above), no dashed borders, no
+  shadows; a new button looks like the shop's own (petrol, white text) or a plain text link. Class names you add start
+  with "apx-". Every new block also reads well on a phone (390 px): give it a mobile rule in the CSS.
 - New HTML: no <script>, no on...= handlers, no javascript: links, no frames.
 - Parts the theme draws after loading (articles' prices, availability) are not in the outline: you may aim at their
   known containers but say so in the note.

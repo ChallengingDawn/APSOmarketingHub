@@ -314,7 +314,9 @@ export default function ConvertInsights() {
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>
             {view.rows.length} {view.rows.length === 1 ? "optimization" : "optimizations"} on {view.pages} {view.pages === 1 ? "page" : "pages"}
             {type !== "all" && ` · ${CHANGE_TYPES.find((t) => t.key === type)?.about}`}
-            {" · "}the AI reads the pages losing buyers every night, 5 at a time, while fewer than 30 wait for a decision · {lastScan ? scanWords(lastScan) : "its first night shows here"}
+            {type === "landing-page" || type === "banner" || type === "newsletter"
+              ? " · the AI makes a new batch of this type within the hour whenever fewer than 3 wait for a decision (once a day)"
+              : <>{" · "}the AI reads the pages losing buyers every night, 5 at a time, while fewer than 30 wait for a decision · {lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
           </Typography>
         </GlassCard>
 

@@ -353,6 +353,8 @@ function Picker({ env, onOpen, problems }: { env: Env; onOpen: (env: Env, path: 
 type IdeaState = "proposed" | "approved" | "sent" | "dropped";
 const STATE_TINT = { proposed: "amber", approved: "blue", sent: "green", dropped: "slate" } as const;
 const STATE_LABEL = { proposed: "Proposed", approved: "In work", sent: "Sent to project", dropped: "Dropped" } as const;
+/** A NEW landing page (SEO landing page type): Content writes the page, so it has no version on the page it came from. */
+const isLanding = (i: Idea | null) => !!i && typeOfIdea(i) === "landing-page";
 const stateOf = (i: Idea): IdeaState => (i.status === "dropped" ? "dropped" : i.sentAt ? "sent" : i.status === "approved" ? "approved" : "proposed");
 
 function IdeaCard({ idea, versions, selected, n, lead, focused, onSelect, onPoint }: {
@@ -547,6 +549,8 @@ function ConvertPreview() {
   const ideaSel = sp.get("idea");
   const letterSel = sp.get("v");
   const block = blockByKey(sp.get("block") ?? "");
+  // from Google's view of the pages (Insights > SEO landing page): the AI proposes NEW landing pages for its searches
+  const seoMode = sp.get("seo") === "1" && !block;
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
   const [fresh, setFresh] = useState(0);
@@ -604,6 +608,7 @@ function ConvertPreview() {
   const seoHeld = useHeld<SeoData>(seoUrl, [seoUrl]);
   const seo = seoHeld.result?.state === "ok" ? seoHeld.result.data : null;
   const numbers = path ? withSeo(numbersFor(problems, path), seo, path) : null;
+  const ideasBody = () => ({ action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}), ...(seoMode ? { landing: true } : {}) });
 
   const clicksUrl = path ? `/api/website/ai-personalization/clicks?env=${env}&path=${encodeURIComponent(path)}&dev=${clickDev}&n=${clickTick}` : null;
   const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
@@ -630,11 +635,11 @@ function ConvertPreview() {
   useEffect(() => { setPicked(null); setPick(false); setStyles(null); told.current = false; drawn.current = null; }, [path, env]);
   useEffect(() => { setAsk(""); setHand(false); setJsonErr(null); setGoSel(null); }, [idea?.id, version?.id]);
 
-  // where the frames open: at the version's first change found on the page, else the optimization's block, else the
-  // shop block being optimized
-  const firstSel = version?.changes.map((c) => ("selector" in c ? c.selector : null)).find(Boolean) ?? null;
-  const beforeGoto: Goto | null = goSel ? { sel: goSel, n: goN } : idea?.target ? { sel: idea.target, n: goN } : firstSel ? { sel: firstSel, n: goN } : block ? { sel: block.selector, n: goN } : null;
-  const afterGoto: Goto | null = goSel ? { sel: goSel, n: goN } : version ? { sel: "[data-apso-c],[data-apso-v]", n: goN + (hit ? 1000 : 0) } : beforeGoto;
+  // where the frames open: at the TOP of the page (SARCLA 10.11.2026: "the page should always open on top"); a change
+  // is gone to when it is clicked in "What changes". A shop block being optimized (the newsletter band, in the footer)
+  // is the page's subject, so its frames open on it.
+  const beforeGoto: Goto | null = goSel ? { sel: goSel, n: goN } : block ? { sel: block.selector, n: goN } : null;
+  const afterGoto: Goto | null = beforeGoto;
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
   const srcOf = (v: Version, r?: number | null) => `${base}&v=${v.id}&r=${r ?? v.rev}&at=${encodeURIComponent(v.updatedAt)}`;
@@ -719,17 +724,19 @@ function ConvertPreview() {
   const autoPicked = useRef(false);
   useEffect(() => {
     if (autoPicked.current || !d || !path || ideaSel || compare || clicks) return;
-    const lead = ranked.find((i) => i.status !== "dropped");
+    // from Google's view: the lead new landing page - the page's other optimizations wait under More
+    const lead = seoMode ? ranked.find((i) => i.status !== "dropped" && isLanding(i)) : ranked.find((i) => i.status !== "dropped");
     if (!lead) return;
     autoPicked.current = true;
     const compared = ranked.filter((i) => i.status !== "dropped" && (versionsOf.get(i.id)?.length ?? 0) > 0).length;
     if (block && compared >= 2) return;
     select(lead.id);
-  }, [d, path, ideaSel, ranked, versionsOf, block, compare, clicks, select]);
+  }, [d, path, ideaSel, ranked, versionsOf, block, compare, clicks, select, seoMode]);
   const autoBuilt = useRef(new Set<string>());
   useEffect(() => {
     if (!idea || !d || !d.canEdit || !d.ai || d.page.status !== 200 || busy || making) return;
-    if (idea.status === "dropped" || versions.length > 0 || autoBuilt.current.has(idea.id)) return;
+    // a new landing page has no version on this page: Content writes the new page
+    if (idea.status === "dropped" || versions.length > 0 || autoBuilt.current.has(idea.id) || isLanding(idea)) return;
     const t = setTimeout(() => {
       if (autoBuilt.current.has(idea.id)) return;
       autoBuilt.current.add(idea.id);
@@ -745,11 +752,12 @@ function ConvertPreview() {
   useEffect(() => {
     if (asked.current || !d || !path) return;
     if (sp.get("ask") !== "1" && !(numbers?.reasons?.length)) return;
-    if (!d.canEdit || !d.ai || d.page.status !== 200 || d.ideas.length > 0) return;
+    const has = seoMode ? d.ideas.some((i) => i.status !== "dropped" && isLanding(i)) : d.ideas.length > 0;
+    if (!d.canEdit || !d.ai || d.page.status !== 200 || has) return;
     asked.current = true;
     askTimer.current = setTimeout(() => {
-      router.replace(href(path, null));
-      void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) });
+      router.replace(`${href(path, null)}${seoMode ? "&seo=1" : ""}`);
+      void act("ideas", ideasBody());
     }, 8000);
   }, [d, numbers?.reasons?.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -775,6 +783,7 @@ function ConvertPreview() {
     const pos = idea ? live.findIndex((i) => i.id === idea.id) : -1;
     const step = (dir: number) => { const k = pos + dir; if (k >= 0 && k < live.length) { setCompare(false); select(live[k].id); } };
     const building = idea ? busy === `build:${idea.id}` : false;
+    const landing = isLanding(idea);
     const btn = { borderRadius: "6px", textTransform: "none", fontWeight: 700 } as const;
     const nums = numbers ? [
       numbers.views ? `${full(numbers.views)} views` : null,
@@ -804,12 +813,12 @@ function ConvertPreview() {
       </Box>
     ) : (
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version ? { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-        {version && <StillBefore env={env} path={path} focus={goSel ?? idea?.target ?? firstSel ?? block?.focus ?? null} label="Before" />}
+        {version && <StillBefore env={env} path={path} focus={goSel ?? block?.focus ?? null} label="Before" />}
         {version
           ? <Frame src={srcOf(version, rev)} device={device} zoom="fit" name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
               address={pg.url ?? path} label={`After · Version ${version.letter}${rev !== null && rev !== version.rev ? ` · revision ${rev}` : ""}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
           : <Frame src={base} device={device} zoom="fit" name="before" sync={null} pick={pick} marks={false} spots={null} heat={!idea && clicks ? heatMsg : null} goto={beforeGoto}
-              address={pg.url ?? path} label={idea ? "The page as it is - the version comes beside it" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+              address={pg.url ?? path} label={landing ? "The page Google shows for these searches today" : idea ? "The page as it is - the version comes beside it" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
       </Box>
     );
 
@@ -832,9 +841,9 @@ function ConvertPreview() {
             {idea?.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={btn}>Open the project</Button>}
             {idea && st === "sent" && version && <Button size="small" variant="outlined" href={`${CONVERT}/tests?make=${version.id}`} sx={btn}>Test Version {version.letter}</Button>}
             {idea && data.canEdit && st !== "dropped" && (
-              <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length ? "Its version comes first - the AI is making it" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
+              <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length && !landing ? "Its version comes first - the AI is making it" : landing ? "An SEO landing page project in Content with the brief to write the new page" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
                 <span>
-                  <Button size="small" variant="contained" disableElevation disabled={!data.canContent || !versions.length || busy === "send"} onClick={() => void send()}
+                  <Button size="small" variant="contained" disableElevation disabled={!data.canContent || (!versions.length && !landing) || busy === "send"} onClick={() => void send()}
                     startIcon={busy === "send" ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />} sx={btn}>
                     {st === "sent" ? "Send to Content again" : "Send to Content"}
                   </Button>
@@ -854,23 +863,6 @@ function ConvertPreview() {
             {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 15, color: MUTED }} /></IconButton></Tooltip>}
           </Box>
           {nums && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 0.25 }}>{nums}</Typography>}
-          {idea && (
-            <Box sx={{ display: "grid", gap: 1, mt: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
-              {([
-                ["Diagnostic", idea.why, <ErrorOutlineIcon key="d" />, "#c5221f"],
-                ["The optimization", idea.change, <ScienceOutlinedIcon key="o" />, "#2459d1"],
-                ["Should move", idea.expect, <TrackChangesOutlinedIcon key="m" />, "#1b7a55"],
-              ] as const).filter(([, t]) => t).map(([k, t, icon, tone]) => (
-                <Box key={k} sx={{ p: 1.25, borderRadius: "10px", bgcolor: `${tone}0d`, border: `1px solid ${tone}26`, minWidth: 0 }}>
-                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
-                    <Box sx={{ width: 24, height: 24, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: `${tone}1f`, color: tone, "& svg": { fontSize: 15 } }}>{icon}</Box>
-                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: tone }}>{k}</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
-                </Box>
-              ))}
-            </Box>
-          )}
         </GlassCard>
 
         {pg.status !== 200 && <Notice tone="bad">{pg.error ? `The shop did not answer: ${pg.error}` : `The shop answered ${pg.status} for this page.`}</Notice>}
@@ -884,18 +876,20 @@ function ConvertPreview() {
           </Notice>
         )}
 
-        {/* no optimization yet: the page, and the AI's button */}
-        {live.length === 0 && pg.status === 200 && (
+        {/* no optimization yet (from Google's view: no new landing page yet): the page, and the AI's button */}
+        {(seoMode ? !idea && !live.some((i) => isLanding(i)) : live.length === 0) && pg.status === 200 && (
           <GlassCard sx={{ display: "grid", gap: 1.25, justifyItems: "start" }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : "the page and its numbers"} - about half a minute` : "No optimization on this page yet"}</Typography>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page and its numbers"} - about half a minute` : seoMode ? "No new landing page proposed from this page yet" : "No optimization on this page yet"}</Typography>
             {busy === "ideas" && <LinearProgress sx={{ width: "100%", height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />}
-            {data.canEdit && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>Find optimizations</AiButton>}
+            {data.canEdit && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find landing pages" : "Find optimizations"}</AiButton>}
             {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand, under More.</Typography>}
           </GlassCard>
         )}
 
-        {/* the work: its pictures, the AI helper beside them */}
-        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: idea ? "minmax(0,1fr) 360px" : "minmax(0,1fr)" }, alignItems: "start" }}>
+        {/* the work: the page is the show; on its right the AI helper, then why / what / what it should move, then what
+            the version changes (SARCLA 10.11.2026: "all the features come to the right side, after the AI helper - the
+            page in the show") */}
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: idea ? "minmax(0,1fr) 380px" : "minmax(0,1fr)" }, alignItems: "start" }}>
           <GlassCard sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
             <Box sx={{ display: "flex", gap: 1, rowGap: 1, alignItems: "center", flexWrap: "wrap" }}>
               {idea && versions.length > 0 && (
@@ -935,8 +929,14 @@ function ConvertPreview() {
                 <LinearProgress sx={{ height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />
               </Box>
             )}
-            {idea && !version && !building && data.canEdit && st !== "dropped" && (
+            {idea && !version && !building && data.canEdit && st !== "dropped" && !landing && (
               <Box sx={{ mt: 1.5 }}><AiButton disabled={!data.ai} onClick={() => void build(idea)}>Make the version</AiButton></Box>
+            )}
+            {idea && landing && !version && (
+              <Typography sx={{ mt: 1.5, fontSize: "0.84rem", color: INK, lineHeight: 1.45 }}>
+                <b>A new page - Content writes it.</b> Below is the page Google shows for these searches today. Send it to Content: the
+                landing page studio gets the brief and writes the new page there.
+              </Typography>
             )}
             {styles && styles.nfailed > 0 && (
               <Box sx={{ mt: 1.5 }}><Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets - the page can look raw. Read it again under More.</Notice></Box>
@@ -946,11 +946,24 @@ function ConvertPreview() {
           </GlassCard>
 
           {idea && (
-            <Box sx={{ display: "grid", gap: 2, minWidth: 0, position: { xl: "sticky" }, top: { xl: 16 } }}>
-              {data.canEdit && st !== "dropped" && data.ai && (
+            <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
+              {data.canEdit && st !== "dropped" && data.ai && (!landing || version) && (
                 <AiHelper version={version} ask={ask} setAsk={setAsk} busy={building} picked={picked} pick={pick} onPick={() => setPick((x) => !x)}
                   onSend={async () => { if (await build(idea, { request: ask.trim(), ...(version ? { letter: version.letter } : {}) })) setAsk(""); }} />
               )}
+              {([
+                ["Diagnostic", idea.why, <ErrorOutlineIcon key="d" />, "#c5221f"],
+                [landing ? "The new page" : "The optimization", idea.change, <ScienceOutlinedIcon key="o" />, "#2459d1"],
+                ["Should move", idea.expect, <TrackChangesOutlinedIcon key="m" />, "#1b7a55"],
+              ] as const).filter(([, t]) => t).map(([k, t, icon, tone]) => (
+                <Box key={k} sx={{ p: 1.25, borderRadius: "10px", bgcolor: `${tone}0d`, border: `1px solid ${tone}26`, minWidth: 0 }}>
+                  <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", mb: 0.5 }}>
+                    <Box sx={{ width: 24, height: 24, borderRadius: "50%", display: "grid", placeItems: "center", bgcolor: `${tone}1f`, color: tone, "& svg": { fontSize: 15 } }}>{icon}</Box>
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: tone }}>{k}</Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
+                </Box>
+              ))}
               {version && (
                 <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
                   {rev !== null && rev !== version.rev && <Box sx={{ mb: 1 }}><Notice tone="warn">After shows revision {rev}. <Box component="button" type="button" onClick={() => setRev(null)} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 600 }}>Back to the latest</Box></Notice></Box>}
@@ -974,7 +987,7 @@ function ConvertPreview() {
                 ))}
               </Box>
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mt: 1.5 }}>
-                {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", { action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}) })}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
+                {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", ideasBody())}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
                 {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
                   <Button size="small" variant="outlined" disabled={!!making || !!busy} onClick={() => void makeAll()} startIcon={making ? <CircularProgress size={13} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>
                     {making ? `Writing version ${Math.min(making.done + 1, making.of)} of ${making.of}…` : "A version of each, side by side"}
@@ -1052,7 +1065,7 @@ function AiHelper({ version, ask, setAsk, busy, picked, pick, onPick, onSend }: 
   version: Version | null; ask: string; setAsk: (s: string) => void; busy: boolean; picked: Picked | null; pick: boolean; onPick: () => void; onSend: () => Promise<void>;
 }) {
   return (
-    <Box id="apso-ai-helper" sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", border: "1px solid rgba(106,70,201,.28)", background: "linear-gradient(135deg, rgba(106,70,201,.07), rgba(36,89,209,.05) 55%, rgba(181,53,154,.05))", display: "grid", gap: 1, scrollMarginTop: 80 }}>
+    <Box id="apso-ai-helper" sx={{ p: 1.5, borderRadius: "12px", border: "1px solid rgba(106,70,201,.28)", background: "linear-gradient(135deg, rgba(106,70,201,.07), rgba(36,89,209,.05) 55%, rgba(181,53,154,.05))", display: "grid", gap: 1, scrollMarginTop: 80 }}>
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
         <Box sx={{ width: 28, height: 28, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "#6a46c9", color: "#fff", flexShrink: 0 }}><AutoAwesomeIcon sx={{ fontSize: 17 }} /></Box>
         <Typography sx={{ fontWeight: 800, color: INK, fontSize: "0.92rem" }}>AI helper</Typography>
