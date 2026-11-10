@@ -9,6 +9,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { owners } from "@/lib/integrations/eshopActivity";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { kvGet, kvSet } from "@/lib/db/init";
+import { locked } from "@/lib/ticketDuplicates/reads";
 import { INTERNAL, industryOf, kindOf, rankCandidates, shopNumberOf, storeOf, withOrderCompanies, type Candidate, type Unlinked, type UnlinkedRow } from "./shopAccountRules";
 
 // v2: the companies their orders are booked on (19.10); v3: who each person is, their orders (19.10); v4: the shop's own
@@ -17,6 +18,8 @@ const KEY = "ticketAssoc:shopAccounts:v4";
 /** What a person needs to judge an offered company: its customer number, place, owner, last order, revenue. */
 const CANDIDATE_PROPS = ["name", "country", "domain", "erp_customer_id", "mandant", "zip", "city", "hubspot_owner_id", "order_last_order_date", "erp_rev_ytd_cy"];
 const LINKS = "ticketAssoc:shopLinks:v1";
+/** One "Link all" at a time, across both copies of the hub. */
+const LINK_ALL_LOCK = 4_107_282;
 const TTL_MS = 10 * 60 * 1000;
 
 type Obj = { id: string; properties: Record<string, string | null> };
@@ -201,8 +204,9 @@ export async function linked(): Promise<LinkDone[]> {
  * contact (its e-mail domain's), as the contact's primary company (association types 279 + 1).
  */
 export async function linkAccount(contactId: string, companyId: string, by: string): Promise<LinkDone> {
-  const [done] = await linkMany([{ contact: contactId, company: companyId }], by);
-  return done;
+  const { done, error } = await linkMany([{ contact: contactId, company: companyId }], by);
+  if (!done[0]) throw new Error(error ?? "HubSpot did not link them");
+  return done[0];
 }
 
 /**
@@ -210,20 +214,34 @@ export async function linkAccount(contactId: string, companyId: string, by: stri
  * for the clear ones (SARCLA 19.10: "if they have an order we can also link easily").
  */
 export async function linkAllByOrder(by: string): Promise<{ linked: number; failed: number; error?: string }> {
-  const state = await shopAccounts();
-  const done = new Set((await linked()).map((l) => l.contact));
-  // since 10.11.2026 also the ones whose shop account's customer number names ONE company and no order says otherwise
-  const todo = (state.value?.rows ?? []).filter((r) => (r.byOrder || r.byNumber) && !done.has(r.id)).map((r) => ({ contact: r.id, company: r.candidates[0].id }));
-  let n = 0, failed = 0, error: string | undefined;
-  for (let i = 0; i < todo.length; i += 100) {
-    const part = todo.slice(i, i + 100);
-    try { n += (await linkMany(part, by)).length; } catch (e) { failed += part.length; error = String((e as Error)?.message ?? e); }
-  }
-  return { linked: n, failed, ...(error ? { error } : {}) };
+  // one "Link all" at a time across both copies of the hub (hubspot-orders-3a's review 10.11.2026: two clicks at once both
+  // ran, each having read "done" before the other started)
+  const out = await locked(LINK_ALL_LOCK, async () => {
+    const state = await shopAccounts();
+    const done = new Set((await linked()).map((l) => l.contact));
+    // since 10.11.2026 also the ones whose shop account's customer number names ONE company and no order says otherwise
+    const todo = (state.value?.rows ?? []).filter((r) => (r.byOrder || r.byNumber) && !done.has(r.id)).map((r) => ({ contact: r.id, company: r.candidates[0].id }));
+    let n = 0, failed = 0, error: string | undefined;
+    for (let i = 0; i < todo.length; i += 100) {
+      const part = todo.slice(i, i + 100);
+      try {
+        const r = await linkMany(part, by);
+        n += r.done.length; failed += part.length - r.done.length;
+        if (r.error) error = r.error;
+      } catch (e) { failed += part.length; error = String((e as Error)?.message ?? e); }
+    }
+    return { linked: n, failed, ...(error ? { error } : {}) };
+  });
+  if (!out) throw new Error("Someone is linking all right now - read the list again in a minute");
+  return out;
 }
 
-/** Link contacts to companies the read offered them, as their primary company; who and when kept. */
-async function linkMany(pairs: { contact: string; company: string }[], by: string): Promise<LinkDone[]> {
+/**
+ * Link contacts to companies the read offered them, as their primary company; who and when kept. HubSpot can link part
+ * of a batch and refuse the rest: the ones it linked are kept as linked here, the refusal comes back as `error`
+ * (hubspot-orders-3a's review 10.11.2026: a partly refused batch was recorded as nothing linked).
+ */
+async function linkMany(pairs: { contact: string; company: string }[], by: string): Promise<{ done: LinkDone[]; error?: string }> {
   const state = await shopAccounts();
   const checked = pairs.map(({ contact, company }) => {
     const row = state.value?.rows.find((r) => r.id === contact);
@@ -231,16 +249,19 @@ async function linkMany(pairs: { contact: string; company: string }[], by: strin
     if (!row || !pick) throw new Error("That company is not one the hub offered for this contact - read the list again");
     return { row, pick };
   });
-  const j = await hubspotFetchJson<{ numErrors?: number; errors?: { message?: string }[] }>({
+  const j = await hubspotFetchJson<{ numErrors?: number; errors?: { message?: string }[]; results?: { fromObjectId?: string | number }[] }>({
     path: "/crm/v4/associations/contacts/companies/batch/create", method: "POST",
     body: { inputs: checked.map(({ row, pick }) => ({ from: { id: row.id }, to: { id: pick.id }, types: [
       { associationCategory: "HUBSPOT_DEFINED", associationTypeId: 279 },
       { associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 },
     ] })) },
   });
-  if (Number(j.numErrors ?? 0) > 0) throw new Error(String(j.errors?.[0]?.message ?? "HubSpot did not link them"));
+  const refused = Number(j.numErrors ?? 0) > 0;
+  // all went through: every pair; partly refused: only the contacts HubSpot answered as linked
+  const made = new Set((j.results ?? []).map((x) => String(x.fromObjectId ?? "")));
+  const ok = refused ? checked.filter(({ row }) => made.has(row.id)) : checked;
   const at = new Date().toISOString();
-  const done: LinkDone[] = checked.map(({ row, pick }) => ({ at, by, contact: row.id, company: pick.id, companyName: pick.name, typed: row.company }));
-  await kvSet(LINKS, [...done, ...(await linked())].slice(0, 2000));
-  return done;
+  const done: LinkDone[] = ok.map(({ row, pick }) => ({ at, by, contact: row.id, company: pick.id, companyName: pick.name, typed: row.company }));
+  if (done.length) await kvSet(LINKS, [...done, ...(await linked())].slice(0, 2000));
+  return { done, ...(refused ? { error: String(j.errors?.[0]?.message ?? "HubSpot did not link them") } : {}) };
 }
