@@ -82,3 +82,14 @@ test("every page (10.11.2026): a page no person switched on is counted by the sh
   const own = { id: "x", host: "www.apsoparts.com", paths: ["/de-CH/a.html"], until: "2026-12-01", by: "Claudio" };
   assert.equal(mapOn([own], "prod", "/de-CH/a.html", "2026-11-10").id, "x", "a person's map still says who switched it on");
 });
+
+test("visit replay: where the visitor was at a moment - the last scroll, the last pointer, the clicks of the last 0.7 s", async () => {
+  const { stateAt } = await import("../src/lib/convert/replayRules");
+  const ev: [number, 0 | 1 | 2, number, number][] = [[0, 1, 0, 5000], [200, 0, 500, 300], [900, 1, 600, 5000], [1000, 2, 520, 900], [2500, 0, 100, 1200]];
+  assert.deepEqual(stateAt(ev, 100), { scroll: 0, dh: 5000, px: null, py: null, clicks: [] });
+  const s = stateAt(ev, 1200);
+  assert.equal(s.scroll, 600);
+  assert.deepEqual([s.px, s.py], [520, 900]);
+  assert.deepEqual(s.clicks, [{ x: 520, y: 900, age: 200 }]);
+  assert.deepEqual(stateAt(ev, 3000).clicks, [], "a click fades after 0.7 s");
+});

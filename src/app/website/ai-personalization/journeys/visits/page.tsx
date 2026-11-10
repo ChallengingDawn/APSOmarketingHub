@@ -16,6 +16,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Recorded } from "./Recorded";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
@@ -532,6 +533,10 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
             </GlassCard>
           </Box>
         )}
+
+        {/* the page views the shop recorded - the pointer, the scroll, the clicks (SARCLA 10.11.2026: "don't see the
+            mouse and behaviour on the shop") */}
+        <Recorded company={d.id} from={win.from} to={win.to} />
 
         {d.visits.length > 0 && <NextCard d={d} from={win.from} to={win.to} visits={d.visits} />}
       </>
