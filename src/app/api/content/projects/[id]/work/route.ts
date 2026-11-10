@@ -8,6 +8,11 @@
 // piece's reviewer decides on it whatever their role.
 // A to-do added without its people gets them (SARCLA 09.11.2026): the owner = who adds it, the reviewer = Claudio
 // (lib/content/people.ts) - GET says who that is (defaultReviewer), for the forms and the "Who reviews it?" picker.
+// A to-do's ticket moves (SARCLA 10.11.2026: "on clicking the ticket I should be able to move it from stage / automatically
+// when planned on the content calendar -> Ready to roll, and then when live -> go to Live automatically, and fill the go-live
+// properties as well"): by hand with "ticket-stage", in HubSpot at once; by itself when a piece's date or status is saved
+// here (piece-edit, piece-move -> todos.pushPieceToTask, lib/content/ticketMoves.ts) - the answer's `moved` is what its chip
+// shows now.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
@@ -21,8 +26,8 @@ import {
 import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, taskMoveError, type MailTo } from "@/lib/content/pieceRules";
 import { sendContentMails, type MailContext } from "@/lib/content/workflowMail";
 import {
-  createTodoTicket, findTickets, linkTodoTicket, movePlace, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
-  syncPieceTasks, ticketDraft, unlinkTodoTicket, whyNoTicket,
+  createTodoTicket, findTickets, linkTodoTicket, movePlace, moveTodoTicket, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
+  syncPieceTasks, ticketDraft, unlinkTodoTicket, whyNoTicket, type TicketMoved,
 } from "@/lib/content/todos";
 import { fillTicket, placesFor, ticketsFor, type ProjectSketch } from "@/lib/content/assist";
 import { describeIntegrationError } from "@/lib/integrations/status";
@@ -120,6 +125,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const p = await getPiece(Number(raw));
     return p && p.projectId === id ? p : null;
   };
+  // a ticket moved by itself with its piece: one line in the project's stream
+  const movedEvent = async (m: TicketMoved | null, piece: Piece) => {
+    if (m) await addEvent(id, piece.id, me.username, "ticket-stage", { piece: piece.title, ticket: m.id, stage: m.stageLabel, auto: m.why, day: piece.dueDate });
+  };
 
   // talking - everyone in the project; tags mail the people tagged
   if (action === "comment") {
@@ -158,13 +167,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const note = text(b.note, 2000) || null;
     const before = await stageNow();
     await updatePiece(piece.id, { status: to });
-    await pushPieceToTask(id, { ...piece, status: to }, { status: true }).catch((e) => console.warn(`[content] sub-action of piece ${piece.id}: ${errText(e)}`));
+    // its ticket goes with it: live -> Live with its go-live date, never backwards (lib/content/ticketMoves.ts)
+    const moved = await pushPieceToTask(id, { ...piece, status: to }, { status: true }, found.status)
+      .catch((e) => { console.warn(`[content] sub-action of piece ${piece.id}: ${errText(e)}`); return null; });
     await addEvent(id, piece.id, me.username, "status", { from: piece.status, to, note, piece: piece.title });
+    await movedEvent(moved, piece);
     if (note) await addComment(id, null, me.username, `${STATUS_LABEL[to]} - ${piece.title}: ${note}`);
     const mailed = await sendContentMails(mailsFor({ kind: "status", to, note }, piece, owner, me.username),
       { ...base, pieceTitle: piece.title, dueDate: piece.dueDate, note });
     await mailStage(before);
-    return NextResponse.json({ ok: true, mailed });
+    return NextResponse.json({ ok: true, mailed, moved });
   }
 
   // finding matches is reading - anyone in the project may ask
@@ -207,6 +219,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // an edit changes only what was sent (the calendar sends a date, a picker one person)
     const sent = Object.fromEntries(Object.entries(fields).filter(([k]) => b[k] !== undefined)) as Partial<typeof fields>;
     let piece: Piece;
+    let moved: TicketMoved | null = null;
     let before: { writer: string | null; reviewer: string | null } = { writer: null, reviewer: null };
     if (action === "piece-add") {
       if (fields.contentType === TASK_KIND && !fields.title) return fail("A to-do needs a few words.");
@@ -227,8 +240,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       piece = (await getPiece(old.id))!;
       // a project of this one to-do (Make > <kind>) takes its new name too
       if (sent.title) await followSoleTodo(id, old.title, piece.title);
-      await pushPieceToTask(id, piece, { title: sent.title !== undefined, writer: sent.writer !== undefined, due: sent.dueDate !== undefined })
-        .catch((e) => console.warn(`[content] sub-action of piece ${piece.id}: ${errText(e)}`));
+      // a date on the content calendar takes its ticket to Ready to roll, never backwards (lib/content/ticketMoves.ts)
+      moved = await pushPieceToTask(id, piece, { title: sent.title !== undefined, writer: sent.writer !== undefined, due: sent.dueDate !== undefined })
+        .catch((e) => { console.warn(`[content] sub-action of piece ${piece.id}: ${errText(e)}`); return null; });
+      await movedEvent(moved, piece);
     }
     await join(piece.writer, "editor");
     await join(piece.reviewer, "commenter");
@@ -242,7 +257,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       mails.push(...mailsFor({ kind: "assign", role: "reviewer", username: piece.reviewer }, piece, owner, me.username));
     }
     const mailed = await sendContentMails(mails, { ...base, pieceTitle: piece.title, dueDate: piece.dueDate });
-    return NextResponse.json({ ok: true, piece, mailed });
+    return NextResponse.json({ ok: true, piece, mailed, moved });
   }
 
   if (action === "piece-remove") {
@@ -254,6 +269,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     await addEvent(id, null, me.username, "piece-removed", { piece: piece.title });
     await mailStage(before);
     return NextResponse.json({ ok: true });
+  }
+
+  // a to-do's ticket to another stage, picked on its chip - HubSpot at once, its refusal said in plain words
+  if (action === "ticket-stage") {
+    const piece = await pieceOf(b.pieceId);
+    if (!piece) return fail("That to-do is not in this project.", 404);
+    if (!piece.taskId) return fail("This to-do is still being set up - try again in a moment.");
+    const r = await moveTodoTicket(id, piece.taskId, String(b.stage ?? ""), me.full_name || me.username);
+    if (!r.ok) return fail(r.error, 502);
+    await addEvent(id, piece.id, me.username, "ticket-stage", { piece: piece.title, ticket: r.ticket.id, stage: r.ticket.stageLabel, was: r.was });
+    return NextResponse.json({ ok: true, ticket: r.ticket });
   }
 
   // a to-do's ticket: made here, filled with the AI, an existing one linked, or unlinked

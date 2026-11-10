@@ -274,3 +274,17 @@ export function learnPlaces(t: { subject: string; owner: string; channel: string
     return { as: x.as, target: x.target, score: Math.round((x.near[0].sim + 0.5 * (x.near[1]?.sim ?? 0)) * 100) / 100, like: x.near.slice(0, 2).map((n) => n.subject) };
   }).filter((x) => x.score >= 0.2).sort((a, b) => b.score - a.score || a.target - b.target).slice(0, top);
 }
+
+/**
+ * A Scroll to Sale ticket's due date as a to-do takes it (SARCLA 10.11.2026: "due date should be copied from the ticket if
+ * there is one"): its Go-live date, else its Planned date - as YYYY-MM-DD, "" when it has neither. HubSpot answers a date
+ * property as "2026-11-14" or as midnight in milliseconds.
+ */
+export function ticketDue(p: Record<string, string | null | undefined>): string {
+  for (const v of [p.mkt_golive_date, p.mkt_planned_date]) {
+    const s = String(v ?? "").trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (/^\d{10,}$/.test(s)) { const d = new Date(Number(s)); if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10); }
+  }
+  return "";
+}

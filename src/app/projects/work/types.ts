@@ -25,5 +25,14 @@ export type Work = {
   defaultReviewer?: string | null;
 };
 
-export type TodoTicket = { id: string; subject: string; stageLabel: string; open: boolean; url: string };
-export type Tickets = { tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: Place | null; error: string | null };
+/** A to-do's ticket: `stage` is its stage's id in the From Scroll to Sale pipeline. */
+export type TodoTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; url: string };
+/** A stage of the pipeline, in its order; `open` false for Live, Maintaining Internally and Killed. */
+export type TicketStage = { value: string; label: string; open?: boolean };
+export type Tickets = { tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: Place | null; error: string | null;
+  /** to-dos whose due date was just copied from their ticket - the page reads the to-dos again */
+  filled?: number;
+  /** the pipeline's stages, for the ticket chip's menu (SARCLA 10.11.2026: "on clicking the ticket I should be able to move it from stage") */
+  stages?: TicketStage[] };
+/** A ticket moved by the hub with its piece (planned -> Ready to roll, live -> Live), as a save answers it. */
+export type TicketMovedRow = { pieceId: number; id: string; stage: string; stageLabel: string; open: boolean; why: string };

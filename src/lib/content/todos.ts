@@ -15,15 +15,18 @@ import { addTask, deleteTask, forgetTaskSync, linkTickets, taskById, taskTickets
 import { itemById, planItems } from "@/lib/reporting/actionPlan";
 import { flushPlanSync, planInHubspot, queuePlanSync } from "@/lib/reporting/actionPlanHubspot";
 import { IDEA, IN_PROGRESS, LIVE, PLAN_PROPS, STAGES, planOptions, takesTicket, ticketFromAction, type PlanItem } from "@/lib/reporting/actionPlanRules";
-import { createTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type S2sTicket, type TicketState } from "@/lib/reporting/scrollToSale";
-import { PLAN_FIELDS, missingRequired } from "@/lib/reporting/scrollToSaleRules";
+import { createTicket, moveTicket, ownerOf, readTickets, s2sForm, searchTickets, ticketUrl, type S2sTicket, type TicketState } from "@/lib/reporting/scrollToSale";
+import { PLAN_FIELDS, S2S_FIELDS, missingRequired } from "@/lib/reporting/scrollToSaleRules";
+import { describeIntegrationError } from "@/lib/integrations/status";
 import { hubPublicUrl } from "@/lib/content/shareMail";
 import { STATUS_STAGE, statusOfStage, type PieceStatus } from "@/lib/content/pieceRules";
-import { addPieceForTask, listPieces, setPieceTask, type Piece } from "@/lib/content/workflow";
+import { addPieceForTask, listPieces, setPieceTask, updatePiece, type Piece } from "@/lib/content/workflow";
+import { moveLine, pieceMove, refusalText, swissDay, type PieceChange, type PipeStage, type SubMove, type Why } from "@/lib/content/ticketMoves";
 
 export const todoTile = (projectId: number) => `content:${projectId}`;
 
-export type TodoTicket = { id: string; subject: string; stageLabel: string; open: boolean; url: string };
+/** A to-do's ticket as the page shows it: `stage` its stage's id in the pipeline, for the chip's menu. */
+export type TodoTicket = { id: string; subject: string; stage: string; stageLabel: string; open: boolean; url: string };
 
 export type Todo = {
   id: number;
@@ -82,7 +85,7 @@ export async function listTodos(projectId: number): Promise<{ todos: Todo[]; pla
       id: t.id, title: t.title, note: t.note, done: t.status === "done", stage: t.stage, stageLabel: stageLabel(t.stage),
       assignee: who?.username ?? null, assigneeName: t.ownerName || who?.name || "",
       due: t.due, takesTicket: !!action && takesTicket(action, t.ownerName),
-      ticket: l ? { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) } : null,
+      ticket: l ? { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stage: tk?.stage ?? "", stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) } : null,
     };
   });
   return { todos, place: action ? await placeOf(action) : null, ticketsError };
@@ -268,41 +271,134 @@ export async function syncPieceTasks(projectId: number, by: string): Promise<Pie
   return pieces;
 }
 
-/** The piece changed: its sub-action follows (title, who, go-live date, stage) - and the plan's sync takes the ticket. */
-export async function pushPieceToTask(projectId: number, p: { taskId: number | null; title: string; writer: string | null; dueDate: string | null; status: PieceStatus }, fields: { title?: boolean; writer?: boolean; due?: boolean; status?: boolean }): Promise<void> {
-  if (!p.taskId) return;
+/** A move of a to-do's ticket the page shows at once on its chip. */
+export type TicketMoved = { pieceId: number; id: string; stage: string; stageLabel: string; open: boolean; why: Why };
+
+/** The pipeline's stages and the form's fields as HubSpot has them (read at most once an hour), else as the plan knows them. */
+async function pipeline(): Promise<{ stages: PipeStage[]; fields: string[] }> {
+  const form = await s2sForm().catch(() => null);
+  return form
+    ? { stages: form.stages, fields: form.fields.map((f) => f.name) }
+    : { stages: STAGES.map((s) => ({ value: s.id, label: s.label, open: !s.closed })), fields: S2S_FIELDS.map((f) => f.name) };
+}
+
+/**
+ * Where a piece's change takes its sub-action - and so its ticket (ticketMoves.ts: by the stages' names, forward only,
+ * nothing twice). The ticket's stage is read from HubSpot now, never taken from the sub-action's last copy: a move made in
+ * HubSpot meanwhile must not be taken back. HubSpot not answering: no stage moves now (the next change catches up).
+ */
+async function followPiece(projectId: number, t: KpiTask, pieceId: number, c: PieceChange, dueNow: string | null): Promise<{ move: SubMove; ticketId: string | null } | null> {
+  const link = (await ticketsOf(todoTile(projectId))).find((l) => l.taskId === t.id);
+  let stage = t.stage;
+  let ticketId: string | null = null;
+  // only a sub-action in the plan has its ticket carried by the plan's sync
+  if (link && t.planItem != null) {
+    try {
+      const [tk] = await readTickets([link.ticketId]);
+      if (tk) { stage = tk.stage; ticketId = tk.id; }
+    } catch (e) {
+      console.warn(`[content] ticket ${link.ticketId} not read - piece ${pieceId} moves no stage now: ${describeIntegrationError(e).error}`);
+      return null;
+    }
+  }
+  const { stages, fields } = await pipeline();
+  const move = pieceMove(stages, { stage, due: dueNow, start: t.start }, c, swissDay(), fields);
+  return move ? { move, ticketId } : null;
+}
+
+/**
+ * The piece changed: its sub-action follows (title, who, go-live date, stage) - and the plan's sync takes the ticket, the
+ * one writer to HubSpot (as a sub-action ticked done did). Its stage moves by ticketMoves.ts (SARCLA 10.11.2026): planned
+ * on the content calendar -> Ready to roll, live -> Live with its go-live date, never backwards. What the ticket's chip
+ * shows now, when its ticket moved.
+ */
+export async function pushPieceToTask(projectId: number, p: { id: number; taskId: number | null; title: string; writer: string | null; dueDate: string | null; status: PieceStatus },
+  fields: { title?: boolean; writer?: boolean; due?: boolean; status?: boolean }, was?: PieceStatus): Promise<TicketMoved | null> {
+  if (!p.taskId) return null;
   const t = await todoOf(projectId, p.taskId);
-  if (!t) return;
+  if (!t) return null;
   const patch: Parameters<typeof updateTask>[1] = {};
   if (fields.title) patch.title = p.title.slice(0, 300);
   if (fields.due) patch.due = p.dueDate;
   if (fields.writer) Object.assign(patch, await ownerFields(p.writer));
-  if (fields.status) patch.stage = STATUS_STAGE[p.status];
-  if (!Object.keys(patch).length) return;
+  const r = fields.status || (fields.due && p.dueDate)
+    ? await followPiece(projectId, t, p.id, { status: p.status, was, dueDate: p.dueDate, changed: { status: fields.status, due: fields.due } }, patch.due !== undefined ? patch.due : t.due)
+    : null;
+  // set even when the sub-action's copy says so already: changed now, the sync gives it to the ticket, not the other way
+  if (r?.move.to) patch.stage = r.move.to.value;
+  if (r?.move.fields.due) patch.due = r.move.fields.due;
+  if (r?.move.fields.start) patch.start = r.move.fields.start;
+  if (!Object.keys(patch).length) return null;
   await updateTask(p.taskId, patch);
-  if (t.planItem != null) queuePlanSync("content piece changed");
+  if (t.planItem != null) queuePlanSync(r ? `content piece ${r.move.why}` : "content piece changed");
+  if (!r) return null;
+  console.log(moveLine(r.move, { ticketId: r.ticketId, taskId: t.id, pieceId: p.id, status: p.status, dueDate: p.dueDate }));
+  return r.ticketId && r.move.to
+    ? { pieceId: p.id, id: r.ticketId, stage: r.move.to.value, stageLabel: r.move.to.label, open: r.move.to.open ?? true, why: r.move.why }
+    : null;
+}
+
+/**
+ * The to-do's ticket moved by hand to a stage of the pipeline (SARCLA 10.11.2026: "on clicking the ticket I should be able
+ * to move it from stage") - in HubSpot at once, so a refusal is said on the page; the sub-action takes the stage after it,
+ * so the plan's sync keeps it and carries the rest.
+ */
+export async function moveTodoTicket(projectId: number, todoId: number, stage: string, by: string): Promise<{ ok: true; ticket: TodoTicket; was: string } | { ok: false; error: string }> {
+  const t = await todoOf(projectId, todoId);
+  if (!t) return { ok: false, error: "That to-do is not in this project." };
+  const link = (await ticketsOf(todoTile(projectId))).find((l) => l.taskId === todoId);
+  if (!link) return { ok: false, error: "This to-do has no ticket yet." };
+  let tk: S2sTicket | undefined;
+  let to: PipeStage | undefined;
+  try {
+    to = (await s2sForm()).stages.find((s) => s.value === stage);
+    if (!to) return { ok: false, error: "That is not a stage of From Scroll to Sale." };
+    [tk] = await readTickets([link.ticketId]);
+  } catch (e) {
+    return { ok: false, error: `HubSpot did not answer - the ticket stays where it is (${describeIntegrationError(e).error.replace(/^HubSpot:\s*/, "")}).` };
+  }
+  if (!tk) return { ok: false, error: `Ticket ${link.ticketId} is no longer in From Scroll to Sale - open it in HubSpot.` };
+  if (tk.stage !== to.value) {
+    try { await moveTicket(tk.id, to.value); } catch (e) { return { ok: false, error: refusalText(describeIntegrationError(e).error, to.label, tk.stageLabel) }; }
+  }
+  await updateTask(todoId, { stage: to.value });
+  if (t.planItem != null) queuePlanSync("content to-do ticket moved");
+  console.log(`[content] ticket ${tk.id} -> ${to.label} by ${by} (to-do ${todoId} of project ${projectId}, was ${tk.stageLabel || "no stage"})`);
+  return { ok: true, was: tk.stageLabel, ticket: { id: tk.id, subject: tk.subject, stage: to.value, stageLabel: to.label, open: to.open ?? true, url: tk.url } };
 }
 
 /** The tickets of the project's to-dos, read from HubSpot - asked for after the page is drawn, never before. */
-export async function piecesTickets(projectId: number): Promise<{ tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: PlanPlace | null; error: string | null }> {
+export async function piecesTickets(projectId: number): Promise<{ tickets: Record<number, TodoTicket>; takes: Record<number, boolean>; place: PlanPlace | null; error: string | null; filled: number;
+  /** the pipeline's stages in its order, for the ticket chip's menu - empty when HubSpot did not answer */
+  stages: PipeStage[] }> {
   const tile = todoTile(projectId);
   const [pieces, links, action, tasks] = await Promise.all([listPieces(projectId), ticketsOf(tile), planActionOf(projectId), tasksOf(tile)]);
   let read: S2sTicket[] = [];
   let error: string | null = null;
+  let stages: PipeStage[] = [];
   if (links.length) {
     try { read = await readTickets(links.map((l) => l.ticketId)); } catch (e) { error = e instanceof Error ? e.message : String(e); }
+    stages = ((await s2sForm().catch(() => null))?.stages ?? []).map((s) => ({ value: s.value, label: s.label, open: s.open }));
   }
   const tickets: Record<number, TodoTicket> = {};
   const takes: Record<number, boolean> = {};
+  let filled = 0;
   for (const p of pieces) {
     const t = tasks.find((x) => x.id === p.taskId);
     takes[p.id] = !!action && takesTicket(action, t?.ownerName ?? null);
     const l = links.find((x) => x.taskId === p.taskId);
     if (!l) continue;
     const tk = read.find((x) => x.id === l.ticketId);
-    tickets[p.id] = { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) };
+    tickets[p.id] = { id: l.ticketId, subject: tk?.subject ?? `Ticket ${l.ticketId}`, stage: tk?.stage ?? "", stageLabel: tk?.stageLabel ?? "", open: tk?.open ?? true, url: tk?.url ?? ticketUrl(l.ticketId) };
+    // no due date yet: the ticket's (its Go-live date, else its Planned date) - copied once, a date someone set is never
+    // overwritten (SARCLA 10.11.2026: "due date should be copied from the ticket if there is one")
+    if (!p.dueDate && tk?.due) {
+      await updatePiece(p.id, { dueDate: tk.due });
+      if (t && !t.due) await updateTask(t.id, { due: tk.due });
+      filled++;
+    }
   }
-  return { tickets, takes, place: action ? await placeOf(action) : null, error };
+  return { tickets, takes, place: action ? await placeOf(action) : null, error, filled, stages };
 }
 
 /** Why a piece's to-do takes no ticket, in words for the page, or null when it may take one. */
