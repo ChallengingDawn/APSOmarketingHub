@@ -1092,7 +1092,9 @@ export function kindMatches(kind: Exclude<JKind, "other">, path: string): boolea
 
 export type FunnelExpr = Record<string, unknown>;
 const fx = {
-  re: (value: string): FunnelExpr => ({ funnelFieldFilter: { fieldName: "pagePath", stringFilter: { matchType: "FULL_REGEXP", value, caseSensitive: false } } }),
+  // Google refuses pagePath inside funnel steps ("not currently supported inside segments & funnel steps", seen live
+  // 09.11.2026); unifiedPagePathScreen is the page path on the web and is allowed there
+  re: (value: string): FunnelExpr => ({ funnelFieldFilter: { fieldName: "unifiedPagePathScreen", stringFilter: { matchType: "FULL_REGEXP", value, caseSensitive: false } } }),
   ev: (eventName: string): FunnelExpr => ({ funnelEventFilter: { eventName } }),
   and: (...e: FunnelExpr[]): FunnelExpr => (e.length === 1 ? e[0] : { andGroup: { expressions: e } }),
   or: (...e: FunnelExpr[]): FunnelExpr => (e.length === 1 ? e[0] : { orGroup: { expressions: e } }),

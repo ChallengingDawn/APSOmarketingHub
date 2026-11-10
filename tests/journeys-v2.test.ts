@@ -72,7 +72,7 @@ test("ga4StepExpr and pagePathPattern: each step as the funnel report's filter",
   assert.deepEqual(ga4StepExpr({ type: "in" }, null), { funnelEventFilter: { eventName: "session_start" } });
   const inStore = ga4StepExpr({ type: "in" }, "de-CH") as { andGroup: { expressions: unknown[] } };
   assert.equal(inStore.andGroup.expressions.length, 2);
-  assert.deepEqual(inStore.andGroup.expressions[1], { funnelFieldFilter: { fieldName: "pagePath", stringFilter: { matchType: "FULL_REGEXP", value: "/de-CH(?:/.*)?", caseSensitive: false } } });
+  assert.deepEqual(inStore.andGroup.expressions[1], { funnelFieldFilter: { fieldName: "unifiedPagePathScreen", stringFilter: { matchType: "FULL_REGEXP", value: "/de-CH(?:/.*)?", caseSensitive: false } } });
   const cart = ga4StepExpr({ type: "kinds", kinds: ["cart"] }, null) as { orGroup: { expressions: unknown[] } };
   assert.deepEqual(cart.orGroup.expressions[0], { funnelEventFilter: { eventName: "add_to_cart" } });
   const two = ga4StepExpr({ type: "kinds", kinds: ["category", "search"] }, null) as { orGroup: { expressions: { andGroup: { expressions: unknown[] } }[] } };

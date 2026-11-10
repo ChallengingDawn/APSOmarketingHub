@@ -16,6 +16,7 @@ import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfIdea, type ChangeType } from "./changeTypes";
+import { SAFETY_RULES, riskOf, safePart } from "./safety";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
@@ -609,6 +610,8 @@ How to write it:
 - Parts the theme draws after loading (articles' prices, availability) are not in the outline: you may aim at their
   known containers but say so in the note.
 
+${SAFETY_RULES}
+
 ${SHOP_FACTS}
 
 ${RULES}`;
@@ -683,9 +686,28 @@ THE PERSON ASKS: ${request}
 Answer with the WHOLE new list (keep what they did not ask to change).` : request ? `\nTHE PERSON ADDS: ${request}` : ""}`;
   const r = await ask<{ summary: string; changes: AiChange[] }>(VERSION_SYSTEM, user, CHANGE_SCHEMA, 16000);
   if (!r.ok) return r;
-  const { changes, problems } = validateChanges(fromAi(r.data.changes));
+  let { changes, problems } = validateChanges(fromAi(r.data.changes));
+  let summary = r.data.summary ?? "";
+  // a version must not break the shop (./safety.ts): what moves, re-sizes, rewrites or hides the shop's own parts is
+  // sent back to the AI once, with what it did; what is still risky after that is left out, and said so
+  const risky = riskOf(changes);
+  if (risky.length) {
+    const again = await ask<{ summary: string; changes: AiChange[] }>(VERSION_SYSTEM, `${user}
+
+YOUR LAST ANSWER BROKE THE SHOP'S RULES:
+${risky.flatMap((x) => x.problems).slice(0, 8).map((p) => `- ${p}`).join("\n")}
+Write the WHOLE list again: the shop's own parts stay where and as they are; what needs them rebuilt becomes a SKETCH at
+that place (apx-sketch).`, CHANGE_SCHEMA, 16000);
+    if (again.ok) {
+      const v = validateChanges(fromAi(again.data.changes));
+      if (v.changes.length) { changes = v.changes; problems = v.problems; summary = again.data.summary ?? summary; }
+    }
+  }
+  const safe = safePart(changes);
+  if (safe.dropped.length) problems = [...problems, ...[...new Set(safe.dropped)].slice(0, 6).map((d) => `left out - it ${d}`)];
+  changes = safe.changes;
   if (!changes.length) return { ok: false, error: `The AI's version had no usable change${problems.length ? `: ${problems.join("; ")}` : ""} - ask again.` };
-  const version = await saveRevision(idea, changes, (r.data.summary ?? "").slice(0, 600), opts.another ? (request ?? "another version") : request, by, letter);
+  const version = await saveRevision(idea, changes, summary.slice(0, 600), opts.another ? (request ?? "another version") : request, by, letter);
   return { ok: true, data: { version, problems } };
 }
 

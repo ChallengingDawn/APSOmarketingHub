@@ -150,13 +150,15 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
       // Winners beneath it; Preview opens from an optimization's card; the others keep their address and their grant.
       { name: "Performance", note: "What the tests did, and the whole loop from the problem to the winner", href: "/website/ai-personalization", icon: "bar", ...PURPLE },
       { name: "Insights", note: "What the AI proposes to change, by type of content, and the pages losing buyers it reads", href: "/website/ai-personalization/insights", icon: "bolt", ...PURPLE },
+      // the shop's pages, to go through the catalogue (SARCLA 10.11.2026: "we should have also mini app Pages if we want to
+      // navigate through the catalog of pages")
+      { name: "Pages", note: "Every page of the shop, on production and on ACC - to go through the catalogue", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE },
       { name: "Journeys", note: "Where visitors come from and go next, the funnel, the click map and each customer's visits", href: "/website/ai-personalization/journeys", icon: "route", ...BLUE },
       { name: "Tests", note: "A version against the page as it is: the add-to-carts decide", href: "/website/ai-personalization/tests", icon: "science", ...PINK },
       { name: "Preview", note: "An optimization on its page, before and after, its versions; sent to Content from here", href: "/website/ai-personalization/preview", icon: "edit", ...PURPLE, menu: false },
       { name: "Problem pages", note: "Part of Insights since 09.11.2026", href: "/website/ai-personalization/problems", icon: "target", ...PINK, menu: false },
       { name: "Always on", note: "An audience always gets a version: signed-in customers, a store view, phones", href: "/website/ai-personalization/personalise", icon: "groups", ...GREEN, menu: false },
       { name: "Winners", note: "The versions that won their test - handed to Content to be published", href: "/website/ai-personalization/ship", icon: "shipping", ...TEAL, menu: false },
-      { name: "Pages", note: "Every page of the shop, on production and on ACC", href: "/website/ai-personalization/pages", icon: "layers", ...BLUE, menu: false },
     ],
   },
   { slug: "security", name: "Security", line: "The site's security", icon: "verified", ...BLUE, pages: [] },

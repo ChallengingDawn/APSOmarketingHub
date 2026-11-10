@@ -1054,7 +1054,7 @@ function AiHelper({ version, ask, setAsk, busy, picked, pick, onPick, onSend }: 
   return (
     <Box id="apso-ai-helper" sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", border: "1px solid rgba(106,70,201,.28)", background: "linear-gradient(135deg, rgba(106,70,201,.07), rgba(36,89,209,.05) 55%, rgba(181,53,154,.05))", display: "grid", gap: 1, scrollMarginTop: 80 }}>
       <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-        <Box sx={{ width: 28, height: 28, borderRadius: "8px", display: "grid", placeItems: "center", backgroundImage: AI_GRADIENT, color: "#fff", flexShrink: 0 }}><AutoAwesomeIcon sx={{ fontSize: 17 }} /></Box>
+        <Box sx={{ width: 28, height: 28, borderRadius: "8px", display: "grid", placeItems: "center", bgcolor: "#6a46c9", color: "#fff", flexShrink: 0 }}><AutoAwesomeIcon sx={{ fontSize: 17 }} /></Box>
         <Typography sx={{ fontWeight: 800, color: INK, fontSize: "0.92rem" }}>AI helper</Typography>
         <Typography sx={{ fontSize: "0.78rem", color: MUTED, flex: "1 1 260px" }}>
           {version ? `Say what to change in Version ${version.letter} - it writes a new revision, the old one stays` : "Say how to make the version - or let it make it as proposed"}

@@ -305,7 +305,6 @@ const WEBSITE_ICON: Record<string, React.ReactNode> = {
 const MENU_ALIAS: Record<string, string> = {
   "/website/ai-personalization/preview": "/website/ai-personalization/insights",
   "/website/ai-personalization/problems": "/website/ai-personalization/insights",
-  "/website/ai-personalization/pages": "/website/ai-personalization/insights",
 };
 // A Website page's own sub-pages, drawn under it in the panel (SARCLA 08.11.2026: "journeys sub-app navigation doesn't
 // exist") - APSOconvert's Journeys: the main journeys, the funnel, one page's flow.
@@ -718,12 +717,10 @@ export default function Sidebar() {
 
   const renderItem = (item: Item) => {
     if (item.placeholder) return <SlotRow key={item.href} icon={item.icon} label={item.label} />;
-    // a page's sub-pages show only while one of them is open (SARCLA 09.11.2026: "there is a lot of menu")
-    const open = item.href === activeHref || !!item.children?.some((c) => c.href === activeHref) || pathname.startsWith(`${item.href}/`);
     return (
       <Fragment key={item.href}>
         <Row href={item.href} icon={item.icon} label={item.label} badge={item.badge} active={item.href === activeHref} tone={tone} />
-        {open && item.children?.map((c) => (
+        {item.children?.map((c) => (
           <Box key={c.href} sx={{ pl: 3.5 }}>
             <Row href={c.href} icon={<Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: c.href === activeHref ? (tone ?? ACCENT) : "#c9ced6" }} />}
               label={c.label} active={c.href === activeHref} tone={tone} />
