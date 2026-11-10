@@ -52,13 +52,16 @@ export function wordsOf(html: string): string {
 
 const hiddenStyle = (el: Node) => /display\s*:\s*none/i.test(attrOf(el, "style") ?? "") || attrOf(el, "hidden") !== null;
 
+/** A Page Builder background photo: data-background-images='{\"desktop_image\":\"https://...\"}' (its quotes escaped). */
+const BG_PHOTO = /desktop_image\\?"\s*:\s*\\?"[^"\\]/i;
+
 /** Does an element show anything (words, a picture, a Page Builder photo)? */
 function shows(el: Node, html: string): boolean {
   if (SKIP.has(el.tag) || hiddenStyle(el)) return false;
   const inner = html.slice(el.start, el.end);
   if (wordsOf(inner).length > 1) return true;
   if (/<(img|picture|video|iframe)\b/i.test(inner)) return true;
-  return /data-background-images\s*=\s*["']\{[^"']*desktop_image/i.test(inner);
+  return BG_PHOTO.test(inner);
 }
 
 const marked = (el: Node) => el.attrs.some((a) => a.name === "data-apso-v");
@@ -133,7 +136,8 @@ function holdsOf(inner: string): PagePart["holds"] {
       else if (/\.html$/i.test(u.pathname)) categories++;
     } catch { /* not an address */ }
   }
-  const pictures = (inner.match(/<img\b/gi) ?? []).length + (inner.match(/desktop_image/gi) ?? []).length;
+  // a picture: an <img> (a Page Builder image's mobile twin not counted), or a Page Builder background photo
+  const pictures = (inner.match(/<img\b(?![^>]*pagebuilder-mobile-only)/gi) ?? []).length + (inner.match(new RegExp(BG_PHOTO.source, "gi")) ?? []).length;
   return { products, categories, pictures, links };
 }
 
@@ -142,16 +146,24 @@ function holdsOf(inner: string): PagePart["holds"] {
  * page's own blocks (P1, P2 ...) with a checked selector each, and what the hub put on it (M1 ... a module, B1 ... a
  * block) by its change. A part of the page hidden by a change (replaced) is not listed: what took its place is.
  */
-export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts" | "source" | "newPage" | "fields">, max = 30): PagePart[] {
+export type PageMapOut = {
+  parts: PagePart[];
+  /** the element the parts stand in (to add at the very start or end of the page's content): a checked selector */
+  container: string;
+};
+export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts" | "source" | "newPage" | "fields">, max = 30): PageMapOut {
   const final = finalChanges(view as PageDoc);
   const html = applyChanges(rawHtml, final.changes as AnyChange[], { marks: final.from }).html;
   const root = parseHtml(html);
   const main = mainOf(root);
-  if (!main) return [];
+  if (!main) return { parts: [], container: "" };
   const out: PagePart[] = [];
   let p = 0, m = 0, b = 0;
   const seen = new Set<string>();
-  for (const el of blocksOf(main.el, html)) {
+  const blocks = blocksOf(main.el, html);
+  const box = blocks[0]?.parent ?? main.el;
+  const container = box === main.el ? (findsIt(root, main.sel, main.el) ? main.sel : "") : selectorFor(root, box, main);
+  for (const el of blocks) {
     if (out.length >= max) break;
     const inner = html.slice(el.start, el.end);
     const heading = wordsOf(/<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1\s*>/i.exec(inner)?.[2] ?? "");
@@ -170,7 +182,7 @@ export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts"
     if (!sel) continue;
     out.push({ id: `P${++p}`, kind: "page", selector: sel, change: "", module: "", ...base });
   }
-  return out;
+  return { parts: out, container };
 }
 
 /** The parts as the AI reads them - one line each, in the page's order. */
