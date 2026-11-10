@@ -273,9 +273,11 @@ const REFS = new Map<string, { at: number; ref: StoreRef | null }>();
 /** A store view's code and id in one environment, read from its front page on the shop - kept a day (an hour when the
  * read failed). */
 export async function storeRefOf(env: Env, view: string): Promise<StoreRef | null> {
-  // a store view of Magento whose code the shop never showed (Czech Republic, China, International CS - Content v10): its
-  // address leads to en-INT, whose code and id are NOT its own - not known, never read
+  // a store view of Magento that is not open (Czech Republic, China, International CS - Content v10): its address leads to
+  // en-INT, whose code and id are NOT its own - so never read from its front page; the list's code and id, or nothing
+  // when its id is not known (Content v11)
   const listed = storeViewOf(view);
+  if (listed && !listed.open) return listed.code && listed.id ? { view, code: listed.code, id: listed.id } : null;
   if (listed && !listed.code) return null;
   const key = `${env}|${view}`;
   const held = REFS.get(key);

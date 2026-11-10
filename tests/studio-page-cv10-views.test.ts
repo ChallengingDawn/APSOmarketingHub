@@ -34,15 +34,17 @@ test("Magento's store views, by website as its CMS page form lists them - with C
   assert.equal(storeIdOf("en-CH"), 5);
   assert.equal(storeIdOf("en-INT"), 26);
   assert.equal(storeIdOf("pl-PL"), 36);
-  // the four the shop never showed: in the list, their code and id said unknown - never guessed
+  // the four the shop never showed: in the list, their id said unknown - never guessed; their codes read from ACC's
+  // Magento (Content v11)
+  const codes: Record<string, string> = { "en-CZ": "czech_republic_eur_en", "cs-CZ": "czech_republic_eur_cs", "en-CN": "china_eur_en", "cs-INT": "international_eur_cs" };
   for (const k of ["en-CZ", "cs-CZ", "en-CN", "cs-INT"]) {
     const v = storeViewOf(k)!;
     assert.ok(v, k);
     assert.equal(v.id, null, `${k}: id unknown`);
-    assert.equal(v.code, null, `${k}: code unknown`);
+    assert.equal(v.code, codes[k], `${k}: Magento's code`);
     assert.equal(v.open, false, `${k}: its front page leads to en-INT`);
   }
-  assert.equal(storeCodeOf("cs-CZ"), null);
+  assert.equal(storeCodeOf("cs-CZ"), "czech_republic_eur_cs");
   assert.equal(storeViewOf("en-CZ")!.website, "Czech Republic EUR");
   assert.deepEqual(storesInLanguage("cs"), ["cs-CZ", "cs-INT"]);
 });

@@ -28,7 +28,10 @@
 // Switzerland EUR, Switzerland CHF, Germany, Austria, France, Italy, Netherlands, Czech Republic, China, International,
 // Poland - with the four the shop's pages never showed: Czech Republic EUR (EN, CS), China EUR (EN) and International's
 // CS. Their front pages are not open (www.apsoparts.com/cs-CZ/, /en-CZ/, /en-CN/ and /cs-INT/ all lead to /en-INT/, read
-// 10.11.2026), so their store CODE and ID are not known to the hub - the list says so instead of guessing. The ids of the
+// 10.11.2026), so their store CODE and ID were not known to the hub - the list says so instead of guessing. Content v11
+// (10.11.2026): their CODES were read from ACC's Magento (a store-scoped read answers for china_eur_en, czech_republic_eur_en,
+// czech_republic_eur_cs and international_eur_cs, and refuses any other spelling); their IDS are not proven yet - Magento's
+// "language" page puts English on 23 and 25 and Czech on 24 and 31, but which one is China is not read, so never guessed. The ids of the
 // other 25 were read that day from each front page ("storeId"), on production AND on ACC: the same on both.
 //
 //   Switzerland EUR  de 1  en 2  fr 3  it 4          Netherlands EUR  en 21  nl 22
@@ -53,7 +56,7 @@ export type StoreView = {
   /** "Switzerland" */
   country: string;
   currency: Currency;
-  /** Magento's store code: "switzerland_eur_de" - null where the shop has never shown it (Czech Republic, China, CS) */
+  /** Magento's store code: "switzerland_eur_de" (for the four not open, read from ACC's Magento - Content v11) */
   code: string | null;
   /** Magento's store id (the same on production and ACC, read 10.11.2026) - null where it is not known */
   id: number | null;
@@ -74,8 +77,8 @@ const COUNTRIES: Country[] = [
   { cc: "FR", name: "France", code: "france", currencies: ["EUR"] },
   { cc: "IT", name: "Italy", code: "italy", currencies: ["EUR"] },
   { cc: "NL", name: "Netherlands", code: "netherlands", currencies: ["EUR"] },
-  { cc: "CZ", name: "Czech Republic", code: "", currencies: ["EUR"] },
-  { cc: "CN", name: "China", code: "", currencies: ["EUR"] },
+  { cc: "CZ", name: "Czech Republic", code: "czech_republic", currencies: ["EUR"] },
+  { cc: "CN", name: "China", code: "china", currencies: ["EUR"] },
   { cc: "INT", name: "International", code: "international", currencies: ["EUR"] },
   { cc: "PL", name: "Poland", code: "poland", currencies: ["EUR"] },
 ];
@@ -105,7 +108,7 @@ export const STORE_VIEWS: StoreView[] = WEBSITES.flatMap((w) => {
   const c = COUNTRIES.find((x) => x.cc === w.cc)!;
   return w.views.map((v): StoreView => ({
     key: keyOf(v.lang, c, w.currency), lang: v.lang, cc: c.cc, country: c.name, currency: w.currency,
-    code: v.hidden || !c.code ? null : `${c.code}_${w.currency.toLowerCase()}_${v.lang}`, id: v.id, open: !v.hidden, website: `${c.name} ${w.currency}`,
+    code: !c.code ? null : `${c.code}_${w.currency.toLowerCase()}_${v.lang}`, id: v.id, open: !v.hidden, website: `${c.name} ${w.currency}`,
   }));
 });
 
