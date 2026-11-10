@@ -122,14 +122,15 @@ export const VIB: Card[] = [
   mk("category", "Federelemente und Luftfedern", `${D}/schwingungstechnik/federelemente-und-luftfedern.html`, CAT("93/24/resize/540-null/299324.jpg")),
 ];
 
-/** Products as the category pages list them (name, photo, the shop's own article count). */
+/** Products as the category pages list them (name, photo, the shop's own article count). Only products whose photo is
+ * clean (no "NEW!" or clearance badge) and whose name says no "Nur solange der Vorrat reicht" / "Nachfolge": a module's
+ * default never starts from a product on its way out (Lead 10.11). */
 export const PRODUCTS: Card[] = [
   mk("product", "HITEC® O-Ring NBR 70.10-02", `${D}/11400511-hitecr-o-ring-nbr-70-10-02.html`, PROD("62/50/296250.jpg"), "1043 Artikel", [], "11400511"),
   mk("product", "HITEC® O-Ring FKM 75.16-04", `${D}/11400711-hitecr-o-ring-fkm-75-16-04.html`, PROD("62/52/296252.jpg"), "719 Artikel", [], "11400711"),
   mk("product", "HITEC® O-Ring VMQ 70.10-01", `${D}/11400901-hitecr-o-ring-vmq-70-10-01.html`, PROD("62/53/296253.jpg"), "314 Artikel", [], "11400901"),
   mk("product", "FFKM O-Ring evolast® PN896", `${D}/10341001-ffkm-o-ring-evolastr-pn896.html`, PROD("73/94/977394.jpg"), "610 Artikel", [], "10341001"),
   mk("product", "FFKM O-Ring evolast® PN894", `${D}/10341002-ffkm-o-ring-evolastr-pn894.html`, PROD("73/95/977395.jpg"), "1756 Artikel", [], "10341002"),
-  mk("product", "HITEC® O-Ring DW EPDM 70.503-00", `${D}/11400101-hitecr-o-ring-dw-epdm-70-503-00-nachfolge-von-hitecr-o-ring-epdm-70-10-02.html`, PROD("01/01/11400101.jpg"), "702 Artikel", [], "11400101"),
   mk("product", "PEEK Rundstab natur (braun-grau)", `${D}/01171545-peek-rundstab-natur-braun-grau.html`, PROD("58/71/295871.jpg"), "27 Artikel", [], "01171545"),
   mk("product", "PEEK Platte natur (braun-grau)", `${D}/02530001-peek-platte-natur-braun-grau.html`, PROD("56/83/295683.jpg"), "16 Artikel", [], "02530001"),
 ];
@@ -158,9 +159,26 @@ export const BROCHURES: Card[] = [
   ["Deutsch", "DE"], ["Englisch", "en"], ["Französisch", "FR"], ["Italienisch", "IT"], ["Niederländisch", "NL"], ["Polnisch", "PL"],
 ].map(([name, c]) => mk("product", name, `https://campaigns.apsoparts.com/hubfs/APSOparts_Sales_Brochure_${c}.pdf`, "", "PDF"));
 
-/** A product page's downloads (HITEC® O-Ring DW EPDM 70.503-00: its "Downloads" list). */
+/** HITEC® O-Ring NBR 70.10-02 and VMQ 70.10-01: their pages' own facts (read 10.11.2026; approvals left out - they hold
+ * for the exact article and compound and stay on its page). */
+export const NBR_70 = PRODUCTS[0];
+export const VMQ_70 = PRODUCTS[2];
+export const NBR_70_SPECS = [
+  ["Merkmal", "Wert"],
+  ["Werkstoff", "NBR"],
+  ["Mischungsbezeichnung Angst+Pfister", "NBR 70.10-02"],
+  ["Härte", "70 ±5 Shore A"],
+  ["Einsatztemperaturbereich", "von -20 bis +125 °C"],
+  ["Farbe", "schwarz"],
+  ["Medienbeständigkeit", "gegen mineralische Öle und Fette, Wasser und Glykole"],
+  ["Vernetzungsart", "Schwefel"],
+  ["Norm", "in Anlehnung an Norm ISO 3601"],
+];
+export const NBR_70_LINE = "Hochwertiger NBR-Werkstoff mit sehr guter Beständigkeit gegenüber mineralischen Ölen und Fetten, Wasser, Alkohol, Glykolen und Kochsalzlösungen.";
+
+/** A product page's downloads (HITEC® O-Ring NBR 70.10-02: its "Downloads" list). */
 export const DOWNLOADS: Card[] = [
-  mk("product", "A+P Technical Data Sheet EPDM 70.503-00", `${M}/downloads/asset//std.lang.all/c_/dw/EPDM_70_503-00_HITEC_DW.pdf`, "", "PDF · Datenblatt"),
+  mk("product", "A+P Technical Data Sheet NBR 70.10-02", `${M}/downloads/asset//std.lang.all/0-/02/NBR_70_10-02.pdf`, "", "PDF · Datenblatt"),
   mk("product", "APSOseal Performance Compound Table", `${M}/downloads/asset//std.lang.all/e_/en/APSOseal%20Performance%20Compound%20Table_EN.pdf`, "", "PDF · Tabelle"),
   mk("product", "Broschüre APSOseal® O-Ringe", `${M}/downloads/asset//std.lang.all/s_/de/APSOseal%20O-Rings_DE.pdf`, "", "PDF · Broschüre"),
   mk("product", "O-Ringe Technische Grundlagen", `${M}/downloads/asset//std.lang.all/e_/fr/O-Ring%20Basic%20Catalogue_DE_FR.pdf`, "", "PDF · Katalog"),

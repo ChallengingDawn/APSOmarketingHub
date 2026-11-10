@@ -14,7 +14,9 @@ export function plain(html: string): string {
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
     .replace(/&([a-z]+);/gi, (m, n) => ent[n] ?? ent[n.toLowerCase()] ?? m)
-    .replace(/\s+/g, " ").replace(/\s+,/g, ",").replace(/,\s*$/, "").trim();
+    .replace(/\s+/g, " ").replace(/\s+,/g, ",").replace(/,\s*$/, "").trim()
+    // a value never breaks from its unit ("+150 °C", "70 ±5 Shore A")
+    .replace(/(\d) (?=°C|°F|mm\b|bar\b|Shore\b)/g, "$1\u00a0");
 }
 
 /** Rows a module never shows: approvals and certificates, classification codes, prices, stock. */

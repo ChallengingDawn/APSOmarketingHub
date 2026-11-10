@@ -151,7 +151,7 @@ test("a product page's facts: its line, its technical summary without approvals,
   assert.equal(f.summary, "Zuverlässige EPDM-Dichtung für Wasser, Dampf.");
   assert.deepEqual(f.table[0], ["Merkmal", "Wert"]);
   assert.deepEqual(f.table.slice(1).map((r) => r[0]), ["Werkstoff", "Härte", "Einsatztemperaturbereich"]);
-  assert.equal(f.table[3][1], "von -57 bis +150 °C");
+  assert.equal(f.table[3][1], "von -57 bis +150 °C");
   assert.doesNotMatch(JSON.stringify(f), /FDA|Konformit|UNSPSC|CHF/);
   assert.deepEqual(f.downloads.map((d) => d.name), ["A+P Technical Data Sheet EPDM 70.503-00", "Broschüre APSOseal® O-Ringe"]);
   assert.equal(f.downloads[1].url, "https://www.apsoparts.com/media/downloads/asset//std.lang.all/s_/de/APSOseal%20O-Rings_DE.pdf");
@@ -159,5 +159,35 @@ test("a product page's facts: its line, its technical summary without approvals,
   const m = newModule("tech-specs", "de-CH", "mfacts");
   m.settings.table = f.table;
   const out = renderModule(normalizeModule(m)!);
-  assert.match(out, /<th scope="row">Härte<\/th><td>70 ±5 Shore A<\/td>/);
+  assert.match(out, /<th scope="row">Härte<\/th><td>70 ±5 Shore A<\/td>/);
+});
+
+test("words break the way the language does: the store view's lang inside every module, hyphens, never cut mid-word", () => {
+  for (const d of LIBRARY2) {
+    for (const [store, lang] of [["de-CH", "de"], ["fr-CH", "fr"], ["it-CH", "it"], ["en-INT", "en"], ["nl-NL", "nl"], ["pl-PL", "pl"], ["de-CH/eur", "de"]]) {
+      const html = renderModule(newModule(d.id, store, "mlang"));
+      assert.match(html, new RegExp(`</style><div class="am-lg" lang="${lang}">`), `${d.id}/${store}: lang ${lang}`);
+      const css = /<style>([\s\S]*?)<\/style>/.exec(html)![1];
+      assert.match(css, /hyphens:auto/, `${d.id}: hyphenation on`);
+      assert.doesNotMatch(css, /word-break:\s*break-all|overflow-wrap:\s*anywhere/, `${d.id}: never cut mid-word`);
+    }
+  }
+});
+
+test("a wide table never squeezes on a tablet or a phone: its cards / its list take over", () => {
+  const cmp = renderModule(sample("tech-compare"));
+  assert.match(cmp, /<table>[\s\S]*<div class="am-mcs is-alt"/);
+  assert.match(cmp, /@media \(max-width:1100px\)\{\.apx-msample \.am-cmp\{display:none\}\.apx-msample \.am-mcs\.is-alt\{display:grid\}\}/);
+  const mx = renderModule(sample("ind-matrix"));
+  assert.match(mx, /<ul class="am-mxl is-alt">/);
+  assert.match(mx, /\.apx-msample \.am-mx-w\{display:none\}/);
+});
+
+test("a default never starts from a product on its way out or a badged photo", () => {
+  for (const d of LIBRARY2) {
+    for (const store of ["de-CH", "fr-CH"]) {
+      const json = JSON.stringify({ ...newModule(d.id, store, "mclean").settings, ...(SAMPLES2[d.id]?.(store) ?? {}) });
+      assert.doesNotMatch(json, /solange der Vorrat|Nachfolge|nur solange|11400101\.jpg|946957\.jpg/i, `${d.id}/${store}`);
+    }
+  }
 });

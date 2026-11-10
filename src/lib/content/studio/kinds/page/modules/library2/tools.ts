@@ -293,7 +293,7 @@ const toolDownloads = def({
   fields: [{ kind: "eyebrow" }, { kind: "title", red: true }, { kind: "text", rows: 2 }, { kind: "points", label: "The files", min: 1, max: 8, item: { title: "Its name", text: "What it is (PDF · Datenblatt)" }, links: true }, { kind: "link" }],
   tags: ["downloads", "datasheet", "PDF", "brochure", "catalogue", "documents"],
   defaults: (store) => ({
-    ...(isGerman(store) ? { eyebrow: "Downloads", title: "Datenblätter und Unterlagen", text: "Zum HITEC® O-Ring DW EPDM 70.503-00 - wie auf seiner Produktseite." } : {}),
+    ...(isGerman(store) ? { eyebrow: "Downloads", title: "Datenblätter und Unterlagen", text: "Zum HITEC® O-Ring NBR 70.10-02 - wie auf seiner Produktseite." } : {}),
     points: DOWNLOADS.map((d) => ({ title: d.name, text: isGerman(store) ? d.meta : "PDF", icon: "doc", url: d.url })),
     link: { label: isGerman(store) ? "Alle technischen Downloads" : "", url: pathFor(store, LINKS.downloads) },
   }),

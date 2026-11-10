@@ -5,23 +5,11 @@
 // shop's own facts: its product pages' "Technische Zusammenfassung" (./data.ts) and the O-Ring selection guide - never a
 // value the shop does not state, never a certificate list (a product's approvals stay on its own page).
 
-import { LINKS, MATS, MAT_NOTE, ORING, PRODUCTS } from "./data";
+import { LINKS, MATS, MAT_NOTE, NBR_70, NBR_70_LINE, NBR_70_SPECS, ORING } from "./data";
 import { cardFor, cardImg, catUrl, def, esc, eyOf, header, icon, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink, w2, linesOf, pairOf } from "./kit";
 
 /* ── a product's technical summary ─────────────────────────────────────── */
 
-/** HITEC® O-Ring DW EPDM 70.503-00: its page's "Technische Zusammenfassung" (approvals left out - they stay on its page). */
-const DW_SPECS = [
-  ["Merkmal", "Wert"],
-  ["Werkstoff", "EPDM"],
-  ["Mischungsbezeichnung Angst+Pfister", "DW EPDM 70.503-00"],
-  ["Härte", "70 ±5 Shore A"],
-  ["Einsatztemperaturbereich", "von -57 bis +150 °C"],
-  ["Farbe", "schwarz"],
-  ["Medienbeständigkeit", "gegen Heisswasser und Dampf, viele organische und anorganische Säuren und Laugen"],
-  ["Vernetzungsart", "Peroxid"],
-  ["Norm", "in Anlehnung an Norm ISO 3601"],
-];
 
 const techSpecs = def({
   id: "tech-specs", category: "technical", name: "Technical summary",
@@ -31,10 +19,10 @@ const techSpecs = def({
     { kind: "table", label: "Its facts (the first row names the columns)", cols: 2, maxRows: 14 }, { kind: "link" }],
   tags: ["specifications", "datasheet", "table", "properties", "product facts"],
   defaults: (store) => isGerman(store) ? {
-    eyebrow: "Technische Zusammenfassung", title: "HITEC® O-Ring DW EPDM 70.503-00",
-    text: "Zuverlässige EPDM-Dichtung für Wasser, Dampf, Witterung und langfristige industrielle Nutzung.",
-    feature: cardFor(store, PRODUCTS[5]), table: DW_SPECS, link: { label: "Zum Produkt", url: pathFor(store, PRODUCTS[5].url) },
-  } : { feature: { ...PRODUCTS[5], url: catUrl(store, PRODUCTS[5].url, PRODUCTS[5].number) } },
+    eyebrow: "Technische Zusammenfassung", title: NBR_70.name,
+    text: NBR_70_LINE,
+    feature: cardFor(store, NBR_70), table: NBR_70_SPECS, link: { label: "Zum Produkt", url: pathFor(store, NBR_70.url) },
+  } : { feature: { ...NBR_70, url: catUrl(store, NBR_70.url, NBR_70.number) } },
   gap: (s) => needGap(s, { title: true, table: 2 }),
   draw: (s, o) => {
     const rows = rowsOf(s);
@@ -56,7 +44,7 @@ const techSpecs = def({
 @@ .am-sp{margin-top:20px!important;border-radius:18px;background:#fff;box-shadow:var(--card);overflow:hidden}
 @@ .am-sp thead th{padding:12px 20px;background:var(--pet);font:600 12px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:#cddbe3}
 @@ .am-sp tbody th,@@ .am-sp tbody td{padding:13px 20px;border-top:1px solid #edf0f2;font-size:15px;line-height:1.45}
-@@ .am-sp tbody th{width:42%;overflow-wrap:anywhere;font:600 14.5px/1.4 var(--head);color:var(--mute)}
+@@ .am-sp tbody th{width:42%;font:600 14.5px/1.4 var(--head);color:var(--mute)}
 @@ .am-sp tbody td{font:500 16px/1.4 var(--head);color:var(--ink)}
 @@ .am-sp tbody tr:nth-child(even){background:#fafbfc}
 @@ .am-sp tbody tr:hover{background:#fdf0ef}
@@ -71,10 +59,15 @@ const techSpecs = def({
 @@ .am-sw{grid-template-columns:minmax(0,1fr);gap:18px;padding:16px;border-radius:20px}
 @@ .am-sw.is-plain{padding:18px 16px}
 @@ .am-sp-p{position:relative;top:0;max-width:300px;width:100%;justify-self:center}
-@@ .am-sp tbody th,@@ .am-sp tbody td{padding:11px 14px;font-size:14.5px}
+@@ .am-sp tbody tr{display:block;padding:10px 14px}
+@@ .am-sp tbody th,@@ .am-sp tbody td{display:block;width:auto;padding:0;border:0;font-size:14.5px}
+@@ .am-sp tbody th{margin-bottom:2px;font-size:12.5px;letter-spacing:.02em}
+@@ .am-sp tbody tr+tr{border-top:1px solid #edf0f2}
+@@ .am-sp thead{display:none}
 @@ .am-sp tbody td{font-size:15px}
 @@ .am-sw.is-plain .am-sp tbody{grid-template-columns:minmax(0,1fr)}
 @@ .am-sw.is-plain .am-sp tbody tr:nth-child(odd){border-right:0}
+@@ .am-sw.is-plain .am-sp tbody tr{display:block}
 }`,
     };
   },
@@ -114,15 +107,13 @@ const techCompare = def({
     if (!rows.length || cols < 1) return { html: `${header(s, false)}${ph("Fill the comparison: the first row names the columns, each next row one property")}`, css: "" };
     const note = s.text.trim() ? `<p class="am-cmp-n">${esc(s.text.trim())}</p>` : "";
     const hd = `${eyOf(s)}${s.title.trim() ? `<h2 class="am-h">${marked(s.title.trim())}</h2>` : ""}`;
-    if (s.layout === "cards") {
-      const cards = Array.from({ length: cols }, (_, c) => {
-        const name = head[c + 1] ?? "";
-        const u = go(c);
-        return `<article class="am-mc"><header>${u ? `<a href="${link(u)}">${esc(name)}</a>` : `<span>${esc(name)}</span>`}</header><dl>${rows.slice(1).map((r) => `<dt>${esc(r[0] ?? "")}</dt><dd>${esc(r[c + 1] ?? "")}</dd>`).join("")}</dl>${u ? `<a class="am-lk" href="${link(u)}">${esc(s.points[c]?.title?.trim() || name)}</a>` : ""}</article>`;
-      }).join("");
-      return {
-        html: `<div class="am-hd"><div>${hd}</div></div><div class="am-mcs" style="--n:${cols}">${cards}</div>${note}`,
-        css: `
+    // the cards: a material per card (the "cards" look everywhere; the table look's own on a tablet and a phone)
+    const cards = Array.from({ length: cols }, (_, c) => {
+      const name = head[c + 1] ?? "";
+      const u = go(c);
+      return `<article class="am-mc"><header>${u ? `<a href="${link(u)}">${esc(name)}</a>` : `<span>${esc(name)}</span>`}</header><dl>${rows.slice(1).map((r) => `<dt>${esc(r[0] ?? "")}</dt><dd>${esc(r[c + 1] ?? "")}</dd>`).join("")}</dl>${u ? `<a class="am-lk" href="${link(u)}">${esc(s.points[c]?.title?.trim() || name)}</a>` : ""}</article>`;
+    }).join("");
+    const CARDS_CSS = `
 @@ .am-mcs{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:12px}
 @@ .am-mc{display:flex;flex-direction:column;min-width:0;padding:0 0 16px;border-radius:20px;background:#fff;box-shadow:var(--card);overflow:hidden}
 @@ .am-mc header{padding:18px 18px 16px;background:linear-gradient(135deg,#2f5d76,#1b3a4b)}
@@ -133,26 +124,26 @@ const techCompare = def({
 @@ .am-mc .am-lk{margin:auto 18px 0;padding-top:14px;font-size:14px}
 @@ .am-cmp-n{margin-top:16px!important;max-width:880px;font-size:13.5px;line-height:1.55;color:var(--mute)}
 @media (max-width:1100px) and (min-width:901px){@@ .am-mcs{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media (max-width:900px){@@ .am-mcs{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;padding:2px 2px 12px;margin:0 -2px}@@ .am-mc{flex:0 0 78%;scroll-snap-align:start}}`,
-      };
-    }
+@media (max-width:900px){@@ .am-mcs{display:grid;grid-template-columns:minmax(0,1fr);gap:10px}@@ .am-mc header :is(a,span){font-size:23px}}`;
+    const top = `<div class="am-hd"><div>${hd}</div></div>`;
+    if (s.layout === "cards") return { html: `${top}<div class="am-mcs" style="--n:${cols}">${cards}</div>${note}`, css: CARDS_CSS };
     const th = head.slice(1, cols + 1).map((h, i) => `<th scope="col">${go(i) ? `<a href="${link(go(i)!)}">${esc(h)}</a>` : esc(h)}</th>`).join("");
     const trs = rows.slice(1).map((r) => `<tr><th scope="row">${esc(r[0] ?? "")}</th>${Array.from({ length: cols }, (_, i) => `<td>${esc(r[i + 1] ?? "")}</td>`).join("")}</tr>`).join("");
     return {
-      html: `<div class="am-hd"><div>${hd}</div></div><div class="am-cmp"><table><thead><tr><th>${esc(head[0] ?? "")}</th>${th}</tr></thead><tbody>${trs}</tbody></table></div>${note}`,
-      css: `
+      html: `${top}<div class="am-cmp"><table><thead><tr><th>${esc(head[0] ?? "")}</th>${th}</tr></thead><tbody>${trs}</tbody></table></div><div class="am-mcs is-alt" style="--n:${cols}">${cards}</div>${note}`,
+      css: `${CARDS_CSS}
+@@ .am-mcs.is-alt{display:none}
 @@ .am-cmp{border-radius:22px;background:#fff;box-shadow:var(--card);overflow-x:auto;scrollbar-width:thin}
-@@ .am-cmp table{min-width:${180 + cols * 150}px;table-layout:fixed}
-@@ .am-cmp thead th{position:relative;padding:16px 16px 14px;background:var(--pet);font:600 20px/1.1 var(--head);color:#fff;vertical-align:bottom}
+@@ .am-cmp table{min-width:${200 + cols * 170}px;table-layout:fixed}
+@@ .am-cmp thead th{position:relative;padding:16px 14px 14px;background:var(--pet);font:600 20px/1.1 var(--head);color:#fff;vertical-align:bottom}
 @@ .am-cmp thead th:first-child{width:200px;background:var(--pet-d)}
 @@ .am-cmp thead a{display:inline-flex;align-items:center;gap:8px;color:#fff!important}
 @@ .am-cmp thead a::after{content:"";width:6px;height:6px;border:solid #fff;border-width:1.6px 1.6px 0 0;transform:rotate(45deg);opacity:.6;transition:transform .2s,opacity .2s}
 @@ .am-cmp thead a:hover::after{opacity:1;transform:translateX(3px) rotate(45deg)}
-@@ .am-cmp tbody th{position:sticky;left:0;z-index:1;padding:14px 16px;background:#f6f8f9;font:600 13.5px/1.35 var(--head);color:var(--ink);border-top:1px solid #e8ecee}
-@@ .am-cmp tbody td{overflow-wrap:anywhere;padding:14px 16px;border-top:1px solid #edf0f2;border-left:1px solid #f1f3f5;font-size:14px;line-height:1.5;color:var(--txt)}
+@@ .am-cmp tbody th{position:sticky;left:0;z-index:1;padding:14px 16px;background:#f6f8f9;font:600 14px/1.35 var(--head);color:var(--ink);border-top:1px solid #e8ecee}
+@@ .am-cmp tbody td{padding:14px 14px;border-top:1px solid #edf0f2;border-left:1px solid #f1f3f5;font-size:14px;line-height:1.5;color:var(--txt)}
 @@ .am-cmp tbody tr:hover td{background:#fbfcfc;color:var(--ink)}
-@@ .am-cmp-n{margin-top:14px!important;max-width:880px;font-size:13.5px;line-height:1.55;color:var(--mute)}
-@media (max-width:900px){@@ .am-cmp{border-radius:16px}@@ .am-cmp table{min-width:${130 + cols * 140}px}@@ .am-cmp thead th:first-child{width:130px}@@ .am-cmp tbody th{padding:12px}@@ .am-cmp thead th{font-size:17px}}`,
+@media (max-width:1100px){@@ .am-cmp{display:none}@@ .am-mcs.is-alt{display:grid}}`,
     };
   },
 });

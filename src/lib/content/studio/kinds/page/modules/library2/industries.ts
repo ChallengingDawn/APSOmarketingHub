@@ -5,7 +5,7 @@
 // industry is the O-Ring selection guide's own table ("Typische Anwendungen") and its FAQ - never a claim the shop does not
 // make, never an approval (they depend on the exact compound and article).
 
-import { LINKS, ORING, PICS, PRODUCTS } from "./data";
+import { LINKS, ORING, PICS, VMQ_70 } from "./data";
 import { button, cardImg, catUrl, def, esc, eyOf, header, icon, img, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink } from "./kit";
 
 /* ── industries with their materials ───────────────────────────────────── */
@@ -103,47 +103,45 @@ const indMatrix = def({
     const cols = Math.max(0, Math.min(6, Math.max(0, ...rows.map((r) => r.length)) - 1));
     if (!rows.length || cols < 1) return { html: `${header(s, false)}${ph("Fill the matrix: the first row names the materials, each next row an industry with a dot where they fit")}`, css: "" };
     const go = (i: number) => s.points[i]?.url;
-    const list = s.layout === "list";
-    if (list) {
-      const items = rows.slice(1).map((r) => {
-        const hits = head.slice(1, cols + 1).map((h, i) => ({ h, i, v: r[i + 1] ?? "" })).filter((x) => x.v.trim());
-        return `<li><b>${esc(r[0] ?? "")}</b><span>${hits.map((x) => go(x.i) ? `<a href="${link(go(x.i)!)}">${esc(x.h)}</a>` : `<i>${esc(x.h)}</i>`).join("")}</span></li>`;
-      }).join("");
-      return {
-        html: `${header(s, false)}<ul class="am-mxl">${items}</ul>`,
-        css: `
+    const items = rows.slice(1).map((r) => {
+      const hits = head.slice(1, cols + 1).map((h, i) => ({ h, i, v: r[i + 1] ?? "" })).filter((x) => x.v.trim());
+      return `<li><b>${esc(r[0] ?? "")}</b><span>${hits.map((x) => go(x.i) ? `<a href="${link(go(x.i)!)}">${esc(x.h)}</a>` : `<i>${esc(x.h)}</i>`).join("")}</span></li>`;
+    }).join("");
+    const LIST_CSS = `
 @@ .am-mxl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 32px;border-top:1px solid var(--line)}
 @@ .am-mxl li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 2px;border-bottom:1px solid var(--line)}
 @@ .am-mxl b{font:600 16px/1.3 var(--head);color:var(--ink)}
 @@ .am-mxl span{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px}
 @@ .am-mxl :is(a,i){padding:6px 10px;border-radius:8px;background:var(--pet);font:600 13px/1 var(--head);font-style:normal;color:#fff!important;transition:background .2s}
 @@ .am-mxl a:hover{background:var(--red)}
-@media (max-width:900px){@@ .am-mxl{grid-template-columns:minmax(0,1fr)}}`,
-      };
-    }
+@media (max-width:900px){@@ .am-mxl{grid-template-columns:minmax(0,1fr)}}`;
+    if (s.layout === "list") return { html: `${header(s, false)}<ul class="am-mxl">${items}</ul>`, css: LIST_CSS };
     const th = head.slice(1, cols + 1).map((h, i) => `<th scope="col">${go(i) ? `<a href="${link(go(i)!)}">${esc(h)}</a>` : esc(h)}</th>`).join("");
     const trs = rows.slice(1).map((r) => `<tr><th scope="row">${esc(r[0] ?? "")}</th>${Array.from({ length: cols }, (_, i) => { const v = r[i + 1] ?? ""; return `<td>${isDot(v) ? '<span class="am-mx-d" aria-label="✓"></span>' : esc(v)}</td>`; }).join("")}</tr>`).join("");
     return {
-      html: `<div class="am-mx">${header(s, false)}<div class="am-mx-w"><table><thead><tr><th></th>${th}</tr></thead><tbody>${trs}</tbody></table></div></div>`,
-      css: `
+      // on a phone the matrix becomes its list (a row per industry, its materials as chips) - never a squeezed table
+      html: `<div class="am-mx">${header(s, false)}<div class="am-mx-w"><table><thead><tr><th></th>${th}</tr></thead><tbody>${trs}</tbody></table></div><ul class="am-mxl is-alt">${items}</ul></div>`,
+      css: `${LIST_CSS}
+@@ .am-mxl.is-alt{display:none}
 @@ .am-mx{padding:28px 30px 26px;border-radius:28px;background:linear-gradient(#f6f8f9,#edf1f3)}
 @@ .am-mx-w{border-radius:20px;background:#fff;box-shadow:var(--card);overflow-x:auto}
-@@ .am-mx table{min-width:${200 + cols * 90}px}
-@@ .am-mx thead th{padding:16px 8px 12px;text-align:center;font:600 16px/1 var(--head);color:var(--pet);border-bottom:2px solid #e8ecee}
+@@ .am-mx table{min-width:${220 + cols * 84}px}
+@@ .am-mx thead th{min-width:84px;padding:16px 8px 12px;text-align:center;font:600 16px/1 var(--head);color:var(--pet);border-bottom:2px solid #e8ecee}
+@@ .am-mx thead th:first-child{min-width:220px}
 @@ .am-mx thead a{color:var(--pet)!important;transition:color .2s}
 @@ .am-mx thead a:hover{color:var(--red)!important}
-@@ .am-mx tbody th{padding:11px 18px;font:500 15px/1.3 var(--head);color:var(--ink);white-space:nowrap}
+@@ .am-mx tbody th{padding:11px 18px;font:500 15px/1.3 var(--head);color:var(--ink)}
 @@ .am-mx tbody td{padding:11px 8px;text-align:center;border-left:1px solid #f1f3f5;font-size:13px;color:var(--txt)}
 @@ .am-mx tbody tr+tr :is(th,td){border-top:1px solid #f1f3f5}
 @@ .am-mx tbody tr:hover{background:#fbf6f5}
 @@ .am-mx tbody tr:hover th{color:var(--red)}
 @@ .am-mx-d{display:inline-block;width:16px;height:16px;border-radius:50%;background:var(--red);box-shadow:0 0 0 5px #fdecea;vertical-align:middle}
 @media (max-width:900px){
-@@ .am-mx{padding:16px 10px;border-radius:20px}
-@@ .am-mx table{min-width:${130 + cols * 54}px}
-@@ .am-mx tbody th{position:sticky;left:0;z-index:1;padding:10px;background:#fff;font-size:13.5px;white-space:normal}
-@@ .am-mx thead th{font-size:13px}
-@@ .am-mx-d{width:12px;height:12px;box-shadow:0 0 0 4px #fdecea}
+@@ .am-mx{padding:18px 14px;border-radius:20px}
+@@ .am-mx-w{display:none}
+@@ .am-mxl.is-alt{display:grid;border-top:0}
+@@ .am-mxl.is-alt li{padding:11px 4px}
+@@ .am-mxl.is-alt li:last-child{border-bottom:0}
 }`,
     };
   },
@@ -159,12 +157,12 @@ const indFeature = def({
   tags: ["industry", "application", "spotlight", "use case", "drinking water"],
   defaults: (store) => ({
     ...(isGerman(store) ? {
-      eyebrow: "Trinkwasser und Sanitär", title: "Sicher und langlebig abdichten, wo ==Wasser== fliesst",
-      text: "Der HITEC® O-Ring DW ist ein EPDM-O-Ring für Trinkwasser- und Sanitäranwendungen. Typische Einsätze: Ventile, Armaturen, Pumpen, Zähler, Rohrverbindungen und Komponenten der Wasserverteilung - in Trinkwasserversorgung, Gebäudetechnik, HLK und Wasseraufbereitung.",
-      points: ["Beständig gegen Wasser, Heisswasser und Dampf", "Beständig gegen Ozon, Witterung und Alterung", "Für den langfristigen Einsatz in der Wasserverteilung", "Wichtiger als Öl- oder Kraftstoffbeständigkeit"].map((t) => ({ title: t, text: "", icon: "check" })),
-      link: { label: "Zum HITEC® O-Ring DW EPDM", url: PRODUCTS[5].url },
+      eyebrow: "Lebensmittel und Getränke", title: "Dichten, wo ==Lebensmittel== verarbeitet werden",
+      text: "VMQ (Silikon) wird typisch in Lebensmitteln und Getränken, der Medizintechnik und der Elektronik eingesetzt. Der HITEC® O-Ring VMQ 70.10-01 ist ein peroxidisch vernetzter VMQ-Werkstoff mit sehr guter Beständigkeit gegen Wasser und Heissluft, tierische und pflanzliche Öle und Fette.",
+      points: ["Beständig gegen Wasser und Heissluft", "Beständig gegen tierische und pflanzliche Öle und Fette", "Einsatztemperatur von -55 bis +200 °C, kurzzeitig +230 °C", "Sehr guter Druckverformungsrest"].map((t) => ({ title: t, text: "", icon: "check" })),
+      link: { label: "Zum HITEC® O-Ring VMQ 70.10-01", url: VMQ_70.url },
     } : {}),
-    feature: { ...PRODUCTS[5], url: catUrl(store, PRODUCTS[5].url, PRODUCTS[5].number) },
+    feature: { ...VMQ_70, url: catUrl(store, VMQ_70.url, VMQ_70.number) },
   }),
   gap: (s) => needGap(s, { title: true }),
   draw: (s, o) => {
@@ -178,7 +176,7 @@ const indFeature = def({
 @@ .am-if-p{position:relative;margin:0;min-height:420px;background:var(--tile)}
 @@ .am-if-p img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 @@ .am-if-p.is-prod{background:#fff}
-@@ .am-if-p.is-prod img{inset:12%;width:76%;height:76%;object-fit:contain;mix-blend-mode:multiply}
+@@ .am-if-p.is-prod img{inset:12%;width:76%;height:76%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(ellipse 72% 72% at 50% 50%,#000 64%,transparent 100%);mask-image:radial-gradient(ellipse 72% 72% at 50% 50%,#000 64%,transparent 100%)}
 @@ .am-if-p figcaption{position:absolute;left:20px;top:20px;padding:8px 14px;border-radius:10px;background:var(--red);font:600 12px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:#fff}
 @@ .am-if-t{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:44px 48px}
 @@ .am-if h2.am-h{font-size:clamp(26px,2.6vw,36px)!important;line-height:1.12!important}

@@ -213,12 +213,12 @@ const helpContact = def({
       css: `
 @@ .am-cts{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
 @@ .am-ct-t .am-lk{margin-top:12px}
-@@ .am-ct-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+@@ .am-ct-g{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
 @@ .am-ct-w,@@ .am-ct-o{display:grid;grid-template-columns:46px minmax(0,1fr);gap:14px;align-items:start;padding:22px 20px;border-radius:20px;background:#fff;box-shadow:var(--card)}
 @@ .am-ct-w>span,@@ .am-ct-o>span{display:grid;place-items:center;width:46px;height:46px;border-radius:14px;background:var(--soft);color:var(--pet)}
 @@ .am-ct-w>span{background:#fdf0ef;color:var(--red)}
 @@ .am-cts small{display:block;margin-bottom:4px;font:600 11.5px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
-@@ .am-cts b{display:block;font:600 17px/1.3 var(--head);color:var(--ink);overflow-wrap:anywhere}
+@@ .am-cts b{display:block;font:600 17px/1.3 var(--head);color:var(--ink);overflow-wrap:break-word;-webkit-hyphens:manual;hyphens:manual}
 @@ .am-cts address{font:500 16px/1.45 var(--head);font-style:normal;color:var(--ink)}
 @@ .am-cts.is-band{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);align-items:center;gap:36px;padding:32px 36px;border-radius:28px;background:radial-gradient(120% 140% at 0% 0%,#2f5d76 0%,#274e64 45%,#1b3a4b 100%)}
 @@ .am-cts.is-band h2.am-h,@@ .am-cts.is-band .am-lk{color:#fff!important}
@@ -229,6 +229,7 @@ const helpContact = def({
 @@ .am-cts.is-band :is(.am-ct-w,.am-ct-o)>span{background:rgba(255,255,255,.12);color:#fff}
 @@ .am-cts.is-band :is(b,address){color:#fff}
 @@ .am-cts.is-band small{color:#9fb8c6}
+@media (max-width:1100px) and (min-width:901px){@@ .am-cts.is-band{grid-template-columns:minmax(0,1fr);gap:20px}}
 @media (max-width:900px){
 @@ .am-cts.is-band{grid-template-columns:minmax(0,1fr);gap:18px;padding:20px 16px;border-radius:20px}
 @@ .am-ct-g,@@ .am-cts.is-band .am-ct-g{grid-template-columns:minmax(0,1fr);gap:8px}

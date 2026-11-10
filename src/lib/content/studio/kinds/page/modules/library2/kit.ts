@@ -90,7 +90,8 @@ const EXTRA = `
 @@ .am-lk:hover::after,@@ a:hover>.am-lk::after{transform:translateX(3px) rotate(45deg)}
 @@ .am-p3{margin:18px 0 6px!important;font-size:18px!important;line-height:1.3!important}
 @@ .am-bs{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
-@@ :is(td,th,dd,dt,b,h2,h3){overflow-wrap:break-word;hyphens:auto}
+@@ .am-lg{display:contents}
+@@ :is(td,th,dd,dt,b,em,small,h3,h4,figcaption,li){-webkit-hyphens:auto;hyphens:auto;overflow-wrap:break-word}
 @media (max-width:900px){@@ .am-hd{flex-wrap:wrap}@@ .am-hd>div{flex:1 1 100%}}
 `;
 /** A list with the shop's small red squares (prose's "- " lines). */
@@ -110,16 +111,21 @@ const PH = `
 export const ph = (hint: string, cls = "") => `<div class="am-ph${cls ? ` ${cls}` : ""}">${esc(hint)}</div>`;
 
 /** The module's own CSS with what its HTML uses from the shared pieces (buttons, lists, placeholders). */
-export function own(d: Drawn): Drawn {
-  // "O-Ring", "X-Ringe", "E-Mail" never break at their hyphen
-  const h = d.html.replace(/(^|[^\w/.\-])([A-Z])-(?=[A-ZÄÖÜ][a-zäöü])/g, "$1$2‑");
+export function own(d: Drawn, store = "de-CH"): Drawn {
+  // the store view's language on everything inside (hyphenation follows it: "Chemikalien-beständigkeit", never cut mid-word);
+  // in the words only (never an address): "O-Ring", "X-Ringe", "E-Mail" and type numbers ("70.10-02") never break at their
+  // hyphen
+  const lang = /^(de|fr|it|en|nl|pl)$/.test(langOf(store)) ? langOf(store) : "en";
+  const h = d.html.replace(/>([^<]+)</g, (_, t: string) => `>${t
+    .replace(/(^|[^\w/.\-])([A-Z])-(?=[A-ZÄÖÜ][a-zäöü])/g, "$1$2‑")
+    .replace(/(\d)-(?=\d)/g, "$1‑")}<`);
   const add = [
     EXTRA,
     /class="am-btn2?[" ]/.test(h) ? BUTTONS : "",
     h.includes('class="am-li"') ? LI : "",
     h.includes('class="am-ph') ? PH : "",
   ].join("");
-  return { html: h, css: `${add}${d.css}` };
+  return { html: `<div class="am-lg" lang="${lang}">${h}</div>`, css: `${add}${d.css}` };
 }
 
 /* ── a module of this part, as the registry takes it ───────────────────── */
@@ -152,7 +158,7 @@ export function def(x: Spec): ModuleDef {
     // every address of the defaults in the store view's own path (written for de-CH)
     defaults: x.defaults ? (store) => localize(store, x.defaults!(store)) : undefined,
     gap: x.gap ? (m) => x.gap!(m.settings) : undefined,
-    render: (m, o) => own(x.draw(m.settings, o)),
+    render: (m, o) => own(x.draw(m.settings, o), m.settings.store),
   };
 }
 
