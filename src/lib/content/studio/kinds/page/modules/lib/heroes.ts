@@ -2,7 +2,7 @@
 // of a page: a headline that says what the page is, a picture of the shop's own, the first step. Calm, product-first, the
 // shop's red only on the button and the marked words. Drawn with the kit (../kit.ts); rules under `@@`.
 
-import { BUTTONS, button, esc, href, icon, marked, nameOf, pic, wordsFor } from "../kit";
+import { BUTTONS, button, esc, href, icon, langOf, marked, nameOf, pic, wordsFor } from "../kit";
 import type { FieldSpec, ModuleDef, ModuleRef, Opts } from "../types";
 
 const F = {
@@ -15,12 +15,15 @@ const F = {
   promises: { kind: "points", label: "Promises under the buttons", max: 3, item: { title: "Words", text: "" }, hint: "Short and true - the shop's own promises." } as FieldSpec,
 };
 
-const promises3 = (store: string) => {
-  const de = store.startsWith("de");
-  return de
-    ? [{ title: "Keine Zuschläge für Kleinbestellungen", text: "", icon: "check" }, { title: "Preise und Verfügbarkeit in Echtzeit", text: "", icon: "check" }, { title: "Zuschnitte nach Mass", text: "", icon: "check" }]
-    : [{ title: "No surcharge for small orders", text: "", icon: "check" }, { title: "Real-time prices and availability", text: "", icon: "check" }, { title: "Cut-to-size", text: "", icon: "check" }];
+/** Three of the shop's promises in a line each, in the store view's language (its home page's title row). */
+const PROMISES3: Record<string, string[]> = {
+  de: ["Keine Zuschläge für Kleinbestellungen", "Preise und Verfügbarkeit in Echtzeit", "Zuschnitte nach Mass"],
+  fr: ["Pas de supplément pour les petites commandes", "Prix et disponibilité en temps réel", "Découpes sur mesure"],
+  it: ["Nessun supplemento per piccoli ordini", "Prezzi e disponibilità in tempo reale", "Tagli su misura"],
+  en: ["No surcharge for small orders", "Real-time prices and availability", "Cut-to-size"],
 };
+const promises3 = (store: string) => (PROMISES3[langOf(store)] ?? PROMISES3.en).map((title) => ({ title, text: "", icon: "check" }));
+const TO_RANGE: Record<string, string> = { de: "Zum Sortiment", fr: "Vers l'assortiment", it: "All'assortimento", en: "To the range", nl: "Naar het assortiment", pl: "Do asortymentu" };
 
 /** The words of a hero: small line, headline (h2 - the page keeps its own h1), the line, the buttons. */
 function words(m: ModuleRef, cls = "am-hw"): string {
@@ -364,7 +367,7 @@ ${dark ? "@@ .am-red{color:#ff6a5f}" : ""}
 
 /* ── the entries ──────────────────────────────────────────────────────── */
 
-const heroDefaults = (store: string) => ({ link: { label: store.startsWith("de") ? "Zum Sortiment" : "To the range", url: "" }, points: promises3(store) });
+const heroDefaults = (store: string) => ({ link: { label: TO_RANGE[langOf(store)] ?? TO_RANGE.en, url: "" }, points: promises3(store) });
 
 export const HEROES: ModuleDef[] = [
   {
