@@ -669,7 +669,7 @@ export default function Studio({ api }: StudioProps) {
   const served = useMemo(() => servedOf(preview.held.after), [preview.held.after]);
   const plan = usePlan({
     api, lang: () => langRef.current, view: (l) => viewOf(latestDoc(), l),
-    put: (l, make, label, note) => applyView(make, label, note, l),
+    put: (l, make, label, note, change) => applyView(make, label, note, l, change),
     check: (id, l, o) => checkAndPlace(id, l, o),
     warn: (label, why) => setHistory((h) => { const i = h.findIndex((e) => e.label === label && !e.undone); return i < 0 ? h : h.map((e, k) => (k === i ? { ...e, warn: why } : e)); }),
     served, changes: d.changes, canAi,

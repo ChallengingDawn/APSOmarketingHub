@@ -31,8 +31,10 @@ export type PagePart = {
   /** its first heading's words, and whether it holds the page's H1 */
   heading: string;
   h1: boolean;
-  /** its words, cut */
+  /** its words, cut (a part with no words: its pictures) */
   text: string;
+  /** what Magento's Page Builder calls it, when it is one ("slider", "banner", "image", "tabs", "products") */
+  pb?: string;
   /** what it holds: links to product pages, to category pages, pictures, links */
   holds: { products: number; categories: number; pictures: number; links: number };
 };
@@ -184,7 +186,8 @@ export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts"
     const inner = html.slice(el.start, el.end);
     const heading = wordsOf(/<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1\s*>/i.exec(inner)?.[2] ?? "");
     const said = wordsOf(inner);
-    const base = { tag: el.tag, heading: cut(heading, 90), h1: /<h1\b/i.test(inner), text: cut(said, 260) || picturesOf(inner), holds: holdsOf(inner) };
+    const pb = [...inner.matchAll(/data-content-type\s*=\s*["']([\w-]+)["']/gi)].map((x) => x[1]).find((t) => !/^(row|column-group|column|column-line|text|html|heading|divider|buttons|button-item|slide|block)$/.test(t));
+    const base = { tag: el.tag, heading: cut(heading, 90), h1: /<h1\b/i.test(inner), text: cut(said, 260) || picturesOf(inner), holds: holdsOf(inner), ...(pb ? { pb } : {}) };
     if (marked(el)) {
       const idx = Number(attrOf(el, "data-apx-c"));
       const c = Number.isInteger(idx) ? view.changes[idx] : undefined;
@@ -206,7 +209,7 @@ export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts"
 export function mapText(parts: PagePart[]): string {
   if (!parts.length) return "(the page's parts could not be read)";
   return parts.map((x) => {
-    const what = x.kind === "module" ? `a module the hub put here (id "${x.module}")` : x.kind === "block" ? "a block the hub put here" : `<${x.tag}>`;
+    const what = x.kind === "module" ? `a module the hub put here (id "${x.module}")` : x.kind === "block" ? "a block the hub put here" : `<${x.tag}>${x.pb ? ` a ${x.pb}` : ""}`;
     const h = x.holds;
     const holds = [h.products ? `${h.products} product links` : "", h.categories ? `${h.categories} category links` : "", h.pictures ? `${h.pictures} pictures` : ""].filter(Boolean).join(", ");
     return `${x.id} · ${what}${x.h1 ? " · holds the page's H1" : ""}${x.heading ? ` · heading "${x.heading}"` : ""}${holds ? ` · ${holds}` : ""}\n    ${x.text || "(no words)"}`;

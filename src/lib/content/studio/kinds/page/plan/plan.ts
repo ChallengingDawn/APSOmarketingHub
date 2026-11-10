@@ -312,6 +312,7 @@ const quoteOf = (p: PagePart | undefined): string => {
   if (p.h1) return "the page's title";
   if (p.text && !p.text.startsWith("(no words")) return `"${cutWords(p.text, 26)}"`;
   const n = p.holds.pictures;
+  if (p.pb === "slider" || p.pb === "banner") return `the ${p.pb}${p.id === "P1" ? " at the top" : ""}`;
   return n ? `the ${n > 1 ? `${n} pictures` : "picture"}${p.id === "P1" ? " at the top" : ` (part ${p.id.slice(1)})`}` : `part ${p.id.slice(1)}`;
 };
 const cutWords = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n).replace(/\s+\S*$/, "")}…`);
@@ -452,8 +453,8 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     let link2 = okLink(x.link2);
     // a button goes where its words say ("Alle Technologien" to Dichtungstechnik does not): else it is left out
     const says = (button: string, url: string) => !button || !url || buttonSays(button, `${ctx.linkNames?.[url] ?? ""} ${url}`);
-    if (!says(words.button, link)) { said.push(`The button "${words.button}" went to ${ctx.linkNames?.[link] || link} - its words do not say that; it was left out`); link = ""; words.button = ""; }
-    if (!says(words.button2, link2)) { said.push(`The button "${words.button2}" went to ${ctx.linkNames?.[link2] || link2} - left out`); link2 = ""; words.button2 = ""; }
+    if (!says(words.button, link)) { said.push(`Button "${words.button}" left out: it went to ${ctx.linkNames?.[link] || "another page"}`); link = ""; words.button = ""; }
+    if (!says(words.button2, link2)) { said.push(`Button "${words.button2}" left out: it went to ${ctx.linkNames?.[link2] || "another page"}`); link2 = ""; words.button2 = ""; }
     if (words.button2 && !link2) words.button2 = "";
     const fill = doing === "words" || doing === "block" ? { how: "none" as FillHow, category: "", numbers: "", count: 0 } : fillIn(x.fill, lib, ctx);
     const stepId = ctx.newId();
