@@ -68,6 +68,8 @@ import { moduleActions, moduleFillTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
+import { runningOn } from "./abState";
+import { listTests } from "@/lib/convert/tests";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -844,6 +846,15 @@ const candidates: ServerAction = async (ctx, raw, input) => {
 };
 
 const inserts: ServerAction = async (ctx, raw, input) => ({ inserts: await insertsOf(viewFor(ctx, raw, input)) });
+
+/** The A/B test of AI testing & personalization that runs on this page, for the bar's "A/B test · Running" (Content v8,
+ * SARCLA 10.11.2026 point 6) - read only; none while its tables are not there. */
+const abState: ServerAction = async (ctx, raw, input) => {
+  const d = viewFor(ctx, raw, input);
+  if (d.source === "new" || !d.path) return { running: null };
+  const tests = await listTests("test").catch(() => []);
+  return { running: runningOn(tests, d.env, d.path) };
+};
 const relink: ServerAction = async (_ctx, raw, input) => relinkOf(raw, langIn(input) ?? "fr");
 /** For each store view of the shop: is this page of the shop there (the page index; its own address there)? */
 const views: ServerAction = async (ctx, raw) => ({ presence: await presenceOf(pageDoc(raw, ctx.piece.language), shopList(await shopStores())) });
@@ -983,7 +994,7 @@ ${pageBlock(d).slice(0, 6000)}`; }),
   },
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
-    english: englishAction, brief,
+    english: englishAction, brief, ab_state: abState,
     magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
     convert_letter: convertLetter,
     // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts

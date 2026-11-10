@@ -64,6 +64,9 @@ import { moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modul
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
 import { PlanCard } from "./plan/PlanCard";
 import { servedOf, usePlan } from "./plan/usePlan";
+import { AbLastStep } from "./Sections";
+import { useAbBar } from "../../abBar";
+import { abApplies, abLineOf, abStateOf, activateAb, type AbRunning } from "@/lib/content/studio/kinds/page/abState";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 /** The AI's block (./block.ts): the change, what it could not put right itself, what it put right */
@@ -1007,6 +1010,28 @@ export default function Studio({ api }: StudioProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doc.started, emptyNew, lang, main]);
 
+  /* ── the A/B test: in the top bar, set up in the last step (Content v8, SARCLA 10.11.2026 point 6: "A/B testing should
+   *    be on top header - if I click activate then I can set it on the last step") - ../../abBar.tsx ── */
+
+  const [abRunning, setAbRunning] = useState<AbRunning>(null);
+  const [abLit, setAbLit] = useState(0);
+  const abOn = abApplies(d);
+  useEffect(() => {
+    if (!abOn) { setAbRunning(null); return; }
+    let gone = false;
+    void api.act<{ running: AbRunning }>("ab_state", { lang }).then((r) => { if (!gone && r.ok) setAbRunning(r.result.running); });
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abOn, doc.env, d.path, lang]);
+  /** the last step opened on the test's setup (the Build pane unfolded, a module's panel closed), the setup lit */
+  const openAbStep = () => { modules.edit(null); if (fold.build) toggleFold("build"); setStep("publish"); setAbLit((n) => n + 1); };
+  const abNow = abStateOf(d, abRunning);
+  useAbBar(abOn ? {
+    state: abNow, line: abLineOf(d, abNow, abRunning), canEdit,
+    onActivate: () => { const cur = docRef.current; if (!cur.abTest.enabled) setDoc(activateAb(cur), "Activated the A/B test"); openAbStep(); },
+    onOpen: openAbStep,
+  } : null);
+
   /* ── the page picked, and the middle ─────────────────────────────────── */
 
   const onPicked = (p: PickedPage) => {
@@ -1073,6 +1098,7 @@ export default function Studio({ api }: StudioProps) {
           open={open} onOpen={onOpenRow} onOpenBlock={onOpenBlock} onSelectKey={onSelectKey} onFocusPath={onFocusPath} pictures={pictures} makingIn={makingIn} since={busyHere ? since : null}
           onAdd={(at, el) => setAddWhere({ at, anchor: el })} onAddText={(at) => addBlockAt("text", at)} onRefine={canAi ? askRefine : undefined} appBrief={appBrief} onSeoPropose={seoPropose}
           moduleSlot={isNew || d.path ? <ModuleActions ctl={modules} d={d} picked={sel?.picked ?? null} /> : null}
+          abPart={abOn ? <AbLastStep d={d} set={(v) => setView(v)} canEdit={canEdit} running={abRunning} lit={abLit} /> : null}
           shop={shop ? {
             ...shop, busyPart: busyHere ? busyPart : null, onOpen: onOpenShopPart, selPart: selPart?.id ?? null,
             selIn: sel?.picked && !selPart ? partOfSection(sel.picked.section)?.id ?? null : null,
