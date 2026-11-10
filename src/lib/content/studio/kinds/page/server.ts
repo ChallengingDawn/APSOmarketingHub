@@ -43,7 +43,7 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerOf } from "@/lib/convert/handoff";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsWrittenContent, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
 
 /** Production only after the same to-do was written on ACC and looked at there (Content v11 - the first production CMS
  * write of the hub must never be its first write). */
@@ -65,6 +65,7 @@ import {
 } from "./model";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
+import { sinceOf } from "./published";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
@@ -994,19 +995,23 @@ function viewsIn(doc: PageDoc, input: Record<string, unknown>): string[] {
 const magento: ServerAction = async (ctx, raw) => {
   const doc = pageDoc(raw, ctx.piece.language);
   const keys = cmsKeys();
-  const [views, grant, backups] = await Promise.all([
+  const [views, grant, backups, written] = await Promise.all([
     Promise.all(viewsOf(doc).map((v) => magentoOf(raw, v))),
     mayShip(),
     cmsPageBackups(String(ctx.pieceId)).catch(() => []),
+    // what each store view's page got at its last write - "changed since the publish" (Content v12)
+    cmsWrittenContent(String(ctx.pieceId)).catch(() => []),
   ]);
   const onAcc = await pieceOnAcc(String(ctx.pieceId)).catch(() => false);
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore })
     ?? (env === "prod" && !restore && !onAcc ? ACC_FIRST : null);
   return {
     // each version (a language - Content v10) with the store views it goes to, and what the hub knows of each in Magento
-    views: views.map(({ want: _want, ...v }) => ({
+    views: views.map(({ want, ...v }) => ({
       ...v, label: versionLabel(doc, v.view),
       stores: storesOfView(doc, v.view).map((x) => ({ view: x, ...storeKnown(x) })),
+      // on ACC / production since when, and changed since (SARCLA 10.11.2026: "update current pages after changes here")
+      since: sinceOf(want?.kind === "page" ? want.content : null, storesOfView(doc, v.view), written),
     })),
     // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
     envs: publishTargets(doc).map((env) => ({
