@@ -670,7 +670,7 @@ ${SELECT_CSS}`;
 
   useEffect(() => { draw(); }, [patch, draw]);
   // "Show the old one" switched, the "+" offered or not: the page itself does not reload
-  const pendKey = JSON.stringify((select?.pending ?? []).map((p) => [p.key, p.selector, p.where, p.change ?? -1, p.html.length]));
+  const pendKey = JSON.stringify((select?.pending ?? []).map((p) => [p.key, p.selector, p.where, p.change ?? -1, p.html.length, p.html.slice(-80)]));
   useEffect(() => {
     const d = docOf();
     if (!d?.body) return;
