@@ -168,8 +168,14 @@ export type OtdCube = {
   /** the morning lines: how their date at the customer was found (since 10.11.2026) */
   dated?: Dated;
 };
-/** how many lines took the ERP's own date, the shipping mode's days, the customer's transport days, the country's */
-export type Dated = { own: number; mode: number; customer: number; country: number };
+/** how many lines took the ERP's own date, the ERP's date from the OTD analysis file (since 10.11.2026 - absent in older
+ *  cubes), the shipping mode's days, the customer's transport days, the country's */
+export type Dated = { own: number; file?: number; mode: number; customer: number; country: number };
+/** an order line's key, the same for the morning lines and the OTD analysis file ("A26.654679.001|10") */
+export const lineKey = (order: string, line: string): string => {
+  const n = Number(line.trim());
+  return `${order.trim()}|${Number.isFinite(n) && line.trim() ? n : line.trim()}`;
+};
 
 const add = (t: Trio, late: boolean, d: number) => { t[0]++; if (late) t[1]++; t[2] += d; };
 
@@ -353,7 +359,9 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
  *    destination country 98.48 %; both 98.25 %; Switzerland's for all 98.55 %.
  *  - what is left is the forwarder's date at the customer (the ERP OTD report's ForwarderTerminBeimKunden): = the file's date on
  *    100 % of the ~half of the lines that carry it; DeliveryDateCustomer is the same date on fewer lines (equal on all 16,916
- *    with both). With it first: verdict 99.6 %, the months Mar-Aug 2026 = the file's. Not in the BI cube - to be added there. */
+ *    with both). With it first: verdict 99.6 %, the months Mar-Aug 2026 = the file's. Not in the BI cube - to be added there;
+ *    for the file's own months the hub reads it from otd_dates.csv (fromErpLines' fileDateOf): verdict 99.8 %, Mar-Aug = the
+ *    file's, Sep unchanged (the cube's own date is newer than the file's export of 26.10 and stays first). */
 export function transportWhy(l: { country: string; mode?: string; customer?: string }, transitOf: (country: string) => number,
   customerDaysOf?: (customer: string) => number | undefined): [number, "mode" | "customer" | "country"] {
   if (/picked up|abgeholt|abholung/i.test(l.mode ?? "")) return [0, "mode"];
@@ -370,8 +378,10 @@ export function fromErpLines<L extends { company: string; order: string; line: s
   lines: Iterable<L>, transitOf: (country: string) => number, supplierOf?: (article: string) => string | undefined,
   planningOf?: (article: string) => [string, number] | undefined,
   customerDaysOf?: (customer: string) => number | undefined,
+  /** lineKey -> the ERP's date at the customer from the OTD analysis file (otd_dates.csv) */
+  fileDateOf?: (key: string) => string | undefined,
 ): { lines: OtdLine[]; skipped: Record<string, number>; exactDays: number; dated: Dated } {
-  const dated: Dated = { own: 0, mode: 0, customer: 0, country: 0 };
+  const dated: Dated = { own: 0, file: 0, mode: 0, customer: 0, country: 0 };
   const out: OtdLine[] = [], skipped: Record<string, number> = {};
   const skip = (w: string) => { skipped[w] = (skipped[w] ?? 0) + 1; };
   for (const l of lines) {
@@ -384,8 +394,12 @@ export function fromErpLines<L extends { company: string; order: string; line: s
     // the ERP's own date at the customer where it has one (dim_order DeliveryDateCustomer: 97 % equal to the OTD analysis
     // file's on the lines that carry it), never before the shipment; else the shipment plus the transport days
     const own = l.deliveredDay && l.deliveredDay >= l.shipDay ? l.deliveredDay : "";
+    // then the ERP's date the OTD analysis file carries for the line (its export of 26.10.2026 - older than the cube's own
+    // date, so second), never before the shipment; then the shipment plus the transport days
     let atCustomer = own;
+    const fromFile = own ? "" : fileDateOf?.(lineKey(l.order, l.line)) ?? "";
     if (own) dated.own++;
+    else if (fromFile && fromFile >= l.shipDay) { atCustomer = fromFile; dated.file = (dated.file ?? 0) + 1; }
     else {
       const [days, why] = transportWhy(l, transitOf, customerDaysOf);
       dated[why]++;
@@ -409,6 +423,25 @@ export function fromErpLines<L extends { company: string; order: string; line: s
  *  per customer, 100 % of its lines): otd_transport.csv "customer;days", the customer as the morning lines carry it
  *  (CustomerNumberUnique, "100-704623"); dropped beside the morning workbook like otd_history.csv. */
 export const TRANSPORT_FILE = "otd_transport.csv";
+/** The ERP's date at the customer from the OTD analysis file's lines, where it is not the shipment plus the line's transport
+ *  time (19,316 of its 201,345 lines: the forwarder's date at the customer, a holiday) - on the others the hub's own sum gives
+ *  the same day. otd_dates.csv "order;line;atCustomer" (YYYY-MM-DD), dropped beside the morning workbook. */
+export const DATES_FILE = "otd_dates.csv";
+export function parseDates(text: string): { days: Map<string, string>; rejected: number } {
+  const rows = text.split(/\r?\n/);
+  const head = rows[0]?.split(";").map((h) => h.trim().toLowerCase()) ?? [];
+  const oi = head.indexOf("order"), li = head.indexOf("line"), di = head.indexOf("atcustomer");
+  if (oi < 0 || li < 0 || di < 0) throw new Error(`${DATES_FILE}: the header lacks order;line;atCustomer`);
+  const days = new Map<string, string>();
+  let rejected = 0;
+  for (let i = 1; i < rows.length; i++) {
+    if (!rows[i].trim()) continue;
+    const c = rows[i].split(";"), o = (c[oi] ?? "").trim(), l = (c[li] ?? "").trim(), d = (c[di] ?? "").trim();
+    if (o && l && /^\d{4}-\d{2}-\d{2}$/.test(d)) days.set(lineKey(o, l), d);
+    else rejected++;
+  }
+  return { days, rejected };
+}
 /** the rows read, and how many were refused (no customer, or days not a whole number from 0 to 30) */
 export function parseTransport(text: string): { days: Map<string, number>; rejected: number } {
   const rows = text.split(/\r?\n/);

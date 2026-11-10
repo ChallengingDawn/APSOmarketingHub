@@ -33,7 +33,7 @@ import {
 import { readErpWorkbook } from "./erpWorkbook";
 import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
-import { loadOtdHistory, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
+import { loadOtdHistory, otdDates, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import { ownerNames } from "@/lib/integrations/erosion";
@@ -288,16 +288,20 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
     // OTD Reports: the same lines by the OTD analysis file's rules (SARCLA 09.11.2026) - never the step's problem
     const plan = wb.articlePlanning;
     try {
-      // each customer's transport days (otd_transport.csv beside the workbook, kept) - without them the country's
-      const tr = await otdTransport(path.dirname(opts.file)).catch((e: unknown) => ({ days: undefined, status: `not read: ${(e as Error)?.message ?? e}` }));
-      const days = tr.days;
+      // each customer's transport days (otd_transport.csv beside the workbook, kept) - without them the country's - and the
+      // ERP's dates of the OTD analysis file (otd_dates.csv, kept)
+      const dir = path.dirname(opts.file);
+      const notRead = (e: unknown) => ({ days: undefined, status: `not read: ${(e as Error)?.message ?? e}` });
+      const [tr, fd] = await Promise.all([otdTransport(dir).catch(notRead), otdDates(dir).catch(notRead)]);
+      const days = tr.days, fileDays = fd.days;
       out.otd = {
         ...(await saveOtdFromErp(wb.erpLines.lines, {
           supplierOf, planningOf: plan ? (a) => plan.get(a) : undefined,
           customerOf: who ? (c) => ({ name: who.nameOf(c), owner: who.ownerOf(c) }) : undefined,
           customerDaysOf: days ? (c) => days.get(c) : undefined,
+          fileDateOf: fileDays ? (k) => fileDays.get(k) : undefined,
         })),
-        transport_file: tr.status,
+        transport_file: tr.status, dates_file: fd.status,
       };
     }
     catch (e) { out.otd = `not kept: ${(e as Error).message}`; }
