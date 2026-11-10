@@ -17,7 +17,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { locked } from "@/lib/ticketDuplicates/reads";
 import { ownerNames } from "@/lib/integrations/erosion";
 import {
-  DEFAULT_RULES, READ_PROPS, apartPairs, autoBoth, domainOf, erpOf, findGroups, intoOf, mergesOf, stillHolds, toCompany, zipKey,
+  DEFAULT_RULES, MERGE_PER_HOUR, MERGE_PER_RUN, READ_PROPS, apartPairs, autoBoth, domainOf, erpOf, findGroups, intoOf, mergesOf, stillHolds, toCompany, zipKey,
   type Company, type Found, type Group, type HistEntry, type MergeEvent, type RawCompany, type Rules,
 } from "./rules";
 import { performisFamilies, type PerfFamily } from "./performis";
@@ -28,9 +28,7 @@ const APPS: Record<string, string> = { "22343290": "The workflow", "50521064": "
 
 const READ_LOCK = 4_107_280, HISTORY_LOCK = 4_107_281;
 const TICK_MS = 5 * 60_000, EVERY_MS = 60 * 60_000, HISTORY_EVERY_MS = 24 * 3600_000, LIMIT_MS = 30 * 60_000;
-// 10.11.2026: the same name, postcode and website merged by the hub too (233 groups that day) - 40 groups a read, 60
-// merges an hour with a person's clicks
-const MERGE_PER_HOUR = 60, MERGE_PER_RUN = 40, HISTORY_DAYS = 400;
+const HISTORY_DAYS = 400;
 
 const KV = {
   settings: "companyDup:settings", snapshot: "companyDup:snapshot", last: "companyDup:lastRun", log: "companyDup:log",

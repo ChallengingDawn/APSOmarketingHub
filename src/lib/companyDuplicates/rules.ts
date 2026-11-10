@@ -109,6 +109,10 @@ export type Rules = {
    *  "everything is the same - if there is no ERP number it's a definite merge; can we automate?") */
   both: { autoMerge: boolean };
 };
+/** The hub's own merges: at most this many an hour (a person's clicks count too), at most this many groups a read - one
+ *  place, read by the engine and said on the page (the page once said 20 while the engine did 60). */
+export const MERGE_PER_HOUR = 60, MERGE_PER_RUN = 40;
+
 export const DEFAULT_RULES: Rules = {
   erp: { on: true, autoMerge: true, maxGroup: 4 },
   place: { on: true },

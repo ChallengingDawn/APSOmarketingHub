@@ -48,7 +48,7 @@ import { ListCard, StatusCard, dayTime } from "@/app/uc/segmentation/lists";
 import type { CompanySource } from "@/app/reporting/CompanyList";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import type { LogEntry, Mode, RunInfo, Settings, Snapshot } from "@/lib/companyDuplicates/engine";
-import type { Company, Group, MergeEvent, Rules } from "@/lib/companyDuplicates/rules";
+import { MERGE_PER_HOUR, type Company, type Group, type MergeEvent, type Rules } from "@/lib/companyDuplicates/rules";
 import { DupToggle } from "../DupToggle";
 import { GroupTable } from "./GroupTable";
 import { Decide, Decisions, useDecisionState } from "./decide";
@@ -105,7 +105,7 @@ const Tiles = ({ items }: { items: { label: string; value: number; icon: React.R
 /** The hub merges: Live chosen and the workflow off. */
 const merging = (d: Data) => d.settings.mode === "live" && d.workflow === false;
 /** What Live merges by itself, as the rules stand - said on the switch, its question and the status line. */
-const MERGE_HOUR = 60;
+const MERGE_HOUR = MERGE_PER_HOUR;
 function liveWhat(r: Rules): string {
   const kinds = [r.erp.on && r.erp.autoMerge ? "the same customer number (into the oldest company)" : null, r.both.autoMerge ? "the same name, postcode and website (into the company with the customer number)" : null].filter(Boolean);
   return kinds.length ? `${kinds.join(" and ")} - at most ${MERGE_HOUR} merges an hour` : "nothing by itself - both automatic rules are off";
