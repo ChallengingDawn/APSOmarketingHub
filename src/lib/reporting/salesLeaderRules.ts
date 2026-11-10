@@ -9,7 +9,7 @@
 // database, no React here, so the page and the tests read it as it is.
 
 import { reportsOfUnit, under, type Tag } from "../hierarchy/rules";
-import { TARGETS, quarterTargets, weightsOf, yearTarget, type PersonTargets, type TargetId } from "./mySalesRules";
+import { TARGETS, quarterTargets, weightsOf, yearTargetOf, type PersonTargets, type TargetId } from "./mySalesRules";
 import { dueToDate, type Reach } from "./mySalesFigures";
 
 export type Person = { id: string; name: string };
@@ -59,7 +59,7 @@ export type Cell = {
 /** A person's cell: their target as the sheet reckons it, what is due by now, the year to date. */
 export function personCell(id: TargetId, fig: Fig | undefined, t: PersonTargets | undefined, reach: Reach): Cell {
   const f = fig ?? { py: 0, ytd: 0 };
-  const year = yearTarget(id, t?.[id], f.py);
+  const year = yearTargetOf(t, id, f.py);
   if (year == null) return { ytd: f.ytd, year: 0, due: 0, reached: 0, set: 0, of: 1 };
   return { ytd: f.ytd, year, due: dueToDate(quarterTargets(id, year, weightsOf(t, id)), reach), reached: f.ytd, set: 1, of: 1 };
 }

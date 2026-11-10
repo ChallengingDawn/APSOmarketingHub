@@ -5,15 +5,22 @@
 // contribution"). His picks: targets only (no pay, no bonus), set by the person themselves or an admin, as the sheet
 // has them (a growth on last year for three revenues, an amount, a number of visits); the switch from the hierarchy
 // (./shared.tsx); the team views as one table. The rules: src/lib/reporting/mySalesRules.ts; the figures: src/lib/reporting/mySalesFigures.ts.
+// 10.11.2026 (Bernd Rausmann's feedback, relayed by SARCLA): the ERP's order book under each quarter, in place of the weighting
+// and the max (src/lib/reporting/orderBookRules.ts); the table fitted to the window; the year's target typed as an amount.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import InputBase from "@mui/material/InputBase";
 import Popover from "@mui/material/Popover";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 
-import { FAINT, GREEN, INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
+import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
 import { THIS } from "@/app/reporting/marketing-kpis/DimChart";
 import { useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
 import { ChartBox, FullTable, H1, Waiting, membersOf, tooOld, type Col } from "@/app/reporting/eso-benchmark/Figures";
@@ -21,8 +28,9 @@ import { useVisits } from "@/app/reporting/eso-benchmark/Visits";
 import { SCOPE_LEAD, scopedPeople } from "@/app/reporting/scope";
 import { MONTH_NAMES } from "@/lib/marketingKpis/cube";
 import {
-  MAX_SHARE, TARGETS, checkTarget, quarterTargets, weightsOf, yearTarget, type PersonTargets, type TargetDef, type TargetId,
+  MAX_SHARE, TARGETS, amountOf, checkAmount, checkTarget, impliedGrowth, quarterTargets, weightsOf, yearTargetOf, type PersonTargets, type TargetDef, type TargetId,
 } from "@/lib/reporting/mySalesRules";
+import { bookQuarters, sumBooks, type BookBySae, type BookKey } from "@/lib/reporting/orderBookRules";
 import {
   cubeReach, dueToDate, revenueByPerson, revenueMeasures, visitsByPerson, visitsMeasure, visitsReach, type Measured, type PersonFig, type Reach,
 } from "@/lib/reporting/mySalesFigures";
@@ -90,7 +98,13 @@ export function TargetsPage() {
 }
 
 /* ── My targets: one table, a row per target and the quarters across, each target set in its row (SARCLA 01.11.2026,
-   on the cards: "still not the good format" - "show them as horizontal table") ── */
+   on the cards: "still not the good format" - "show them as horizontal table"). 10.11.2026: fitted to the window - last
+   year under the year's target, no "max" in the cells (Bernd Rausmann: "nobody's supposed to stop there"); the year's
+   target typed as an amount in place of the growth ("change the value of the target itself"); under each quarter running
+   or to come, the ERP's order book and its share of the quarter's target, where the weighting and the max were ── */
+
+/** Who may change the targets shown, and what to do with what the server keeps. */
+type Edit = { owner: string; onSaved: (t: PersonTargets) => void };
 
 function Mine({ st, cubeReady, labels, people, d, onSaved }: {
   st: MySales; cubeReady: NonNullable<ReturnType<typeof useCustomersCube>["cube"]>; labels: string[]; people: Set<number>;
@@ -98,6 +112,9 @@ function Mine({ st, cubeReady, labels, people, d, onSaved }: {
 }) {
   const m = useMemo(() => ({ ...revenueMeasures(cubeReady, labels), visits: visitsMeasure(d, people) }), [cubeReady, labels, d, people]);
   const reach = useMemo(() => ({ rev: cubeReach(cubeReady), visits: visitsReach(d) }), [cubeReady, d]);
+  const ob = useOrderBook();
+  // the order book of the person's customers: their SAE names, as the revenue is measured
+  const book = useMemo(() => (ob ? sumBooks(labels.map((l) => ob.sae[l])) : null), [ob, labels]);
   if (!st.subject) {
     return (
       <Note title="No figures of your own here">
@@ -107,75 +124,160 @@ function Mine({ st, cubeReady, labels, people, d, onSaved }: {
   }
   if (!st.targets) return <Note title="The targets are not given to you">Ask an admin for Targets in Settings, People.</Note>;
   const set = st.targets;
-  const rows = TARGETS.map((t) => rowOf(t, m[t.id], set[t.id], t.id === "visits" ? reach.visits : reach.rev, weightsOf(set, t.id), !!set.weights?.[t.id]));
-  const cols: Col<Row>[] = [
-    { key: "py", head: "Last year", cell: (r) => (r.id === "visits" ? <span style={{ color: FAINT }}>{int(r.m.py)} meetings</span> : eur(r.m.py)) },
-    { key: "set", head: "Target set", tip: "A growth on last year in %, an amount, a number of visits - as the VPP sheet has them",
-      cell: (r) => (
-        <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", gap: 0.4 }}>
-          <SetField def={targetDefOf(r.id)} row={r} canEdit={st.canEdit} owner={st.subject!.id} onSaved={onSaved} />
-          <WeightsField row={r} canEdit={st.canEdit} owner={st.subject!.id} onSaved={onSaved} />
-        </Box>
-      ) },
-    { key: "year", head: `Target ${st.year}`, tip: "100 % - the target; 120 % - the most it counts, as the VPP sheet's Max", cell: (r) => (r.year == null ? <span style={{ color: FAINT }}>—</span> : (
-      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
-        <b>{fmtOf(r.id)(r.year)}</b>
-        <span style={{ fontSize: "0.72rem", color: MUTED }}>max {fmtOf(r.id)(r.year * MAX_SHARE)}</span>
-      </Box>
-    )) },
-    ...QS.map((q, k): Col<Row> => ({ key: q, head: q, cell: (r) => quarterCell(r, k) })),
-    { key: "ytd", head: "Year to date", cell: (r) => (
-      <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
-        <b>{fmtOf(r.id)(r.m.ytd)}</b>
-        {r.id !== "visits" && <span style={{ fontSize: "0.72rem", color: MUTED }}>{fmtOf(r.id)(r.m.ytdPy)} a year earlier</span>}
-      </Box>
-    ) },
-    // what is due by now, and how far it is reached: in the rings under the table
-  ];
+  const runQ = Math.floor(reach.rev.month / 3);
+  const rows = TARGETS.map((t) => rowOf(t, m[t.id], set, t.id === "visits" ? reach.visits : reach.rev,
+    t.id === "visits" || !book ? null : bookQuarters(book[t.id as BookKey], st.year, runQ)));
+  const edit: Edit | null = st.canEdit ? { owner: st.subject.id, onSaved } : null;
+  const day = ob ? dayWords(ob.day) : null;
   return (
     <>
       <ChartBox title={`${st.subject.name}'s targets, ${st.year}`}
-        hint={`${st.canEdit ? "Type each target in its row - a growth on last year, an amount, a number of visits - and, under it, how it falls on the quarters. " : ""}As the VPP sheet reckons it: each quarter's part is the year's target times its period weighting (the sheet's 25.6 / 25 / 24.6 / 24.8 %, visits 26.5 / 27.5 / 22 / 24 %, unless set otherwise) - 100 % the target, 120 % the most it counts; the year to date against what is due by now`}>
-        <FullTable<Row> first="Target" natural rows={rows} cols={cols} />
+        hint={`${st.canEdit ? "Type each target in its row - a growth on last year or the year's amount itself, an amount for the new customers, a number of visits - and, under it, how it falls on the quarters. " : ""}As the VPP sheet reckons it: each quarter's part is the year's target times its period weighting - 100 % the target, 120 % the most it counts; the year to date against what is due by now${day ? `. Under each quarter running or to come, the order book - ordered, not invoiced yet, due in it (overdue in the running one) - and its share of the quarter's target: the ERP's order book of ${day}` : ""}`}>
+        <TargetsTable rows={rows} year={st.year} edit={edit} day={day} />
       </ChartBox>
       <TargetRings rows={rows} year={st.year} />
     </>
   );
 }
 
-/** A target's row: what was measured, what was set, its year's target, its quarters by its weights (w, fractions; own: not the sheet's). */
-type Row = { label: string; id: TargetId; m: Measured; set: number | undefined; year: number | null; quarters: number[] | null; due: number | null; reach: Reach; w: number[]; own: boolean };
-function rowOf(t: TargetDef, m: Measured, set: number | undefined, reach: Reach, w: number[], own: boolean): Row {
-  const year = yearTarget(t.id, set, m.py);
+/** The ERP's order book by person (/api/reporting/my-sales/order-book) - null until read, and while the morning workbook carries none. */
+function useOrderBook(): BookBySae | null {
+  const [ob, setOb] = useState<BookBySae | null>(null);
+  useEffect(() => {
+    let live = true, tries = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = () => {
+      fetch("/api/reporting/my-sales/order-book").then((r) => r.json()).then((j) => {
+        if (!live) return;
+        if (j?.ok && j.sae) setOb(j as BookBySae);
+        // the customers' list is still being read beside the cube: once more in a while
+        else if (j?.pending && ++tries < 4) timer = setTimeout(read, 20_000);
+      }).catch(() => { /* no order book: the cells show none */ });
+    };
+    read();
+    return () => { live = false; if (timer) clearTimeout(timer); };
+  }, []);
+  return ob;
+}
+const dayWords = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** A target's row: what was measured, what was set (a growth, or the year's amount typed in its place), its year's target,
+ *  its quarters by its weights (w, fractions; own: not the sheet's), and its order book by quarter. */
+type Row = {
+  label: string; id: TargetId; m: Measured; set: number | undefined; amount: number | undefined; year: number | null; quarters: number[] | null;
+  due: number | null; reach: Reach; w: number[]; own: boolean; book: { q: number[]; later: number } | null;
+};
+function rowOf(t: TargetDef, m: Measured, set: PersonTargets, reach: Reach, book: Row["book"]): Row {
+  const w = weightsOf(set, t.id);
+  const year = yearTargetOf(set, t.id, m.py);
   const quarters = year != null ? quarterTargets(t.id, year, w) : null;
   // the short name, so the table fits beside its quarters - the rings carry the same
-  return { label: SHORT[t.id], id: t.id, m, set, year, quarters, due: quarters ? dueToDate(quarters, reach) : null, reach, w, own };
+  return { label: SHORT[t.id], id: t.id, m, set: set[t.id], amount: amountOf(set, t.id), year, quarters, due: quarters ? dueToDate(quarters, reach) : null, reach, w, own: !!set.weights?.[t.id], book };
 }
 const reachedTone = (a: number, t: number | null) => (t == null || t <= 0 ? FAINT : a >= t ? GREEN : RED);
-const quarterCell = (r: Row, k: number) => {
-  const runQ = Math.floor(r.reach.month / 3);
-  if (k > runQ) return r.quarters
-    ? <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3, color: FAINT }}><span>{fmtOf(r.id)(r.quarters[k])} to come</span><span style={{ fontSize: "0.68rem" }}>{weightWords(r, k)}</span></Box>
-    : <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3, color: FAINT }}><span>—</span><span style={{ fontSize: "0.68rem" }}>{weightWords(r, k)}</span></Box>;
-  const t = r.quarters?.[k] ?? null;
+const targetDefOf = (id: TargetId) => TARGETS.find((t) => t.id === id)!;
+
+/* the table: its own columns in fractions of the width, so it fits the window instead of running off it (SARCLA 10.11.2026:
+   "fit better the windows") - the look of the reports' other tables */
+const TH = { fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: 0.75, verticalAlign: "bottom", textAlign: "right" } as const;
+const TD = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums", lineHeight: 1.3, py: 1, px: 0.75, verticalAlign: "top", textAlign: "right" } as const;
+const STACK = { display: "inline-grid", justifyItems: "end", gap: 0.25, maxWidth: "100%" } as const;
+const SMALL = { fontSize: "0.72rem", lineHeight: 1.35 } as const;
+
+function TargetsTable({ rows, year, edit, day }: { rows: Row[]; year: number; edit: Edit | null; day: string | null }) {
   return (
-    <Box component="span" sx={{ display: "inline-grid", justifyItems: "end", lineHeight: 1.3 }}>
-      <b>{fmtOf(r.id)(r.m.q[k])}</b>
+    <Box sx={{ overflowX: "auto", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)" }}>
+      <Table size="small" sx={{ tableLayout: "fixed", width: "100%", minWidth: 820 }} aria-label="Targets">
+        <colgroup>
+          <col style={{ width: "11%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "13%" }} />
+          {QS.map((q) => <col key={q} style={{ width: "12.5%" }} />)}
+          <col style={{ width: "12%" }} />
+        </colgroup>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ ...TH, textAlign: "left", pl: 1.5 }}>Target</TableCell>
+            <TableCell sx={TH} title="A growth on last year in %, an amount, a number of visits - as the VPP sheet has them">Target set</TableCell>
+            <TableCell sx={TH} title="100 % - the target; 120 % - the most it counts, as the VPP sheet's Max">Target {year}</TableCell>
+            {QS.map((q) => <TableCell key={q} sx={TH}>{q}</TableCell>)}
+            <TableCell sx={TH}>Year to date</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((r) => (
+            <TableRow key={r.id}>
+              <TableCell sx={{ ...TD, textAlign: "left", fontWeight: 600, pl: 1.5 }}>{r.label}</TableCell>
+              <TableCell sx={TD}>
+                <Box component="span" sx={{ ...STACK, gap: 0.4 }}>
+                  <SetField def={targetDefOf(r.id)} row={r} edit={edit} />
+                  <WeightsField row={r} canEdit={!!edit} owner={edit?.owner ?? ""} onSaved={edit?.onSaved ?? (() => {})} />
+                </Box>
+              </TableCell>
+              <TableCell sx={TD}>{yearCell(r, edit)}</TableCell>
+              {QS.map((q, k) => <TableCell key={q} sx={TD}>{quarterCell(r, k, day)}</TableCell>)}
+              <TableCell sx={TD}>
+                <Box component="span" sx={STACK}>
+                  <b>{fmtOf(r.id)(r.m.ytd)}</b>
+                  {r.id !== "visits" && <span style={{ ...SMALL, color: MUTED }}>{fmtOf(r.id)(r.m.ytdPy)} a year earlier</span>}
+                </Box>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+}
+
+/** The year's target - typed as an amount for a growth target - and last year's figure under it (it was a column of its own). */
+function yearCell(r: Row, edit: Edit | null) {
+  const f = fmtOf(r.id);
+  const growth = targetDefOf(r.id).kind === "growth";
+  return (
+    <Box component="span" sx={{ ...STACK, gap: 0.4 }} title={r.year != null ? `120 %, the most it counts (the VPP sheet's Max): ${f(r.year * MAX_SHARE)}` : undefined}>
+      {growth && edit ? <AmountField row={r} edit={edit} />
+        : r.year == null ? <span style={{ color: FAINT }}>—</span> : <b>{f(r.year)}</b>}
+      {growth && r.amount != null && <span style={{ ...SMALL, color: TINT.purple.fg, fontWeight: 700 }}>set as an amount</span>}
+      <span style={{ ...SMALL, color: MUTED }}>{r.id === "visits" ? `${int(r.m.py)} meetings` : f(r.m.py)} last year</span>
+    </Box>
+  );
+}
+
+/**
+ * A quarter: what it reached against its part of the target; to come, its part. Under it, in the running quarter and those
+ * to come, the order book due in it and its share of the quarter's target (Bernd Rausmann, 10.11.2026: "show the relevant
+ * order book and the % of order book against the target") - none in a quarter closed, nothing can land there any more.
+ */
+const quarterCell = (r: Row, k: number, day: string | null) => {
+  const f = fmtOf(r.id);
+  const runQ = Math.floor(r.reach.month / 3);
+  const t = r.quarters?.[k] ?? null;
+  const ob = r.book && k >= runQ && r.book.q[k] > 0 ? r.book.q[k] : null;
+  const book = ob != null && (
+    <span style={{ ...SMALL, color: TINT.blue.fg }}
+      title={`Ordered, not invoiced yet, due in ${QS[k]}${k === runQ ? " - what is overdue or has no date counted here" : ""}: ${f(ob)}${t ? `, ${pct(ob / t)} of the quarter's target ${f(t)}; with what is invoiced${k === runQ ? " so far" : ""}, ${pct((r.m.q[k] + ob) / t)}` : ""}${day ? ` (the ERP's order book of ${day})` : ""}`}>
+      Order book {f(ob)}{t ? ` · ${pct(ob / t)}` : ""}
+    </span>
+  );
+  if (k > runQ) {
+    return (
+      <Box component="span" sx={STACK}>
+        <span style={{ color: FAINT }}>{t != null ? `${f(t)} to come` : "—"}</span>
+        {book}
+      </Box>
+    );
+  }
+  return (
+    <Box component="span" sx={STACK}>
+      <b>{f(r.m.q[k])}</b>
       {t != null
-        ? <>
-          <span style={{ fontSize: "0.72rem", color: reachedTone(r.m.q[k], k === runQ ? t * Math.min(1, (r.reach.month - k * 3 + r.reach.share) / 3) : t) }}>{pct(r.m.q[k] / t)} of {fmtOf(r.id)(t)}{k === runQ ? " · running" : ""}</span>
-          <span style={{ fontSize: "0.68rem", color: FAINT }} title={`${weightWords(r, k)} of the year's target; 120 %, the most it counts: ${fmtOf(r.id)(t * MAX_SHARE)}`}>{weightWords(r, k)} · max {fmtOf(r.id)(t * MAX_SHARE)}</span>
-        </>
-        : <>
-          {r.id !== "visits" && <span style={{ fontSize: "0.72rem", color: MUTED }}>{fmtOf(r.id)(r.m.qPy[k])} a year earlier</span>}
-          <span style={{ fontSize: "0.68rem", color: FAINT }}>{weightWords(r, k)} of the year</span>
-        </>}
+        ? <span style={{ ...SMALL, color: reachedTone(r.m.q[k], k === runQ ? t * Math.min(1, (r.reach.month - k * 3 + r.reach.share) / 3) : t) }}>{pct(r.m.q[k] / t)} of {f(t)}{k === runQ ? " · running" : ""}</span>
+        : r.id !== "visits" && <span style={{ ...SMALL, color: MUTED }}>{f(r.m.qPy[k])} a year earlier</span>}
+      {book}
     </Box>
   );
 };
-const targetDefOf = (id: TargetId) => TARGETS.find((t) => t.id === id)!;
-/** A quarter's weight in the year - the VPP sheet's "Period weighting" (25.6 %, visits 26.5 %…), or the person's own. */
-const weightWords = (r: Row, k: number) => `${(r.w[k] * 100).toFixed(1).replace(/\.0$/, "")} %`;
 
 /** How a target falls on the quarters: the sheet's weights, or the person's own - set in a small window (SARCLA 01.11.2026). */
 function WeightsField({ row, canEdit, owner, onSaved }: { row: Row; canEdit: boolean; owner: string; onSaved: (t: PersonTargets) => void }) {
@@ -281,36 +383,85 @@ function Ring({ r }: { r: Row }) {
   );
 }
 
-/** A target, typed in its row: a growth in %, an amount, a number - saved when the field is left. */
-function SetField({ def, row, canEdit, owner, onSaved }: { def: TargetDef; row: Row; canEdit: boolean; owner: string; onSaved: (t: PersonTargets) => void }) {
+/** A change of a target, kept by the server - its targets as now kept, or why not. */
+async function putTarget(body: Record<string, unknown>): Promise<{ ok: true; targets: PersonTargets } | { ok: false; error: string }> {
+  const r = await fetch("/api/reporting/my-sales", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  return r.ok && j.ok ? { ok: true, targets: j.targets } : { ok: false, error: j.error ?? "Not saved." };
+}
+
+/** A number typed in its cell, saved when the field is left (Enter too; Escape puts it back). save: an error, or null. */
+function NumberField({ value, unit, width, label, faint, title, check, save }: {
+  value: string; unit: string; width: number; label: string; faint?: boolean; title?: string;
+  check: (text: string) => { ok: true; value: number | null } | { ok: false; error: string };
+  save: (v: number | null) => Promise<string | null>;
+}) {
   const [text, setText] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const shown = text ?? (row.set == null ? "" : def.kind === "growth" ? String(row.set) : row.set.toLocaleString("en"));
-  const unit = def.kind === "growth" ? "%" : def.kind === "eur" ? "€" : "visits";
-  const save = async () => {
+  const done = async () => {
     if (text == null) return;
-    const c = checkTarget(def.id, text.trim() === "" ? null : text);
+    const c = check(text.trim());
     if (!c.ok) { setErr(c.error); return; }
-    if (c.value === (row.set ?? null)) { setText(null); setErr(null); return; }
     setBusy(true);
     try {
-      const r = await fetch("/api/reporting/my-sales", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ owner, target: def.id, value: c.value }) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) { setErr(j.error ?? "Not saved."); return; }
-      onSaved(j.targets); setText(null); setErr(null);
+      const e = await save(c.value);
+      if (e) setErr(e); else { setText(null); setErr(null); }
     } finally { setBusy(false); }
   };
-  if (!canEdit) return <span style={{ color: row.set == null ? FAINT : INK, fontWeight: 700 }}>{row.set == null ? "not set" : `${def.kind === "growth" && row.set > 0 ? "+" : ""}${shown} ${unit}`}</span>;
   return (
-    <Box component="span" title={err ?? undefined} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, border: `1px solid ${err ? RED : "rgba(21,34,58,.16)"}`, borderRadius: "10px", px: 1, bgcolor: "#fff" }}>
-      <InputBase value={shown} disabled={busy} placeholder="set it" inputProps={{ inputMode: "decimal", "aria-label": `${def.name}: target` }}
-        onChange={(e) => { setText(e.target.value); setErr(null); }} onBlur={() => { void save(); }}
+    <Box component="span" title={err ?? title} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, maxWidth: "100%", border: `1px solid ${err ? RED : "rgba(21,34,58,.16)"}`, borderRadius: "10px", px: 1, bgcolor: "#fff" }}>
+      <InputBase value={text ?? value} disabled={busy} placeholder="set it" inputProps={{ inputMode: "decimal", "aria-label": label }}
+        onChange={(e) => { setText(e.target.value); setErr(null); }} onBlur={() => { void done(); }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); if (e.key === "Escape") { setText(null); setErr(null); } }}
-        sx={{ width: def.kind === "growth" ? 58 : 88, fontSize: "0.84rem", fontWeight: 700, "& input": { textAlign: "right", py: 0.4 } }} />
+        sx={{ width, maxWidth: "100%", fontSize: "0.84rem", fontWeight: 700, color: faint && text == null ? FAINT : INK, "& input": { textAlign: "right", py: 0.4 } }} />
       <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED }}>{unit}</Typography>
     </Box>
+  );
+}
+
+/** A target, typed in its row: a growth in %, an amount, a number. A growth target whose year's amount was typed shows the
+ *  growth that amount makes, faint - typing a growth uses it again. */
+function SetField({ def, row, edit }: { def: TargetDef; row: Row; edit: Edit | null }) {
+  const unit = def.kind === "growth" ? "%" : def.kind === "eur" ? "€" : "visits";
+  const implied = def.kind === "growth" && row.amount != null ? impliedGrowth(row.amount, row.m.py) : null;
+  const value = def.kind === "growth" && row.amount != null ? (implied == null ? "" : String(implied))
+    : row.set == null ? "" : def.kind === "growth" ? String(row.set) : row.set.toLocaleString("en");
+  if (!edit) {
+    return <span style={{ color: !value ? FAINT : implied != null ? MUTED : INK, fontWeight: 700 }}>{!value ? "not set" : `${def.kind === "growth" && Number(value) > 0 ? "+" : ""}${value} ${unit}`}</span>;
+  }
+  return (
+    <NumberField value={value} unit={unit} width={def.kind === "growth" ? 58 : 80} label={`${def.name}: target`} faint={implied != null}
+      title={implied != null ? "The growth the amount set under the year's target makes - type a growth to use it instead" : undefined}
+      check={(t) => checkTarget(def.id, t === "" ? null : t)}
+      save={async (v) => {
+        if (row.amount == null && v === (row.set ?? null)) return null;
+        const r = await putTarget({ owner: edit.owner, target: def.id, value: v });
+        if (!r.ok) return r.error;
+        edit.onSaved(r.targets);
+        return null;
+      }} />
+  );
+}
+
+/** A growth target's year's amount, typed in place of the growth (SARCLA 10.11.2026: "allow also to change the value of the
+ *  target itself") - emptied, the growth counts again. */
+function AmountField({ row, edit }: { row: Row; edit: Edit }) {
+  const worked = row.year == null ? null : Math.round(row.year);
+  return (
+    <NumberField value={worked == null ? "" : worked.toLocaleString("en")} unit="€" width={84} label={`${row.label}: the year's target`}
+      title={row.amount != null ? "Set as an amount - empty it to use the growth again" : worked != null ? "Worked out from the growth - type an amount to set the target itself" : "Type the year's target, or a growth beside it"}
+      check={(t) => checkAmount(t === "" ? null : t)}
+      save={async (v) => {
+        // nothing set as an amount yet: emptied, or the very amount the growth makes - nothing to keep
+        if (row.amount == null && (v == null || v === worked)) return null;
+        if (v === (row.amount ?? null)) return null;
+        const r = await putTarget({ owner: edit.owner, target: row.id, amount: v });
+        if (!r.ok) return r.error;
+        edit.onSaved(r.targets);
+        return null;
+      }} />
   );
 }
 

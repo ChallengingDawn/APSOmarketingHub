@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { DIMS, fold, monthOf, type CompanyIn, type Cube, type Dim } from "../src/lib/marketingKpis/cube";
-import { MAX_SHARE, TARGETS, checkTarget, checkWeights, cleanAll, quarterTargets, sheetWeights, targetToQuarter, weightsOf, yearTarget } from "../src/lib/reporting/mySalesRules";
+import { MAX_SHARE, TARGETS, amountOf, checkAmount, checkTarget, checkWeights, cleanAll, impliedGrowth, quarterTargets, sheetWeights, targetToQuarter, weightsOf, yearTarget, yearTargetOf } from "../src/lib/reporting/mySalesRules";
 import { cubeReach, dueToDate, revenueByPerson, revenueMeasures, visitsByPerson, visitsMeasure } from "../src/lib/reporting/mySalesFigures";
 import type { VisitsData } from "../src/lib/reporting/visitsRules";
 
@@ -124,4 +124,25 @@ test("each person's own period weighting, else the sheet's - four quarters makin
   // kept with the targets; a bad split dropped
   assert.deepEqual(cleanAll({ "7": { own: 10, weights: { own: [30, 25, 20, 25], kt: [90, 90, 0, 0] } } })["7"], { own: 10, weights: { own: [30, 25, 20, 25] } });
   assert.equal(MAX_SHARE, 1.2);
+});
+
+test("a growth target's year typed as an amount in place of the growth (SARCLA 10.11.2026: \"change the value of the target itself\")", () => {
+  // Target 1 of the sheet: 620,462 last year; 803,188 typed as the amount - the same target as +29.45 %, and it stays put
+  assert.equal(yearTargetOf({ own: 29.45, amounts: { own: 803_188 } }, "own", 620_462), 803_188);
+  assert.equal(yearTargetOf({ own: 29.45, amounts: { own: 803_188 } }, "own", 700_000), 803_188); // last year moved: the amount did not
+  assert.equal(Math.round(yearTargetOf({ own: 29.45 }, "own", 620_462)!), 803_188); // no amount: the growth, as before
+  assert.equal(yearTargetOf({ amounts: { own: 500_000 } }, "own", 0), 500_000); // no last year needed for an amount
+  assert.equal(impliedGrowth(803_188, 620_462), 29.45);
+  assert.equal(impliedGrowth(500_000, 0), null);
+  // an amount only stands in for a growth: the new customers' and the visits' targets are amounts / numbers already
+  assert.equal(amountOf({ new: 40_000, amounts: { new: 99_000 } }, "new"), undefined);
+  assert.equal(yearTargetOf({ new: 40_000, amounts: { new: 99_000 } }, "new", 0), 40_000);
+  // what may be typed: to the euro, up to €100 million, with the separators people type; empty clears it
+  assert.deepEqual(checkAmount("449'103"), { ok: true, value: 449_103 });
+  assert.deepEqual(checkAmount("€ 1,250,000.4"), { ok: true, value: 1_250_000 });
+  assert.deepEqual(checkAmount(""), { ok: true, value: null });
+  assert.equal(checkAmount("-5").ok, false);
+  assert.equal(checkAmount("abc").ok, false);
+  // kept clean: growth targets only, within bounds
+  assert.deepEqual(cleanAll({ "7": { own: 10, amounts: { own: 450_000, dt: "x", new: 5, visits: 9 } } })["7"], { own: 10, amounts: { own: 450_000 } });
 });

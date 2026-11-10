@@ -27,6 +27,7 @@ import { Figures3, Figures4, PyFloat, SHEET_CUSTOMERS, SHEET_PROFIT_CENTRES, pyR
 import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/boErpLines";
 import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
 import { ArticlesSheet, SHEET_ARTICLES, SHEET_SUPPLIERS, SuppliersSheet } from "./productFactsRules";
+import { OrderBookSheet, SHEET_ORDER_BOOK, isOrderBookHead, type OrderBookResult } from "../../reporting/orderBookRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -486,7 +487,7 @@ async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat
 
 /* -- the BI sheets, recognised by their columns -------------------------- */
 
-export type KpiKind = "lines" | "invoices" | "articles" | "suppliers";
+export type KpiKind = "lines" | "invoices" | "articles" | "suppliers" | "orderbook";
 const headName = (c: Cell) => String(c instanceof Date ? "" : c ?? "").replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 /** A row's column names -> which BI sheet it heads (each reader's own header test), or null. */
 export function kpiKindOf(cells: Cell[]): KpiKind | null {
@@ -495,6 +496,7 @@ export function kpiKindOf(cells: Cell[]): KpiKind | null {
   if (n.has("invoicenumber") && n.has("invoicedate")) return "invoices";
   if (n.has("suppliernumber") && n.has("suppliername")) return "suppliers";
   if (n.has("article") && n.has("gwstdpchf")) return "articles";
+  if (isOrderBookHead(n)) return "orderbook";
   return null;
 }
 /** The first 30 rows of a sheet tell what it is (the rest is never read here). */
@@ -523,8 +525,12 @@ export type ErpWorkbook = {
   articles: Map<string, string> | null;
   /** OTD Reports: article -> [planned "J"/"N", replenishment days] when the articles sheet carries them */
   articlePlanning: Map<string, [string, number]> | null;
+  /** the ERP's order book per customer, profit centre and month due (sheet "KPI ORDER BOOK", ../../reporting/orderBookRules.ts) -
+   *  null without that sheet; orderBookError when it was there and could not be read (never the revenue's problem) */
+  orderBook: OrderBookResult | null;
+  orderBookError?: string;
   /** which sheet was read as what - by its name ("KPI LINES" ...) or, named otherwise ("Query1"), by its columns */
-  kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null };
+  kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null; orderBook: string | null };
   rows: number;
   seconds: number;
 };
@@ -577,6 +583,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     invoices: book.sheets.filter((x) => up(x).startsWith(SHEET_INVOICES)).map((x) => x.name),
     articles: book.sheets.find((x) => up(x) === SHEET_ARTICLES)?.name ?? null,
     suppliers: book.sheets.find((x) => up(x) === SHEET_SUPPLIERS)?.name ?? null,
+    orderBook: book.sheets.find((x) => up(x) === SHEET_ORDER_BOOK)?.name ?? null,
   };
   for (const x of book.sheets) {
     if (/^FIGURES\b/.test(up(x)) || up(x).startsWith("KPI ")) continue;
@@ -587,6 +594,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     else if (kind === "invoices") kpi.invoices.push(x.name);
     else if (kind === "articles") kpi.articles ??= x.name;
     else if (kind === "suppliers") kpi.suppliers ??= x.name;
+    else if (kind === "orderbook") kpi.orderBook ??= x.name;
   }
   // the order lines for the Back Office's KPIs: optional, and never the revenue's problem
   let erpLines: { lines: ErpLine[]; rows: number } | null = null;
@@ -622,5 +630,14 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     articles = sa.finish();
     articlePlanning = sa.planning();
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, articlePlanning, kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  // the order book for My Sales Reports' targets: optional, and never the revenue's problem
+  let orderBook: OrderBookResult | null = null, orderBookError: string | undefined;
+  if (kpi.orderBook) {
+    try {
+      const so = new OrderBookSheet();
+      rows += await readSheet(file, part(kpi.orderBook)!, book, (n, cells) => so.feed(n, cells), beat);
+      orderBook = so.finish();
+    } catch (e) { orderBookError = String((e as Error)?.message ?? e).slice(0, 200); }
+  }
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, articlePlanning, orderBook, ...(orderBookError ? { orderBookError } : {}), kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

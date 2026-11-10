@@ -376,7 +376,7 @@ test("reader: the BI sheets recognised by their columns when they keep the names
   ], null, styles));
   let asked = 0;
   const wb = await readErpWorkbook(file, undefined, { articleFilter: async () => { asked++; return () => true; } });
-  assert.deepEqual(wb.kpiSheets, { lines: "Query1", invoices: ["Query2"], articles: "Query3", suppliers: "Query4" });
+  assert.deepEqual(wb.kpiSheets, { lines: "Query1", invoices: ["Query2"], articles: "Query3", suppliers: "Query4", orderBook: null });
   assert.equal(wb.erpLines!.lines.length, 1);
   assert.equal(wb.invoices![0].number, "R26-1");
   assert.equal(asked, 1);
@@ -385,8 +385,24 @@ test("reader: the BI sheets recognised by their columns when they keep the names
   const bare = join(dir, "b.xlsx");
   writeFileSync(bare, workbook([["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], ["Sheet1", sheetXml([["notes"]], "A1")]], null, null));
   const wb2 = await readErpWorkbook(bare, undefined, { articleFilter: async () => { asked++; return () => true; } });
-  assert.deepEqual(wb2.kpiSheets, { lines: null, invoices: [], articles: null, suppliers: null });
+  assert.deepEqual(wb2.kpiSheets, { lines: null, invoices: [], articles: null, suppliers: null, orderBook: null });
+  assert.equal(wb2.orderBook, null);
   assert.equal(asked, 1);
+}));
+
+test("reader: the ERP's order book sheet, by its columns as Query7 or by its name - My Sales Reports' targets (SARCLA 10.11.2026)", withDir(async (dir) => {
+  const day = (serial: number) => ({ xml: `<c r="@" s="1"><v>${serial}</v></c>` }); // 46337 = 2026-11-11
+  const styles = `<styleSheet ${NS.split(" ")[0]}><numFmts><numFmt numFmtId="164" formatCode="dd.mm.yyyy"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>`;
+  const ob = { 1: ["[Customer]", "[ProfitCenter]", "[DeliveryDate]", "[OrderBookEUR]"], 2: ["100-700527", "DT", day(46337), 1200.5], 3: ["110-55", "KT", day(46337), 300] };
+  const file = join(dir, "revenue_profit_center.xlsx");
+  writeFileSync(file, workbook([["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], ["Query7", sheetXml(ob, "A1:D3")]], null, styles));
+  const wb = await readErpWorkbook(file);
+  assert.equal(wb.customers.customers.size, 2); // the revenue read as before
+  assert.equal(wb.kpiSheets.orderBook, "Query7");
+  assert.deepEqual(wb.orderBook!.book, [["100-700527", "dt", "2026-11", 1200.5], ["110-55", "kt", "2026-11", 300]]);
+  const named = join(dir, "n.xlsx");
+  writeFileSync(named, workbook([["FIGURES (3)", sheetXml(sheet3(), "A1:V21")], ["KPI ORDER BOOK", sheetXml(ob, "A1:D3")]], null, styles));
+  assert.equal((await readErpWorkbook(named)).orderBook!.total, 1501);
 }));
 
 test("reader: a file that is not an .xlsx says what it is", withDir(async (dir) => {
