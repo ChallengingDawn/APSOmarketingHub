@@ -21,7 +21,7 @@ const arrowsFor = (store: string) => ARROWS[langOf(store)] ?? ARROWS.en;
 
 /** A product photo on white, in a box of the module's own class. */
 const photo = (c: Card, o: Opts, cls: string, lazy = true) => `<span class="${cls}">${pic(c, o, lazy)}</span>`;
-const PHOTO_IMG = (sel: string, inset = "8%") => `@@ ${sel} img{position:absolute;left:${inset};top:${inset};width:calc(100% - 2 * ${inset});height:calc(100% - 2 * ${inset});object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);transition:transform .35s}`;
+const PHOTO_IMG = (sel: string, inset = "8%") => `@@ ${sel} img{position:absolute;left:${inset};top:${inset};width:calc(100% - 2 * ${inset});height:calc(100% - 2 * ${inset});object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);transition:transform .35s}`;
 
 /* ── carousel: pages of four, arrows and a progress line ─────────────── */
 
