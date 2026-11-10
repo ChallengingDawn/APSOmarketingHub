@@ -309,7 +309,12 @@ const headNoun = (s: string) => {
   return s.split(/\s+(?:with|over|beside|of|in|on|for|from|and|under|above|by|at|to|as)\s+/i)[0].trim().split(" ").pop() ?? "";
 };
 const article = (s: string) => (/[^su]s$/i.test(headNoun(s)) ? "" : /^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
-const withArticle = (s: string) => { const a = article(s); return a ? `${a} ${s}` : s; };
+const withArticle = (s: string) => {
+  // a name that is a sentence ("Help is near") is said as the module's name
+  if (/\b(is|are)\b/i.test(s)) return `"${s.charAt(0).toUpperCase()}${s.slice(1)}"`;
+  const a = article(s);
+  return a ? `${a} ${s}` : s;
+};
 const quoteOf = (p: PagePart | undefined): string => {
   if (!p) return "the page";
   if (p.kind !== "page") return `the ${lower(libModule(p.module)?.name ?? "block")}${p.heading ? ` "${cutWords(p.heading, 26)}"` : ""}`;
