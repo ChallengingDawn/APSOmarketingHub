@@ -14,6 +14,16 @@ import { parseHtml, parseSelector, selectAll } from "../content/studio/kinds/pag
 export const PREVIEW_MARK = "apsoPreview";
 
 /** The frame's rules: the shop's own files only, no request out, no form, no frame inside, shown only by the hub. */
+/** A YouTube video's still picture in place of its frame, filling Page Builder's 16:9 video box, with a play mark. */
+export function youtubeStill(id: string): string {
+  const fill = "position:absolute;top:0;left:0;width:100%;height:100%";
+  return `<img src="${YT_STILLS}/vi/${id}/hqdefault.jpg" alt="" data-element="video" data-apx-video="${id}" style="${fill};object-fit:cover;display:block;border:0">`
+    + `<span aria-hidden="true" style="position:absolute;left:50%;top:50%;width:68px;height:48px;margin:-24px 0 0 -34px;border-radius:12px;background:rgba(216,9,1,.92);pointer-events:none">`
+    + `<span style="position:absolute;left:27px;top:14px;border-style:solid;border-width:10px 0 10px 17px;border-color:transparent transparent transparent #fff"></span></span>`;
+}
+/** Where YouTube keeps its videos' still pictures - the only other place the preview's frame may load pictures from. */
+export const YT_STILLS = "https://i.ytimg.com";
+
 export function previewCsp(origin: string, hub?: string): string {
   const files = hub ? ` ${hub}/api/website/ai-personalization/asset/` : "";
   const shop = [origin, "https://www.apsoparts.com"].filter((v, i, a) => a.indexOf(v) === i).join(" ") + files;
@@ -23,7 +33,7 @@ export function previewCsp(origin: string, hub?: string): string {
     `script-src 'unsafe-inline' 'unsafe-eval' ${shop}`,
     `style-src 'unsafe-inline' ${shop} https://use.typekit.net`,
     `font-src data: ${shop} https://use.typekit.net`,
-    `img-src data: blob: ${shop}`,
+    `img-src data: blob: ${shop} ${YT_STILLS}`,
     `media-src ${shop}`,
     hub ? `connect-src${files}` : "connect-src 'none'",
     "frame-src 'none'",
@@ -226,6 +236,9 @@ export function cleanPage(html: string, opts: { pageUrl: string; head: string; t
   // prefetch / preconnect hints and the page's own <base>
   out = out.replace(/<link\b[^>]*\brel\s*=\s*["']?(prefetch|prerender|preconnect|dns-prefetch)["']?[^>]*>/gi, () => { removed.prefetch++; return ""; });
   out = out.replace(/<base\b[^>]*>/gi, "");
+  // a YouTube video (Page Builder's video block): the frame may not load other sites, so the video's own still picture
+  // stands where it plays, with a play mark (SARCLA 10.11.2026: "why photo from the photo are not working" - About us)
+  out = out.replace(/<iframe\b[^>]*\bsrc\s*=\s*["']https?:\/\/(?:www\.)?youtube(?:-nocookie)?\.com\/embed\/([\w-]{6,20})[^"']*["'][^>]*>\s*<\/iframe\s*>/gi, (_all, id: string) => youtubeStill(id));
   // the theme's icon sprite: a frame of its own origin may not <use> it from the shop, so it comes inside the page
   if (opts.sprite) {
     const sp = opts.sprite;

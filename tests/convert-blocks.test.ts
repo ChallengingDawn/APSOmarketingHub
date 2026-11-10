@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BLOCK, blockPage, blocksIn, clicksPerPart, nameOf, partName, partsWithClicks, shopPart, versionLabel, versionStep, weakBlock } from "../src/lib/convert/blockRules";
-import { markFocus } from "../src/lib/convert/preview";
+import { cleanPage, markFocus, previewCsp } from "../src/lib/convert/preview";
 import { pageDoc } from "../src/lib/content/studio/kinds/page/model";
 import { pageMap } from "../src/lib/content/studio/kinds/page/plan/places";
 import { cleanPlan, pageWords } from "../src/lib/content/studio/kinds/page/plan/plan";
@@ -116,4 +116,13 @@ test("the still Before picture opens at a block the hub found, whatever its sele
   const quote = map.parts.find((p) => p.heading.startsWith("Warum"))!;
   const h2 = markFocus(PAGE, quote.selector);
   assert.ok(h2.indexOf("apso-focus") < h2.indexOf("Warum unsere Kunden") && h2.indexOf("apso-focus") > h2.indexOf("Willkommen"));
+});
+
+test("a YouTube video the preview may not load shows its own still picture with a play mark (About us)", () => {
+  const html = `<!doctype html><html><head></head><body><div class="pagebuilder-video-container"><iframe frameborder="0" allowfullscreen="" src="https://www.youtube.com/embed/TfCflmQYwhk?" data-element="video"></iframe></div></body></html>`;
+  const out = cleanPage(html, { pageUrl: "https://www.apsoparts.com/de-CH/support/about-us", head: "", tail: "" }).html;
+  assert.doesNotMatch(out, /<iframe/);
+  assert.match(out, /<img src="https:\/\/i\.ytimg\.com\/vi\/TfCflmQYwhk\/hqdefault\.jpg"/);
+  assert.match(previewCsp("https://www.apsoparts.com"), /img-src [^;]*https:\/\/i\.ytimg\.com/);
+  assert.match(previewCsp("https://www.apsoparts.com"), /frame-src 'none'/);
 });
