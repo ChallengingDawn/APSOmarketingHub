@@ -158,7 +158,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
 
   /** products of one category (a row, a bento) - the bento's big tile is the category itself */
   const fillCategory = (node: { name: string; url: string }) => run(`Reading ${node.name} on the shop…`, async () => {
-    const r = await api.act<{ category: CategoryOut }>("module_category", { store: ctl.store, url: node.url });
+    const r = await api.act<{ category: CategoryOut; cleaned?: string }>("module_category", { store: ctl.store, url: node.url, count: want() });
     if (!r.ok) return `${r.error} Pick another category, or paste product numbers.`;
     const c = r.result.category;
     const list = c.products.length ? c.products : c.subs;
@@ -170,7 +170,7 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
       ...(k0.fields.some((f) => f.kind === "feature") && !cur0.settings.feature ? { feature: { kind: "category", name: c.name, url: c.url, img: c.img || c.subs[0]?.img || "", meta: c.count, number: "", children: [] } } : {}),
     };
     fillWith(list.slice(0, want()), { how: "category", category: c.url, numbers: "", ask: "", at: now(), missing: [] }, patch,
-      `Filled the ${k.name.toLowerCase()} from ${c.name}`, `${c.name}: its first ${Math.min(list.length, want())} ${c.products.length ? "products" : "subcategories"} as the shop lists them.`);
+      `Filled the ${k.name.toLowerCase()} from ${c.name}`, `${c.name}: its first ${Math.min(list.length, want())} ${c.products.length ? "products" : "subcategories"} as the shop lists them.${r.result.cleaned ? ` ${r.result.cleaned}` : ""}`);
     setWithin({ name: c.name, url: c.url });
     return null;
   });
@@ -192,11 +192,13 @@ export function ModulePanel({ ctl, api, onBack, pageCategory }: {
   });
 
   const fillNumbers = () => run("Looking the numbers up on the shop…", async () => {
-    const r = await api.act<{ cards: Card[]; missing: Missing[] }>("module_numbers", { store: ctl.store, text: numbers, count: k.max || 12 });
+    const r = await api.act<{ cards: Card[]; missing: Missing[]; flagged?: Missing[] }>("module_numbers", { store: ctl.store, text: numbers, count: k.max || 12 });
     if (!r.ok) return r.error;
     if (!r.result.cards.length) { setMsg({ tone: "warn", text: "None of them was found on the shop.", missing: r.result.missing }); return null; }
+    // a product asked for by number stays, on clearance or not - but it is said
+    const flagged = r.result.flagged ?? [];
     fillWith(r.result.cards, { how: "numbers", category: "", numbers: numbers.slice(0, 600), ask: "", at: now(), missing: r.result.missing.map((x) => x.number) }, {},
-      `Filled the ${k.name.toLowerCase()} by number`, `${r.result.cards.length} found on the shop.${r.result.missing.length ? ` ${r.result.missing.length} not:` : ""}`, r.result.missing);
+      `Filled the ${k.name.toLowerCase()} by number`, `${r.result.cards.length} found on the shop.${r.result.missing.length ? ` ${r.result.missing.length} not found.` : ""}${flagged.length ? ` ${flagged.length} on clearance or replaced (kept).` : ""}`, [...flagged, ...r.result.missing]);
     return null;
   });
 

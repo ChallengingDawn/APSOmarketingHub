@@ -14,7 +14,7 @@
 
 import type { Card } from "../modules/types";
 import { moduleDef } from "../modules/registry";
-import { cardsForNumbers, categoryCard, shopCategory, shopTree, topCards } from "../modules/source";
+import { cardsForNumbers, categoryCard, cleanCards, cleanedNote, shopCategory, shopTree, topCards } from "../modules/source";
 import { libModule } from "./library";
 import type { FillSpec } from "./plan";
 
@@ -66,17 +66,21 @@ export async function fillModule(o: { module: string; fill: FillSpec; store: str
       note = "The products you named, from the shop.";
     } else if (f.how === "category" && category) {
       const c = await shopCategory(category, store);
-      items = c.products.slice(0, count);
+      items = c.products.slice(0, count + 8);
       note = `${c.name || "The category"}'s products, as the shop lists them.`;
       // a category whose page lists subcategories only: their first products
       if (!items.length && c.subs.length) {
         for (const s of c.subs) {
           if (items.length >= count) break;
           const sub = await shopCategory(s.url, store).catch(() => null);
-          for (const p of sub?.products ?? []) { if (items.length < count && !items.some((x) => x.url === p.url)) items.push(p); }
+          for (const p of sub?.products ?? []) { if (items.length < count + 8 && !items.some((x) => x.url === p.url)) items.push(p); }
         }
         note = `Products of ${c.name || "the category"}'s subcategories, as the shop lists them.`;
       }
+      // none on clearance or replaced, no sticker on a photo (builder B, ../modules/source.ts cleanCards)
+      const k = await cleanCards(items, count);
+      items = k.cards;
+      note += cleanedNote({ clearance: k.clearance + c.cleared, photo: k.photo });
     } else {
       const how = f.how === "viewed" ? "viewed" : "bought";
       const r = await topCards(how, store, count, category || undefined);
