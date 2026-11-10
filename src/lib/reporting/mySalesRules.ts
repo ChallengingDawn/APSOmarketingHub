@@ -39,7 +39,15 @@ export const QUARTER_WEIGHT: Record<"revenue" | "visits", readonly number[]> = {
  * its own quarter weights in % (SARCLA 01.11.2026: "I don't understand how to set the target for quarters without period
  * weighting" - each person's sheet has its own column); who set it last, and when.
  */
-export type PersonTargets = Partial<Record<TargetId, number>> & { weights?: Partial<Record<TargetId, number[]>>; by?: string; at?: string };
+export type PersonTargets = Partial<Record<TargetId, number>> & {
+  weights?: Partial<Record<TargetId, number[]>>;
+  /**
+   * a growth target typed as the year's amount itself, in place of the growth on last year (SARCLA 10.11.2026: "allow also
+   * to change the value of the target itself, override the calculation") - it stays put when last year's figure moves
+   */
+  amounts?: Partial<Record<TargetId, number>>;
+  by?: string; at?: string;
+};
 
 /** The sheet's quarter weights for a target, in % (25.6, 25, 24.6, 24.8; visits 26.5, 27.5, 22, 24). */
 export const sheetWeights = (id: TargetId): number[] => (id === "visits" ? QUARTER_WEIGHT.visits : QUARTER_WEIGHT.revenue).map((w) => Math.round(w * 1000) / 10);
@@ -66,6 +74,28 @@ export const MAX_SHARE = 1.2;
 export function yearTarget(id: TargetId, set: number | undefined, py: number): number | null {
   if (set == null || !Number.isFinite(set)) return null;
   return targetDef(id).kind === "growth" ? py * (1 + set / 100) : set;
+}
+
+/** A growth target's amount, when the year's amount was typed in place of the growth; never for the other kinds. */
+export const amountOf = (t: PersonTargets | null | undefined, id: TargetId): number | undefined =>
+  targetDef(id).kind === "growth" ? t?.amounts?.[id] : undefined;
+
+/** A person's year's target: the amount typed in its place, else last year and the growth on it, else the amount / number set. */
+export function yearTargetOf(t: PersonTargets | null | undefined, id: TargetId, py: number): number | null {
+  return amountOf(t, id) ?? yearTarget(id, t?.[id], py);
+}
+
+/** The growth on last year a year's amount makes, in % to two decimals - none without last year's figure. */
+export const impliedGrowth = (amount: number, py: number): number | null => (py > 0 ? Math.round((amount / py - 1) * 10_000) / 100 : null);
+
+/** A year's amount typed in place of a growth: up to €100 million, to the euro - or why not. null clears it. */
+export function checkAmount(value: unknown): { ok: true; value: number | null } | { ok: false; error: string } {
+  if (value === null || value === "") return { ok: true, value: null };
+  const n = typeof value === "number" ? value : Number(String(value).replace(/[\s,'’€]/g, ""));
+  if (!Number.isFinite(n)) return { ok: false, error: "That is not a number." };
+  const [lo, hi] = LIMIT.eur;
+  if (n < lo || n > hi) return { ok: false, error: `Between ${lo.toLocaleString("en")} and ${hi.toLocaleString("en")}.` };
+  return { ok: true, value: Math.round(n) };
 }
 
 /** The year's target split into its four quarters - by the person's weights (fractions) when given, else the sheet's. */
@@ -107,6 +137,13 @@ export function cleanAll(x: unknown): Record<string, PersonTargets> {
       for (const d of TARGETS) {
         const c = checkWeights((r.weights as Record<string, unknown>)[d.id]);
         if (c.ok) (t.weights ??= {})[d.id] = c.value;
+      }
+    }
+    if (r.amounts && typeof r.amounts === "object") {
+      for (const d of TARGETS) {
+        if (d.kind !== "growth") continue;
+        const c = checkAmount((r.amounts as Record<string, unknown>)[d.id] ?? null);
+        if (c.ok && c.value != null) (t.amounts ??= {})[d.id] = c.value;
       }
     }
     if (typeof r.by === "string") t.by = r.by.slice(0, 120);

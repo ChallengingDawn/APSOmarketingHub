@@ -33,6 +33,7 @@ import {
 import { readErpWorkbook } from "./erpWorkbook";
 import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
+import { saveOrderBook } from "@/lib/reporting/orderBookStore";
 import { loadOtdHistory, otdDates, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
 import path from "node:path";
 import { query } from "@/lib/db/client";
@@ -320,6 +321,14 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
       catch (e) { out.order_facts = `not kept: ${(e as Error).message}`; }
     }
   } else out.order_facts = wb.sheets.some((s) => s.trim().toUpperCase().startsWith(SHEET_INVOICES)) ? "KPI INVOICES without the expected header" : "no KPI LINES or KPI INVOICES sheet";
+  // the ERP's order book for My Sales Reports' targets (../../reporting/orderBookRules.ts) - kept before HubSpot, never its problem
+  if (wb.orderBook) {
+    if (!live) out.order_book = { rows: wb.orderBook.rows, customers: wb.orderBook.customers, total_eur: wb.orderBook.total, kept: false };
+    else {
+      try { out.order_book = await saveOrderBook(wb.orderBook, wb.file); }
+      catch (e) { out.order_book = `not kept: ${(e as Error).message}`; }
+    }
+  } else out.order_book = wb.orderBookError ? `not read: ${wb.orderBookError}` : wb.kpiSheets.orderBook ? "sheet without the expected header" : "no order book sheet";
   // the products' ERP fields (GWStdP, stock value, material ... - ./productFactsRules.ts): counted, and written once switched on
   // (set inside the reader's callback - read back through a cast, TypeScript cannot follow the assignment there)
   const copy = productIds as Awaited<ReturnType<typeof loadProductIds>> | null;

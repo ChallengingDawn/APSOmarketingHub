@@ -61,3 +61,10 @@ test("a person's cell as the VPP sheet reckons it; a team adds up only those wit
   // visits by the sheet's own weights: 26.5 + 27.5 % due
   assert.ok(Math.abs(team.visits.due - 54) < 1e-9);
 });
+
+test("a team leader's view counts a target typed as an amount as the person's page does (SARCLA 10.11.2026)", () => {
+  const reach = { month: 5, share: 1 };
+  const c = personCell("own", { py: 1_000_000, ytd: 600_000 }, { own: 10, amounts: { own: 1_300_000 } }, reach);
+  assert.equal(c.year, 1_300_000);
+  assert.ok(Math.abs(c.due - 1_300_000 * 0.506) < 1e-6);
+});
