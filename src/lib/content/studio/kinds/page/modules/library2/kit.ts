@@ -15,7 +15,7 @@
 import { BUTTONS, esc, href as kitHref, langOf, marked, sharpImg } from "../kit";
 import type { Card, Drawn, FieldSpec, ModuleDef, ModuleSettings, Need, Opts, Takes, CategoryId } from "../types";
 
-export { BUTTONS, esc, header, icon, langOf, marked, nameOf, wordsFor } from "../kit";
+export { BUTTONS, button, esc, header, icon, langOf, marked, nameOf, wordsFor } from "../kit";
 export type { Card, Drawn, ModuleSettings, Opts } from "../types";
 
 /* ── the interface words this part adds (in the store view's language) ── */
@@ -89,6 +89,7 @@ const EXTRA = `
 @@ .am-lk::after{content:"";flex:none;width:7px;height:7px;border:solid currentColor;border-width:1.8px 1.8px 0 0;transform:rotate(45deg);transition:transform .2s}
 @@ .am-lk:hover::after,@@ a:hover>.am-lk::after{transform:translateX(3px) rotate(45deg)}
 @@ .am-p3{margin:18px 0 6px!important;font-size:18px!important;line-height:1.3!important}
+@@ .am-bs{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
 `;
 /** A list with the shop's small red squares (prose's "- " lines). */
 const LI = `
@@ -145,13 +146,29 @@ export type Spec = {
 export function def(x: Spec): ModuleDef {
   return {
     id: x.id, category: x.category, name: x.name, note: x.note, needs: x.needs ?? [], takes: x.takes ?? "none",
-    min: x.min ?? 0, max: x.max ?? 0, kids: x.kids, layouts: x.layouts, fields: x.fields, defaults: x.defaults, tags: x.tags, from: x.from,
+    min: x.min ?? 0, max: x.max ?? 0, kids: x.kids, layouts: x.layouts, fields: x.fields, tags: x.tags, from: x.from,
+    // every address of the defaults in the store view's own path (written for de-CH)
+    defaults: x.defaults ? (store) => localize(store, x.defaults!(store)) : undefined,
     gap: x.gap ? (m) => x.gap!(m.settings) : undefined,
     render: (m, o) => own(x.draw(m.settings, o)),
   };
 }
 
 /* ── defaults: the shop's own words for German store views ─────────────── */
+
+/** Settings with every shop address moved to the store view's path. */
+function localize(store: string, d: Partial<ModuleSettings>): Partial<ModuleSettings> {
+  const u = (x: string) => pathFor(store, x);
+  const c = (k: Card): Card => ({ ...k, url: u(k.url), children: k.children.map(c) });
+  return {
+    ...d,
+    ...(d.link ? { link: { ...d.link, url: u(d.link.url) } } : {}),
+    ...(d.link2 ? { link2: { ...d.link2, url: u(d.link2.url) } } : {}),
+    ...(d.points ? { points: d.points.map((p) => (p.url ? { ...p, url: u(p.url) } : p)) } : {}),
+    ...(d.items ? { items: d.items.map(c) } : {}),
+    ...(d.feature ? { feature: c(d.feature) } : {}),
+  };
+}
 
 /** A store view's own path for a shop path written for de-CH ("/de-CH/service" -> "/fr-CH/service"). The tools' and help
  * pages have the same address in every store view; category addresses are German words and stay with German stores. */

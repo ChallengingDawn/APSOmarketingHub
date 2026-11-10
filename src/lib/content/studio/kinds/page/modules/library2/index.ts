@@ -7,6 +7,7 @@
 import type { ModuleDef, ModuleSettings } from "../types";
 import { STORIES, STORY_SAMPLES } from "./stories";
 import { TECHNICAL } from "./technical";
+import { TOOLS } from "./tools";
 
-export const LIBRARY2: ModuleDef[] = [...STORIES, ...TECHNICAL];
+export const LIBRARY2: ModuleDef[] = [...STORIES, ...TECHNICAL, ...TOOLS];
 export const SAMPLES2: Record<string, (store: string) => Partial<ModuleSettings>> = { ...STORY_SAMPLES };
