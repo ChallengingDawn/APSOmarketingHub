@@ -71,13 +71,17 @@ export async function otdTransport(dir: string): Promise<{ days?: Map<string, nu
   const st = await fs.stat(p).catch(() => null);
   const kept = await kvGet<TransportKept>(KV_OTD_TRANSPORT).catch(() => null);
   const keptDays = kept?.days ? new Map(Object.entries(kept.days)) : undefined;
+  // a file that cannot be read never undoes the kept days: every month's figures would move back to the country's times
+  const fallback = (why: string) => ({ days: keptDays, status: `${why} - ${keptDays ? `the ${keptDays.size} kept customers used` : "the country's times used"}` });
   if (st) {
     const sig = `${st.size}:${st.mtimeMs}`;
     if (kept?.sig !== sig) {
-      const days = parseTransport(await fs.readFile(p, "utf8"));
-      if (!days.size) return { days: keptDays, status: "transport file without a customer - the kept ones used" };
-      await kvSet(KV_OTD_TRANSPORT, { sig, at: new Date().toISOString(), days: Object.fromEntries(days) } satisfies TransportKept);
-      return { days, status: { customers: days.size, read: true } };
+      let read: ReturnType<typeof parseTransport>;
+      try { read = parseTransport(await fs.readFile(p, "utf8")); }
+      catch (e) { return fallback(`transport file not read: ${(e as Error)?.message ?? e}`); }
+      if (!read.days.size) return fallback(`transport file without a customer (${read.rejected} rows refused)`);
+      await kvSet(KV_OTD_TRANSPORT, { sig, at: new Date().toISOString(), days: Object.fromEntries(read.days) } satisfies TransportKept);
+      return { days: read.days, status: { customers: read.days.size, rejected: read.rejected, read: true } };
     }
   }
   return keptDays ? { days: keptDays, status: { customers: keptDays.size, read: false, since: kept!.at } } : { status: "no transport file" };

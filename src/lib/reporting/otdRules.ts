@@ -401,17 +401,21 @@ export function fromErpLines<L extends { company: string; order: string; line: s
  *  per customer, 100 % of its lines): otd_transport.csv "customer;days", the customer as the morning lines carry it
  *  (CustomerNumberUnique, "100-704623"); dropped beside the morning workbook like otd_history.csv. */
 export const TRANSPORT_FILE = "otd_transport.csv";
-export function parseTransport(text: string): Map<string, number> {
+/** the rows read, and how many were refused (no customer, or days not a whole number from 0 to 30) */
+export function parseTransport(text: string): { days: Map<string, number>; rejected: number } {
   const rows = text.split(/\r?\n/);
   const head = rows[0]?.split(";").map((h) => h.trim().toLowerCase()) ?? [];
   const ci = head.indexOf("customer"), di = head.indexOf("days");
   if (ci < 0 || di < 0) throw new Error(`${TRANSPORT_FILE}: the header lacks customer;days`);
-  const out = new Map<string, number>();
+  const days = new Map<string, number>();
+  let rejected = 0;
   for (let i = 1; i < rows.length; i++) {
+    if (!rows[i].trim()) continue;
     const c = rows[i].split(";"), k = (c[ci] ?? "").trim(), v = (c[di] ?? "").trim(), d = Number(v);
-    if (k && v && Number.isInteger(d) && d >= 0 && d <= 30) out.set(k, d);
+    if (k && v && Number.isInteger(d) && d >= 0 && d <= 30) days.set(k, d);
+    else rejected++;
   }
-  return out;
+  return { days, rejected };
 }
 
 export const HISTORY_FILE = "otd_history.csv";

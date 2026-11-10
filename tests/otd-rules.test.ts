@@ -171,8 +171,9 @@ test("otd: the morning lines' new columns - the ERP's own date at the customer, 
 test("otd: the customer's own transport days (otd_transport.csv) - after the ERP's own date and the shipping mode, before the country's", async () => {
   const { transitOf } = await import("../src/lib/reporting/boErpLines");
   const { parseTransport, transportOf } = await import("../src/lib/reporting/otdRules");
-  const days = parseTransport("customer;days\r\n100-7;3\r\n110-9;4\r\n110-x;\r\n110-y;abc\r\n110-z;-1\r\n\r\n");
+  const { days, rejected } = parseTransport("customer;days\r\n100-7;3\r\n110-9;4\r\n110-x;\r\n110-y;abc\r\n110-z;-1\r\n110-w;3.5\r\n;2\r\n\r\n");
   assert.deepEqual([...days], [["100-7", 3], ["110-9", 4]]);
+  assert.equal(rejected, 5); // empty, "abc", -1, 3.5, no customer - the blank line is not a row
   assert.throws(() => parseTransport("kunde;tage\n100-7;3"), /customer;days/);
   const of = (c: string) => days.get(c);
   assert.equal(transportOf({ country: "Italy", customer: "110-9" }, transitOf, of), 4);
