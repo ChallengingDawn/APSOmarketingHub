@@ -92,6 +92,22 @@ export function riskOf(changes: Change[]): { index: number; problems: string[] }
   return changes.map((c, index) => ({ index, problems: riskOfChange(c) })).filter((x) => x.problems.length > 0);
 }
 
+/** What makes a version a poor proposal though it breaks nothing (SARCLA 10.11.2026: "this proposal is pure shit" - a
+ *  floating box of "[Text from Content: ...]" with a sketch inside; "recommendations should always be in English"):
+ *  a placeholder instead of real words, more than one sketch, words in another language than English. The AI is asked
+ *  once more; nothing is dropped for it. */
+export function qualityOf(changes: Change[]): string[] {
+  const out: string[] = [];
+  const text = changes.map((c) => ("html" in c ? c.html : "text" in c ? c.text : "")).join("\n");
+  if (/\[\s*(text|texte|testo|tekst)\s+(from|de|da|von|z)\s+content/i.test(text) || /class="apx-text"/i.test(text)) out.push("it puts a placeholder where the real words belong - write the actual short text, in English");
+  const sketches = (text.match(/apx-sketch/g) ?? []).length;
+  if (sketches > 1) out.push(`it has ${sketches} sketches - one at most, and only for what cannot be shown`);
+  const visible = text.replace(/<[^>]+>/g, " ");
+  // whole words of the shop's other languages (letters on both sides checked the Unicode way: "quantità" ends in à)
+  if (/(?<!\p{L})(der|und|nicht|für|mit|bestellen|verfügbar|une|les|des|pour|avec|commander|disponible|della|questa|quantità|superiore|allo|richiedi|disponibile|het|voor|niet|bestellen)(?!\p{L})/iu.test(visible)) out.push("its words are not in English - every new word is English");
+  return out;
+}
+
 /** The safe part of a list: risky css rules taken out of their stylesheet, risky element changes dropped. */
 export function safePart(changes: Change[]): { changes: Change[]; dropped: string[] } {
   const out: Change[] = [];
@@ -127,7 +143,8 @@ quantities, the cart, the menus, the header and footer and the galleries are dra
   background, border, font-size, font-weight, padding/margin of your own blocks), open a folded part (display:block,
   max-height:none).
 - A change that needs the shop's own parts rebuilt (moving the filters, other table columns, another page layout) is
-  made as a SKETCH, never by force: keep the page as it is and insert, right at that place, one
-  <div class="apx-sketch"><b>Proposed</b>what changes here, in at most 15 words</div>, with this CSS once:
+  made as a SKETCH, never by force - and only then: keep the page as it is and insert, right at that place, ONE
+  <div class="apx-sketch"><b>Proposed</b>what changes here, in English, in at most 15 words</div>, with this CSS once:
   ${SKETCH_CSS}
-  Content and dotSource build it; the version still shows where and what.`;
+  At most one sketch in a version, never inside another block of yours, never beside a box of its own. Whatever CAN be
+  shown (a message, a button, a note, an emphasis) is shown for real, not sketched. Content and dotSource build it.`;

@@ -16,7 +16,7 @@ import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfIdea, type ChangeType } from "./changeTypes";
-import { SAFETY_RULES, riskOf, safePart } from "./safety";
+import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS apsomh_convert_ideas (
@@ -390,7 +390,9 @@ export const RULES = `Hard rules:
 - Use only what the page and the numbers show. NEVER invent prices, discounts, stock, delivery times, certificates,
   approvals (FDA, KTW, ...), test results, customer names or quotes. If an idea needs a fact the page does not give,
   say so in the idea ("needs: ...") instead of making it up.
-- Words a visitor reads are in the page's own language (from the store view: de-CH = German, fr-CH = French, ...).
+- EVERYTHING you write is in ENGLISH, whatever the page's language (SARCLA 10.11.2026: "the recommendations should
+  always be in English"): the reading, the optimizations, the notes, and any new words on the page - a label, a message,
+  an example. Name a label the shop shows by its English meaning; Content translates for each store view.
 - Keep what the page needs for search engines: its H1 text, its links, its product data.
 - Plain, concrete, human words; no slogans, no hype, no exclamation marks.`;
 
@@ -601,12 +603,18 @@ How to write it:
 - Aim at selectors from the page's outline (ids first, then tag.class). Scope CSS to the page's own classes - never
   restyle body, html or the whole header.
 - Few, clean changes that make exactly the idea, nothing else. Prefer adding and reshaping to hiding.
-- WORDS: the page's texts are written in Content Studio, not here. Reuse the page's own words; a new label (a heading,
-  a button, a column name) of at most six words is fine. Anything longer - a sentence, a paragraph, a description -
-  goes in as a visible placeholder <span class="apx-text">[Text from Content: what it must say]</span>, and the
-  note says so.
-- New HTML: no <script>, no on...= handlers, no javascript: links, no frames. Use the shop's look (below); class names
-  you add start with "apx-". Every new block also reads well on a phone (390 px): give it a mobile rule in the CSS.
+- SHOW THE FINISHED THING, WHERE IT HAPPENS (SARCLA 10.11.2026 on a version with a floating box of placeholders: "this
+  proposal is pure shit"): the change sits exactly where a buyer would meet it - a message in the article row goes into
+  the FIRST row of the articles as a worked example (class apx-example), a note under the price goes under the price,
+  a button beside the button it helps. Never a box floating in empty space, never a block "about" the change.
+- REAL WORDS, IN ENGLISH: write the actual text the finished page would show - short, concrete, one or two lines - with
+  example values taken from the page (an article it lists, a quantity, a date the page shows). No placeholder, no
+  "[Text from ...]", no note to the reader inside the page. Never invent a fact (see the hard rules): where the page
+  does not give a value, word the example so it needs none ("Need more? Ask for this quantity").
+- THE SHOP'S LOOK: font inherit, the colours below, 4px corners, 13-15px text, no dashed borders, no shadows; a new
+  button looks like the shop's own (petrol, white text) or a plain text link. Class names you add start with "apx-".
+  Every new block also reads well on a phone (390 px): give it a mobile rule in the CSS.
+- New HTML: no <script>, no on...= handlers, no javascript: links, no frames.
 - Parts the theme draws after loading (articles' prices, availability) are not in the outline: you may aim at their
   known containers but say so in the note.
 
@@ -690,14 +698,14 @@ Answer with the WHOLE new list (keep what they did not ask to change).` : reques
   let summary = r.data.summary ?? "";
   // a version must not break the shop (./safety.ts): what moves, re-sizes, rewrites or hides the shop's own parts is
   // sent back to the AI once, with what it did; what is still risky after that is left out, and said so
-  const risky = riskOf(changes);
+  const risky = [...riskOf(changes).flatMap((x) => x.problems), ...qualityOf(changes)];
   if (risky.length) {
     const again = await ask<{ summary: string; changes: AiChange[] }>(VERSION_SYSTEM, `${user}
 
-YOUR LAST ANSWER BROKE THE SHOP'S RULES:
-${risky.flatMap((x) => x.problems).slice(0, 8).map((p) => `- ${p}`).join("\n")}
-Write the WHOLE list again: the shop's own parts stay where and as they are; what needs them rebuilt becomes a SKETCH at
-that place (apx-sketch).`, CHANGE_SCHEMA, 16000);
+YOUR LAST ANSWER BROKE THE RULES:
+${risky.slice(0, 8).map((p) => `- ${p}`).join("\n")}
+Write the WHOLE list again: the shop's own parts stay where and as they are; the change is shown for real where a buyer
+meets it, with real short words in English; only what cannot be shown becomes ONE sketch at that place (apx-sketch).`, CHANGE_SCHEMA, 16000);
     if (again.ok) {
       const v = validateChanges(fromAi(again.data.changes));
       if (v.changes.length) { changes = v.changes; problems = v.problems; summary = again.data.summary ?? summary; }

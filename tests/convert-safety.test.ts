@@ -57,3 +57,15 @@ test("cssRules reads the rules inside @media too; the AI is told the rules and t
   assert.match(SAFETY_RULES, /NEVER move, re-order, re-size/);
   assert.match(SAFETY_RULES, /apx-sketch/);
 });
+
+test("qualityOf: a placeholder, two sketches or words not in English send the version back once (SARCLA 10.11.2026)", async () => {
+  const { qualityOf } = await import("../src/lib/convert/safety");
+  assert.deepEqual(qualityOf([{ op: "insert", selector: "table.data-grid tbody tr", where: "after", html: "<tr class=\"apx-example\"><td colspan=\"8\">Only 120 in stock now. Need more? <a href=\"#\">Ask for this quantity</a></td></tr>" }]), []);
+  const bad = qualityOf([
+    { op: "insert", selector: "#maincontent", where: "prepend", html: "<div class=\"apx-box\"><b>Quantità superiore allo stock</b><span class=\"apx-text\">[Testo da Content: spiegare]</span><div class=\"apx-sketch\"><b>Proposed</b>x</div></div>" },
+    { op: "insert", selector: "h1", where: "after", html: "<div class=\"apx-sketch\"><b>Proposed</b>y</div>" },
+  ]);
+  assert.ok(bad.some((p) => p.includes("placeholder")));
+  assert.ok(bad.some((p) => p.includes("2 sketches")));
+  assert.ok(bad.some((p) => p.includes("not in English")));
+});
