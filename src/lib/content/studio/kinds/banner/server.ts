@@ -65,7 +65,7 @@ function context(ctx: StudioCtx, d: BannerDoc): string {
     `- changing words: ${c.rotatingWords.length ? c.rotatingWords.join(" / ") : "(none)"}`,
     `- line: ${c.line || "(empty)"}`,
     `- button: ${c.button.label || "(empty)"}${c.button.url ? ` (goes to ${c.button.url})` : ""}`,
-    d.content.image.label ? `- the photo shows: ${d.content.image.label}` : "",
+    d.content.image.label ? `- the photo shows: ${d.content.image.label}` : d.content.image.fit === "product" && d.content.image.alt ? `- the picture is the shop's product: ${d.content.image.alt}` : "",
     d.notes.trim() ? `\nNotes on this banner: ${d.notes.trim().slice(0, 1500)}` : "",
   ].filter((x) => x !== "").join("\n");
 }
