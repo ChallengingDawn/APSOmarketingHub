@@ -49,7 +49,7 @@ test("every language the shop publishes in, the page's own first", () => {
   const de = shopLanguages(INDEX, "de-CH");
   // Czech since Content v10: Magento has Czech Republic (EN, CS) and International CS (their front pages not open yet)
   assert.deepEqual(de.map((x) => x.lang), ["de", "fr", "it", "en", "nl", "pl", "cs"]);
-  assert.deepEqual(de.map((x) => x.store), ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL", "cs-CZ"]);
+  assert.deepEqual(de.map((x) => x.store), ["de-CH", "fr-CH", "it-CH", "en-INT", "nl-NL", "pl-PL", "cs-INT"]);
   assert.deepEqual(de[0].stores, ["de-CH", "de-AT", "de-CH/eur", "de-DE", "de-INT"], "the page's store view first, then the others of its language");
   assert.equal(de[4].name, "Dutch");
   const nl = shopLanguages(INDEX, "nl-NL");
