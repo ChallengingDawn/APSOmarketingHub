@@ -72,6 +72,24 @@ export const sumCells = (cells: Cell[]): Cell => cells.reduce((a, c) => ({
 /** How far on track: what those with a target reached against what is due by now - none without a target. */
 export const onTrack = (c: Cell): number | null => (c.set && c.due > 0 ? c.reached / c.due : null);
 
+/**
+ * A group's target on the quarters (SARCLA 10.11.2026: "both on Overall and My team put also the breakdown per quarter of
+ * the team"): the people of the group with the target set, their year's targets added up, and each one's year split by
+ * their own quarter weights, added up quarter by quarter. Nobody's set: null.
+ */
+export function groupQuarters(id: TargetId, people: Person[], cells: Map<string, Record<TargetId, Cell>>, targets: Record<string, PersonTargets>): { set: Person[]; year: number; quarters: number[] } | null {
+  const set = people.filter((p) => cells.get(p.id)?.[id]?.set);
+  if (!set.length) return null;
+  const quarters = [0, 0, 0, 0];
+  let year = 0;
+  for (const p of set) {
+    const y = cells.get(p.id)![id].year;
+    year += y;
+    quarterTargets(id, y, weightsOf(targets[p.id], id)).forEach((x, k) => { quarters[k] += x; });
+  }
+  return { set, year, quarters };
+}
+
 /** Each person's five cells. */
 export function personCells(figs: Partial<Record<TargetId, Fig>>, t: PersonTargets | undefined, reach: { rev: Reach; visits: Reach }): Record<TargetId, Cell> {
   return Object.fromEntries(TARGETS.map((d) => [d.id, personCell(d.id, figs[d.id], t, d.id === "visits" ? reach.visits : reach.rev)])) as Record<TargetId, Cell>;

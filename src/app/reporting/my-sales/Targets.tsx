@@ -40,7 +40,7 @@ const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).to
 const int = (n: number) => Math.round(n).toLocaleString("en");
 const pct = (x: number | null) => (x == null || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(1)}%`);
 const fmtOf = (id: TargetId) => (id === "visits" ? int : eur);
-const QS = ["Q1", "Q2", "Q3", "Q4"];
+export const QS = ["Q1", "Q2", "Q3", "Q4"];
 
 export function TargetsPage() {
   const { st, view, bar, scope, setTargets } = useMySalesFrame({ pick: true });
@@ -141,7 +141,7 @@ function Mine({ st, cubeReady, labels, people, d, onSaved }: {
 }
 
 /** The ERP's order book by person (/api/reporting/my-sales/order-book) - null until read, and while the morning workbook carries none. */
-function useOrderBook(): BookBySae | null {
+export function useOrderBook(): BookBySae | null {
   const [ob, setOb] = useState<BookBySae | null>(null);
   useEffect(() => {
     let live = true, tries = 0;
@@ -159,11 +159,11 @@ function useOrderBook(): BookBySae | null {
   }, []);
   return ob;
 }
-const dayWords = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+export const dayWords = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 /** A target's row: what was measured, what was set (a growth, or the year's amount typed in its place), its year's target,
  *  its quarters by its weights (w, fractions; own: not the sheet's), and its order book by quarter. */
-type Row = {
+export type Row = {
   label: string; id: TargetId; m: Measured; set: number | undefined; amount: number | undefined; year: number | null; quarters: number[] | null;
   due: number | null; reach: Reach; w: number[]; own: boolean; book: { q: number[]; later: number } | null;
 };
@@ -179,10 +179,10 @@ const targetDefOf = (id: TargetId) => TARGETS.find((t) => t.id === id)!;
 
 /* the table: its own columns in fractions of the width, so it fits the window instead of running off it (SARCLA 10.11.2026:
    "fit better the windows") - the look of the reports' other tables */
-const TH = { fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: 0.75, verticalAlign: "bottom", textAlign: "right" } as const;
-const TD = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums", lineHeight: 1.3, py: 1, px: 0.75, verticalAlign: "top", textAlign: "right" } as const;
-const STACK = { display: "inline-grid", justifyItems: "end", gap: 0.25, maxWidth: "100%" } as const;
-const SMALL = { fontSize: "0.72rem", lineHeight: 1.35 } as const;
+export const TH = { fontSize: "0.74rem", fontWeight: 700, color: MUTED, borderColor: HAIRLINE, lineHeight: 1.3, py: 1.25, px: 0.75, verticalAlign: "bottom", textAlign: "right" } as const;
+export const TD = { fontSize: "0.86rem", color: INK, borderColor: HAIRLINE, fontVariantNumeric: "tabular-nums", lineHeight: 1.3, py: 1, px: 0.75, verticalAlign: "top", textAlign: "right" } as const;
+export const STACK = { display: "inline-grid", justifyItems: "end", gap: 0.25, maxWidth: "100%" } as const;
+export const SMALL = { fontSize: "0.72rem", lineHeight: 1.35 } as const;
 
 function TargetsTable({ rows, year, edit, day }: { rows: Row[]; year: number; edit: Edit | null; day: string | null }) {
   return (
@@ -249,7 +249,7 @@ function yearCell(r: Row, edit: Edit | null) {
  * to come, the order book due in it and its share of the quarter's target (Bernd Rausmann, 10.11.2026: "show the relevant
  * order book and the % of order book against the target") - none in a quarter closed, nothing can land there any more.
  */
-const quarterCell = (r: Row, k: number, day: string | null) => {
+export const quarterCell = (r: Row, k: number, day: string | null) => {
   const f = fmtOf(r.id);
   const runQ = Math.floor(r.reach.month / 3);
   const t = r.quarters?.[k] ?? null;

@@ -4,6 +4,9 @@
 // people's targets added up, what they reached, how far on track - each team opening to its people, and the grand total.
 // Each target as the VPP sheet reckons it, measured on the ESO reports' figures (src/lib/reporting/salesLeaderRules.ts);
 // the targets are set in My Sales Reports. Also "Who is on track", the Team page's first graph.
+// 10.11.2026 (SARCLA: "both on Overall and My team put also the breakdown per quarter of the team"): under the table, the
+// quarters of the team - or of one of its people, one team of all - as My Sales Reports shows a person's, the ERP's order
+// book under each quarter running or to come (Bernd Rausmann's ask).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -13,18 +16,20 @@ import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
-import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED } from "@/app/uc/report/ui";
+import { FAINT, GREEN, HAIRLINE, INK, MUTED, RED, TINT } from "@/app/uc/report/ui";
 import { useCustomersCube } from "@/app/reporting/marketing-kpis/Customers";
 import { ChartBox, H1, Waiting, tooOld } from "@/app/reporting/eso-benchmark/Figures";
 import { useVisits } from "@/app/reporting/eso-benchmark/Visits";
-import { SHORT } from "@/app/reporting/my-sales/Targets";
+import { QS, SHORT, SMALL, STACK, TD, TH, dayWords, quarterCell, useOrderBook, type Row } from "@/app/reporting/my-sales/Targets";
 import { Note, shell } from "@/app/reporting/my-sales/shared";
-import { TARGETS, type TargetId } from "@/lib/reporting/mySalesRules";
-import { cubeReach, figsByPerson, visitsReach } from "@/lib/reporting/mySalesFigures";
-import { groupCells, onTrack, personCells, type Cell, type Person } from "@/lib/reporting/salesLeaderRules";
+import { TARGETS, impliedGrowth, targetDef, type TargetId } from "@/lib/reporting/mySalesRules";
+import { cubeReach, dueToDate, figsByPerson, revenueMeasures, visitsMeasure, visitsReach } from "@/lib/reporting/mySalesFigures";
+import { bookQuarters, sumBooks, type BookBySae, type BookKey } from "@/lib/reporting/orderBookRules";
+import { groupCells, groupQuarters, onTrack, personCells, type Cell, type Person } from "@/lib/reporting/salesLeaderRules";
 import { everyone, teamName, useLeaderFrame, type LeaderData } from "./shared";
 
 const eur = (n: number) => `${n < 0 ? "−" : ""}€${Math.round(Math.abs(n)).toLocaleString("en")}`;
@@ -47,12 +52,12 @@ export function useCells(st: LeaderData | null) {
     return new Map(all.map((p) => [p.id, personCells(figs.get(p.id) ?? {}, st.targets[p.id], reach)]));
   }, [st, ready, d]);
   const wait = <Waiting computing={computing || visits.computing || (!!cube && tooOld(cube))} progress={progress ?? visits.progress} error={error ?? visits.error} />;
-  return { cells, wait };
+  return { cells, wait, cube: ready, d };
 }
 
 export function LeaderTargetsPage() {
   const { st, view, bar } = useLeaderFrame();
-  const { cells, wait } = useCells(st);
+  const { cells, wait, cube, d } = useCells(st);
   const head = (
     <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
       <Typography component="h1" sx={H1}>Targets</Typography>
@@ -67,8 +72,14 @@ export function LeaderTargetsPage() {
     if (!st) return <Note title="Reading the teams…" />;
     if (!st.ok) return <Note title="The teams could not be read">{st.error ?? "Try again in a moment."}</Note>;
     if (!st.teams.length && !st.mine) return <Note title="No sales leader yet">Tag the sales leaders in Settings &gt; Hierarchy - each one&apos;s team is everyone under them.</Note>;
-    if (!cells) return wait;
-    return <TargetsTable st={st} cells={cells} team={view === "team"} />;
+    if (!cells || !cube || !d) return wait;
+    const team = view === "team" && !!st.mine;
+    return (
+      <>
+        <TargetsTable st={st} cells={cells} team={team} />
+        <TeamQuarters key={view} st={st} cells={cells} cube={cube} d={d} groups={groupsOf(st, team)} />
+      </>
+    );
   })();
   return <Box sx={shell}>{head}{bar}{body}</Box>;
 }
@@ -149,6 +160,124 @@ function CellView({ id, c, group }: { id: TargetId; c: Cell; group: boolean }) {
       <b style={{ color: x >= 1 ? GREEN : RED }}>{pct(x)}</b>
       <span style={{ fontSize: "0.72rem", color: MUTED }}>{f(c.reached)} of {f(c.due)} due</span>
       <span style={{ fontSize: "0.68rem", color: FAINT }}>year {f(c.year)}{group ? ` · ${c.set} of ${c.of} set` : ""}</span>
+    </Box>
+  );
+}
+
+/* ── The quarters of a team (SARCLA 10.11.2026: "both on Overall and My team put also the breakdown per quarter of the
+   team") - My Sales Reports' table of a person's targets, for a group ── */
+
+type CubeReady = NonNullable<ReturnType<typeof useCustomersCube>["cube"]>;
+type VisitsReady = NonNullable<ReturnType<typeof useVisits>["d"]>;
+/** A group the quarters are shown for: a team, one of its people, all the teams. */
+type Group = { key: string; name: string; people: Person[] };
+/** My team: the team, then each of its people; Overall: all the teams, then each team. */
+function groupsOf(st: LeaderData, team: boolean): Group[] {
+  if (team && st.mine) {
+    const t = st.mine;
+    return [{ key: "team", name: teamName(t, st.me), people: t.people }, ...t.people.map((p) => ({ key: p.id, name: p.name, people: [p] }))];
+  }
+  return [{ key: "all", name: "All the teams", people: everyone(st.teams) }, ...st.teams.map((t) => ({ key: t.leader.id, name: teamName(t, st.me), people: t.people }))];
+}
+
+/** A target's row for a group: of its people with the target set (all of them when nobody's set) - how many of how many. */
+type GroupRow = Row & { withT: number; of: number };
+function groupRows(g: Group, st: LeaderData, cells: Map<string, Cells>, cube: CubeReady, d: VisitsReady, ob: BookBySae | null): GroupRow[] {
+  const reach = { rev: cubeReach(cube), visits: visitsReach(d) };
+  const runQ = Math.floor(reach.rev.month / 3);
+  const index = new Map(d.people.map((p, i) => [p.id, i]));
+  // the four revenues of the same people read once (the cube knows a person by their SAE name)
+  const read = new Map<string, ReturnType<typeof revenueMeasures>>();
+  const revenueOf = (ps: Person[]) => {
+    const names = ps.map((p) => p.name), k = names.join("\u0000");
+    if (!read.has(k)) read.set(k, revenueMeasures(cube, names));
+    return read.get(k)!;
+  };
+  return TARGETS.map((t) => {
+    const q = groupQuarters(t.id, g.people, cells, st.targets);
+    const who = q?.set ?? g.people;
+    const reachT = t.id === "visits" ? reach.visits : reach.rev;
+    const m = t.id === "visits"
+      ? visitsMeasure(d, new Set(who.flatMap((p) => { const i = index.get(p.id); return i == null ? [] : [i]; })))
+      : revenueOf(who)[t.id];
+    const book = t.id === "visits" || !ob ? null : bookQuarters(sumBooks(who.map((p) => ob.sae[p.name]))[t.id as BookKey], st.year, runQ);
+    return {
+      label: SHORT[t.id], id: t.id, m, set: undefined, amount: undefined, year: q?.year ?? null, quarters: q?.quarters ?? null,
+      due: q ? dueToDate(q.quarters, reachT) : null, reach: reachT, w: [], own: false, book, withT: q?.set.length ?? 0, of: g.people.length,
+    };
+  });
+}
+
+function TeamQuarters({ st, cells, cube, d, groups }: { st: LeaderData; cells: Map<string, Cells>; cube: CubeReady; d: VisitsReady; groups: Group[] }) {
+  const [pick, setPick] = useState(groups[0]?.key ?? "");
+  const g = groups.find((x) => x.key === pick) ?? groups[0];
+  const ob = useOrderBook();
+  const rows = useMemo(() => (g ? groupRows(g, st, cells, cube, d, ob) : []), [g, st, cells, cube, d, ob]);
+  if (!g) return null;
+  const day = ob ? dayWords(ob.day) : null;
+  const picker = groups.length > 1 && (
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }} role="group" aria-label="Whose quarters">
+      {groups.map((x, i) => {
+        const on = x.key === g.key;
+        return (
+          <Chip key={x.key} size="small" clickable onClick={() => setPick(x.key)} aria-pressed={on} label={x.name}
+            sx={{ height: 26, fontSize: "0.78rem", fontWeight: on || i === 0 ? 700 : 500, color: INK, bgcolor: on ? TINT.purple.bg : "transparent", border: `1px solid ${on ? "transparent" : HAIRLINE}` }} />
+        );
+      })}
+    </Box>
+  );
+  return (
+    <ChartBox title={`Quarter by quarter - ${g.name}, ${st.year}`}
+      hint={`${g.people.length > 1 ? "Each target of the people who set it, added up: " : "Each target: "}the year's target, how it falls on the quarters by each one's period weighting, and what each quarter reached against its part${day ? `. Under each quarter running or to come, the order book - ordered, not invoiced yet, due in it (overdue in the running one) - and its share of the quarter's target: the ERP's order book of ${day}` : ""}. Nobody's target set: what the people reached`}>
+      {picker}
+      <Box sx={{ overflowX: "auto", borderRadius: "14px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.75)" }}>
+        <Table size="small" sx={{ tableLayout: "fixed", width: "100%", minWidth: 760 }} aria-label={`Quarter by quarter - ${g.name}`}>
+          <colgroup>
+            <col style={{ width: "14%" }} />
+            <col style={{ width: "15%" }} />
+            {QS.map((q) => <col key={q} style={{ width: "14%" }} />)}
+            <col style={{ width: "15%" }} />
+          </colgroup>
+          <TableHead>
+            <TableRow>
+              <TableCell sx={{ ...TH, textAlign: "left", pl: 1.5 }}>Target</TableCell>
+              <TableCell sx={TH}>Target {st.year}</TableCell>
+              {QS.map((q) => <TableCell key={q} sx={TH}>{q}</TableCell>)}
+              <TableCell sx={TH}>Year to date</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell sx={{ ...TD, textAlign: "left", fontWeight: 600, pl: 1.5 }}>{r.label}</TableCell>
+                <TableCell sx={TD}>{groupYearCell(r)}</TableCell>
+                {QS.map((q, k) => <TableCell key={q} sx={TD}>{quarterCell(r, k, day)}</TableCell>)}
+                <TableCell sx={TD}>
+                  <Box component="span" sx={STACK}>
+                    <b>{fmtOf(r.id)(r.m.ytd)}</b>
+                    {r.due != null && r.due > 0 && <span style={{ ...SMALL, color: r.m.ytd >= r.due ? GREEN : RED }}>{pct(r.m.ytd / r.due)} of {fmtOf(r.id)(r.due)} due</span>}
+                    {r.id !== "visits" && <span style={{ ...SMALL, color: MUTED }}>{fmtOf(r.id)(r.m.ytdPy)} a year earlier</span>}
+                  </Box>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Box>
+    </ChartBox>
+  );
+}
+
+/** A group's year's target: the people's added up, the growth it makes on their last year, how many set it. */
+function groupYearCell(r: GroupRow) {
+  const f = fmtOf(r.id);
+  const g = r.year != null && targetDef(r.id).kind === "growth" ? impliedGrowth(r.year, r.m.py) : null;
+  return (
+    <Box component="span" sx={{ ...STACK, gap: 0.4 }}>
+      {r.year == null ? <span style={{ color: FAINT }}>{r.of > 1 ? "nobody's set" : "not set"}</span> : <b>{f(r.year)}</b>}
+      {g != null && <span style={{ ...SMALL, color: MUTED }}>{g >= 0 ? "+" : "−"}{Math.abs(g).toFixed(1)} % on last year</span>}
+      <span style={{ ...SMALL, color: MUTED }}>{r.id === "visits" ? `${int(r.m.py)} meetings` : f(r.m.py)} last year</span>
+      {r.of > 1 && r.withT > 0 && <span style={{ ...SMALL, color: r.withT < r.of ? TINT.purple.fg : FAINT }}>{r.withT} of {r.of} set it</span>}
     </Box>
   );
 }

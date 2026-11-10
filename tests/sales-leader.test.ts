@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { groupCells, leaderTeams, myTeam, onTrack, personCell, personCells } from "../src/lib/reporting/salesLeaderRules";
+import { groupCells, groupQuarters, leaderTeams, myTeam, onTrack, personCell, personCells } from "../src/lib/reporting/salesLeaderRules";
 
 // SARCLA 02.11.2026: "build the sales leader report - the table for overall and for its team on the targets first page";
 // his pick: Overall a row per sales leader's team, each opening to its people, and the grand total.
@@ -67,4 +67,23 @@ test("a team leader's view counts a target typed as an amount as the person's pa
   const c = personCell("own", { py: 1_000_000, ytd: 600_000 }, { own: 10, amounts: { own: 1_300_000 } }, reach);
   assert.equal(c.year, 1_300_000);
   assert.ok(Math.abs(c.due - 1_300_000 * 0.506) < 1e-6);
+});
+
+test("a team's quarters: the people with the target set, each year split by their own weights (SARCLA 10.11.2026)", () => {
+  const reach = { rev: { month: 10, share: 0.3 }, visits: { month: 10, share: 0.3 } };
+  const targets = { "1": { own: 10 }, "2": { own: 0, weights: { own: [40, 20, 20, 20] } }, "3": {} };
+  const cells = new Map([
+    ["1", personCells({ own: { py: 1_000_000, ytd: 900_000 } }, targets["1"], reach)],
+    ["2", personCells({ own: { py: 500_000, ytd: 400_000 } }, targets["2"], reach)],
+    ["3", personCells({ own: { py: 700_000, ytd: 650_000 } }, targets["3"], reach)],
+  ]);
+  const people = [{ id: "1", name: "A" }, { id: "2", name: "B" }, { id: "3", name: "C" }];
+  const g = groupQuarters("own", people, cells, targets)!;
+  assert.deepEqual(g.set.map((p) => p.id), ["1", "2"]);
+  assert.equal(g.year, 1_600_000);
+  // A by the sheet's 25.6 / 25 / 24.6 / 24.8 %, B by their own 40 / 20 / 20 / 20 %
+  const want = [281_600 + 200_000, 275_000 + 100_000, 270_600 + 100_000, 272_800 + 100_000];
+  g.quarters.forEach((x, k) => assert.ok(Math.abs(x - want[k]) < 1e-6));
+  // nobody with the target: none
+  assert.equal(groupQuarters("visits", people, cells, targets), null);
 });
