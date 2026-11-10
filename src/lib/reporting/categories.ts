@@ -285,6 +285,8 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "Incoming tickets", href: "/reporting/my-sales/tickets", icon: "description" },
           { name: "GQS", href: "/reporting/my-sales/gqs", icon: "assignment" },
           { name: "System tickets", href: "/reporting/my-sales/system-tickets", icon: "bolt" },
+          // which ESO brings the most order intake from customers new since 5 October (Diana Fehr 06.11.2026)
+          { name: "New customer contest", href: "/reporting/my-sales/contest", icon: "target", group: "Contests" },
         ],
       },
     ],
