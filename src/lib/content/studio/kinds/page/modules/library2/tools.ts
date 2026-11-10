@@ -370,6 +370,7 @@ const toolOring = def({
 @@ .am-or.is-panel .am-or-t .am-bs{grid-column:1;grid-row:auto;margin-top:12px}
 @@ .am-or.is-panel h2.am-h{color:#fff!important}
 @@ .am-or.is-panel .am-sub{color:#cddbe3}
+@@ .am-or.is-panel .am-red{color:#ff6a5f}
 @@ .am-or.is-panel .am-ey{color:#cddbe3}
 @@ .am-or.is-panel .am-btn2{box-shadow:inset 0 0 0 2px rgba(255,255,255,.7);color:#fff!important}
 @@ .am-or.is-panel .am-oks{grid-template-columns:repeat(4,minmax(0,1fr))}

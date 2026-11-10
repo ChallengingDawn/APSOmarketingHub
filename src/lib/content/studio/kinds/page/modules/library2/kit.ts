@@ -113,7 +113,7 @@ export function own(d: Drawn): Drawn {
   const h = d.html.replace(/(^|[^\w/.\-])([A-Z])-(?=[A-ZÄÖÜ][a-zäöü])/g, "$1$2‑");
   const add = [
     EXTRA,
-    /class="am-btn2?[" ]/.test(h) && !d.css.includes(".am-btn{") ? BUTTONS : "",
+    /class="am-btn2?[" ]/.test(h) ? BUTTONS : "",
     h.includes('class="am-li"') ? LI : "",
     h.includes('class="am-ph') ? PH : "",
   ].join("");
