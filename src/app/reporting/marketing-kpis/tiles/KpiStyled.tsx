@@ -26,17 +26,19 @@ export const shapeOf = (v: KpiView): KpiShape => ({
 });
 
 /** One KPI as the UC apps draw a headline: badge, name, the figure, the comparison - and its months (the BUC View's tile). */
-export function KpiTileChart({ v, slug, tint, upTo, actions, chart, title }: {
+export function KpiTileChart({ v, slug, tint, upTo, actions, chart, title, icon }: {
   v: KpiView; slug: string; tint: Tint; upTo: string; actions?: React.ReactNode;
   /** the graph its card on the page draws, small (SARCLA 19.10: "the same graph in both levels") - else its months */
   chart?: React.ReactNode;
   /** the page's own name for the KPI, when it has one */
   title?: string;
+  /** the badge's glyph - its stage's unless given (the Sealing Business Review: each topic's own) */
+  icon?: React.ReactNode;
 }) {
   return (
     <Box sx={{ ...glass, borderRadius: "20px", p: 2.25, display: "flex", flexDirection: "column", gap: 1.1, minWidth: 0 }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, minWidth: 0 }}>
-        <Badge icon={<StageGlyph slug={slug} />} tint={tint} size={32} />
+        <Badge icon={icon ?? <StageGlyph slug={slug} />} tint={tint} size={32} />
         <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: MUTED, lineHeight: 1.25, flex: 1, minWidth: 0, pt: 0.75 }}>{title ?? nameOf(v.id)}</Typography>
         {actions}
       </Box>

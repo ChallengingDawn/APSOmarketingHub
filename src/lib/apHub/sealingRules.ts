@@ -302,3 +302,135 @@ export function priorities(compounds: Figure[], pairs: CompoundCustomer[]): Prio
   }
   return out;
 }
+
+/* -- the pages' figures, laid out as Digital Growth's (SARCLA 10.11.2026: "look at Digital Growth for example") ------ */
+
+/** A month of a figure: this period's value and the same month a year earlier (null: before the figures' first month). */
+export type MonthPair = { month: string; cur: number | null; prev: number | null };
+
+/** A key's figures in each month of the period, and the same month a year earlier (null: not in the figures). */
+export type KeyMonth = { key: string; month: string; rev: number; gp: number; prevRev: number | null; prevGp: number | null };
+
+/**
+ * Each key's months of the period, with the same month a year earlier beside it - every key that sold in either, every
+ * month of the period (a month without a sale is a zero, a month a year before the figures' first month is not known).
+ */
+export function keyMonths(
+  period: string[],
+  now: { key: string; month: string; rev: number; gp: number }[],
+  before: { key: string; month: string; rev: number; gp: number }[],
+  firstHeld: string | null,
+): KeyMonth[] {
+  const at = (rows: typeof now) => {
+    const m = new Map<string, { rev: number; gp: number }>();
+    for (const r of rows) {
+      const k = `${r.key}\u0000${r.month}`;
+      const x = m.get(k) ?? { rev: 0, gp: 0 };
+      x.rev += r.rev;
+      x.gp += r.gp;
+      m.set(k, x);
+    }
+    return m;
+  };
+  const n = at(now), b = at(before);
+  const keys = [...new Set([...now, ...before].map((r) => r.key))];
+  return keys.flatMap((key) => period.map((month) => {
+    const py = yearBefore(month), known = !!firstHeld && py >= firstHeld;
+    const x = n.get(`${key}\u0000${month}`), y = b.get(`${key}\u0000${py}`);
+    return { key, month, rev: x?.rev ?? 0, gp: x?.gp ?? 0, prevRev: known ? y?.rev ?? 0 : null, prevGp: known ? y?.gp ?? 0 : null };
+  }));
+}
+
+/**
+ * A figure added up over the period, against the same months a year earlier - like for like: when only some of those
+ * months are in the figures, `same` is this period on those months alone (`sameMonths`), and `prev` covers them too.
+ * None of them known: no comparison (`prev` null).
+ */
+export function sumMonths(ms: MonthPair[]): { cur: number; prev: number | null; same: number | null; sameMonths: string[] } {
+  const cur = ms.reduce((a, m) => a + (m.cur ?? 0), 0);
+  const known = ms.filter((m) => m.prev != null);
+  if (!known.length) return { cur, prev: null, same: null, sameMonths: [] };
+  const prev = known.reduce((a, m) => a + (m.prev ?? 0), 0);
+  if (known.length === ms.length) return { cur, prev, same: null, sameMonths: [] };
+  return { cur, prev, same: known.reduce((a, m) => a + (m.cur ?? 0), 0), sameMonths: known.map((m) => m.month) };
+}
+
+/**
+ * A rate of two sums over the period (gross profit over net revenue, the revenue without a compound over all of it) -
+ * the rate of the sums, never an average of the months' rates; like for like as sumMonths.
+ */
+export function rateMonths(num: MonthPair[], den: MonthPair[]): { cur: number | null; prev: number | null; same: number | null; sameMonths: string[] } {
+  const n = sumMonths(num), d = sumMonths(den);
+  const div = (a: number | null, b: number | null) => (a == null || !b ? null : a / b);
+  return { cur: div(n.cur, d.cur), prev: div(n.prev, d.prev), same: d.same != null ? div(n.same, d.same) : null, sameMonths: d.sameMonths };
+}
+
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * A figure's months as a tile draws them (Digital Growth's MiniBars): a period inside one calendar year on its twelve
+ * months, January first, the months outside it empty (`labels` null: the bars' own January to December); a period over a
+ * year end on its own months, each named ("Nov 25").
+ */
+export function tileSeries(ms: MonthPair[]): { labels: string[] | null; months: (number | null)[]; py: (number | null)[] } {
+  const years = new Set(ms.map((m) => m.month.slice(0, 4)));
+  if (years.size <= 1) {
+    const months: (number | null)[] = Array(12).fill(null), py: (number | null)[] = Array(12).fill(null);
+    for (const m of ms) {
+      const i = Number(m.month.slice(5, 7)) - 1;
+      if (i < 0 || i > 11) continue;
+      months[i] = m.cur;
+      py[i] = m.prev;
+    }
+    return { labels: null, months, py };
+  }
+  return {
+    labels: ms.map((m) => `${MON3[Number(m.month.slice(5, 7)) - 1]} ${m.month.slice(2, 4)}`),
+    months: ms.map((m) => m.cur),
+    py: ms.map((m) => m.prev),
+  };
+}
+
+/** The share of the `n` largest in the total - null without a total. */
+export function topShare(figs: { rev: number }[], n: number, total: number): number | null {
+  if (!(total > 0)) return null;
+  const top = [...figs].sort((a, b) => b.rev - a.rev).slice(0, n).reduce((a, x) => a + x.rev, 0);
+  return top / total;
+}
+
+/** The months named for a like-for-like comparison: "Mar–Oct", "Oct", "Nov 25–Oct 26". */
+export function monthsSpan(ms: string[]): string {
+  if (!ms.length) return "";
+  const a = ms[0], z = ms[ms.length - 1];
+  const name = (m: string, y: boolean) => `${MON3[Number(m.slice(5, 7)) - 1]}${y ? ` ${m.slice(2, 4)}` : ""}`;
+  const two = a.slice(0, 4) !== z.slice(0, 4);
+  return a === z ? name(a, false) : `${name(a, two)}–${name(z, two)}`;
+}
+
+const MON_FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * The ready-made periods of the Filters window, as Who are our customers offers them: the year to date, the last month,
+ * the last 12 months, last year and this year's whole quarters - each kept within the months the figures hold
+ * (`min` .. `max`); a period wholly before the first month is left out.
+ */
+export function sealingPresets(min: string, max: string): { id: string; label: string; from: string; to: string }[] {
+  if (!isMonth(min) || !isMonth(max) || min > max) return [];
+  const y = Number(max.slice(0, 4));
+  const atLeast = (m: string) => (m < min ? min : m);
+  const back = (m: string, k: number) => {
+    const t = Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1 - k;
+    return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`;
+  };
+  const out = [
+    { id: "ytd", label: "Year to date", from: atLeast(`${y}-01`), to: max },
+    { id: "lm", label: `${MON_FULL[Number(max.slice(5, 7)) - 1]} ${y}`, from: max, to: max },
+    { id: "12m", label: "Last 12 months", from: atLeast(back(max, 11)), to: max },
+  ];
+  if (`${y - 1}-12` >= min) out.push({ id: "ly", label: `Last year (${y - 1})`, from: atLeast(`${y - 1}-01`), to: `${y - 1}-12` });
+  for (let q = 0; q < 4; q++) {
+    const from = `${y}-${String(q * 3 + 1).padStart(2, "0")}`, to = `${y}-${String(q * 3 + 3).padStart(2, "0")}`;
+    if (to <= max && to >= min) out.push({ id: `q${q + 1}`, label: `Q${q + 1} ${y}`, from: atLeast(from), to });
+  }
+  return out;
+}

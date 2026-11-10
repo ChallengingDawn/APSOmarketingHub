@@ -8,7 +8,7 @@
 // so a page only has to place it. Every link it offers is one the person may
 // open: the guards still refuse, but a door that slams is worse than no door.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
@@ -185,13 +185,26 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   // the switch between the two hubs: outside the bar, on its left, the two names stacked (SARCLA 10.11.2026: "take the
   // toggle out of there" - beside the logo it pushed the menu and the search; then, the lower line seen live: "put it
   // on left side, your previous option one"); above the bar on a phone
+  // ... and then (seen live, 10.11.2026 22:50): "keep the toggle outside of the header zone, put it really on the side,
+  // conserve the old header size" - so it hangs in the margin left of the bar, the bar keeps its full width; where the
+  // window leaves no margin for it, it sits above the bar. "APSOparts should come before Angst+Pfister."
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [room, setRoom] = useState(false);
+  useIsoLayoutEffect(() => {
+    if (!twoHubs) return;
+    const check = () => { const el = wrapRef.current; if (el) setRoom(el.getBoundingClientRect().left >= SWITCH_ROOM); };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [twoHubs]);
   const hubSwitch = (
     <Box role="group" aria-label="Hub" sx={{
       ...glass, borderRadius: "22px", p: 0.75, gap: 0.5, flexShrink: 0,
-      display: "flex", flexDirection: { xs: "row", md: "column" }, justifyContent: "center",
+      display: "inline-flex", flexDirection: room ? "column" : "row", justifyContent: "center",
       animation: "riseIn .5s cubic-bezier(.22,.8,.3,1) .05s backwards",
+      ...(room ? { position: "absolute", right: "calc(100% + 12px)", top: 0, width: SWITCH_WIDTH } : { mb: 1.5 }),
     }}>
-      {([["ap", "Angst+Pfister", AP_HUB_HOME], ["apsoparts", "APSOparts", "/"]] as const).map(([k, label, href]) => {
+      {([["apsoparts", "APSOparts", "/"], ["ap", "Angst+Pfister", AP_HUB_HOME]] as const).map(([k, label, href]) => {
         const lit = hub === k;
         return (
           <Box key={k} component={Link} href={href} aria-current={lit ? "page" : undefined} sx={{
@@ -327,10 +340,17 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
     </Box>
   );
   if (!twoHubs) return bar;
+  // the bar keeps the whole width; the switch hangs in the margin on its left (or sits above it, a narrow window)
   return (
-    <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, alignItems: "stretch", gap: 1.5, position: "relative", zIndex: 5 }}>
+    <Box ref={wrapRef} sx={{ position: "relative", zIndex: 5 }}>
       {hubSwitch}
       {bar}
     </Box>
   );
 }
+
+/** The switch's width in the margin, and the margin it needs (its width, the 12 px gap, a little air to the window). */
+const SWITCH_WIDTH = 132;
+const SWITCH_ROOM = SWITCH_WIDTH + 12 + 8;
+/** A layout effect in the browser (measured before the paint: no jump), a plain effect on the server. */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired } from "../src/lib/auth/access";
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
-import { SealingSheet, buOf, isSealingHeader, materialOf, monthOf, monthsBetween, noCompound, periodWords, priorities, sealingPeriod, sumBy, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
+import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
 import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
 import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
 
@@ -220,4 +220,84 @@ test("sealing: the pages the side panel lists", () => {
     "/ap/reporting/sealing/articles", "/ap/reporting/sealing/materials", "/ap/reporting/sealing/approvals",
   ]);
   assert.equal(new Set(SEALING_PAGES.map((p) => p.slug)).size, SEALING_PAGES.length);
+});
+
+test("sealing: each key's months with the same month a year earlier", () => {
+  const period = ["2026-01", "2026-02"];
+  const now = [{ key: "APCH", month: "2026-01", rev: 100, gp: 40 }, { key: "APCH", month: "2026-01", rev: 50, gp: 10 }, { key: "APDE", month: "2026-02", rev: 70, gp: 20 }];
+  const before = [{ key: "APCH", month: "2025-01", rev: 80, gp: 30 }, { key: "APFR", month: "2025-02", rev: 9, gp: 1 }];
+  const km = keyMonths(period, now, before, "2025-01");
+  // every key that sold in either period, every month of the period
+  assert.equal(km.length, 6);
+  assert.deepEqual(km.find((x) => x.key === "APCH" && x.month === "2026-01"), { key: "APCH", month: "2026-01", rev: 150, gp: 50, prevRev: 80, prevGp: 30 });
+  // a month without a sale is a zero, a year earlier too when it is in the figures
+  assert.deepEqual(km.find((x) => x.key === "APCH" && x.month === "2026-02"), { key: "APCH", month: "2026-02", rev: 0, gp: 0, prevRev: 0, prevGp: 0 });
+  assert.equal(km.find((x) => x.key === "APFR" && x.month === "2026-02")?.prevRev, 9);
+  // before the figures' first month: not known, never a zero
+  const late = keyMonths(period, now, before, "2025-02");
+  assert.equal(late.find((x) => x.key === "APCH" && x.month === "2026-01")?.prevRev, null);
+  assert.equal(late.find((x) => x.key === "APDE" && x.month === "2026-02")?.prevRev, 0);
+});
+
+test("sealing: a figure against the same months a year earlier, like for like", () => {
+  // all known
+  assert.deepEqual(sumMonths([{ month: "2026-01", cur: 10, prev: 8 }, { month: "2026-02", cur: 5, prev: 4 }]), { cur: 15, prev: 12, same: null, sameMonths: [] });
+  // none known: no comparison
+  assert.deepEqual(sumMonths([{ month: "2026-01", cur: 10, prev: null }]), { cur: 10, prev: null, same: null, sameMonths: [] });
+  // some known: both sides on those months alone
+  assert.deepEqual(sumMonths([{ month: "2025-12", cur: 7, prev: null }, { month: "2026-01", cur: 10, prev: 8 }, { month: "2026-02", cur: 5, prev: 4 }]),
+    { cur: 22, prev: 12, same: 15, sameMonths: ["2026-01", "2026-02"] });
+  // a rate is the rate of the sums - never an average of the months' rates
+  const gp = [{ month: "2026-01", cur: 50, prev: 30 }, { month: "2026-02", cur: 90, prev: 10 }];
+  const rev = [{ month: "2026-01", cur: 100, prev: 60 }, { month: "2026-02", cur: 900, prev: 40 }];
+  const r = rateMonths(gp, rev);
+  assert.equal(r.cur, 0.14);
+  assert.equal(r.prev, 0.4);
+  assert.equal(r.same, null);
+  // like for like: the months a year earlier that are known, on both sides
+  const p = rateMonths([{ month: "2025-12", cur: 10, prev: null }, ...gp], [{ month: "2025-12", cur: 100, prev: null }, ...rev]);
+  assert.equal(p.cur, 150 / 1100);
+  assert.equal(p.same, 0.14);
+  assert.equal(p.prev, 0.4);
+  assert.deepEqual(p.sameMonths, ["2026-01", "2026-02"]);
+  assert.equal(rateMonths([{ month: "2026-01", cur: 5, prev: null }], [{ month: "2026-01", cur: 0, prev: null }]).cur, null);
+});
+
+test("sealing: a tile's months - twelve in one calendar year, the period's own over a year end", () => {
+  const ytd = tileSeries([{ month: "2026-01", cur: 1, prev: 2 }, { month: "2026-02", cur: 3, prev: null }]);
+  assert.equal(ytd.labels, null);
+  assert.equal(ytd.months.length, 12);
+  assert.deepEqual(ytd.months.slice(0, 3), [1, 3, null]);
+  assert.deepEqual(ytd.py.slice(0, 3), [2, null, null]);
+  // a quarter: its months in their places, the others empty
+  const q2 = tileSeries([{ month: "2026-04", cur: 4, prev: 1 }, { month: "2026-05", cur: 5, prev: 1 }, { month: "2026-06", cur: 6, prev: 1 }]);
+  assert.deepEqual(q2.months, [null, null, null, 4, 5, 6, null, null, null, null, null, null]);
+  const over = tileSeries([{ month: "2025-11", cur: 1, prev: null }, { month: "2025-12", cur: 2, prev: null }, { month: "2026-01", cur: 3, prev: 1 }]);
+  assert.deepEqual(over.labels, ["Nov 25", "Dec 25", "Jan 26"]);
+  assert.deepEqual(over.months, [1, 2, 3]);
+  assert.deepEqual(over.py, [null, null, 1]);
+});
+
+test("sealing: the share of the largest, the months named, the ready-made periods", () => {
+  assert.equal(topShare([{ rev: 10 }, { rev: 50 }, { rev: 40 }], 2, 200), 0.45);
+  assert.equal(topShare([{ rev: 10 }], 10, 0), null);
+  assert.equal(monthsSpan(["2026-03", "2026-04", "2026-10"]), "Mar–Oct");
+  assert.equal(monthsSpan(["2026-10"]), "Oct");
+  assert.equal(monthsSpan(["2025-11", "2026-10"]), "Nov 25–Oct 26");
+  assert.equal(monthsSpan([]), "");
+  const ps = sealingPresets("2025-03", "2026-10");
+  const by = Object.fromEntries(ps.map((p) => [p.id, p]));
+  assert.deepEqual(ps.map((p) => p.id), ["ytd", "lm", "12m", "ly", "q1", "q2", "q3"]);
+  assert.deepEqual([by.ytd.from, by.ytd.to, by.ytd.label], ["2026-01", "2026-10", "Year to date"]);
+  assert.deepEqual([by.lm.from, by.lm.to, by.lm.label], ["2026-10", "2026-10", "October 2026"]);
+  assert.deepEqual([by["12m"].from, by["12m"].to], ["2025-11", "2026-10"]);
+  // last year from the figures' first month
+  assert.deepEqual([by.ly.from, by.ly.to, by.ly.label], ["2025-03", "2025-12", "Last year (2025)"]);
+  assert.deepEqual([by.q3.from, by.q3.to, by.q3.label], ["2026-07", "2026-09", "Q3 2026"]);
+  // the figures' first year: no last year, the year to date from the first month
+  const first = sealingPresets("2026-02", "2026-05");
+  assert.deepEqual(first.map((p) => p.id), ["ytd", "lm", "12m", "q1"]);
+  assert.equal(first[0].from, "2026-02");
+  assert.equal(first.find((p) => p.id === "q1")?.from, "2026-02");
+  assert.deepEqual(sealingPresets("x", "2026-05"), []);
 });
