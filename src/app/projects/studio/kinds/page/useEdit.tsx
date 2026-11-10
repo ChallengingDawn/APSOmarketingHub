@@ -216,7 +216,7 @@ export function useEdit(c: EditCtx) {
 
   /** what a drag can resize where the selection is: a text-and-picture block's or the hero's split, a tile's span, a
    * module's two columns - null when nothing there resizes */
-  const resizeFor = (sel: string | null, rowKey: string | null): ResizeSpec | null => {
+  const resizeFor = (sel: string | null, rowKey: string | null, whole = false): ResizeSpec | null => {
     if (!c.canEdit || !sel) return null;
     const cur = c.view();
     if (c.isNew) {
@@ -250,11 +250,12 @@ export function useEdit(c: EditCtx) {
           },
         };
       }
-      if (rowKey?.startsWith("np:")) return moduleResize(rowKey, `[data-apx-mod="${rowKey.slice(3)}"]`);
+      // a module: when it is selected itself (its words keep their popup clear)
+      if (rowKey?.startsWith("np:") && sel === rowKey) return moduleResize(rowKey, `[data-apx-mod="${rowKey.slice(3)}"]`);
       return null;
     }
     const row = rowKey ? c.rows.find((x) => x.key === rowKey) : null;
-    if (row?.module && row.changeId) return moduleResize(`c:${row.changeId}`, `[data-apx-c="${row.change}"]:not(style)`);
+    if (whole && row?.module && row.changeId) return moduleResize(`c:${row.changeId}`, `[data-apx-c="${row.change}"]:not(style)`);
     return null;
   };
   const numOf = (key: string) => c.rows.find((x) => x.key === key)?.num ?? "";

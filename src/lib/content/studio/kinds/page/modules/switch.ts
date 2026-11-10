@@ -158,6 +158,8 @@ export function moduleFromBlock(f: Fields, key: string, type: string, store: str
   if (key === "faq") {
     s.title = f.faqTitle.trim();
     s.faq = f.faq.filter((q) => q.q.trim()).map((q) => ({ q: q.q.trim(), a: plainWords(q.a) }));
+    // all open stays all open (each closed opens on a click - the module's own way)
+    if (f.looks.faq?.open) s.extra = { ...s.extra, open: "1" };
   } else if (key.startsWith("sections.")) {
     const sec = f.sections.find((x) => `sections.${x.id}` === key);
     if (!sec) return null;

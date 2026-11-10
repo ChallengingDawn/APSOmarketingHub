@@ -282,6 +282,8 @@ export default function Studio({ api }: StudioProps) {
     undoLabel: (label) => { const e = history.find((x) => x.label === label && !x.undone); if (e) void undo(e); },
     editModule: (k) => modules.edit(k),
   });
+  // the bar over a module just switched (its Undo) goes once its popup is closed
+  useEffect(() => { if (!pop) tools.clearSwitched(); }, [!!pop]); // eslint-disable-line react-hooks/exhaustive-deps
   // "Changes made here" lives in the bar's timeline (Content v7, SARCLA 10.11.2026: "a small icon on top") - ../../frame.tsx
   useTimeline(history.map((e) => ({
     id: e.id, label: e.label, note: e.note, warn: e.warn, at: e.at, by: e.by, where: e.lang, undone: e.undone,
@@ -1576,7 +1578,7 @@ export default function Studio({ api }: StudioProps) {
             onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
           }}
           onAct={isNew ? onAct : undefined} bar={bar} popup={popup}
-          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey) }}
+          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow) }}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>

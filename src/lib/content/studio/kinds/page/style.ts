@@ -238,9 +238,10 @@ export function buttonColor(b: ButtonLook, fallback: string): string {
 export function buttonCheck(b: ButtonLook, fallback: string, grounds: string[]): ReadCheck {
   const hex = buttonColor(b, fallback);
   if ((b.style ?? "filled") === "filled") {
-    // the fill must stand out from the ground a little (3:1, as a control); its words are made to read on it
+    // its words are made to read on the fill (white or ink); the fill itself must not vanish into its ground
     const r = readCheck(hex, grounds, true);
-    return r.ok ? r : { ...r, why: r.why.replace("words need 3:1 to be read", "the button needs 3:1 to stand out").replace("it cannot be read", "the button disappears") };
+    if (r.ok || r.ratio >= 1.25) return { ...r, ok: true, why: r.ok ? r.why : "" };
+    return { ...r, why: r.why.replace("it cannot be read", "the button disappears in it") };
   }
   return readCheck(hex, grounds, false);
 }

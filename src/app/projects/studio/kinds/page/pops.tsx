@@ -435,7 +435,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flush(); } }}
         helperText={<Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box>}
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
-      <Box sx={{ mt: 1 }}>
+      <Box sx={{ mt: 1.75 }}>
         <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
       </Box>
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
@@ -680,7 +680,7 @@ export function BlockSettingsPop({ api, row, f, setF, store, canEdit, canAi, bus
             <>
               <Sub>The button</Sub>
               <TextField fullWidth size="small" label="Its words" value={(getField(f, `${btnPath}.label`) as string) ?? ""} disabled={d} onChange={(e) => setF(setField(f, `${btnPath}.label`, e.target.value.slice(0, 60)))}
-                sx={{ ...field, mb: 1.25, "& input": { fontSize: "0.86rem" } }} />
+                sx={{ ...field, mt: 0.75, mb: 1.25, "& input": { fontSize: "0.86rem" } }} />
               <LinkInput api={api} store={store} label="Its page of the shop" value={(getField(f, `${btnPath}.url`) as string) ?? ""} disabled={d} onChange={(v) => setF(setField(f, `${btnPath}.url`, v))} />
               {!d && <ButtonLookBox value={buttonLookOfField(look(btnPath))} grounds={groundOfField(f, btnPath)} fallback={key === "cta" ? "red" : "red"}
                 onChange={(next, label) => setF(setLook(f, btnPath, fieldButtonPatchOf(next)), label)} />}

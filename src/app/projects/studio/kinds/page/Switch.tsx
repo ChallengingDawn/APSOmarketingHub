@@ -36,10 +36,10 @@ export function SwitchList({ options, keeps, onPick, disabled, first = 6, column
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.45, mb: 1 }}>
         {options.length} module{options.length === 1 ? "" : "s"} of the same kind - it keeps {keeps}, only the look changes. Undo brings the old one back.
       </Typography>
-      <Box role="list" sx={{ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 1 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gap: 1 }}>
         {shown.map((o) => (
-          <Tooltip key={o.def.id} title={o.def.note} placement="top">
-            <Box role="listitem" component="button" type="button" disabled={disabled} onClick={() => onPick(o.def.id)} aria-label={`Change it into ${o.def.name}`}
+          <Tooltip key={o.def.id} title={o.def.note} placement="top" describeChild>
+            <Box component="button" type="button" disabled={disabled} onClick={() => onPick(o.def.id)} aria-label={`Change it into ${o.def.name}`}
               sx={{
                 all: "unset", cursor: disabled ? "default" : "pointer", display: "flex", flexDirection: "column", minWidth: 0, borderRadius: "8px", overflow: "hidden",
                 border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", transition: "border-color .12s, box-shadow .12s, transform .12s",
@@ -73,7 +73,7 @@ export function SwitchList({ options, keeps, onPick, disabled, first = 6, column
 export function SwitchedBar({ label, onUndo }: { label: string; onUndo: () => void }) {
   return (
     <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, pl: 1.5, pr: 0.75, py: 0.75, borderRadius: "10px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 12px 30px rgba(21,34,58,.28)" }}>
-      <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, flex: 1, minWidth: 0, lineHeight: 1.35 }}>{label}</Typography>
+      <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, flex: 1, minWidth: 0, lineHeight: 1.35, color: "#fff" }}>{label}</Typography>
       <Button size="small" onClick={onUndo} startIcon={<UndoIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.78rem", color: "#fff", bgcolor: "rgba(255,255,255,.12)", borderRadius: "7px", px: 1.1, "&:hover": { bgcolor: "rgba(255,255,255,.2)" } }}>Undo</Button>
     </Box>
   );

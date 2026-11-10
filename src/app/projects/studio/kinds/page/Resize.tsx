@@ -140,6 +140,18 @@ export function ResizeLayer({ spec, doc, frame, zoom, origin, tick }: {
     if (v === null || v === drag) return;
     setDrag(v);
     show(v);
+    // the handle follows the line it moves, the block's new height
+    const el = target.current;
+    if (!el) return;
+    const sy = doc.documentElement.scrollTop || doc.body?.scrollTop || 0;
+    if (spec.kind === "split") {
+      const c = columnsOf(el);
+      const r = el.getBoundingClientRect();
+      if (c) setGeo((g) => (g ? { ...g, x: (c.a.right + c.b.left) / 2, top: r.top + sy, h: r.height } : g));
+    } else {
+      const r = el.getBoundingClientRect();
+      setGeo((g) => (g ? { ...g, x: r.right, top: r.top + sy, h: r.height } : g));
+    }
   };
   const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (drag === null) return;

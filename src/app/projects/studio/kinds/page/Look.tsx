@@ -42,7 +42,7 @@ const Cap = ({ children, mt = 0 }: { children: React.ReactNode; mt?: number }) =
 /** One squared swatch (a palette colour, "Standard", or the picker). */
 function Swatch({ hex, on, label, warn, onClick, children }: { hex: string | null; on: boolean; label: string; warn?: string; onClick?: () => void; children?: React.ReactNode }) {
   return (
-    <Tooltip title={warn ? `${label} - ${warn}` : label}>
+    <Tooltip title={warn ? `${label} - ${warn}` : label} describeChild>
       <Box component={onClick ? "button" : "span"} type={onClick ? "button" : undefined} onClick={onClick} aria-label={label} aria-pressed={on}
         sx={{
           all: "unset", position: "relative", cursor: "pointer", width: 26, height: 26, boxSizing: "border-box", borderRadius: "5px", flexShrink: 0,
@@ -152,7 +152,7 @@ function Seg<K extends string>({ value, options, onChange, label }: { value: K |
   return (
     <Box role="radiogroup" aria-label={label} sx={{ display: "inline-flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
       {options.map((o, i) => (
-        <Tooltip key={o.key} title={o.tip}>
+        <Tooltip key={o.key} title={o.tip} describeChild>
           <Box component="button" type="button" role="radio" aria-checked={value === o.key} aria-label={o.tip} onClick={() => onChange(o.key)} sx={{ ...segBtn(value === o.key), borderLeft: i ? `1px solid ${HAIRLINE}` : "none" }}>{o.label}</Box>
         </Tooltip>
       ))}
@@ -179,8 +179,8 @@ export function TextLookRow({ value, onChange, grounds, large, sizes = true, ali
   return (
     <Box sx={{ mt: 1.1, pt: 1.1, borderTop: `1px dashed ${HAIRLINE}` }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        <Tooltip title="Its colour">
-          <Box component="button" type="button" onClick={() => setColors((x) => !x)} aria-expanded={colors} sx={{
+        <Tooltip title="Its colour" describeChild>
+          <Box component="button" type="button" onClick={() => setColors((x) => !x)} aria-expanded={colors} aria-label="Its colour" sx={{
             all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 0.75, height: 28, px: 0.9, borderRadius: "6px",
             border: `1px solid ${colors ? BLUE : HAIRLINE}`, bgcolor: "#fff", fontSize: "0.78rem", fontWeight: 650, color: INK, "&:hover": { borderColor: BLUE },
           }}>
@@ -253,7 +253,7 @@ export function ButtonLookBox({ value, onChange, grounds, fallback, arrowDefault
 /** A compact icon toggle for the words' marks row (B / I / U), lit when on. */
 export function MarkBtn({ on, tip, onClick, children }: { on: boolean; tip: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <Tooltip title={tip}>
+    <Tooltip title={tip} describeChild>
       <IconButton size="small" onClick={onClick} aria-label={tip} aria-pressed={on}
         sx={{ p: 0.45, borderRadius: "6px", color: on ? "#fff" : INK, bgcolor: on ? BLUE : "transparent", "&:hover": { bgcolor: on ? BLUE : "rgba(21,34,58,.06)" } }}>
         {children}

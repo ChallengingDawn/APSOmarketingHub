@@ -50,6 +50,8 @@ test("the readability guard: a colour that cannot be read on its ground is flagg
   // a filled button carries its own words' colour - its fill must stand out from the ground; an outline must read itself
   assert.equal(buttonCheck({ style: "filled", color: "red" }, "red", ["#ffffff"]).ok, true);
   assert.equal(buttonCheck({ style: "filled", color: "#ffffff" }, "red", ["#ffffff"]).ok, false);
+  assert.equal(buttonCheck({ style: "filled", color: "red" }, "red", ["#274e64"]).ok, true, "the call to action's red button on petrol: its words read on it");
+  assert.equal(buttonCheck({ style: "filled", color: "petrol" }, "red", ["#274e64"]).ok, false, "a petrol button on petrol disappears");
   assert.equal(buttonCheck({ style: "outline", color: "#f2f4f5" }, "petrol", ["#ffffff"]).ok, false);
 });
 
@@ -177,6 +179,7 @@ test("a new page's own blocks become a module of their family, their words carri
   assert.equal(s.settings.text, "EPDM für Heisswasser.\n\n- Beständig");
   assert.equal(s.settings.feature?.img, "/api/content/picture/12-ab");
   assert.equal(s.settings.layout, "left", "the picture stays on its side");
+  assert.equal(moduleFromBlock(setLook(f, "faq", { open: true }), "faq", "faq", "de-CH")!.settings.extra.open, "1", "all open stays all open");
   const t = moduleFromBlock(f, "benefits", "trust-reasons", "de-CH")!;
   assert.deepEqual(t.settings.points.map((p) => p.title), ["Ab 1 Stück", "Werkstoffe"]);
   const c = moduleFromBlock(f, "cta", "cta", "de-CH")!;
