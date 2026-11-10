@@ -130,6 +130,9 @@ lists below); a button with no fitting address gets no words. A module whose poi
 with its page) keeps them: give it no items. Its points - or its questions (title = the question, text = the answer) - go in
 "items". A word the module does not take stays "", a list it does not take stays [].
 "why" is ENGLISH, under 10 words.
+FIGURES - temperatures, hardness, pressures, sizes, norms (ISO, DIN, EN, AS) - in the text blocks AND the modules: only
+as THE SHOP'S OWN FACTS (in the question) or the brand facts give them, written as they write them. A figure from neither
+is left out: say the same without it ("for high temperatures", never "up to about 200 °C").
 "fill" - how the hub fills a module's products or categories: "category" (that category's products; for a module of
 categories its subcategories), "technologies" (the shop's main technologies), "bought" / "viewed" (most bought / most
 viewed online, within "category" when given), "none" (a module of words). "count": how many it shows (its range below).
@@ -152,11 +155,56 @@ export function ownPoints(store: string, lib: LibModule[] = newPageLibrary()): {
   return lib.filter((m) => ownPointsField(m.id)).map((m) => ({ id: m.id, titles: (makeModule(m.id, store)?.settings.points ?? []).map((p) => p.title).filter(Boolean) })).filter((x) => x.titles.length);
 }
 
-/** The question's part for the modules: the shop's categories, the pages a button may go to, the language. */
-export function newPageUser(a: { tree: { name: string; url: string; depth: number }[]; candidates: { url: string; name: string; kind: string }[]; language: string; store: string }): string {
+/* ── the page's subject and the shop's own facts on it (lead 10.11.2026: "give fill_page the subject's real shop facts") ── */
+
+const fold = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ß/g, "ss");
+const SUBJECT_STOP = new Set(["aus", "fur", "fuer", "und", "the", "for", "and", "von", "mit", "der", "die", "das", "des", "seo", "page", "seite", "landing", "online", "shop", "html", "www", "apsoparts", "com"]);
+const subjectTokens = (s: string) => fold(s).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !SUBJECT_STOP.has(w) && !/^[a-z]{2}-[a-z]{2,3}$/.test(w));
+
+/**
+ * The page's subject among the shop's categories: the one whose name (and address) shares the most words with the
+ * brief's own (its title, keywords, the person's ask) - the deeper, more exact one when two share as many. null when no
+ * category shares a word. "O-Ringe aus FKM" + "o-ringe fkm" -> "O-Ringe FKM", not "O-Ringe / X-Ringe".
+ */
+export function subjectOf(briefWords: string[], cats: { name: string; url: string }[]): { name: string; url: string } | null {
+  const want = new Set(briefWords.flatMap(subjectTokens));
+  if (!want.size) return null;
+  const stem = (w: string) => w.replace(/(en|e|n|s)$/, "");
+  const wantStems = new Set([...want].map(stem));
+  let best: { name: string; url: string; score: number; extra: number } | null = null;
+  for (const c of cats) {
+    const slug = (() => { try { return new URL(c.url, BASE).pathname.split("/").pop() ?? ""; } catch { return ""; } })();
+    // each word once, by its stem ("Ringe" in the name and "ring" in the address are one word)
+    const own = [...new Set([...subjectTokens(c.name), ...subjectTokens(slug.replace(/\.html$/, ""))].map(stem))];
+    const hit = own.filter((w) => wantStems.has(w)).length;
+    if (!hit) continue;
+    const extra = subjectTokens(c.name).filter((w) => !want.has(w) && !wantStems.has(stem(w))).length;
+    if (!best || hit > best.score || (hit === best.score && extra < best.extra)) best = { name: c.name, url: c.url, score: hit, extra };
+  }
+  return best ? { name: best.name, url: best.url } : null;
+}
+
+/** The shop's own facts on the subject, as the question gives them (its description, its first product's technical
+ * summary) - "" when there are none. */
+export function factsBlock(f: { name: string; url: string; words: string; product: { name: string; rows: string[][] } | null } | null): string {
+  if (!f || (!f.words.trim() && !f.product?.rows.length)) return "";
+  const rows = (f.product?.rows ?? []).filter((r) => r.length >= 2 && r[0].trim() && r[1].trim());
+  // the shop's own words, without what a page may never say (a stock or delivery promise, a price, "Chemours" - and a
+  // sentence naming its trade names: the shop's FKM text tells the material's history by them)
+  const words = safeWords(f.words, f.words, [], "").split(/(?<=[.!?])\s+/).filter((x) => !/\b(viton|kalrez|teflon|chemours)\b/i.test(x)).join(" ");
+  return `THE SHOP'S OWN FACTS ON THIS PAGE'S SUBJECT - ${f.name} (${f.url}). Figures (temperatures, hardness, pressures,
+sizes, norms) only from here or the brand facts; any other figure is left out:
+${words || "(its page has no text of its own)"}${rows.length ? `
+ITS FIRST PRODUCT'S TECHNICAL SUMMARY (${f.product!.name}):
+${rows.slice(1).map((r) => `- ${r[0]}: ${r[1]}`).join("\n")}` : ""}`;
+}
+
+/** The question's part for the modules: the shop's categories, the pages a button may go to, the language - and the
+ * shop's own facts on the subject (factsBlock). */
+export function newPageUser(a: { tree: { name: string; url: string; depth: number }[]; candidates: { url: string; name: string; kind: string }[]; language: string; store: string; facts?: string }): string {
   const tree = a.tree.length ? a.tree.slice(0, 120).map((t) => `${"  ".repeat(t.depth)}${t.url} · ${t.name}`).join("\n") : "(not read - fill with \"bought\" or \"viewed\", or a category from the pages below)";
   const own = ownPoints(a.store.split("/")[0]);
-  return `THE SHOP'S CATEGORIES (for a module's "fill" and its buttons: address · name):
+  return `${a.facts ? `${a.facts}\n\n` : ""}THE SHOP'S CATEGORIES (for a module's "fill" and its buttons: address · name):
 ${tree}
 
 A MODULE'S BUTTONS AND FILL MAY ALSO USE THE SHOP'S PAGES YOU MAY LINK above (their address as listed).
@@ -205,6 +253,8 @@ export type NewPageCtx = {
   lang: string;
   /** the store view ("de-CH") - a module's own points are its store view's */
   store?: string;
+  /** the figures and norms the facts given hold (factKeys) - a module's words may carry only those */
+  facts?: FactKeys;
   lib?: LibModule[];
 };
 
@@ -253,6 +303,13 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
     // one tool's name on another's link
     // (a store view where the module has none of its own: the AI's points stand, without pages)
     if (ownPointsField(id) && words.points.length && (makeModule(id, ctx.store ?? "de-CH")?.settings.points.length ?? 0) > 0) { words.points = []; said.push("its own points kept (each has its page)"); }
+    // figures only from the facts given (a figure they do not hold: its clause or its sentence out, said)
+    if (ctx.facts) {
+      const fo = (t: string) => figuresOut(t, ctx.facts!, said);
+      words.eyebrow = fo(words.eyebrow); words.title = fo(words.title); words.text = fo(words.text); words.button = fo(words.button);
+      words.points = words.points.map((p) => ({ title: fo(p.title), text: fo(p.text) })).filter((p) => p.title);
+      words.faq = words.faq.map((q) => ({ q: fo(q.q), a: fo(q.a) })).filter((q) => q.q && q.a);
+    }
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && m.extras.some((s) => s.key === e.key)).slice(0, 8);
     const okLink = (v: unknown) => { const u = whole(str(v, 400)); return u && ctx.links.includes(u) ? u : ""; };
     let link = okLink(x.link);
@@ -361,13 +418,75 @@ export function composeModules(f: Fields, mods: NewPageModule[], store: string, 
 
 /* ── the text blocks' words under the same rules ──────────────────────── */
 
-/** A text with the shop's word rules applied line by line (a paragraph break and a "- " list stay as they are). */
-export function guardText(text: string, pageText: string, said: string[], lang: string): string {
+/* ── figures only from the facts given (lead 10.11.2026) ──────────────── */
+//
+// A number with a unit (°C, bar, Shore, mm, %, h ...) or a norm (ISO, DIN, EN, AS ...) in the AI's words that the facts it
+// was given do not hold is taken out: the clause that carries it (after a dash, a comma, a semicolon, in brackets), or
+// the whole sentence when the figure stands in its first clause - and said under "Left out".
+
+const UNIT = "°\\s?C|°\\s?F|bar|psi|MPa|kPa|N/mm²|Shore(?:\\s?[AD])?|mm|cm|µm|%|h|Std\\.?|Stunden|hours?";
+const NUM = "[+\\-−–±]?\\d+(?:[.,']\\d+)*";
+// a number, a range ("-25 bis +200"), a tolerance ("70 ±5"), then its unit
+const TOL = "(?:\\s?±\\s?\\d+(?:[.,]\\d+)?)?";
+const FIGURE_RE = () => new RegExp(`(?<![\\p{L}\\d])(${NUM})${TOL}(?:\\s?(?:bis|to|à|a|-|–|…|\\.\\.)\\s?(${NUM})${TOL})?\\s?(${UNIT})(?![\\p{L}\\d])`, "giu");
+const NORM_RE = () => /\b(ISO|DIN(?:\s?EN)?|EN|AS|ASTM|SAE|JIS|BS)\s?-?(\d{2,5}(?:[-/]\d+)?)\b/g;
+const numKey = (n: string) => n.replace(/^[+±]/, "").replace(/^[−–]/, "-").replace(/'/g, "").replace(",", ".").replace(/\.0+$/, "");
+const unitKey = (u: string) => {
+  const x = u.toLowerCase().replace(/\s/g, "");
+  return x.startsWith("shore") ? "shore" : /^(h|std\.?|stunden|hours?)$/.test(x) ? "h" : x;
+};
+
+/** A text's figures: each number with its unit ("200|°c"), and its norms ("ISO3601"). */
+export function figuresIn(text: string): { figures: { raw: string; keys: string[] }[]; norms: { raw: string; key: string }[] } {
+  const figures = [...String(text ?? "").matchAll(FIGURE_RE())].map((m) => ({ raw: m[0].trim(), keys: [m[1], m[2]].filter(Boolean).map((n) => `${numKey(n!)}|${unitKey(m[3])}`) }));
+  const norms = [...String(text ?? "").matchAll(NORM_RE())].map((m) => ({ raw: m[0].trim(), key: `${m[1].replace(/\s/g, "").toUpperCase()}${m[2]}` }));
+  return { figures, norms };
+}
+
+/** What the facts hold, ready to ask: their figures' keys and their norms. */
+export type FactKeys = { figures: Set<string>; norms: Set<string> };
+export function factKeys(facts: string): FactKeys {
+  const f = figuresIn(facts);
+  return { figures: new Set(f.figures.flatMap((x) => x.keys)), norms: new Set(f.norms.map((x) => x.key)) };
+}
+
+/** The figures of a piece of text the facts do not hold. */
+export function unsourced(text: string, k: FactKeys): string[] {
+  const f = figuresIn(text);
+  return [...f.figures.filter((x) => x.keys.some((key) => !k.figures.has(key))).map((x) => x.raw), ...f.norms.filter((x) => !k.norms.has(x.key)).map((x) => x.raw)];
+}
+
+/** A text with every figure the facts do not hold taken out - its clause, or its sentence - each said. */
+export function figuresOut(text: string, k: FactKeys, said: string[]): string {
+  if (!text.trim() || !unsourced(text, k).length) return text;
+  const out: string[] = [];
+  // sentences as the word rules cut them (a decimal point is no end of a sentence)
+  for (const sentence of text.trim().split(/(?<=[.!?])\s+/)) {
+    const bad = unsourced(sentence, k);
+    if (!bad.length) { out.push(sentence); continue; }
+    for (const b of bad) said.push(`"${b}" left out: the shop's facts on the page's subject do not give it`);
+    // a clause in brackets holding it goes; then a clause after a dash, a comma or a semicolon
+    const s = sentence.replace(/\s*\([^()]*\)/g, (g) => (unsourced(g, k).length ? "" : g));
+    const m = /^([\s\S]*?)([.!?]*)$/.exec(s.trim())!;
+    const parts = m[1].split(/(\s[-–—]\s|,\s|;\s)/);
+    // its first clause carries it: the sentence goes
+    if (unsourced(parts[0], k).length) continue;
+    const kept: string[] = [parts[0]];
+    for (let i = 1; i < parts.length; i += 2) if (!unsourced(parts[i + 1] ?? "", k).length) kept.push(parts[i], parts[i + 1] ?? "");
+    out.push(`${kept.join("").replace(/[\s,;–—-]+$/, "")}${m[2]}`);
+  }
+  return out.join(" ").replace(/\s{2,}/g, " ").trim();
+}
+
+/** A text with the shop's word rules applied line by line (a paragraph break and a "- " list stay as they are) - and,
+ * with the facts given, every figure they do not hold taken out. */
+export function guardText(text: string, pageText: string, said: string[], lang: string, facts?: FactKeys): string {
   if (!text.trim()) return text;
   return text.split("\n").map((line): string | null => {
     const m = /^(\s*[-•–]\s+)?(.*)$/.exec(line)!;
     if (!m[2].trim()) return line;
-    const kept = safeWords(m[2], pageText, said, lang);
+    const words = safeWords(m[2], pageText, said, lang);
+    const kept = facts ? figuresOut(words, facts, said) : words;
     // a line left out goes whole (a list keeps its rhythm)
     return kept ? `${m[1] ?? ""}${kept}` : null;
   }).filter((l): l is string => l !== null).join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -375,9 +494,9 @@ export function guardText(text: string, pageText: string, said: string[], lang: 
 
 /** The whole-page answer's words under the shop's word rules (prices, discounts, stock and delivery promises, a
  * certificate nobody named, "Chemours", another language): a sentence that breaks one is taken out, and said. */
-export function guardFill(a: FillAnswer, pageText: string, lang: string): { answer: FillAnswer; problems: string[] } {
+export function guardFill(a: FillAnswer, pageText: string, lang: string, facts?: FactKeys): { answer: FillAnswer; problems: string[] } {
   const said: string[] = [];
-  const g = (t: string) => guardText(t, pageText, said, lang);
+  const g = (t: string) => guardText(t, pageText, said, lang, facts);
   const out: FillAnswer = { ...a };
   if (a.hero) out.hero = { ...a.hero, eyebrow: g(a.hero.eyebrow), title: g(a.hero.title), sub: g(a.hero.sub), button: { ...a.hero.button, label: g(a.hero.button.label) }, pictureAlt: g(a.hero.pictureAlt) };
   if (a.intro !== undefined) out.intro = g(a.intro);

@@ -3,10 +3,11 @@ import { test } from "node:test";
 import { blockOrder, emptyFields, removeBlock, type Fields } from "../src/lib/content/studio/kinds/page/fields";
 import { mergeFill } from "../src/lib/content/studio/kinds/page/fill";
 import { renderNewPage } from "../src/lib/content/studio/kinds/page/newpage";
+import { categoryDescription } from "../src/lib/content/studio/kinds/page/modules/parse";
 import { library } from "../src/lib/content/studio/kinds/page/plan/library";
 import {
   MAX_MODULES, NEWPAGE_SCHEMA, NEWPAGE_SKIP_CATEGORIES, blockKeyOf, cleanNewPageModules, composeModules, guardFill, guardText, isAiModule, needsShop,
-  newPageAddresses, newPageExample, newPageLibrary, newPageSystem, newPageUser, ownPoints, type NewPageCtx, type NewPageModule,
+  factKeys, factsBlock, figuresIn, figuresOut, newPageAddresses, newPageExample, newPageLibrary, newPageSystem, newPageUser, ownPoints, subjectOf, unsourced, type NewPageCtx, type NewPageModule,
 } from "../src/lib/content/studio/kinds/page/plan/newpage";
 
 // Content v8 (SARCLA 10.11.2026, point 5): "When the AI is generating a new page it should also generate the modules".
@@ -201,4 +202,75 @@ test("the text blocks' words under the shop's rules - a list stays a list", () =
   // a certificate nobody named and the brand we never write: those answers go, the question with them
   assert.deepEqual(g.answer.faq?.items.map((x) => x.q), ["Wofür?"]);
   assert.ok(g.problems.length >= 3);
+});
+
+/* ── the subject's own facts, and figures only from them (the lead, 10.11.2026) ── */
+
+test("the page's subject among the shop's categories: the one sharing most of the brief's words, the more exact first", () => {
+  const cats = [
+    { name: "Dichtungstechnik", url: `${B}/de-CH/dichtungstechnik.html` },
+    { name: "O-Ringe / X-Ringe", url: ORINGS },
+    { name: "O-Ring EPDM", url: "/de-CH/dichtungstechnik/o-ringe-x-ringe/o-ring-epdm.html" },
+    { name: "O-Ringe FKM", url: "/de-CH/dichtungstechnik/o-ringe-x-ringe/o-ring-fkm.html" },
+  ];
+  assert.equal(subjectOf(["SEO: O-Ringe aus FKM", "o-ringe fkm", "fkm o-ring", "o-ring hitzebeständig"], cats)?.name, "O-Ringe FKM");
+  assert.equal(subjectOf(["O-Ringe für Lebensmittel"], cats)?.name, "O-Ringe / X-Ringe");
+  assert.equal(subjectOf(["Zahnriemen nach Mass"], cats), null);
+});
+
+test("the facts block: the shop's own words (never its stock or delivery promise) and its first product's technical summary", () => {
+  const html = `<main><div class="products"><li class="product-item">x</li></div><div class="category-description"><h2>O-Ringe aus FKM</h2><p>FKM-O-Ringe sind von -20 °C bis +200 °C einsetzbar. Dank grosser Verfügbarkeit ab Lager profitieren Sie von kurzen Lieferzeiten. Masse nach ISO 3601.</p><script>var x=1;</script></div></main><footer>Fuss</footer>`;
+  const words = categoryDescription(html);
+  assert.match(words, /^O-Ringe aus FKM FKM-O-Ringe sind von -20 °C bis \+200 °C einsetzbar\./);
+  assert.doesNotMatch(words, /Fuss|var x/);
+  const block = factsBlock({ name: "O-Ringe FKM", url: FKM, words, product: { name: "NORMATEC® O-Ring FKM 75.00-01", rows: [["Merkmal", "Wert"], ["Härte", "75 Shore A"], ["Temperatur", "-20 bis +200 °C"]] } });
+  assert.match(block, /THE SHOP'S OWN FACTS ON THIS PAGE'S SUBJECT - O-Ringe FKM/);
+  assert.doesNotMatch(block, /ab Lager/);
+  // the material's trade names of the brand we never write stay out of what the AI is given
+  assert.doesNotMatch(factsBlock({ name: "O-Ringe FKM", url: FKM, words: "FKM ist beständig. Fluorkautschuke wurden von DuPont (Viton) entwickelt.", product: null }), /Viton|DuPont/);
+  assert.match(block, /- Härte: 75 Shore A/);
+  assert.doesNotMatch(block, /- Merkmal: Wert/);
+  assert.equal(factsBlock(null), "");
+  assert.match(newPageUser({ tree, candidates: cands, language: "German", store: "de-CH", facts: block }), /^THE SHOP'S OWN FACTS/);
+  assert.match(newPageSystem(), /FIGURES - temperatures, hardness, pressures, sizes, norms/);
+});
+
+test("a figure the facts do not give is taken out - its clause, or its sentence - and said; one they give stays", () => {
+  const facts = factKeys("Masse nach ISO 3601. Härte 70 Shore A und 90 Shore A. Einsatz von -20 °C bis +200 °C.");
+  const none = factKeys("Masse nach ISO 3601.");
+  const said: string[] = [];
+  // the lead's two cases
+  assert.equal(figuresOut("typischerweise bis rund 200 °C", none, said), "");
+  assert.match(said[0], /"200 °C" left out: the shop's facts on the page's subject do not give it/);
+  assert.equal(figuresOut("Abmessungen nach ISO 3601.", none, []), "Abmessungen nach ISO 3601.");
+  // the real tile of 10.11.2026: the clause after the dash goes, the sentence stays
+  assert.equal(figuresOut("FKM behält seine Dichtwirkung bei hohen Dauertemperaturen - je nach Compound typischerweise bis rund 200 °C. Die genauen Werte stehen im Datenblatt.", none, []),
+    "FKM behält seine Dichtwirkung bei hohen Dauertemperaturen. Die genauen Werte stehen im Datenblatt.");
+  // in its first clause: the sentence goes; in brackets: the brackets go
+  assert.equal(figuresOut("Bis 10 bar dicht. Für Öle (bis 150 °C) geeignet.", none, []), "Für Öle geeignet.");
+  // given by the facts: kept, ranges and signs as the shop writes them
+  assert.equal(figuresOut("Härten von 70 bis 90 Shore A, einsetzbar bis +200 °C.", facts, []), "Härten von 70 bis 90 Shore A, einsetzbar bis +200 °C.");
+  assert.equal(figuresOut("Masse nach ISO 3601 und AS568.", facts, []), "");
+  assert.deepEqual(unsourced("Masse nach ISO 3601 und AS568, 75 Shore A.", facts), ["75 Shore A", "AS568"]);
+  // a product number is no figure
+  assert.deepEqual(figuresIn("NORMATEC® O-Ring FKM 75.00-01 braun").figures, []);
+  // the shop's technical summary as it writes it (10.11.2026, HITEC® O-Ring FKM 75.16-04): a tolerance, a signed range
+  const shop = factKeys("Härte: 70 ±5 Shore A. Einsatztemperaturbereich: von -25 bis +200 °C. Norm: in Anlehnung an Norm ISO 3601");
+  assert.equal(figuresOut("Standard ist 70 Shore A. Einsetzbar von -25 bis +200 °C nach ISO 3601.", shop, []), "Standard ist 70 Shore A. Einsetzbar von -25 bis +200 °C nach ISO 3601.");
+  assert.equal(figuresOut("Auch 90 Shore A.", shop, []), "");
+});
+
+test("the text blocks and the modules carry only the figures the facts give", () => {
+  const facts = factKeys("Masse nach ISO 3601. Einsatz von -20 °C bis +200 °C.");
+  const g = guardFill({
+    hero: { eyebrow: "", title: "O-Ringe aus FKM", sub: "Für Öl und Hitze bis +200 °C. Dicht bis 250 bar.", button: { label: "", url: "" }, pictureIdea: "", pictureAlt: "" },
+    benefits: { title: "Warum FKM", items: [{ title: "Härten von 70 bis 90 Shore A", text: "Für jede Dichtstelle." }, { title: "Normmasse", text: "Nach ISO 3601." }] },
+  }, "O-Ringe FKM. Masse nach ISO 3601. Einsatz von -20 °C bis +200 °C.", "de", facts);
+  assert.equal(g.answer.hero?.sub, "Für Öl und Hitze bis +200 °C.");
+  assert.deepEqual(g.answer.benefits?.items.map((b) => b.title), ["Normmasse"]);
+  assert.ok(g.problems.some((p) => /"250 bar" left out/.test(p)));
+  const r = cleanNewPageModules([step({ module: cta.id, at: "cta", how: "instead", words: words({ title: "FKM bis 300 °C", text: "Hitzebeständig - bis rund 300 °C. Fragen Sie uns." }) })], { ...ctx, facts });
+  assert.equal(r.modules[0].words.title, "");
+  assert.equal(r.modules[0].words.text, "Hitzebeständig. Fragen Sie uns.");
+  assert.ok(r.modules[0].problems.some((p) => /"300 °C" left out/.test(p)));
 });

@@ -69,8 +69,9 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
-import { NEWPAGE_SCHEMA, cleanNewPageModules, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints } from "./plan/newpage";
-import { treeFor } from "./plan/fill";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
+import { readStore, treeFor } from "./plan/fill";
+import { categoryFacts, type CategoryFacts } from "./modules/source";
 import { readBrain } from "@/lib/brain";
 import { listTests } from "@/lib/convert/tests";
 
@@ -376,6 +377,19 @@ async function newPageFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, un
   return [context(ctx, d), s(input.request, 1500), candidatesOf(input).map((c) => c.name).join(" "), facts].join(" ");
 }
 
+/**
+ * The page's subject among the shop's categories (the brief's own words matched to the candidates' categories and the
+ * category tree - ./plan/newpage.ts subjectOf) and what the shop itself says on it: its description and its first
+ * product's technical summary (../modules/source.ts categoryFacts - read once, the shop reader keeps it ten minutes, so
+ * the question and the check read the same). The lead 10.11.2026: "figures only from those facts or the brand brain".
+ */
+async function subjectFacts(ctx: StudioCtx, d: PageDoc, input: Record<string, unknown>, tree: { name: string; url: string }[]): Promise<CategoryFacts | null> {
+  const cats = [...candidatesOf(input).filter((c) => c.kind === "category").map((c) => ({ name: c.name, url: c.url })), ...tree.map((t) => ({ name: t.name, url: t.url }))];
+  const subject = subjectOf([ctx.projectTitle, ctx.piece.title, ...ctx.brief.keywords, s(input.request, 600), d.fields.hero.title], cats);
+  if (!subject) return null;
+  return categoryFacts(new URL(subject.url, "https://www.apsoparts.com").toString(), readStore(d.store)).catch(() => null);
+}
+
 const fillPage: AiTask = {
   label: "Write the page",
   schema: NEWPAGE_SCHEMA,
@@ -385,21 +399,27 @@ const fillPage: AiTask = {
   user: async (ctx, raw, input) => {
     const d = viewFor(ctx, raw, input);
     const tree = await treeFor(d.store).catch(() => []);
-    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store })}`;
+    const facts = factsBlock(await subjectFacts(ctx, d, input, tree));
+    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts })}`;
   },
   clean: async (raw, docRaw, ctx, input) => {
     const d = viewFor(ctx, docRaw, input);
     const cands = candidatesOf(input);
     const base = cleanFill(raw, cands);
-    // what a word may name: the brief, the brand facts, the shop's pages - and the shop's own points the library's
-    // modules show (a norm such as ISO 3601 is the shop's own words there)
-    const pageText = `${await newPageFacts(ctx, d, input)} ${ownPoints(d.store.split("/")[0]).flatMap((x) => x.titles).join(" ")}`;
+    const tree = await treeFor(d.store).catch(() => []);
+    const store = d.store.split("/")[0];
+    const subject = factsBlock(await subjectFacts(ctx, d, input, tree));
+    // what a word may name: the brief, the brand facts, the shop's pages, the subject's own facts - and the shop's own
+    // points the library's modules show (a norm such as ISO 3601 is the shop's own words there)
+    const own = ownPoints(store).flatMap((x) => x.titles).join(" ");
+    const pageText = `${await newPageFacts(ctx, d, input)} ${subject} ${own}`;
+    // the figures a word may carry: only those the facts given hold
+    const facts = factKeys(pageText);
     const lang = d.store.slice(0, 2);
     // the text blocks' words under the shop's word rules too
-    const g = guardFill(base.answer, pageText, lang);
-    const tree = await treeFor(d.store).catch(() => []);
-    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang, store: d.store.split("/")[0] });
-    return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...g.problems, ...mods.problems].slice(0, 10) };
+    const g = guardFill(base.answer, pageText, lang, facts);
+    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang, store, facts });
+    return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...new Set([...g.problems, ...mods.problems, ...mods.modules.flatMap((m) => m.problems.filter((p) => / left out/.test(p)))])].slice(0, 12) };
   },
 };
 
