@@ -209,8 +209,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   // a new page is empty while nothing is on it (Content v9: a module, a picture, a banner count too)
   const empty = isNew ? !pageHasContent(d) : !d.path;
   const writingAll = busy === "all";
-  // an idea's to-do writing itself: the card stays while it writes, saying why (Content v9)
-  const autoWriting = isNew && start?.state === "writing" && writingAll;
+  // an idea's to-do writing itself: the card says so from the first moment and stays while it writes (Content v9)
+  const autoWriting = isNew && start?.state === "writing";
   const atStart = lang === main && empty && (busy !== "all" || autoWriting) && !(isNew && start?.startedEmpty);
   const [, setTick] = useState(0);
   // the clock while the whole page is written (about a minute)
@@ -341,7 +341,7 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           {/* the start: what the page is - only while it is empty */}
           {atStart && (
             <Box sx={{ mb: 2, p: 1.75, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))", animation: `${fadeIn} .25s ease-out` }}>
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: isNew && start ? 0.25 : 1 }}>{isNew ? (autoWriting ? "Writing the page from its idea" : "What page do you want?") : sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: isNew && start ? 0.25 : 1 }}>{isNew ? (autoWriting ? "The page writes itself" : "What page do you want?") : sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
               {/* why it is empty, or why it writes itself - one short line (Content v9, SARCLA 10.11.2026) */}
               {isNew && start && <Typography data-start-line={start.state} sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.4, mb: 1.25 }}>{start.line}</Typography>}
               {sources.length > 1 && !autoWriting && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
@@ -357,9 +357,9 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
                   {autoWriting ? (
                     <>
                       <Typography sx={{ fontSize: "0.8rem", color: PINK, fontWeight: 700, display: "flex", alignItems: "center", gap: 0.75, fontVariantNumeric: "tabular-nums" }}>
-                        <CircularProgress size={13} thickness={6} sx={{ color: PINK }} />Writing the page · {clock}
+                        <CircularProgress size={13} thickness={6} sx={{ color: PINK }} />{clock} · about a minute
                       </Typography>
-                      <Hint mt={0.5}>The blocks fill in the page as it writes; its pictures and modules come after. About a minute.</Hint>
+                      <Hint mt={0.5}>The blocks fill in the page as it writes; its pictures and modules come after.</Hint>
                     </>
                   ) : (
                     <>

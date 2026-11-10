@@ -117,6 +117,6 @@ export function startLine(brief: Pick<AppBriefOut, "idea" | "auto"> | null, stat
     case "failed": return `${from} - it could not be written from its brief${error ? ` (${clip(error.replace(/[.\s]+$/, ""), 90)})` : ""}.`;
     case "noAi": return `${from} - the AI is not set up on this hub, so it starts empty.`;
     case "readOnly": return `${from} - it is written from its brief when someone who can edit it opens it.`;
-    default: return `${from} - writing it from its brief.`;
+    default: return `${from} - write it with AI from its brief, or start empty.`;
   }
 }

@@ -19,7 +19,9 @@
 // page, a block with items opening into them; a "+" in the map or between two blocks of the page adds one there; a
 // picture selected is fine-tuned by the assistant (the same picture, one thing changed); "What does it say? (in
 // English)" reads a part in English without changing it; and the page writes itself only when the project came with an
-// app's brief - otherwise the start card asks what page is wanted.
+// app's brief - otherwise the start card asks what page is wanted. Content v9 (SARCLA 10.11.2026: "new page should be
+// empty and then we start to build, only not when they come from ideas"): it writes itself only when its to-do came from
+// an idea (any source) and nothing is on it - lib/content/studio/kinds/page/appBrief.ts.
 //
 // Content v8 (SARCLA 10.11.2026, points 1-4: "the text editor should come as a popup when clicking the text itself", "on
 // the left side leave only the blocks", "consider pages' blocks as existing blocks and allow block settings", "a module
@@ -1170,28 +1172,33 @@ export default function Studio({ api }: StudioProps) {
   const briefNow = appBrief ?? localBrief;
   /** the page written by itself in this open: under way, then done (with what fill said when nothing landed) */
   const [autoRun, setAutoRun] = useState<{ done: boolean; error: string | null } | null>(null);
+  // "Start empty and add blocks": the card put away (kept for this to-do, on this browser), the blocks' menu open at once
+  const emptyKey = `page-studio:start-empty:${api.data.piece.id}`;
+  const [startedEmpty, setStartedEmpty] = useState(false);
   const autoAsked = useRef(false);
   const emptyNew = isNew && !pageHasContent(d);
   useEffect(() => {
     if (autoAsked.current || !canEdit || !doc.started || !emptyNew || lang !== main) return;
     autoAsked.current = true;
     void api.act<AppBrief>("brief").then((r) => {
-      if (!r.ok) return;
+      // the brief could not be read: an idea's page says so and offers its buttons (never a card waiting for nothing)
+      if (!r.ok) { setAutoRun({ done: true, error: r.error }); return; }
       setAppBrief(r.result);
+      // started empty on purpose here before: it stays the person's
+      let chose = false;
+      try { chose = window.localStorage.getItem(emptyKey) === "1"; } catch { /* no storage */ }
       // an idea's to-do: the page is written at once, the blocks shimmering - once, and only while nothing is on it
-      if (!canAi || !writesItself(r.result, pageHasContent(viewOf(docRef.current, mainView(docRef.current))))) return;
+      if (!canAi || chose || !writesItself(r.result, pageHasContent(viewOf(docRef.current, mainView(docRef.current))))) { setAutoRun(null); return; }
       setAutoRun({ done: false, error: null });
       void fill("all").then((m) => setAutoRun({ done: true, error: m }), (e: unknown) => setAutoRun({ done: true, error: e instanceof Error ? e.message : String(e) }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canEdit, doc.started, emptyNew, lang, main]);
-  // where the start card stands, and its one line: why the page is empty, or why it wrote itself
+  // where the start card stands, and its one line: why the page is empty, or why it wrote itself (an idea's page says
+  // "writes itself" from the first moment - until the brief's answer, then while it writes)
   const startState: StartState = !briefNow.idea ? "empty"
     : autoRun ? (!autoRun.done ? "writing" : pageHasContent(viewOf(doc, main)) ? "wrote" : "failed")
-    : !api.data.ai ? "noAi" : !canEdit ? "readOnly" : briefNow.auto ? "writing" : "empty";
-  // "Start empty and add blocks": the card put away (kept for this to-do, on this browser), the blocks' menu open at once
-  const emptyKey = `page-studio:start-empty:${api.data.piece.id}`;
-  const [startedEmpty, setStartedEmpty] = useState(false);
+    : !api.data.ai ? "noAi" : !canEdit ? "readOnly" : briefNow.auto && !appBrief && !startedEmpty ? "writing" : "empty";
   useEffect(() => { try { setStartedEmpty(window.localStorage.getItem(emptyKey) === "1"); } catch { /* no storage */ } }, [emptyKey]);
   const startEmpty = (el: HTMLElement) => {
     const r = el.getBoundingClientRect();
