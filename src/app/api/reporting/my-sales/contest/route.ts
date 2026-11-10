@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (accessAt("/reporting/my-sales/contest", access.levels).level === "none") return NextResponse.json({ error: "No access" }, { status: 403 });
+  // the page lives in My Sales Reports and in Sales Leader Reports: either grant opens its data
+  const open = (page: string) => accessAt(page, access.levels).level !== "none";
+  if (!open("/reporting/my-sales/contest") && !open("/reporting/sales-leader/contest")) return NextResponse.json({ error: "No access" }, { status: 403 });
   try {
     return NextResponse.json({ ok: true, ...(await mySalesContest()) });
   } catch (e) {
