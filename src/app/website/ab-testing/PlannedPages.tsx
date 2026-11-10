@@ -33,7 +33,7 @@ function Letters({ t }: { t: PlannedTest }) {
   const runs = (l: string) => t.tested === `Version ${l}` || t.against === `Version ${l}`;
   return (
     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
-      {t.against === "The page as it is" && <Chip tint="slate">As it is</Chip>}
+      {t.against === "The page as it is" && <Chip tint="pink">As it is</Chip>}
       {t.versions.map((l) => <Chip key={l} tint={runs(l) ? "pink" : "slate"}>{l}</Chip>)}
     </Box>
   );

@@ -68,12 +68,14 @@ test("the check says Connected / Refused / No key / Not reachable - never 'Magen
 test("'No key?' says what an admin does: three steps, the Magento menu path, who to ask", () => {
   const s = noKeySteps("prod");
   assert.equal(s.steps.length, 3);
-  assert.match(s.steps[0], /production's Magento admin: System > Extensions > Integrations/);
-  assert.match(s.steps[0], /Content > Elements > Pages/);
+  assert.match(s.steps[0], /right to save pages - in production's Magento admin/);
+  assert.equal(s.path[0], "System > Extensions > Integrations");
+  assert.ok(s.path.some((x) => /Content > Elements > Pages, with Save Page/.test(x)));
   assert.match(s.steps[1], /one AWS command/);
   assert.match(s.steps[2], /switch the hub on/);
   assert.match(s.ask, /Claudio or the digital team/);
   assert.match(noKeySteps("acc").steps[0], /ACC's Magento admin/);
+  assert.match(noKeySteps(["acc", "prod"]).steps[0], /each shop's Magento admin \(ACC, then production\)/, "said once for both");
   // no internal names in front of the admin
   assert.doesNotMatch(JSON.stringify(s), /MAGENTO_CMS|ECS|task definition|env var/i);
 });

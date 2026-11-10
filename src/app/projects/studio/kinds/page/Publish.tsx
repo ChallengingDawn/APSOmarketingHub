@@ -187,6 +187,7 @@ export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) 
     }));
   };
   const DOT: Record<string, string> = { "no-key": "#9aa5b8", key: BLUE, connected: GREEN, refused: "#c5221f", "no-right": "#c5221f", unreachable: AMBER };
+  const noKey = envs.filter((e) => (checks[e.env] ?? e.check)?.state === "no-key" || (!e.key && !(checks[e.env] ?? e.check))).map((e) => e.env);
   return (
     <Box sx={{ mt: 1.25, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", overflow: "hidden" }}>
       <Typography sx={{ px: 1.25, pt: 0.9, pb: 0.25, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>Connection</Typography>
@@ -195,7 +196,7 @@ export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) 
         const state = c?.state ?? (e.key ? "key" : "no-key");
         const line = c?.line ?? e.connection ?? (e.key ? "Key set - not checked yet" : "No key yet");
         const color = DOT[state] ?? MUTED;
-        const steps = state === "no-key" ? noKeySteps(e.env) : null;
+        const words = state === "no-key" ? "the hub has no key for this shop yet" : line.replace(/^(Connected|Refused|Not reachable) - /, "");
         return (
           <Box key={e.env} sx={{ px: 1.25, py: 0.75, borderTop: `1px solid ${HAIRLINE}`, "&:first-of-type": { borderTop: "none" } }}>
             <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -206,18 +207,9 @@ export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) 
                   <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.6, py: 0.1, borderRadius: "3px", fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".02em", color, bgcolor: `${color}14`, border: `1px solid ${color}33`, flexShrink: 0 }}>
                     <Box component="span" sx={{ width: 6, height: 6, borderRadius: "1px", bgcolor: color }} />{STATE_WORD[state]}
                   </Box>
-                  {!steps && <Typography component="span" sx={{ fontSize: "0.8rem", color: state === "connected" ? GREEN : state === "refused" || state === "no-right" ? "#c5221f" : INK, minWidth: 0 }}>{line.replace(/^(Connected|Refused|Not reachable) - /, "")}</Typography>}
+                  <Typography component="span" sx={{ fontSize: "0.8rem", color: state === "connected" ? GREEN : state === "refused" || state === "no-right" ? "#c5221f" : state === "no-key" ? MUTED : INK, minWidth: 0 }}>{words.charAt(0).toUpperCase() + words.slice(1)}</Typography>
                 </Box>
                 {c?.detail && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.25, overflowWrap: "anywhere" }}>{c.detail}</Typography>}
-                {steps && (
-                  <Box sx={{ mt: 0.5 }}>
-                    <Typography sx={{ fontSize: "0.78rem", fontWeight: 650, color: INK }}>{steps.title}</Typography>
-                    <Box component="ol" sx={{ m: 0, mt: 0.25, pl: 2.25, display: "grid", gap: 0.35 }}>
-                      {steps.steps.map((x) => <Typography key={x} component="li" sx={{ fontSize: "0.76rem", color: INK, lineHeight: 1.45, overflowWrap: "anywhere" }}>{x}</Typography>)}
-                    </Box>
-                    <Typography sx={{ mt: 0.4, fontSize: "0.74rem", color: MUTED }}>{steps.ask}</Typography>
-                  </Box>
-                )}
                 {e.from === "order" && !c && <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>The order connector&apos;s Magento integration, used for pages too.</Typography>}
                 {e.key && (
                   <Button size="small" disabled={busy === e.env} onClick={() => void check(e.env)} startIcon={busy === e.env ? <CircularProgress size={12} /> : undefined}
@@ -230,7 +222,34 @@ export function Connection({ api, envs }: { api: StudioApi; envs: EnvState[] }) 
           </Box>
         );
       })}
+      {/* "No key?" - what to do, said once for the shops without one (SARCLA 10.11.2026) */}
+      {noKey.length > 0 && <NoKeySteps envs={noKey} />}
       <Typography sx={{ px: 1.25, pb: 0.9, pt: 0.25, fontSize: "0.72rem", color: MUTED }}>A check reads one page list from Magento - nothing is written.</Typography>
+    </Box>
+  );
+}
+
+/** The three steps an admin takes to give the hub its key - the Magento menu path as its own short steps. */
+function NoKeySteps({ envs }: { envs: Env[] }) {
+  const s = noKeySteps(envs);
+  return (
+    <Box sx={{ mx: 1.25, mb: 1, mt: 0.25, p: 1.25, borderRadius: "6px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
+      <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK }}>{s.title}</Typography>
+      <Box component="ol" sx={{ m: 0, mt: 0.5, pl: 2.25, display: "grid", gap: 0.5 }}>
+        <Typography component="li" sx={{ fontSize: "0.78rem", color: INK, lineHeight: 1.45 }}>
+          {s.steps[0]}
+          <Box sx={{ mt: 0.4, display: "grid", gap: 0.2 }}>
+            {s.path.map((x, i) => (
+              <Box key={x} sx={{ display: "flex", gap: 0.75, alignItems: "baseline" }}>
+                <Box component="span" sx={{ width: 14, flexShrink: 0, fontSize: "0.7rem", fontWeight: 700, color: MUTED, textAlign: "right" }}>{String.fromCharCode(97 + i)}</Box>
+                <Box component="span" sx={{ ...mono, fontSize: "0.72rem", color: INK, overflowWrap: "anywhere" }}>{x}</Box>
+              </Box>
+            ))}
+          </Box>
+        </Typography>
+        {s.steps.slice(1).map((x) => <Typography key={x} component="li" sx={{ fontSize: "0.78rem", color: INK, lineHeight: 1.45 }}>{x}</Typography>)}
+      </Box>
+      <Typography sx={{ mt: 0.6, fontSize: "0.76rem", color: MUTED }}>{s.ask}</Typography>
     </Box>
   );
 }

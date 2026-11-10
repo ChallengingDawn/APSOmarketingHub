@@ -26,19 +26,24 @@ export const STATE_WORD: Record<CheckState | "key", string> = {
 
 /** Where in Magento's admin the hub's integration gets the right to save pages - said once, the same everywhere. */
 export const MAGENTO_PATH = "System > Extensions > Integrations > the hub's integration (or Add New Integration) > API > Resource Access: Custom > tick Content > Elements > Pages, with Save Page > Save, then Activate (or Reauthorize)";
+/** The same path as its steps, for a list that reads at a glance. */
+export const MAGENTO_PATH_STEPS = ["System > Extensions > Integrations", "the hub's integration (or Add New Integration)", "API > Resource Access: Custom", "tick Content > Elements > Pages, with Save Page", "Save, then Activate (or Reauthorize)"];
 
 /**
  * "No key?" (SARCLA 10.11.2026) - what an admin does, in plain words: three steps, the exact Magento menu path, who to ask.
- * The same for both shops; `env` names the right Magento admin.
+ * Said ONCE for the shops without a key (ACC, production or both), the right Magento admin named.
  */
-export function noKeySteps(env: ConnEnv): { title: string; steps: string[]; ask: string } {
+export function noKeySteps(envs: ConnEnv | ConnEnv[]): { title: string; steps: string[]; path: string[]; ask: string } {
+  const list = Array.isArray(envs) ? envs : [envs];
+  const admin = list.length > 1 ? "each shop's Magento admin (ACC, then production)" : list[0] === "acc" ? "ACC's Magento admin" : "production's Magento admin";
   return {
     title: "No key yet - three steps",
     steps: [
-      `Give the hub's integration the right to save pages - in ${env === "acc" ? "ACC's" : "production's"} Magento admin: ${MAGENTO_PATH}.`,
+      `Give the hub's integration the right to save pages - in ${admin}:`,
       "Put its key on the hub - one AWS command.",
       "Then we switch the hub on.",
     ],
+    path: MAGENTO_PATH_STEPS,
     ask: "Ask Claudio or the digital team.",
   };
 }

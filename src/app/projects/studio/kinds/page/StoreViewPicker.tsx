@@ -19,7 +19,7 @@ import CheckIcon from "@mui/icons-material/Check";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { howToAdd, langName, shopCountries, viewName, viewState, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
-import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, toggleAll, viewsOfCountry, viewsOfLanguage } from "@/lib/content/studio/kinds/page/makeViews";
+import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, toggleAll, viewsOfCountry, viewsOfLanguage, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
 import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, mainBtn } from "../../parts";
 import { RunLine, StepTag, useMakeViewsCtx, type Run } from "./MakeViews";
@@ -43,8 +43,10 @@ function Tick({ on, part, disabled, label, onClick }: { on: boolean; part?: bool
 }
 
 /** One store view as a row: its tick (not made yet), its address, its language, what a click does - or, in a run, how far. */
-function ViewRow({ d, k, on, presence, onPick, tick, run }: {
+function ViewRow({ d, k, on, presence, onPick, tick, run, step }: {
   d: PageDoc; k: string; on: boolean; presence: Record<string, Presence>; onPick: (k: string) => void;
+  /** ticked: how the plan makes it (a copy of the one translated just before, say) */
+  step?: MakeStep;
   /** undefined: no ticks in this panel; null: this one cannot be ticked (made already) */
   tick?: { on: boolean; disabled: boolean; toggle: () => void } | null; run?: Run | null;
 }) {
@@ -52,7 +54,7 @@ function ViewRow({ d, k, on, presence, onPick, tick, run }: {
   const made = viewsOf(d).includes(k);
   const off = d.source !== "new" && presence[k]?.exists === false && !made;
   const how = made ? null : howToAdd(d, k);
-  const tag = st === "main" ? "Its own" : st === "done" ? "Made" : st === "stale" ? "Out of date" : how?.how === "copy" ? "Copy" : "Translate";
+  const tag = step ? (step.how === "copy" ? `Copy of ${step.from}` : "Translate · AI") : st === "main" ? "Its own" : st === "done" ? "Made" : st === "stale" ? "Out of date" : how?.how === "copy" ? "Copy" : "Translate";
   const tip = st === "main" ? `${viewName(k)} - the page's own store view`
     : made ? `${viewName(k)} - open it${st === "stale" ? " (the store view it was made from changed since)" : ""}`
       : `${viewName(k)} - ${how?.how === "copy" ? `a copy of ${how.from}, no AI` : `the AI translates the page from ${how?.from}`}${off ? ` · the shop's index has no such page in ${k}` : ""}`;
@@ -70,8 +72,8 @@ function ViewRow({ d, k, on, presence, onPick, tick, run }: {
           {run?.state[k] ? <StepTag run={run} k={k} /> : (
             <Box component="span" sx={{
               display: "inline-flex", alignItems: "center", gap: 0.35, flexShrink: 0, fontSize: "0.68rem", fontWeight: 700, px: 0.6, py: 0.1, borderRadius: "3px",
-              color: st === "main" ? PINK : st === "done" ? GREEN : st === "stale" ? AMBER : MUTED,
-              bgcolor: st === "main" ? "rgba(194,44,110,.08)" : st === "done" ? "rgba(27,122,85,.08)" : st === "stale" ? "rgba(183,121,31,.1)" : "rgba(21,34,58,.05)",
+              color: step || st === "main" ? PINK : st === "done" ? GREEN : st === "stale" ? AMBER : MUTED,
+              bgcolor: step || st === "main" ? "rgba(194,44,110,.08)" : st === "done" ? "rgba(27,122,85,.08)" : st === "stale" ? "rgba(183,121,31,.1)" : "rgba(21,34,58,.05)",
             }}>
               {st === "done" && <CheckIcon sx={{ fontSize: 12 }} />}
               {st === "stale" && <WarningAmberIcon sx={{ fontSize: 12 }} />}
@@ -90,7 +92,7 @@ function QuickTicks({ label, items, picked, onToggle, disabled }: {
 }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
-      <Typography component="span" sx={{ width: 118, flexShrink: 0, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>{label}</Typography>
+      <Typography component="span" sx={{ width: 128, flexShrink: 0, fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".05em", textTransform: "uppercase", color: MUTED, whiteSpace: "nowrap" }}>{label}</Typography>
       <Box sx={{ display: "inline-flex", flexWrap: "wrap", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
         {items.map((o, i) => {
           const on = o.set.length > 0 && o.set.every((k) => picked.includes(k));
@@ -127,9 +129,13 @@ export function StoreViewPicker({ anchor, onClose, ...rest }: {
 
 /** The panel itself: a header, the quick ticks, the country groups, and the foot - the plan and its one button, the run's
  * progress, or how a store view is made. */
-export function StoreViewPanel({ d, lang, onPick, groups, presence }: { d: PageDoc; lang: string; onPick: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence> }) {
+export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicked = [] }: {
+  d: PageDoc; lang: string; onPick: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence>;
+  /** ticked as it opens (a static check draws the plan's foot with it) */
+  initialPicked?: string[];
+}) {
   const mv = useMakeViewsCtx();
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(initialPicked);
   const countries = shopCountries(groups.flatMap((g) => g.stores), d);
   const all = countries.flatMap((g) => g.stores);
   const have = viewsOf(d);
@@ -171,7 +177,7 @@ export function StoreViewPanel({ d, lang, onPick, groups, presence }: { d: PageD
                   {g.country}{g.currency ? <Box component="span" sx={{ color: g.currency === "EUR" && g.country === "Switzerland" ? BLUE : MUTED }}> · {g.currency}</Box> : null}
                 </Typography>
               </Box>
-              {g.stores.map((k) => <ViewRow key={k} d={d} k={k} on={k === lang} presence={presence} onPick={onPick} tick={tickOf(k)} run={run} />)}
+              {g.stores.map((k) => <ViewRow key={k} d={d} k={k} on={k === lang} presence={presence} onPick={onPick} tick={tickOf(k)} run={run} step={steps.find((s) => s.key === k)} />)}
             </Box>
           );
         })}

@@ -229,7 +229,7 @@ function People({ api, onError }: { api: StudioApi; onError: (e: string | null) 
 }
 
 
-function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onCloseLook }: {
+export function Bar({ api, look, lookBusy, opening, onLook, onBringBack, onCloseLook }: {
   api: StudioApi; look: Look | null; lookBusy: boolean; opening: number | null;
   onLook: (v: VersionRow) => void; onBringBack: () => void; onCloseLook: () => void;
 }) {

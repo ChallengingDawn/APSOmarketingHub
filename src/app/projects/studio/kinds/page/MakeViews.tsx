@@ -146,15 +146,21 @@ export function RunLine({ mv }: { mv: MakeViews }) {
       <Box sx={{ height: 4, borderRadius: 2, bgcolor: "rgba(21,34,58,.08)", overflow: "hidden" }}>
         <Box sx={{ height: "100%", width: `${r.done ? 100 : Math.max(4, pct)}%`, bgcolor: r.done && failed.length ? AMBER : r.done ? GREEN : PINK, transition: "width .3s ease" }} />
       </Box>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
-        <Typography role="status" sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", color: INK, fontWeight: 600 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0, flexWrap: "wrap", rowGap: 0.25 }}>
+        <Typography role="status" sx={{ flex: "1 1 180px", minWidth: 0, fontSize: "0.8rem", color: INK, fontWeight: 600 }}>
           {!r.done
-            ? <>{r.stopping ? "Stopping after this one - " : ""}Making {Math.min(r.at + 1, r.steps.length)} of {r.steps.length} · <Box component="span" sx={{ color: PINK }}>{now?.how === "translate" ? "translating" : "copying"} {now?.key}</Box></>
-            : `${done} made${failed.length ? `, ${failed.length} not (${failed.map((s) => s.key).join(", ")}) - point at it for why` : ""}${done + failed.length < r.steps.length ? `, ${r.steps.length - done - failed.length} stopped` : ""}`}
+            ? <>{r.stopping ? "Stopping after this one - " : ""}Making {Math.min(r.at + 1, r.steps.length)} of {r.steps.length} · <Box component="span" sx={{ color: PINK, whiteSpace: "nowrap" }}>{now?.how === "translate" ? "translating" : "copying"} {now?.key}</Box></>
+            : `${done} made${failed.length ? `, ${failed.length} not` : ""}${done + failed.length < r.steps.length ? `, ${r.steps.length - done - failed.length} stopped` : ""}`}
         </Typography>
-        {!r.done && !r.stopping && <Button size="small" onClick={mv.stop} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0, px: 0.75, whiteSpace: "nowrap" }}>Stop after this one</Button>}
-        {r.done && <Button size="small" onClick={mv.clear} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0, px: 0.75 }}>Close</Button>}
+        {!r.done && !r.stopping && <Button size="small" onClick={mv.stop} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0, px: 0.75, whiteSpace: "nowrap", ml: "auto" }}>Stop after this one</Button>}
+        {r.done && <Button size="small" onClick={mv.clear} sx={{ textTransform: "none", fontWeight: 650, color: MUTED, minWidth: 0, px: 0.75, ml: "auto" }}>Close</Button>}
       </Box>
+      {/* why each one was not made, in its own words */}
+      {failed.map((s) => (
+        <Typography key={s.key} sx={{ fontSize: "0.76rem", color: "#c5221f", lineHeight: 1.4 }}>
+          <Box component="span" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>{s.key}:</Box> {r.state[s.key]?.msg ?? "not made"}
+        </Typography>
+      ))}
     </Box>
   );
 }
@@ -165,9 +171,9 @@ export function RunLine({ mv }: { mv: MakeViews }) {
  * "Translate the whole page into" (Content v7: tick several). The other languages' store views - the page's own, else each
  * language's own (FR-CH, IT-CH, EN-INT ...) - each a squared tick; one button makes the ticked ones, the plan said under it.
  */
-export function TranslateMany({ doc, groups, enabled }: { doc: PageDoc; groups: StoreGroup[]; enabled: boolean }) {
+export function TranslateMany({ doc, groups, enabled, initialPicked = [] }: { doc: PageDoc; groups: StoreGroup[]; enabled: boolean; initialPicked?: string[] }) {
   const mv = useMakeViewsCtx();
-  const [picked, setPicked] = useState<string[]>([]);
+  const [picked, setPicked] = useState<string[]>(initialPicked);
   const main = mainView(doc);
   const made = viewsOf(doc);
   const list = groups.filter((g) => g.lang !== langOfStore(main)).flatMap((g) => {

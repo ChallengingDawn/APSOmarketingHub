@@ -233,7 +233,6 @@ export function DownloadButton({ api, kind, load }: { api: StudioApi; kind: Stud
     }
   };
   const items = of ? of(api) : [];
-  const groups = [...new Set(items.map((x) => x.group ?? ""))];
   const run = async (x: DownloadItem) => {
     setAnchor(null); setBusy(x.label); setNote(null);
     try {
@@ -256,23 +255,31 @@ export function DownloadButton({ api, kind, load }: { api: StudioApi; kind: Stud
       )}
       <Menu anchorEl={anchor} open={!!anchor} onClose={() => setAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { mt: 0.75, width: 340, maxHeight: "72vh", borderRadius: "12px", boxShadow: "0 18px 50px rgba(21,34,58,.18)" } } }}>
-        <Typography sx={{ px: 2, pt: 0.75, pb: 0.5, fontSize: "0.92rem", fontWeight: 750, color: INK }}>Download</Typography>
-        {loadErr && <MenuItem disabled sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>{loadErr}</MenuItem>}
-        {!of && !loadErr && <MenuItem disabled sx={{ fontSize: "0.84rem", gap: 1 }}><CircularProgress size={14} />Reading what it gives…</MenuItem>}
-        {of && !items.length && <MenuItem disabled sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>Nothing to download yet - write it first.</MenuItem>}
-        {groups.map((g, gi) => [
-          gi > 0 ? <Divider key={`d-${g}`} /> : null,
-          g ? <Typography key={`g-${g}`} sx={{ px: 2, pt: 0.75, pb: 0.25, fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>{g}</Typography> : null,
-          ...items.filter((x) => (x.group ?? "") === g).map((x) => (
-            <MenuItem key={x.key} disabled={!!x.disabled} onClick={() => void run(x)} sx={{ display: "block", py: 0.75, whiteSpace: "normal" }}>
-              <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.35 }}>{x.label}</Typography>
-              {(x.disabled || x.sub) && <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.35 }}>{x.disabled || x.sub}</Typography>}
-            </MenuItem>
-          )),
-        ])}
+        {downloadEntries({ items: of ? items : null, loadErr, onRun: (x) => void run(x) })}
       </Menu>
     </>
   );
+}
+
+/** The menu's entries: its title, then the kind's files in their groups (also drawn on their own by the static check). */
+export function downloadEntries({ items, loadErr, onRun }: { items: DownloadItem[] | null; loadErr?: string | null; onRun: (x: DownloadItem) => void }): React.ReactNode[] {
+  const groups = [...new Set((items ?? []).map((x) => x.group ?? ""))];
+  return [
+    <Typography key="t" sx={{ px: 2, pt: 0.75, pb: 0.5, fontSize: "0.92rem", fontWeight: 750, color: INK }}>Download</Typography>,
+    loadErr ? <MenuItem key="e" disabled sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>{loadErr}</MenuItem> : null,
+    !items && !loadErr ? <MenuItem key="l" disabled sx={{ fontSize: "0.84rem", gap: 1 }}><CircularProgress size={14} />Reading what it gives…</MenuItem> : null,
+    items && !items.length ? <MenuItem key="n" disabled sx={{ fontSize: "0.84rem", whiteSpace: "normal" }}>Nothing to download yet - write it first.</MenuItem> : null,
+    ...groups.flatMap((g, gi) => [
+      gi > 0 ? <Divider key={`d-${g}`} /> : null,
+      g ? <Typography key={`g-${g}`} sx={{ px: 2, pt: 0.75, pb: 0.25, fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>{g}</Typography> : null,
+      ...(items ?? []).filter((x) => (x.group ?? "") === g).map((x) => (
+        <MenuItem key={x.key} disabled={!!x.disabled} onClick={() => onRun(x)} sx={{ display: "block", py: 0.75, whiteSpace: "normal" }}>
+          <Typography sx={{ fontSize: "0.86rem", fontWeight: 600, color: INK, lineHeight: 1.35 }}>{x.label}</Typography>
+          {(x.disabled || x.sub) && <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.35 }}>{x.disabled || x.sub}</Typography>}
+        </MenuItem>
+      )),
+    ]),
+  ].filter(Boolean);
 }
 
 /** A done note stays a few seconds; a problem stays until the next click. */
