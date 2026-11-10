@@ -120,3 +120,50 @@ test("otd: the OTD file's lines as history, and the two cubes as one", () => {
   assert.equal(m.first, "2025-01");
   assert.equal(mergeCubes(null, file), file);
 });
+
+test("otd: the morning lines' new columns - the ERP's own date at the customer, the shipping mode, the wish date, the planning", async () => {
+  const { ErpLinesSheet, transitOf } = await import("../src/lib/reporting/boErpLines");
+  const { ArticlesSheet } = await import("../src/lib/connectors/steps/productFactsRules");
+  const { transportOf } = await import("../src/lib/reporting/otdRules");
+  // the lines sheet reads them when they are there
+  const s = new ErpLinesSheet();
+  s.feed(1, ["[Company]", "[Order]", "[Customer]", "[OrderSource]", "[OrderDate]", "[OrderStatus]", "[ShipmentDate]", "[ShippedToCountry]", "[ShippingMode]",
+    "[DeliveryDateCustomer]", "[Line]", "[LineType]", "[PriceSource]", "[ShippingDateInitial]", "[ShippingDateConfirmed]", "[CustomerWishDate]", "[Article]", "[ArticleType]", "[ProfitCenter]"]);
+  s.feed(2, ["100", "A26.000001.000", "100-7", "eShop", 46297, "invoiced", 46297, "Switzerland", "DHL", 46300, "10", "Order", "automatically", 46300, 46300, 46299, "A1", "Standard", "DT"]);
+  const got = s.finish()!.lines[0];
+  assert.deepEqual([got.customer, got.mode, got.deliveredDay, got.wishDay], ["100-7", "DHL", "2026-10-05", "2026-10-04"]);
+  // the articles sheet keeps the planning apart from the facts written to HubSpot
+  const a = new ArticlesSheet();
+  a.feed(1, ["[Article]", "[GwstdpCHF]", "[ConsumptionDriven]", "[ReplenishmentDays]"]);
+  a.feed(2, ["A1", 12.5, "J", 21]);
+  a.feed(3, ["A2", 3, "n", "84"]);
+  assert.deepEqual([...a.planning()!], [["A1", ["J", 21]], ["A2", ["N", 84]]]);
+  const old = new ArticlesSheet();
+  old.feed(1, ["[Article]", "[GwstdpCHF]"]);
+  old.feed(2, ["A1", 12.5]);
+  assert.equal(old.planning(), null);
+  // the transport days by the mode
+  assert.equal(transportOf({ country: "Germany", mode: "will be picked up" }, transitOf), 0);
+  assert.equal(transportOf({ country: "Liechtenstein", mode: "DHL" }, transitOf), 1);
+  assert.equal(transportOf({ country: "Liechtenstein", mode: "" }, transitOf), 2);
+  assert.equal(transportOf({ country: "Italy" }, transitOf), 4);
+  // the ERP's own date wins where it has one (never before the shipment); the planning and the customer carried
+  const base = { company: "100", order: "A26.1.000", line: "10", source: "eShop", orderDay: "2026-09-01", status: "invoiced", shipDay: "2026-10-02",
+    country: "Germany", lineType: "Order", firstDay: "2026-10-06", confDay: "2026-10-06", article: "A2", artType: "Standard", pc: "DT" };
+  const r = fromErpLines([
+    { ...base, deliveredDay: "2026-10-08", customer: "100-7", wishDay: "2026-10-05" },
+    { ...base, line: "20", deliveredDay: "2026-09-30" },
+    { ...base, line: "30", mode: "will be picked up" },
+  ], transitOf, undefined, (art) => (art === "A2" ? ["N", 84] : undefined));
+  assert.deepEqual(r.lines.map((l) => l.atCustomer), ["2026-10-08", "2026-10-06", "2026-10-02"]);
+  assert.equal(r.exactDays, 1);
+  assert.deepEqual([r.lines[0].customer, r.lines[0].wishDay, r.lines[0].planned, r.lines[0].replen], ["100-7", "2026-10-05", "N", 84]);
+  // the cube: against the wish (Mon 05.10 asked, there Thu 08.10: 3 days late; first confirmed Tue 06.10, later than asked),
+  // promised faster than the replenishment (35 calendar days < 84), the customer kept
+  const k = buildOtdCube(r.lines, "erp", "2026-11-09");
+  const t = sumSlices(Object.values(k.promised.slices));
+  assert.deepEqual(t.wish, [1, 1, 3]);
+  assert.equal(t.wishLater, 1);
+  assert.deepEqual(t.replen!.map((x) => x[0]), [0, 3]);
+  assert.deepEqual(k.customers, [{ c: "100-7", company: "100", m: { "2026-10": [1, 1, 2] } }]);
+});

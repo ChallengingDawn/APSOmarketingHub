@@ -133,6 +133,10 @@ export class SuppliersSheet {
 export class ArticlesSheet {
   private at: Record<string, number> | null = null;
   private facts = new Map<string, string>();
+  /** OTD Reports only, never written to HubSpot (SARCLA's Query6, 10.11.2026): article -> [ConsumptionDriven "J"/"N" - the
+   *  OTD analysis file's "Article planned" on 99.9 % of its articles -, ReplenishmentDays] */
+  private plan = new Map<string, [string, number]>();
+  private planAt: { cd: number; rd: number } | null = null;
   rows = 0;
   skipped = 0;
   constructor(private keep: (article: string) => boolean = () => true, private suppliers: ReadonlyMap<string, string> | null = null) {}
@@ -141,6 +145,8 @@ export class ArticlesSheet {
       const names = cells.map((c) => norm(text(c)));
       if (!names.includes("article") || !names.includes("gwstdpchf")) return;
       this.at = Object.fromEntries(COLS.map((k) => [k, names.indexOf(k)]));
+      const cd = names.indexOf("consumptiondriven"), rd = names.indexOf("replenishmentdays");
+      if (cd >= 0 || rd >= 0) this.planAt = { cd, rd };
       return;
     }
     const at = this.at;
@@ -154,7 +160,13 @@ export class ArticlesSheet {
     // lookup, which named "Zweifel Metall AG" for every article (08.11.2026) - never written
     r.suppliername = r.leadsupplier && this.suppliers ? this.suppliers.get(supplierKey(r.leadsupplier)) ?? "" : "";
     this.facts.set(article, packFacts(articleFacts(r)));
+    if (this.planAt) {
+      const p = this.planAt;
+      this.plan.set(article, [p.cd >= 0 ? text(cells[p.cd]).toUpperCase() : "", p.rd >= 0 ? Number(text(cells[p.rd])) || 0 : 0]);
+    }
   }
+  /** article -> [planned "J"/"N", replenishment days]; null when the sheet carries neither column */
+  planning(): Map<string, [string, number]> | null { return this.planAt ? this.plan : null; }
   /** article -> its packed facts; null when the sheet had no header the rules know */
   finish(): Map<string, string> | null { return this.at ? this.facts : null; }
 }
