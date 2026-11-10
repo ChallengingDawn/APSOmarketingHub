@@ -18,8 +18,19 @@ test("a company is read with its first order and every month Compass has, 2015 t
 test("a new customer: Compass's first order on or after 5 October, nothing before it", () => {
   assert.deepEqual(standingOf({ order_first_order_date: "2026-10-05", oi_2026_oct: "120.5" }), { day: "2026-10-05", from: "compass" });
   assert.deepEqual(standingOf({ order_first_order_date: "2026-10-04" }), { out: "First order before 5 October" });
-  // Compass decides: an earlier shop date does not take the company out
-  assert.deepEqual(standingOf({ order_first_order_date: "2026-10-12", first_order_date_fehdia: "2021-10-22" }), { day: "2026-10-12", from: "compass" });
+  // the earlier of Compass's and the shop's first order decides (SARCLA with Diana Fehr 10.11.2026: "no purchases before
+  // 5th October this year"): a shop order before the start takes the company out
+  assert.deepEqual(standingOf({ order_first_order_date: "2026-10-12", first_order_date_fehdia: "2021-10-22" }), { out: "First order before 5 October" });
+  assert.deepEqual(standingOf({ order_first_order_date: "2026-10-23", first_order_date_fehdia: "2026-10-02" }), { out: "First order before 5 October" });
+  assert.deepEqual(standingOf({ order_first_order_date: "2026-10-20", first_order_date_fehdia: "2026-10-09" }), { day: "2026-10-09", from: "shop" });
+  assert.deepEqual(standingOf({ order_first_order_date: "2026-10-12", first_order_date_fehdia: "2026-10-30" }), { day: "2026-10-12", from: "compass" });
+});
+
+// 10.11.2026: "TSA exclude yes" - the contest is ESO's
+test("a company whose Performis SAE is the TSA Team is left out", () => {
+  assert.deepEqual(standingOf({ sae_performis: "TSA Team", order_first_order_date: "2026-10-12" }), { out: "Performis SAE is the TSA Team" });
+  assert.deepEqual(standingOf({ sae_performis: " tsa team ", order_first_order_date: "2026-10-12" }), { out: "Performis SAE is the TSA Team" });
+  assert.deepEqual(standingOf({ sae_performis: "Borey Jeremy", order_first_order_date: "2026-10-12" }), { day: "2026-10-12", from: "compass" });
 });
 
 test("any Compass order intake or revenue before October, in any year, or an older first order year, takes a company out", () => {

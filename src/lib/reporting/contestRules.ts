@@ -34,6 +34,7 @@ export function companyProps(year: number = CONTEST.year): string[] {
 
 /** Why a company is not a new customer of the contest. */
 export const LEFT_OUT = [
+  "Performis SAE is the TSA Team",
   "First order year before 2026",
   "Order intake before October",
   "Revenue before October",
@@ -47,10 +48,14 @@ export type Standing = { day: string | null; from: DayFrom } | { out: LeftOut };
 
 /**
  * A new customer: no Compass order intake and no revenue in any month before October, no first order year before
- * this one, and the first order on or after 5 October - Compass's day, else the shop's. A company with neither day
- * counts only when it was created on or after 5 October: Compass's October holds the 1st to the 4th too.
+ * this one, and the first order on or after 5 October - the EARLIER of Compass's day and the shop's (SARCLA with Diana
+ * Fehr 10.11.2026: "no purchases before 5th October this year" - 17 companies had a Compass day after the start but a
+ * shop first order before it, some in 2021 with dozens of won deals). A company with neither day counts only when it
+ * was created on or after 5 October: Compass's October holds the 1st to the 4th too. The TSA Team's customers are left
+ * out (10.11.2026: "TSA exclude yes") - the contest is ESO's.
  */
 export function standingOf(p: Props, c: { year: number; start: string } = CONTEST): Standing {
+  if ((p.sae_performis ?? "").trim().toLowerCase() === "tsa team") return { out: "Performis SAE is the TSA Team" };
   const fy = num(p.compass_first_order_year);
   if (fy && fy < c.year) return { out: "First order year before 2026" };
   const cut = CONTEST_MONTHS[0];
@@ -64,8 +69,9 @@ export function standingOf(p: Props, c: { year: number; start: string } = CONTES
     for (let m = 0; m < months; m++) if (monthTotal(blob, m)) return { out: "Revenue before October" };
   }
   const compass = dayOf(p.order_first_order_date), shop = dayOf(p.first_order_date_fehdia);
-  const day = compass ?? shop;
-  if (day) return day < c.start ? { out: "First order before 5 October" } : { day, from: compass ? "compass" : "shop" };
+  // the earlier of the two is the first order: a shop order before the start is a purchase before it
+  const day = compass && shop ? (shop < compass ? shop : compass) : compass ?? shop;
+  if (day) return day < c.start ? { out: "First order before 5 October" } : { day, from: day === compass ? "compass" : "shop" };
   const created = dayOf(p.createdate);
   return created && created >= c.start ? { day: null, from: "created" } : { out: "Day of the first order not known" };
 }

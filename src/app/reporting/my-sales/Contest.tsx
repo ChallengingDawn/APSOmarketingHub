@@ -31,7 +31,7 @@ const pct = (a: number, b: number) => (b ? `${((a / b) * 100).toFixed(1)}%` : "�
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "2026-10-12" -> "12 Oct 2026" */
 const dayWords = (d: string | null) => (d ? `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : "—");
-const FROM: Record<DayFrom, string> = { compass: "Compass's first order date", shop: "The shop's first order (Compass has no date yet)", created: "No first order date yet - the company was created after 5 October" };
+const FROM: Record<DayFrom, string> = { compass: "Compass's first order date", shop: "The shop's first order - earlier than Compass's, or Compass has no date yet", created: "No first order date yet - the company was created after 5 October" };
 
 type View = "eso" | "team" | "customers" | Missing;
 /** The new customers outside the contest: those that order and miss only a sales action, those that miss both. */
@@ -100,7 +100,7 @@ function Figures({ d }: { d: ContestData }) {
   const h = useMemo(() => headline(d), [d]);
   return (
     <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
-      <KpiTile icon={<PersonAddAltOutlinedIcon />} tint="blue" label="New customers" value={int(h.fresh)} note="No order intake or revenue before 5 October" />
+      <KpiTile icon={<PersonAddAltOutlinedIcon />} tint="blue" label="New customers" value={int(h.fresh)} note="No order before 5 October, in Compass or the shop · the TSA Team's customers left out" />
       <KpiTile icon={<PhoneInTalkOutlinedIcon />} tint="purple" label="With a sales action" value={int(h.counted)}
         note={`${pct(h.counted, h.fresh)} of the new customers · with or without order intake`} />
       <KpiTile icon={<EmojiEventsOutlinedIcon />} tint="green" label="Qualifying" value={int(h.bringing)}
@@ -209,7 +209,7 @@ function Customers({ d, rows, missing }: { d: ContestData; rows: ContestCompany[
   const person = (r: CRow) => d.people[r.person];
   const cols: Col<CRow>[] = [
     { key: "eso", head: "ESO", tip: "The company's Performis SAE", cell: (r) => person(r).name },
-    { key: "first", head: "First order", tip: "Compass's first order date - else the shop's first order", cell: (r) => <span title={FROM[r.from]}>{dayWords(r.day)}</span>, sort: (r) => Number((r.day ?? "").replace(/-/g, "")) },
+    { key: "first", head: "First order", tip: "The earlier of Compass's and the shop's first order", cell: (r) => <span title={FROM[r.from]}>{dayWords(r.day)}</span>, sort: (r) => Number((r.day ?? "").replace(/-/g, "")) },
     ...(open ? [] : [
       { key: "actions", head: "Sales actions", tip: "Calls, e-mails sent from their own address (not a shared mailbox), HubSpot meetings and completed visits by someone in ESO up to the first order, on the company or one of its contacts - hover a figure for the split",
         cell: (r: CRow) => <span title={`${int(r.actions.calls)} calls · ${int(r.actions.emails)} e-mails sent · ${int(r.actions.meetings)} meetings · ${int(r.actions.visits)} visits`}>{int(actionCount(r.actions))}</span>,

@@ -23,8 +23,9 @@ import {
 export type { ContestData } from "./contestRules";
 
 // v2: only the actions someone in ESO logged; v3: HubSpot's meetings too; v4: only those before the first order; v5: its day
-// too; v6: an e-mail only from the address of someone in ESO
-const KEY = "mySalesContest:v6";
+// too; v6: an e-mail only from the address of someone in ESO; v7: the earlier of Compass's and the shop's first order, the
+// TSA Team's customers left out (10.11.2026)
+const KEY = "mySalesContest:v7";
 const TTL_MS = 60 * 60 * 1000;
 const VISIT_OBJ = "2-139767037";
 
