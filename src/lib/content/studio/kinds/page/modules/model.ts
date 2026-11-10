@@ -1,182 +1,37 @@
-// PAGE - THE MODULE GALLERY'S MODULES (Content v6, 09.11.2026). Pure, shared with the browser and the tests: relative imports only.
+// PAGE - THE GALLERY'S MODULES (Content v6, 09.11.2026; a library since Content v7, 10.11.2026). Pure, shared with the
+// browser and the tests: relative imports only.
 //
 // SARCLA 09.11.2026 (on the Page builder, the de-CH home page): "On this CMS we should be able to add new modal and replace
 // the old one - we should have a gallery of forms like bentos and much more", "fill the product of the bento or other by
 // hierarchy like on the bento", "fill most viewed / most bought, automatically or by article or product number", "we
 // should really be able to add elements". And the bar he named: the two home page versions built from the home page kit
 // (C:\dev\_archive\apsoparts\shop-project\home-page-2026, s15 "Calm drill-down" and s17 "Technology mosaic") - "the
-// versions were really good".
+// versions were really good". SARCLA 10.11.2026 (point 1): "create more than 100 modules subdivided by categories, really
+// high end" - the ten modules became a LIBRARY: each a file of ./lib/, listed by ./registry.ts (its id, category, name,
+// needs, settings schema, defaults, render). A module's type is its registry id; this file keeps what every module shares.
 //
-// A MODULE is one of the kit's proven blocks (finder bento, product bento, mosaic of categories, category cards, product
-// row, campaign banner, USP bar, text and picture, questions, call to action) drawn from its SETTINGS by ./render.ts as ONE
-// self-contained element - its own <style>, every rule under one prefix class (.apx-<id>), the shop's container width.
-// On a page of the shop it is a Change (src/lib/convert/versions.ts): `insert` at a place or `replace` an element, the
+// On a page of the shop a module is a Change (src/lib/convert/versions.ts): `insert` at a place or `replace` an element, the
 // module's settings kept beside it (`module`) so it opens again for editing (the shared interface of the Content v6 brief).
-//
 // Its products and categories are the SHOP's: name, photo, link and the shop's own count ("702 Artikel") read from the
 // shop's pages - never a price, never stock, never a product the shop does not have (./parse.ts, ./source.ts).
 
-export const MODULE_TYPES = ["finder", "bento", "mosaic", "cards", "row", "banner", "usp", "textpic", "faq", "cta"] as const;
-export type ModuleType = (typeof MODULE_TYPES)[number];
-export const isModuleType = (v: unknown): v is ModuleType => (MODULE_TYPES as readonly string[]).includes(v as string);
+import { ICONS as KIT_ICONS, wordsFor as kitWords, type Words as KitWords } from "./kit";
+import { MODULES, gapOf, isModuleType as inLibrary, moduleDef } from "./registry";
+import type { Card, FillHow, ModuleDef, ModuleRef, ModuleSettings, Point } from "./types";
 
-/** A product or a category as the shop shows it. `children`: a category's subcategories or products (a finder's panel,
- * a mosaic tile's rows, a category card's list). */
-export type Card = {
-  kind: "product" | "category";
-  name: string;
-  /** the shop's own address (https://www.apsoparts.com/de-CH/...) */
-  url: string;
-  /** the shop's own photo (https://www.apsoparts.com/media/...) */
-  img: string;
-  /** what the shop itself says about it: "702 Artikel", "31 Produkte" - never a price or stock */
-  meta: string;
-  /** a product's 8-digit number ("" for a category) */
-  number: string;
-  children: Card[];
-};
+export type { Card, Fill, FillHow, ModuleRef, ModuleSettings, Point, Qa, Takes } from "./types";
 
-/** How the module's items were filled - so "fill again" does the same, and the panel says where they came from. */
-export type FillHow = "viewed" | "bought" | "category" | "numbers" | "ai" | "hand";
-export type Fill = { how: FillHow; category: string; numbers: string; ask: string; at: string; missing: string[] };
+/** A module's type: its registry id ("row", "hero-split"). */
+export type ModuleType = string;
+export const isModuleType = (v: unknown): v is ModuleType => inLibrary(v);
+/** Every module of the library (the registry's list). */
+export const MODULE_KINDS: ModuleDef[] = MODULES;
+/** A module's entry in the library - the first one when the type is not (any more) in it. */
+export const kindOf = (t: ModuleType): ModuleDef => moduleDef(t) ?? MODULES[0];
 
-export type Point = { title: string; text: string; icon: string };
-export type Qa = { q: string; a: string };
-
-export type ModuleSettings = {
-  /** the prefix of every class and rule: .apx-<id> */
-  id: string;
-  /** the store view whose words it carries ("de-CH") - the interface words follow its language */
-  store: string;
-  eyebrow: string;
-  title: string;
-  text: string;
-  link: { label: string; url: string };
-  /** a second button (the call to action) */
-  link2: { label: string; url: string };
-  layout: string;
-  items: Card[];
-  /** the big tile of a bento, the picture of a banner or a text and picture */
-  feature: Card | null;
-  points: Point[];
-  faq: Qa[];
-  fill: Fill | null;
-};
-
-export type ModuleRef = { type: ModuleType; settings: ModuleSettings };
-
-/* ── the gallery: what each module is ──────────────────────────────────── */
-
-export type Takes = "products" | "categories" | "none";
-export type ModuleKind = {
-  type: ModuleType;
-  name: string;
-  note: string;
-  /** what its items are, and how many it shows at most / wants at least */
-  takes: Takes;
-  max: number;
-  min: number;
-  layouts: { key: string; label: string }[];
-  /** the fields its panel shows */
-  fields: ("eyebrow" | "title" | "text" | "link" | "link2" | "feature" | "points" | "faq")[];
-  /** in the kit: where it was proven */
-  from: string;
-};
-
-export const MODULE_KINDS: ModuleKind[] = [
-  {
-    type: "finder", name: "Finder bento", note: "A menu of categories beside a big tile and their products - resting on one shows its products",
-    takes: "categories", max: 6, min: 2, from: "home page version A (Calm drill-down)",
-    layouts: [{ key: "left", label: "Menu left" }, { key: "right", label: "Menu right" }],
-    fields: ["eyebrow", "title", "link"],
-  },
-  {
-    type: "bento", name: "Product bento", note: "A big tile and the products beside it",
-    takes: "products", max: 7, min: 2, from: "home page version A (Calm drill-down)",
-    layouts: [{ key: "left", label: "Big tile left" }, { key: "right", label: "Big tile right" }, { key: "wide", label: "Big tile + 6" }],
-    fields: ["eyebrow", "title", "link", "feature"],
-  },
-  {
-    type: "mosaic", name: "Mosaic of categories", note: "Big category photos, the name only - resting on one slides up its subcategories",
-    takes: "categories", max: 8, min: 2, from: "home page version B (Technology mosaic)",
-    layouts: [{ key: "3", label: "3 per row" }, { key: "4", label: "4 per row" }, { key: "2", label: "2 per row" }],
-    fields: ["eyebrow", "title", "link"],
-  },
-  {
-    type: "cards", name: "Category cards", note: "A photo, the category and its subcategories as a list",
-    takes: "categories", max: 6, min: 1, from: "home page Klassik (Technologien)",
-    layouts: [{ key: "3", label: "3 per row" }, { key: "2", label: "2 per row" }, { key: "4", label: "4 per row" }],
-    fields: ["eyebrow", "title", "link"],
-  },
-  {
-    type: "row", name: "Product row", note: "Product cards in a row - photo, name, the shop's article count",
-    takes: "products", max: 12, min: 2, from: "home page Klassik (Bestseller)",
-    layouts: [{ key: "scroll", label: "One row" }, { key: "grid", label: "Rows of 5" }, { key: "grid4", label: "Rows of 4" }],
-    fields: ["eyebrow", "title", "link"],
-  },
-  {
-    type: "banner", name: "Campaign banner", note: "A headline, a line and a button beside a picture",
-    takes: "none", max: 0, min: 0, from: "home page campaign row (Black Friday)",
-    layouts: [{ key: "right", label: "Picture right" }, { key: "left", label: "Picture left" }, { key: "behind", label: "Picture behind" }],
-    fields: ["eyebrow", "title", "text", "link", "feature"],
-  },
-  {
-    type: "usp", name: "USP bar", note: "The shop's promises, each with its icon",
-    takes: "none", max: 0, min: 0, from: "home page title row (the four promises)",
-    layouts: [{ key: "bar", label: "One bar" }, { key: "cards", label: "Cards" }],
-    fields: ["points"],
-  },
-  {
-    type: "textpic", name: "Text and picture", note: "A heading, words and a button beside a picture",
-    takes: "none", max: 0, min: 0, from: "home page About",
-    layouts: [{ key: "right", label: "Picture right" }, { key: "left", label: "Picture left" }],
-    fields: ["eyebrow", "title", "text", "link", "feature"],
-  },
-  {
-    type: "faq", name: "Questions", note: "What buyers ask, with the answers - opened by a click",
-    takes: "none", max: 0, min: 0, from: "the SEO pages' questions",
-    layouts: [{ key: "one", label: "One column" }, { key: "two", label: "Two columns" }],
-    fields: ["eyebrow", "title", "faq"],
-  },
-  {
-    type: "cta", name: "Call to action", note: "One line and a button: the next step",
-    takes: "none", max: 0, min: 0, from: "home page Tools & Services band",
-    layouts: [{ key: "petrol", label: "Petrol band" }, { key: "light", label: "Light" }],
-    fields: ["eyebrow", "title", "text", "link", "link2"],
-  },
-];
-
-export const kindOf = (t: ModuleType): ModuleKind => MODULE_KINDS.find((k) => k.type === t) ?? MODULE_KINDS[0];
-
-/* ── words: the interface words in the store view's language ──────────── */
-
-export type Words = { go: string; goCat: string; all: string; allProducts: string; more: string };
-const WORDS: Record<string, Words> = {
-  de: { go: "Zum Produkt", goCat: "Zum Bereich", all: "Alle anzeigen", allProducts: "Alle Produkte", more: "Mehr erfahren" },
-  fr: { go: "Voir le produit", goCat: "Voir la catégorie", all: "Tout afficher", allProducts: "Tous les produits", more: "En savoir plus" },
-  it: { go: "Vai al prodotto", goCat: "Vai alla categoria", all: "Mostra tutto", allProducts: "Tutti i prodotti", more: "Scopri di più" },
-  en: { go: "View product", goCat: "View group", all: "View all", allProducts: "All products", more: "Learn more" },
-  nl: { go: "Naar het product", goCat: "Naar de categorie", all: "Alles tonen", allProducts: "Alle producten", more: "Meer weten" },
-  pl: { go: "Do produktu", goCat: "Do kategorii", all: "Pokaż wszystkie", allProducts: "Wszystkie produkty", more: "Dowiedz się więcej" },
-};
-export const wordsFor = (store: string): Words => WORDS[String(store).slice(0, 2).toLowerCase()] ?? WORDS.en;
-
-/** The shop's four promises, as its home page says them (the kit's title row, from today's USP picture). */
-const PROMISES: Record<string, Point[]> = {
-  de: [
-    { icon: "box", title: "Keine Zuschläge", text: "für Kleinbestellungen" },
-    { icon: "clock", title: "Echtzeit-Preise", text: "Lieferzeiten und Verfügbarkeit" },
-    { icon: "cut", title: "Zuschnitte", text: "nach Mass" },
-    { icon: "quick", title: "Schnell bestellen", text: "mit Schnellbestellung & DirectUP" },
-  ],
-  en: [
-    { icon: "box", title: "No surcharges", text: "for small orders" },
-    { icon: "clock", title: "Real-time prices", text: "delivery times and availability" },
-    { icon: "cut", title: "Cut-to-size", text: "to your dimensions" },
-    { icon: "quick", title: "Fast ordering", text: "with Quickorder & DirectUP" },
-  ],
-};
-export const ICONS = ["box", "clock", "cut", "quick", "truck", "check", "upload", "cube", "flask", "book", "expert", "star"] as const;
+export type Words = KitWords;
+export const wordsFor = kitWords;
+export const ICONS = KIT_ICONS;
 
 /* ── a module made, read back, checked ─────────────────────────────────── */
 
@@ -185,20 +40,15 @@ export const moduleId = () => `m${Math.random().toString(36).slice(2, 6).padEnd(
 
 const emptyLink = () => ({ label: "", url: "" });
 
-/** A new module of a type, for a store view: empty items, its first layout, the words a person starts from. */
+/** A new module of a type, for a store view: empty items, its first layout, its defaults (the words a person starts from). */
 export function newModule(type: ModuleType, store: string, id = moduleId()): ModuleRef {
   const k = kindOf(type);
-  const w = wordsFor(store);
-  const lang = String(store).slice(0, 2).toLowerCase();
   const settings: ModuleSettings = {
-    id, store, eyebrow: "", title: "", text: "", link: emptyLink(), link2: emptyLink(), layout: k.layouts[0].key,
-    items: [], feature: null, points: [], faq: [], fill: null,
+    id, store, eyebrow: "", title: "", text: "", link: emptyLink(), link2: emptyLink(), layout: k.layouts[0]?.key ?? "",
+    items: [], feature: null, points: [], faq: [], fill: null, extra: {}, table: [],
   };
-  if (type === "usp") settings.points = (PROMISES[lang] ?? PROMISES.en).map((p) => ({ ...p }));
-  if (type === "faq") settings.faq = [{ q: "", a: "" }, { q: "", a: "" }, { q: "", a: "" }];
-  if (type === "row" || type === "bento" || type === "finder" || type === "mosaic" || type === "cards") settings.link = { label: w.all, url: "" };
-  if (type === "banner" || type === "textpic" || type === "cta") settings.link = { label: w.more, url: "" };
-  return { type, settings };
+  const d = k.defaults?.(store) ?? {};
+  return { type: k.id, settings: { ...settings, ...d, id, store } };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -238,44 +88,46 @@ function linkOf(v: unknown) {
   return { label: str(o.label, 60), url: shopAddress(o.url) };
 }
 
+function pointOf(p: Record<string, unknown>): Point {
+  const out: Point = { title: str(p.title, 80), text: str(p.text, 240), icon: (KIT_ICONS as readonly string[]).includes(String(p.icon)) ? String(p.icon) : "check" };
+  const img = pictureAddress(p.img);
+  const url = shopAddress(p.url);
+  if (img) out.img = img;
+  if (url) out.url = url;
+  return out;
+}
+
 /** Any stored module as a module: unknown values left out, lists capped (a module is one element on the page). */
 export function normalizeModule(raw: unknown): ModuleRef | null {
   if (!isObj(raw) || !isModuleType(raw.type)) return null;
-  const type = raw.type;
-  const k = kindOf(type);
+  const k = kindOf(raw.type);
   const s = isObj(raw.settings) ? raw.settings : {};
   const id = typeof s.id === "string" && /^[a-z][a-z0-9]{2,11}$/.test(s.id) ? s.id : moduleId();
   const fill = isObj(s.fill) && ["viewed", "bought", "category", "numbers", "ai", "hand"].includes(String(s.fill.how)) ? {
     how: s.fill.how as FillHow, category: shopAddress(s.fill.category), numbers: str(s.fill.numbers, 600), ask: str(s.fill.ask, 400), at: str(s.fill.at, 40),
     missing: Array.isArray(s.fill.missing) ? s.fill.missing.map((x) => str(x, 20)).filter(Boolean).slice(0, 30) : [],
   } : null;
+  const extra: Record<string, string> = {};
+  if (isObj(s.extra)) for (const [key, v] of Object.entries(s.extra).slice(0, 24)) if (/^[a-z][\w-]{0,30}$/i.test(key) && typeof v === "string") extra[key] = v.slice(0, 600);
+  const table = Array.isArray(s.table) ? s.table.filter(Array.isArray).slice(0, 30).map((r) => (r as unknown[]).slice(0, 8).map((c) => str(c, 200))) : [];
   return {
-    type,
+    type: k.id,
     settings: {
       id, store: str(s.store, 20) || "de-CH",
       eyebrow: str(s.eyebrow, 60), title: str(s.title, 140), text: str(s.text, 900),
       link: linkOf(s.link), link2: linkOf(s.link2),
-      layout: k.layouts.some((l) => l.key === s.layout) ? String(s.layout) : k.layouts[0].key,
+      layout: k.layouts.some((l) => l.key === s.layout) ? String(s.layout) : k.layouts[0]?.key ?? "",
       items: Array.isArray(s.items) ? s.items.map((c) => cardOf(c)).filter((c): c is Card => !!c).slice(0, Math.max(k.max, 1)) : [],
       feature: cardOf(s.feature),
-      points: Array.isArray(s.points) ? s.points.filter(isObj).slice(0, 6).map((p) => ({ title: str(p.title, 60), text: str(p.text, 120), icon: (ICONS as readonly string[]).includes(String(p.icon)) ? String(p.icon) : "check" })) : [],
+      points: Array.isArray(s.points) ? s.points.filter(isObj).slice(0, 12).map(pointOf) : [],
       faq: Array.isArray(s.faq) ? s.faq.filter(isObj).slice(0, 12).map((x) => ({ q: str(x.q, 300), a: str(x.a, 1500) })) : [],
-      fill,
+      fill, extra, table,
     },
   };
 }
 
-/** What still keeps a module from being shown: no products yet, no words... - "" when it is ready. */
-export function moduleGap(m: ModuleRef): string {
-  const s = m.settings;
-  const k = kindOf(m.type);
-  if (k.takes !== "none" && s.items.length < k.min) return k.takes === "products" ? "Fill it with products first" : "Pick its categories first";
-  if (m.type === "finder" && s.items.every((c) => !c.children.length)) return "Its categories have no products yet - fill them from the shop";
-  if ((m.type === "banner" || m.type === "textpic" || m.type === "cta") && !s.title.trim()) return "Give it a headline";
-  if (m.type === "faq" && !s.faq.some((x) => x.q.trim() && x.a.trim())) return "Write at least one question and its answer";
-  if (m.type === "usp" && !s.points.some((p) => p.title.trim())) return "Write at least one promise";
-  return "";
-}
+/** What still keeps a module from being shown: no products yet, no words... - "" when it is ready (./registry.ts gapOf). */
+export const moduleGap = (m: ModuleRef): string => gapOf(m);
 
 /** A module's line for the list of changes: "Product row · 5 products · Bestseller". */
 export function moduleLine(m: ModuleRef): string {

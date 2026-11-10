@@ -192,12 +192,14 @@ export type QuickAsk = { label: string; run: () => Promise<string | null> };
  * The AI beside the work. Quick asks are the studio's own (each returns null when done, or a message); the free ask goes
  * to `onAsk`. Every answer is applied by the studio as a change the person sees - and can undo with the version history.
  */
-export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, top, inputRef }: {
+export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, top, inputRef, bare }: {
   quick: QuickAsk[]; onAsk?: (text: string) => Promise<string | null>; enabled: boolean; placeholder?: string; children?: React.ReactNode;
   /** shown above the quick asks - what the assistant works on (a selected element, the language) */
   top?: React.ReactNode;
   /** the free ask's field, for a studio that puts the cursor there ("Change it with AI") */
   inputRef?: React.Ref<HTMLTextAreaElement>;
+  /** drawn inside another pane, without its own frame and title (Content v7: the side bar's tabs "Assistant | Modules") */
+  bare?: boolean;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -207,8 +209,8 @@ export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, t
     try { setMsg(await fn()); } catch (e) { setMsg(e instanceof Error ? e.message : String(e)); }
     setBusy(null);
   };
-  return (
-    <Pane title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: PINK }} />Assistant</Box>}>
+  const body = (
+    <>
       {!enabled && <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>The AI is not set up on this hub.</Typography>}
       {top}
       <Box sx={{ display: "grid", gap: 1 }}>
@@ -232,8 +234,10 @@ export function AssistantPanel({ quick, onAsk, enabled, placeholder, children, t
       )}
       {msg && <Typography sx={{ mt: 1.5, fontSize: "0.84rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1.25, borderRadius: "10px" }}>{msg}</Typography>}
       {children}
-    </Pane>
+    </>
   );
+  return bare ? <Box sx={{ p: 2 }}>{body}</Box>
+    : <Pane title={<Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: PINK }} />Assistant</Box>}>{body}</Pane>;
 }
 
 /* ── the AI at work ─────────────────────────────────────────────────────────────────────────────────────────────── */

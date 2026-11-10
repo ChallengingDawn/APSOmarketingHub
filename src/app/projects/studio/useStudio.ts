@@ -75,7 +75,7 @@ export function lookApi(api: StudioApi, version: { id: number }, doc: unknown): 
 }
 
 /** What the frame says while an AI task runs. */
-const AI_SAYS: Record<string, string> = { translate: "AI is translating…", design: "AI is laying it out…", variants: "AI is finding words…", subjects: "AI is finding words…", hashtags: "AI is finding words…", ideas: "AI is thinking…" };
+const AI_SAYS: Record<string, string> = { translate: "AI is translating…", design: "AI is laying it out…", variants: "AI is finding words…", subjects: "AI is finding words…", hashtags: "AI is finding words…", ideas: "AI is thinking…", plan: "AI is planning the page with modules…" };
 
 async function post(pieceId: number, body: Record<string, unknown>) {
   const r = await fetch(`/api/content/pieces/${pieceId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

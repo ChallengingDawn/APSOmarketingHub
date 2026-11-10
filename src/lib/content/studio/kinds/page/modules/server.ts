@@ -14,7 +14,7 @@ import type { AiTask, ServerAction, StudioCtx } from "../../../contract";
 import { s } from "../../../contract";
 import { pageDoc, viewOf } from "../model";
 import type { Card } from "./model";
-import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, shopCategory, shopTree, topCards } from "./source";
+import { aiCandidates, cardsForNumbers, cardsForPicks, categoryCard, cleanCards, cleanedNote, shopCategory, shopTree, topCards } from "./source";
 import type { TreeNode } from "./parse";
 import { MODULE_FILL_SCHEMA, MODULE_FILL_SYSTEM, candidatesIn, cleanPick, moduleFillUser } from "./ai";
 
@@ -43,6 +43,11 @@ const moduleTree: ServerAction = async (ctx, raw, input) => {
 const moduleCategory: ServerAction = async (ctx, raw, input) => {
   const store = storeIn(raw, input, ctx.piece.language);
   const c = await shopCategory(urlIn(input), store);
+  // a fill (count given): its first products as an automatic fill shows them - none on clearance, no sticker on a photo
+  if (input.count !== undefined) {
+    const k = await cleanCards(c.products, countIn(input));
+    return { category: { name: c.name, url: c.url, img: c.img, count: c.count, subs: c.subs, products: k.cards }, cleaned: cleanedNote({ clearance: k.clearance + c.cleared, photo: k.photo }).trim() };
+  }
   return { category: { name: c.name, url: c.url, img: c.img, count: c.count, subs: c.subs, products: c.products } };
 };
 

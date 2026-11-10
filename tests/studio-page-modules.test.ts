@@ -30,7 +30,7 @@ function filled(type: ModuleType): ModuleRef {
   const s = m.settings;
   s.eyebrow = "Sortiment"; s.title = "Dichtungstechnik"; s.text = "Zeile darunter."; s.link = { label: "Alle anzeigen", url: `${B}/de-CH/dichtungstechnik.html` };
   s.link2 = { label: "Schnellbestellung", url: `${B}/de-CH/quickorder/` };
-  const k = MODULE_KINDS.find((x) => x.type === type)!;
+  const k = MODULE_KINDS.find((x) => x.id === type)!;
   if (k.takes === "products") s.items = [1, 2, 3, 4, 5, 6, 7, 8].map(product).slice(0, k.max);
   if (k.takes === "categories") s.items = [1, 2, 3, 4, 5, 6].map((n) => category(n, [1, 2, 3, 4].map(product))).slice(0, type === "finder" ? 5 : k.max);
   s.feature = category(9, []);
@@ -52,25 +52,26 @@ function selectors(css: string): string[] {
     }
     if (cur.trim()) out.push(cur.trim());
   }
-  return out;
+  // keyframe stops (a moving strip's) are not selectors
+  return out.filter((x) => !/^(from|to|[\d.]+%)$/.test(x));
 }
 
 test("every module is ONE element, every rule under its own class, no script - a version takes it as it is", () => {
   for (const k of MODULE_KINDS) {
-    const m = filled(k.type);
+    const m = filled(k.id);
     for (const layout of k.layouts.map((l) => l.key)) {
       const mm = { ...m, settings: { ...m.settings, layout } };
       const html = renderModule(mm);
-      assert.match(html, /^<div class="apx-mtest" data-apx-module="[a-z]+"><style>/, `${k.type}: one root with its style first`);
+      assert.match(html, /^<div class="apx-mtest" data-apx-module="[a-z0-9-]+"><style>/, `${k.id}: one root with its style first`);
       assert.ok(html.endsWith("</div>"));
       const css = /<style>([\s\S]*?)<\/style>/.exec(html)![1];
-      for (const sel of selectors(css)) assert.ok(sel.startsWith(".apx-mtest"), `${k.type}/${layout}: "${sel}" is not under the module's class`);
-      assert.doesNotMatch(html, /<script|\son[a-z]+=|javascript:/i, `${k.type}: no script`);
-      assert.match(css, /@media \(max-width:900px\)/, `${k.type}: a phone rule`);
+      for (const sel of selectors(css)) assert.ok(sel.startsWith(".apx-mtest"), `${k.id}/${layout}: "${sel}" is not under the module's class`);
+      assert.doesNotMatch(html, /<script|\son[a-z]+=|javascript:/i, `${k.id}: no script`);
+      assert.match(css, /@media \(max-width:900px\)/, `${k.id}: a phone rule`);
       const v = validateChanges([{ op: "insert", selector: "#maincontent .column.main", where: "prepend", html }]);
-      assert.deepEqual(v.problems, [], `${k.type}/${layout}: ${v.problems.join("; ")}`);
-      assert.ok(html.length <= MODULE_MAX, `${k.type}/${layout}: ${html.length} bytes - over a version's 20 KB per element`);
-      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ""), /CHF|EUR|€|\d+\s*%/, `${k.type}: never a price or a discount`);
+      assert.deepEqual(v.problems, [], `${k.id}/${layout}: ${v.problems.join("; ")}`);
+      assert.ok(html.length <= MODULE_MAX, `${k.id}/${layout}: ${html.length} bytes - over a version's 20 KB per element`);
+      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ""), /CHF|EUR|€|\d+\s*%/, `${k.id}: never a price or a discount`);
     }
   }
 });
@@ -233,7 +234,7 @@ test("Fill with AI keeps only the numbers it was shown, once each, at most as ma
 
 /* ── a new page: its modules after its blocks ─────────────────────────── */
 
-test("a new page keeps its modules, each after a block; a module still lacking something is a slot in the preview, absent in Magento", () => {
+test("a new page keeps its modules, each after a block; a module still lacking something is its skeleton in the preview, absent in Magento", () => {
   const f = normalizeFields({
     hero: { title: "O-Ringe" }, intro: "Kurz.", order: ["hero", "intro"],
     modules: [
@@ -250,7 +251,9 @@ test("a new page keeps its modules, each after a block; a module still lacking s
   // after the intro block, the row; the empty one at the top only as a slot; one whose block is gone at the end
   assert.ok(magento.indexOf('data-apx-module="row"') > magento.indexOf("Kurz."));
   assert.equal((magento.match(/data-apx-module="row"/g) ?? []).length, 1, "the empty row is not in Magento's copy");
-  assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><span class="apx-np-slot">Product row - fill it with products first/);
+  // Content v7 (point 6): never nothing - its skeleton, in its own shape, with the reason
+  assert.match(preview, /data-apx-mod="cd34" class="apx-np-in"><div class="apx-mempty" data-apx-module="row" data-apx-wait="1">/);
+  assert.ok(preview.includes("Product row<small>Fill it with products first - on the left.</small>"), "the reason in plain words");
   assert.ok(magento.lastIndexOf('data-apx-module="usp"') > magento.indexOf('data-apx-module="row"'));
   assert.doesNotMatch(magento, /data-apx-mod=/, "the studio's marks stay out of Magento");
   assert.deepEqual(blockOrder(f), ["hero", "intro"], "the blocks' order is the blocks'");
