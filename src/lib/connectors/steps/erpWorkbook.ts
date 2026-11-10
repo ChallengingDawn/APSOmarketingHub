@@ -28,6 +28,7 @@ import { ErpLinesSheet, SHEET_ERP_LINES, type ErpLine } from "../../reporting/bo
 import { InvoicesSheet, SHEET_INVOICES, type InvoiceRow } from "./orderFactsRules";
 import { ArticlesSheet, SHEET_ARTICLES, SHEET_SUPPLIERS, SuppliersSheet } from "./productFactsRules";
 import { OrderBookSheet, SHEET_ORDER_BOOK, isOrderBookHead, type OrderBookResult } from "../../reporting/orderBookRules";
+import { SealingSheet, isSealingHeader, type SealingRow } from "../../apHub/sealingRules";
 
 export class WorkbookFormatError extends Error {
   constructor(message: string) {
@@ -487,7 +488,7 @@ async function readSheet(file: string, e: ZipEntry, book: Book, sink: Sink, beat
 
 /* -- the BI sheets, recognised by their columns -------------------------- */
 
-export type KpiKind = "lines" | "invoices" | "articles" | "suppliers" | "orderbook";
+export type KpiKind = "lines" | "invoices" | "articles" | "suppliers" | "orderbook" | "sealing";
 const headName = (c: Cell) => String(c instanceof Date ? "" : c ?? "").replace(/^\[|\]$/g, "").replace(/[^a-z0-9]/gi, "").toLowerCase();
 /** A row's column names -> which BI sheet it heads (each reader's own header test), or null. */
 export function kpiKindOf(cells: Cell[]): KpiKind | null {
@@ -497,6 +498,8 @@ export function kpiKindOf(cells: Cell[]): KpiKind | null {
   if (n.has("suppliernumber") && n.has("suppliername")) return "suppliers";
   if (n.has("article") && n.has("gwstdpchf")) return "articles";
   if (isOrderBookHead(n)) return "orderbook";
+  // the Angst+Pfister hub's Sealing Business Review: every business unit's DT invoices (src/lib/apHub/sealingRules.ts)
+  if (isSealingHeader(cells)) return "sealing";
   return null;
 }
 /** The first 30 rows of a sheet tell what it is (the rest is never read here). */
@@ -529,8 +532,10 @@ export type ErpWorkbook = {
    *  null without that sheet; orderBookError when it was there and could not be read (never the revenue's problem) */
   orderBook: OrderBookResult | null;
   orderBookError?: string;
+  /** the Angst+Pfister hub's Sealing Business Review (src/lib/apHub) - null without its sheet */
+  sealing: { rows: SealingRow[]; skipped: number } | null;
   /** which sheet was read as what - by its name ("KPI LINES" ...) or, named otherwise ("Query1"), by its columns */
-  kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null; orderBook: string | null };
+  kpiSheets: { lines: string | null; invoices: string[]; articles: string | null; suppliers: string | null; orderBook: string | null; sealing: string | null };
   rows: number;
   seconds: number;
 };
@@ -584,6 +589,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     articles: book.sheets.find((x) => up(x) === SHEET_ARTICLES)?.name ?? null,
     suppliers: book.sheets.find((x) => up(x) === SHEET_SUPPLIERS)?.name ?? null,
     orderBook: book.sheets.find((x) => up(x) === SHEET_ORDER_BOOK)?.name ?? null,
+    sealing: null,
   };
   for (const x of book.sheets) {
     if (/^FIGURES\b/.test(up(x)) || up(x).startsWith("KPI ")) continue;
@@ -595,6 +601,7 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
     else if (kind === "articles") kpi.articles ??= x.name;
     else if (kind === "suppliers") kpi.suppliers ??= x.name;
     else if (kind === "orderbook") kpi.orderBook ??= x.name;
+    else if (kind === "sealing") kpi.sealing ??= x.name;
   }
   // the order lines for the Back Office's KPIs: optional, and never the revenue's problem
   let erpLines: { lines: ErpLine[]; rows: number } | null = null;
@@ -639,5 +646,14 @@ export async function readErpWorkbook(file: string, beat?: () => Promise<void>, 
       orderBook = so.finish();
     } catch (e) { orderBookError = String((e as Error)?.message ?? e).slice(0, 200); }
   }
-  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, articlePlanning, orderBook, ...(orderBookError ? { orderBookError } : {}), kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
+  // the Angst+Pfister hub's sealing invoices: optional, and never the revenue's problem
+  let sealing: ErpWorkbook["sealing"] = null;
+  if (kpi.sealing) {
+    try {
+      const sz = new SealingSheet();
+      rows += await readSheet(file, part(kpi.sealing)!, book, (n, cells) => sz.feed(n, cells), beat);
+      sealing = sz.finish();
+    } catch { sealing = null; }
+  }
+  return { file: basename(file), mb: pyRound(size / 1048576, 1), sheets: names, customers, profitCentres, erpLines, invoices, articles, articlePlanning, orderBook, sealing, ...(orderBookError ? { orderBookError } : {}), kpiSheets: kpi, rows, seconds: Math.round((Date.now() - t0) / 100) / 10 };
 }

@@ -1,3 +1,4 @@
+import { asCross, homeFor } from '@/lib/auth/access';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { query } from '@/lib/db/client';
@@ -58,5 +59,5 @@ export async function POST(req: Request) {
   // The front door, not the brain. Landing on Personality is a leftover from
   // when this was the marketing app; now it is one app of five, and most people
   // signing in cannot even open it.
-  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+  return NextResponse.json({ next: u.must_change_password ? '/change-password' : homeFor(asCross(u.cross_access)) });
 }

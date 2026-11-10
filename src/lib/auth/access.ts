@@ -111,6 +111,66 @@ export function mfaRequired(role: Role, requiredForPerson = false, editsSomewher
 }
 
 /**
+ * CROSS ACCESS - the people of Angst+Pfister (SARCLA 10.11.2026).
+ *
+ * A mark on a person, beside the role, for the people of the group who come to the hub for the Angst+Pfister hub's
+ * own reports (src/app/ap):
+ *   cross-user   lands on the Angst+Pfister hub, and sees the APSOparts hub as a viewer: every app and sub-app to look
+ *                at, NOTHING to change ("they can't change absolutely nothing"), and no Digital Growth, TSA, ESO or
+ *                Back-Office Reports - nor the Sales leader view, My Sales or Sales activity, the per-rep figures;
+ *   cross-admin  "has all the power": an admin of both hubs. Stored as the role admin with the mark, so every place
+ *                that asks for an admin answers for them without being taught a new word.
+ * Both carry a second factor, always ("for ap it's a must have").
+ */
+export type Cross = "user" | "admin";
+
+/** The mark as stored (apsomh_users.cross_access), or null for everybody else. */
+export function asCross(stored: string | null | undefined): Cross | null {
+  return stored === "user" || stored === "admin" ? stored : null;
+}
+
+export const CROSS_LABEL: Record<Cross, string> = { user: "Cross-user", admin: "Cross-admin" };
+
+export const CROSS_NOTE: Record<Cross, string> = {
+  user: "Starts on the Angst+Pfister hub. Views the APSOparts hub and changes nothing; no Digital Growth, TSA, ESO or Back-Office Reports.",
+  admin: "Starts on the Angst+Pfister hub. An admin of both hubs.",
+};
+
+/** Advanced reporting's categories (src/lib/reporting/categories.ts slugs) a cross-user never sees. */
+export const CROSS_HIDDEN_CATEGORIES = ["marketing", "tsa", "eso", "back-office", "sales-leader", "my-sales"] as const;
+
+/**
+ * The same reports' data, by address: Advanced reporting's APIs otherwise answer to anything open in it (tree.ts
+ * opensAt), and a cross-user must not read ESO's figures by asking for them directly.
+ */
+const CROSS_HIDDEN_API = /^\/api\/reporting\/(eso-|tsa-|back-office|marketing-kpis|sales-leader|my-sales|sales-activity)/;
+
+export function crossHiddenApi(pathname: string): boolean {
+  return CROSS_HIDDEN_API.test(pathname);
+}
+
+/** Where the Angst+Pfister hub begins. */
+export const AP_HUB_HOME = "/ap";
+
+/** Where a person lands after signing in. */
+export function homeFor(cross: Cross | null): string {
+  return cross ? AP_HUB_HOME : "/";
+}
+
+/**
+ * What a cross-user may still send that is not a plain read: their own account (password, second factor, devices,
+ * preferences - /api/auth is open before the session check anyway), and the reports that send their filters in the
+ * body of a POST. Everything else that is not GET is refused at the door (src/middleware.ts), so a button that forgot
+ * its guard changes nothing either. A read that turns out to be a POST shows "View only" and is added here.
+ */
+const CROSS_USER_MAY_SEND = ["/api/auth/", "/api/me/", "/api/reporting/customer-kpis"];
+
+export function crossUserMaySend(method: string, pathname: string): boolean {
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true;
+  return CROSS_USER_MAY_SEND.some((p) => (p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`)));
+}
+
+/**
  * WHO MAY REGISTER THEMSELVES.
  *
  * Confirmed by SARCLA, 04.10.2026. An address at one of these may create its

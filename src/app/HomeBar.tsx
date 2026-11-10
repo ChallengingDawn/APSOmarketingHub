@@ -31,7 +31,7 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
-import { APP_KEYS, adminOnlyPath, asRole, type Level, type Role } from "@/lib/auth/access";
+import { APP_KEYS, AP_HUB_HOME, adminOnlyPath, asCross, asRole, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
@@ -60,13 +60,19 @@ const focusRing = {
  * keyframes (both pages that use it do) and turn motion off under
  * prefers-reduced-motion.
  */
-export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
+export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
+  on?: string;
+  plan?: boolean;
+  /** Which hub this page belongs to (SARCLA 10.11.2026): the Angst+Pfister hub's pages (src/app/ap) carry their own bar. */
+  hub?: "apsoparts" | "ap";
+}) {
   const router = useRouter();
   const { viewed, canOpen, canOpenPath } = useViewAs();
 
   const [mine, setMine] = useState<Record<string, boolean> | null>(null);
   const [myRole, setMyRole] = useState<Role | null>(null);
   const [myLevels, setMyLevels] = useState<Record<string, Level> | null>(null);
+  const [myCross, setMyCross] = useState<Cross | null>(null);
   useEffect(() => {
     fetch("/api/me/access")
       .then((r) => (r.ok ? r.json() : null))
@@ -75,6 +81,7 @@ export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
         setMine(j.open as Record<string, boolean>);
         setMyRole(asRole(j.role));
         setMyLevels((j.levels ?? null) as Record<string, Level> | null);
+        setMyCross(asCross(j.cross));
       })
       .catch(() => {});
   }, []);
@@ -143,7 +150,13 @@ export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
   const reads = APP_KEYS.filter((k) => openFor(k)).length <= 1;
   // the Action plan's own pages, admins only, carry their own (SARCLA 02.11.2026: "only admins have access to it, show it
   // for everyone on the page"; 04.11.2026: "bring Home to first position")
-  const NAV = plan ? [
+  // the two hubs, for the people of Angst+Pfister and the admins (access.ts Cross): a switch beside the name
+  const twoHubs = myCross !== null || role === "admin";
+  const home = hub === "ap" ? AP_HUB_HOME : "/";
+  const NAV = hub === "ap" ? [
+    { name: "Home", href: AP_HUB_HOME, icon: <HomeIcon />, show: true },
+    { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
+  ] : plan ? [
     { name: "Home", href: "/", icon: <HomeIcon />, show: true },
     { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: true },
     { name: "From Scroll to Sale", href: "/action-plan/scroll-to-sale", icon: <ViewKanbanOutlinedIcon />, show: true },
@@ -170,9 +183,31 @@ export function HomeBar({ on, plan = false }: { on?: string; plan?: boolean }) {
       display: "flex", alignItems: "center", gap: { xs: 1.5, md: 2 }, flexWrap: "wrap",
       position: "relative", zIndex: 5,
     }}>
-      <Box component={Link} href="/" sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
+      <Box component={Link} href={home} sx={{ textDecoration: "none", display: "grid", lineHeight: 1, ...focusRing }}>
         <Wordmark size={26} />
       </Box>
+
+      {twoHubs && (
+        <Box role="group" aria-label="Hub" sx={{
+          display: "flex", p: 0.4, gap: 0.4, borderRadius: "14px",
+          bgcolor: "rgba(21,34,58,.05)", border: "1px solid rgba(21,34,58,.06)",
+        }}>
+          {([["ap", "Angst+Pfister", AP_HUB_HOME], ["apsoparts", "APSOparts", "/"]] as const).map(([k, label, href]) => {
+            const lit = hub === k;
+            return (
+              <Box key={k} component={Link} href={href} aria-current={lit ? "page" : undefined} sx={{
+                px: 1.4, py: 0.7, borderRadius: "11px", textDecoration: "none", whiteSpace: "nowrap",
+                fontSize: "0.82rem", fontWeight: 650, letterSpacing: "-0.01em",
+                color: lit ? INK : MUTED, bgcolor: lit ? "#fff" : "transparent",
+                boxShadow: lit ? "0 1px 2px rgba(31,45,78,.08), 0 4px 10px rgba(31,45,78,.06)" : "none",
+                transition: "background-color .18s ease, color .18s ease", ...focusRing,
+                "&:hover": { color: INK },
+                "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+              }}>{label}</Box>
+            );
+          })}
+        </Box>
+      )}
 
       <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.4 }}>
         {NAV.map((n) => {

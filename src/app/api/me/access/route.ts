@@ -18,6 +18,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     role: access.role,
+    cross: access.cross,
     // an app is open when anything in it is - its front page or one sub-app
     open: Object.fromEntries(APP_KEYS.map((k) => [k, appOpen(k, access.levels)])),
     // every app and sub-app (src/lib/auth/tree.ts), so the side panel and the report lists hide what is not theirs

@@ -31,6 +31,8 @@ export function ensureSchema(): Promise<void> {
     await query(
       `ALTER TABLE apsomh_users ADD COLUMN IF NOT EXISTS awaiting_setup BOOLEAN NOT NULL DEFAULT FALSE`
     );
+    // Cross access (SARCLA 10.11.2026): 'user' or 'admin' for the people of Angst+Pfister, else NULL (src/lib/auth/access.ts)
+    await query(`ALTER TABLE apsomh_users ADD COLUMN IF NOT EXISTS cross_access VARCHAR(10)`);
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_kv (
         k TEXT PRIMARY KEY,
@@ -430,6 +432,8 @@ export type UserRow = {
   totp_enrolled: boolean;
   /** 'viewer' only before the roles of 01.11.2026 ran; read it with asRole (src/lib/auth/access.ts). */
   role: 'admin' | 'sales_leader' | 'user' | 'viewer';
+  /** Cross access - 'user' / 'admin' for the people of Angst+Pfister, else null; read it with asCross (access.ts). */
+  cross_access: string | null;
   is_active: boolean;
   must_change_password: boolean;
   awaiting_setup: boolean;

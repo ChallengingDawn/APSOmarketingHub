@@ -35,6 +35,7 @@ import { unpackFacts } from "./productFactsRules";
 import { saveErpLines } from "@/lib/reporting/boErpLinesStore";
 import { saveOrderBook } from "@/lib/reporting/orderBookStore";
 import { loadOtdHistory, otdDates, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
+import { saveSealing } from "@/lib/apHub/sealingStore";
 import path from "node:path";
 import { query } from "@/lib/db/client";
 import { ownerNames } from "@/lib/integrations/erosion";
@@ -309,6 +310,13 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
   }
   // OTD Reports' history: the OTD analysis file's lines (otd_history.csv), when one was dropped beside the workbook
   if (live) out.otd_history = await loadOtdHistory(path.dirname(opts.file)).catch((e: unknown) => `not read: ${(e as Error)?.message ?? e}`);
+  // the Angst+Pfister hub's Sealing Business Review (src/lib/apHub): the group's DT invoices, kept whole each morning -
+  // never the step's problem
+  if (wb.sealing) {
+    out.ap_sealing = !live ? { rows: wb.sealing.rows.length, skipped: wb.sealing.skipped, kept: false }
+      : await saveSealing(wb.sealing.rows, { file: wb.file, sheet: wb.kpiSheets.sealing, skipped: wb.sealing.skipped })
+        .catch((e: unknown) => `not kept: ${(e as Error)?.message ?? e}`);
+  } else if (wb.kpiSheets.sealing) out.ap_sealing = "sheet without the expected header";
   // the order facts the sheets give (first confirmed date, special articles, the invoice) - order_sync writes them at night
   if (wb.erpLines || wb.invoices) {
     const byBase = wb.erpLines ? lineFacts(wb.erpLines.lines) : new Map(), byOrder = wb.invoices ? invoiceFacts(wb.invoices) : new Map();

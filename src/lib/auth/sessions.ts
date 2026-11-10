@@ -16,6 +16,7 @@ import { randomBytes } from "node:crypto";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { setSessionCookie, signSession } from "./session";
+import { asCross } from "./access";
 import type { UserRow } from "@/lib/db/init";
 
 export type SessionRow = {
@@ -52,7 +53,8 @@ export async function beginSession(u: UserRow, req: Request | null): Promise<str
     `INSERT INTO apsomh_sessions (sid, user_id, user_agent, ip) VALUES ($1, $2, $3, $4)`,
     [sid, u.id, ua, ip],
   );
-  await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role, sid }));
+  const cross = asCross(u.cross_access) ?? undefined;
+  await setSessionCookie(await signSession({ uid: u.id, username: u.username, role: u.role, sid, ...(cross ? { cross } : {}) }));
   return sid;
 }
 

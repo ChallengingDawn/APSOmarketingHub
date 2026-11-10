@@ -16,6 +16,11 @@ export interface SessionPayload {
    * honoured until they expire rather than signing everybody out on a deploy.
    */
   sid?: string;
+  /**
+   * Cross access when the session began (access.ts Cross), so the door (src/middleware.ts) can refuse a cross-user's
+   * every change without a database. Changing a person's mark signs their sessions out, so it is never stale.
+   */
+  cross?: 'user' | 'admin';
 }
 
 function getSecret(): Uint8Array {
@@ -44,6 +49,7 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
       username: payload.username as string,
       role: (payload.role as SessionPayload['role']) ?? 'user',
       sid: typeof payload.sid === 'string' ? payload.sid : undefined,
+      cross: payload.cross === 'user' || payload.cross === 'admin' ? payload.cross : undefined,
     };
   } catch {
     return null;

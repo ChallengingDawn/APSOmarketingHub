@@ -6,7 +6,7 @@ import { generateSecret, totpQrDataUrl, verifyTotp } from '@/lib/auth/totp';
 import { clearPre2faCookie, readPre2fa } from '@/lib/auth/session';
 import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
-import { asRole, mfaRequired } from '@/lib/auth/access';
+import { asCross, asRole, homeFor, mfaRequired } from '@/lib/auth/access';
 import { editsSomewhere } from '@/lib/auth/appAccess';
 import { getOptionalUser } from '@/lib/auth/guard';
 import { isSandbox } from '@/lib/sandbox/mode';
@@ -47,7 +47,7 @@ export async function GET() {
   // A user who only views reads; a second factor is offered, not demanded. Anyone who can
   // change something carries one, and the page must know which it is looking at
   // before it draws a way past.
-  return NextResponse.json({ qr, secret, maySkip: !mfaRequired(asRole(u.role), false, await editsSomewhere(u.id)) });
+  return NextResponse.json({ qr, secret, maySkip: !mfaRequired(asRole(u.role), asCross(u.cross_access) !== null, await editsSomewhere(u.id)) });
 }
 
 const PostBody = z.union([
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
   // Skipping: allowed by role, never by asking. The secret stays on the row
   // unused, so the offer is made again at the next sign-in.
   if ('skip' in parsed.data) {
-    if (mfaRequired(asRole(u.role), false, await editsSomewhere(u.id))) {
+    if (mfaRequired(asRole(u.role), asCross(u.cross_access) !== null, await editsSomewhere(u.id))) {
       return NextResponse.json(
         { error: 'Your role has to carry a second factor.' },
         { status: 403 },
@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
     await clearPre2faCookie();
     await beginSession(u, req);
-    return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+    return NextResponse.json({ next: u.must_change_password ? '/change-password' : homeFor(asCross(u.cross_access)) });
   }
 
   if (!u.totp_secret) {
@@ -114,5 +114,5 @@ export async function POST(req: Request) {
   // The front door, not the brain. Landing on Personality is a leftover from
   // when this was the marketing app; now it is one app of five, and most people
   // signing in cannot even open it.
-  return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+  return NextResponse.json({ next: u.must_change_password ? '/change-password' : homeFor(asCross(u.cross_access)) });
 }

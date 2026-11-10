@@ -16,7 +16,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import { APPS } from "@/app/hubApps";
 import { FAINT, INK, MUTED } from "@/app/uc/report/ui";
-import { LEVELS, levelsFor, roleDefault, type Level, type Role } from "@/lib/auth/access";
+import { LEVELS, levelsFor, roleDefault, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { ACCESS_TREE, childrenOf, levelsOf, nodeByKey, type AccessNode, type Grants } from "@/lib/auth/tree";
 
 /** What a row can be set to: a level, or its parent's. */
@@ -25,14 +25,16 @@ export type Choice = Level | "inherit";
 const LABEL: Record<Level, string> = Object.fromEntries(LEVELS.map((l) => [l.value, l.label])) as Record<Level, string>;
 const TONE: Record<Level, string> = { none: FAINT, read: "#4a5a70", write: "#0f7b4f" };
 
-export default function AccessTree({ role, access, busy, onSet }: {
+export default function AccessTree({ role, access, cross = null, busy, onSet }: {
   role: Role;
   access: Grants;
+  /** Cross access (access.ts): a cross-user's tree views everything not taken, edits nothing, hides some reports. */
+  cross?: Cross | null;
   /** The node being saved, if any. */
   busy: string | null;
   onSet: (nodeKey: string, choice: Choice) => void;
 }) {
-  const levels = useMemo(() => levelsOf(role, access), [role, access]);
+  const levels = useMemo(() => levelsOf(role, access, cross), [role, access, cross]);
   // an app opens when something beneath it was set on its own, so a grant made there is never out of sight
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const setBelow = (key: string): boolean => childrenOf(key).some((c) => access[c.key] !== undefined || setBelow(c.key));

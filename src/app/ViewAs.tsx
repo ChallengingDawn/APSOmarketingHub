@@ -19,12 +19,12 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 
-import { asRole, type AppKey, type Level, type Role } from "@/lib/auth/access";
+import { asRole, type AppKey, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt, appOpen, levelsOf } from "@/lib/auth/tree";
 
 const KEY = "apsohub:view-as";
 
-export type Viewed = { id: number; name: string; role: Role; access: Record<string, Level> };
+export type Viewed = { id: number; name: string; role: Role; access: Record<string, Level>; cross?: Cross | null };
 
 type Ctx = {
   viewed: Viewed | null;
@@ -63,7 +63,7 @@ export function ViewAsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<Ctx>(() => {
-    const levels = viewed ? levelsOf(asRole(viewed.role), viewed.access) : null;
+    const levels = viewed ? levelsOf(asRole(viewed.role), viewed.access, viewed.cross ?? null) : null;
     return {
       viewed: viewed ? { ...viewed, role: asRole(viewed.role) } : null,
       roleInView: viewed ? asRole(viewed.role) : null,

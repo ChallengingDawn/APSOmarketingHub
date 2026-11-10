@@ -12,12 +12,14 @@ import { redirect } from "next/navigation";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { getOptionalUser } from "./guard";
-import { APP_KEYS, STARTER_GRANTS, asRole, type AppKey, type Level, type Role } from "./access";
+import { APP_KEYS, STARTER_GRANTS, asCross, asRole, crossHiddenApi, type AppKey, type Cross, type Level, type Role } from "./access";
 import { accessAt, levelsOf, opensAt, type Grants } from "./tree";
 
 export type MyAccess = {
   userId: number;
   role: Role;
+  /** Cross access (access.ts): a person of Angst+Pfister, or null. */
+  cross: Cross | null;
   /** node key (an app, a sub-app - tree.ts) -> what they were granted. Absent means their parent's. */
   grants: Grants;
   /** Every node of the tree, as it comes to for them. */
@@ -50,18 +52,22 @@ export async function myAccess(): Promise<MyAccess | null> {
   const grants: Grants = {};
   for (const row of r.rows) grants[row.app_key] = row.level;
   const role = asRole(u.role);
-  const levels = levelsOf(role, grants);
+  const cross = asCross(u.cross_access);
+  const levels = levelsOf(role, grants, cross);
   const path = await requestPath();
   const here = path ? accessAt(path, levels) : null;
   // a sub-app answers for this page or API: its own level decides
   const sub = here?.specific ? here.level : null;
+  // a cross-user changes nothing anywhere, and reads none of the hidden reports' data by its address (access.ts)
+  const viewOnly = cross === "user" && role !== "admin";
   return {
     userId: u.id,
     role,
+    cross,
     grants,
     levels,
-    canOpen: (app) => opensAt(app, path, levels),
-    canWrite: (app) => (sub !== null ? sub === "write" : levels[app] === "write"),
+    canOpen: (app) => !(viewOnly && path !== null && crossHiddenApi(path)) && opensAt(app, path, levels),
+    canWrite: (app) => !viewOnly && (sub !== null ? sub === "write" : levels[app] === "write"),
     levelAt: (p) => accessAt(p, levels).level,
   };
 }

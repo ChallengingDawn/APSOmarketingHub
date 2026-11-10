@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getOptionalUser } from '@/lib/auth/guard';
-import { asRole, mfaRequired } from '@/lib/auth/access';
+import { asCross, asRole, mfaRequired } from '@/lib/auth/access';
 import { editsSomewhere } from '@/lib/auth/appAccess';
 
 export const runtime = 'nodejs';
@@ -12,5 +12,5 @@ export async function GET() {
   void _ph; void _ts;
   // the role as it is today (a viewer of before is a user), and whether they must carry a second factor
   const role = asRole(u.role);
-  return NextResponse.json({ user: { ...safe, role, mfa_required: mfaRequired(role, false, await editsSomewhere(u.id)) } });
+  return NextResponse.json({ user: { ...safe, role, mfa_required: mfaRequired(role, asCross(u.cross_access) !== null, await editsSomewhere(u.id)) } });
 }

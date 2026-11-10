@@ -4,8 +4,9 @@ import { query } from '@/lib/db/client';
 import { requireAdmin } from '@/lib/auth/guard';
 import { hashPassword, validatePasswordStrength } from '@/lib/auth/password';
 import { whyNotDelete } from './delete';
-import { asRole } from '@/lib/auth/access';
+import { asCross, asRole, type Cross } from '@/lib/auth/access';
 import { grantStarterApps } from '@/lib/auth/appAccess';
+import { revokeOtherSessions } from '@/lib/auth/sessions';
 
 export const runtime = 'nodejs';
 
@@ -17,6 +18,8 @@ const Patch = z.object({
   email: z.string().email().nullable().optional(),
   resetPassword: z.string().min(10).optional(),
   resetTotp: z.boolean().optional(),
+  // cross access (src/lib/auth/access.ts): a person of Angst+Pfister - 'user', 'admin' - or null for nobody's
+  cross: z.enum(['user', 'admin']).nullable().optional(),
 });
 
 export async function PATCH(
@@ -33,6 +36,19 @@ export async function PATCH(
   if (!parsed.success) return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
 
   const b = parsed.data;
+
+  // Cross access and the role move together (access.ts Cross): a cross-admin IS an admin; a cross-user never is one,
+  // and an admin made cross-user becomes a user; a role given to a cross person keeps their mark in step with it.
+  const now = (await query<{ role: string; cross_access: string | null }>(
+    `SELECT role, cross_access FROM apsomh_users WHERE id = $1`, [userId],
+  )).rows[0];
+  if (!now) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const crossNow = asCross(now.cross_access);
+  let cross: Cross | null | undefined = b.cross;
+  if (cross === 'admin') b.role = 'admin';
+  else if (cross === 'user' && (b.role ?? asRole(now.role)) === 'admin') b.role = 'user';
+  else if (cross === undefined && crossNow && b.role !== undefined) cross = b.role === 'admin' ? 'admin' : 'user';
+  if (cross !== undefined && cross === crossNow) cross = undefined;
 
   // Block self-lockout: an admin must not be able to demote or disable
   // themselves through this endpoint. They can still change their own
@@ -67,6 +83,7 @@ export async function PATCH(
     push('totp_secret', null);
     push('totp_enrolled', false);
   }
+  if (cross !== undefined) push('cross_access', cross);
   if (sets.length === 0) return NextResponse.json({ ok: true });
 
   sets.push(`updated_at = NOW()`);
@@ -81,6 +98,10 @@ export async function PATCH(
     if (any.rows.length === 0) await grantStarterApps(userId, 'user');
   }
 
+  // A new mark signs them out everywhere: their session carries the mark to the door (src/middleware.ts), and a
+  // cross-user must not keep a session that may still change things - nor lose one the hour they are let in.
+  if (cross !== undefined) await revokeOtherSessions(userId, null);
+
   // Who changed whose role, who reset whose password — exactly what an audit
   // log is for, and this endpoint was writing none of it. The new password is
   // NOT recorded; only that one was set.
@@ -92,6 +113,7 @@ export async function PATCH(
       isActive: b.isActive,
       passwordReset: b.resetPassword !== undefined || undefined,
       totpReset: b.resetTotp || undefined,
+      cross: cross === undefined ? undefined : cross ?? 'none',
     })],
   ).catch(() => { /* never fail the change because the log did */ });
 

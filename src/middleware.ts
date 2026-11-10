@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
+import { crossHiddenApi, crossUserMaySend } from "@/lib/auth/access";
 
 const SESSION_COOKIE = "apsomarketinghub_session";
 const PUBLIC_PREFIXES = [
@@ -84,6 +85,20 @@ export async function middleware(req: NextRequest) {
   try {
     const { payload } = await jwtVerify(token, getSecret(), { algorithms: ['HS256'] });
     if (payload.typ !== "session") throw new Error("wrong type");
+    // A cross-user (src/lib/auth/access.ts) changes nothing: every request that is not a read is refused here, at the
+    // door, whatever the page or API behind it would have checked (SARCLA 10.11.2026: "they can't change absolutely
+    // nothing"). A cross-admin is an admin and passes.
+    if (payload.cross === "user" && !crossUserMaySend(req.method, pathname)) {
+      return NextResponse.json(
+        { ok: false, error: "View only: your access to the APSOparts hub lets you look, not change anything." },
+        { status: 403 },
+      );
+    }
+    // ... and never reads the hidden reports' data (Digital Growth, TSA, ESO, Back-Office Reports, the per-person sales
+    // figures), whatever grant a route itself asks for - e.g. my-sales/order-book only checks canOpen("reporting")
+    if (payload.cross === "user" && crossHiddenApi(pathname)) {
+      return NextResponse.json({ ok: false, error: "This report is not part of your access." }, { status: 403 });
+    }
     return pass(req);
   } catch {
     return turnAway(req, pathname);

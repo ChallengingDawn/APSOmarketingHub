@@ -81,6 +81,9 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
   // a graph's Actions page (Advanced reporting's action creation module) is three parts side by side - the plan's table,
   // the graph, its target: the whole width, the hub's bar on top, Back to the report it came from (SARCLA 04.11.2026)
   const isKpiActions = matchPrefix(pathname, "/reporting/actions");
+  // the Angst+Pfister hub (SARCLA 10.11.2026) is a hub of its own: the APSOparts apps' panel is not its menu - its bar
+  // on top carries Home and the switch between the two hubs
+  const isApHub = matchPrefix(pathname, "/ap");
 
   return (
     // The same mesh as the front page. One surface rather than a colourful
@@ -95,7 +98,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
       {/* Advanced reporting's front page is a door like the launch pad: no
           panel until you are in a category or a report (SARCLA, 11.10.2026); Website's the same since it has
           sections (SARCLA 03.11.2026), UC & HubSpot Apps' and Marketing & Content's too. */}
-      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && <Sidebar />}
+      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && !isApHub && <Sidebar />}
       <Box
         component="main"
         sx={{

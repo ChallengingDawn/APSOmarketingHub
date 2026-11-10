@@ -41,16 +41,19 @@ import { APPS } from "@/app/hubApps";
 import { useViewAs } from "@/app/ViewAs";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, Kicker, MUTED, glass } from "@/app/uc/report/ui";
 import {
-  ROLES, ROLE_LABEL, ROLE_NOTE, mfaRequired, type AppKey, type Level, type Role,
+  CROSS_LABEL, CROSS_NOTE, ROLES, ROLE_LABEL, ROLE_NOTE, mfaRequired, type AppKey, type Cross, type Level, type Role,
 } from "@/lib/auth/access";
 import { appOpen, levelsOf } from "@/lib/auth/tree";
 import AccessTree, { type Choice } from "./AccessTree";
 
 type Person = {
   id: number; username: string; full_name: string; email: string | null;
-  role: Role; is_active: boolean; totp_enrolled: boolean;
+  role: Role; cross_access: Cross | null; is_active: boolean; totp_enrolled: boolean;
   last_login: string | null; access: Record<string, Level>;
 };
+
+/** The people of Angst+Pfister (cross access): one tint, whichever of the two they are. */
+const CROSS_TINT = { bg: "#e4f4ee", fg: "#0f6b4a" };
 
 const ROLE_TINT: Record<Role, { bg: string; fg: string }> = {
   admin: { bg: "#efe8fd", fg: "#5a3fa0" },
@@ -139,7 +142,7 @@ export default function PeopleAccess() {
    */
   const patch = async (
     p: Person,
-    body: { role?: Role; isActive?: boolean; resetPassword?: string; resetTotp?: boolean },
+    body: { role?: Role; isActive?: boolean; resetPassword?: string; resetTotp?: boolean; cross?: Cross | null },
     local?: Partial<Person>,
   ) => {
     setSaving(`${p.id}:role`);
@@ -364,6 +367,14 @@ export default function PeopleAccess() {
                             ))}
                           </Select>
                         )}
+                        {p.cross_access && (
+                          <Tooltip title={CROSS_NOTE[p.cross_access]}>
+                            <Chip size="small" label={CROSS_LABEL[p.cross_access]} sx={{
+                              ml: 0.75, height: 22, fontSize: "0.7rem", fontWeight: 700,
+                              bgcolor: CROSS_TINT.bg, color: CROSS_TINT.fg,
+                            }} />
+                          </Tooltip>
+                        )}
                       </Box>
                       <Box component="td" sx={{ ...cell, whiteSpace: "nowrap" }}>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
@@ -379,7 +390,7 @@ export default function PeopleAccess() {
                       <Box component="td" sx={{ ...cell }}>
                         <Box sx={{ display: "flex", gap: 0.5 }}>
                           {(() => {
-                            const lv = levelsOf(p.role, p.access);
+                            const lv = levelsOf(p.role, p.access, p.cross_access);
                             return APPS.map((a) => {
                               const lvl = lv[a.key] ?? "none";
                               // the whole app, or only some of its sub-apps
@@ -463,6 +474,29 @@ export default function PeopleAccess() {
             </Box>
 
             <Box>
+              <Kicker>Angst+Pfister hub</Kicker>
+              <Select
+                size="small" fullWidth
+                value={person.cross_access ?? "none"}
+                disabled={saving === `${person.id}:role`}
+                onChange={(e) => {
+                  const v = e.target.value === "none" ? null : (e.target.value as Cross);
+                  void patch(person, { cross: v }, { cross_access: v, ...(v === "admin" ? { role: "admin" as Role } : {}) });
+                }}
+                sx={{ fontSize: "0.85rem", borderRadius: "12px" }}
+              >
+                <MenuItem value="none" sx={{ fontSize: "0.85rem" }}>No cross access</MenuItem>
+                <MenuItem value="user" sx={{ fontSize: "0.85rem" }}>{CROSS_LABEL.user}</MenuItem>
+                <MenuItem value="admin" sx={{ fontSize: "0.85rem" }}>{CROSS_LABEL.admin}</MenuItem>
+              </Select>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5, mt: 0.75 }}>
+                {person.cross_access
+                  ? `${CROSS_NOTE[person.cross_access]} Changing it signs them out, so their next sign-in carries it.`
+                  : "For the people of Angst+Pfister: they start on the Angst+Pfister hub and always carry a second factor."}
+              </Typography>
+            </Box>
+
+            <Box>
               <Kicker>Workspace access</Kicker>
 
               {person.role === "admin" ? (
@@ -473,11 +507,13 @@ export default function PeopleAccess() {
               ) : (
                 <>
                   <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>
-                    {person.role === "sales_leader"
+                    {person.cross_access === "user"
+                      ? "A cross-user views every app and sub-app until you set No access on one, and edits none. Digital Growth, TSA, ESO and Back-Office Reports, the Sales leader view and My Sales are never theirs."
+                      : person.role === "sales_leader"
                       ? "A sales leader views every app and sub-app until you set No access on one. Edit can be given on Advanced reporting - all of it, a team's reports, or one report."
                       : "Open an app to set its sub-apps one by one. A sub-app not set takes its app's access."}
                   </Typography>
-                  <AccessTree role={person.role} access={person.access}
+                  <AccessTree role={person.role} access={person.access} cross={person.cross_access}
                     busy={saving?.startsWith(`${person.id}:`) ? saving.slice(String(person.id).length + 1) : null}
                     onSet={(key, choice) => setLevel(person, key, choice)} />
                 </>
@@ -493,7 +529,7 @@ export default function PeopleAccess() {
               <Button
                 size="small" variant="outlined" startIcon={<VisibilityIcon />}
                 onClick={() => {
-                  setViewed({ id: person.id, name: person.full_name || person.username, role: person.role, access: person.access });
+                  setViewed({ id: person.id, name: person.full_name || person.username, role: person.role, access: person.access, cross: person.cross_access });
                   router.push("/");
                 }}
                 sx={{ textTransform: "none", borderRadius: "12px" }}
@@ -555,9 +591,9 @@ export default function PeopleAccess() {
                   color: person.totp_enrolled ? "#1e7e45" : "#b26a00",
                 }}>{person.totp_enrolled ? "Enabled" : "Off"}</Typography>
               </Box>
-              {!person.totp_enrolled && mfaRequired(person.role, false, Object.values(person.access).includes("write")) && (
+              {!person.totp_enrolled && mfaRequired(person.role, person.cross_access !== null, Object.values(person.access).includes("write")) && (
                 <Typography sx={{ fontSize: "0.78rem", color: "#b26a00", mt: 0.75, lineHeight: 1.45 }}>
-                  {person.role === "user" ? "They can change things" : "This role sees every app"}, so they should carry a second
+                  {person.cross_access ? "A person of Angst+Pfister" : person.role === "user" ? "They can change things" : "This role sees every app"}, so they should carry a second
                   factor. They enrol it themselves at the next sign-in; it cannot be set for them.
                 </Typography>
               )}

@@ -18,7 +18,7 @@
 
 import { APPS } from "../../app/hubApps"; // relative: the unit tests compile this file
 import { REPORT_CATEGORIES } from "../reporting/categories";
-import { APP_KEYS, appForPath, roleDefault, type AppKey, type Level, type Role } from "./access";
+import { APP_KEYS, CROSS_HIDDEN_CATEGORIES, appForPath, roleDefault, type AppKey, type Cross, type Level, type Role } from "./access";
 
 export type AccessNode = {
   key: string;
@@ -113,9 +113,30 @@ export const nodeByKey = (key: string) => BY_KEY.get(key) ?? null;
 export const isNodeKey = (key: string) => BY_KEY.has(key);
 export const childrenOf = (key: string | null) => ACCESS_TREE.filter((n) => n.parent === key);
 
-/** What each node comes to for this person: their grant, else their parent's, else the role's - within the role. */
-export function levelsOf(role: Role, grants: Grants): Record<string, Level> {
+/** Advanced reporting's categories a cross-user never sees, as tree keys. */
+const CROSS_HIDDEN = new Set<string>(CROSS_HIDDEN_CATEGORIES.map((slug) => `reporting:/reporting/${slug}`));
+
+/** Is this node one of those categories, or beneath one? */
+function underHidden(n: AccessNode): boolean {
+  for (let k: string | null = n.key; k; k = BY_KEY.get(k)?.parent ?? null) if (CROSS_HIDDEN.has(k)) return true;
+  return false;
+}
+
+/**
+ * What each node comes to for this person: their grant, else their parent's, else the role's - within the role.
+ * A cross-user (access.ts Cross) views every node not taken from them, edits none, and never has the hidden categories
+ * nor anything beneath them, whatever a grant says. A cross-admin is an admin.
+ */
+export function levelsOf(role: Role, grants: Grants, cross: Cross | null = null): Record<string, Level> {
   const out: Record<string, Level> = {};
+  if (cross === "user" && role !== "admin") {
+    for (const n of ACCESS_TREE) {
+      if (underHidden(n)) { out[n.key] = "none"; continue; }
+      const l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : "read");
+      out[n.key] = l === "write" ? "read" : l;
+    }
+    return out;
+  }
   for (const n of ACCESS_TREE) {
     if (role === "admin") { out[n.key] = "write"; continue; }
     let l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : roleDefault(role));

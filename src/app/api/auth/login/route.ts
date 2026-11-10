@@ -6,7 +6,7 @@ import { verifyPassword } from '@/lib/auth/password';
 import { setPre2faCookie, signPre2fa } from '@/lib/auth/session';
 import { beginSession } from '@/lib/auth/sessions';
 import { checkRateLimit, clientKey, recordFailure, recordSuccess } from '@/lib/auth/rateLimit';
-import { asRole, mfaRequired } from '@/lib/auth/access';
+import { asCross, asRole, homeFor, mfaRequired } from '@/lib/auth/access';
 import { editsSomewhere } from '@/lib/auth/appAccess';
 import { isSandbox } from '@/lib/sandbox/mode';
 
@@ -64,10 +64,10 @@ export async function POST(req: Request) {
     // up. Being marched to a QR code before you may read a page is the thing
     // that makes people stop coming back, and a user who only views only reads.
     // They can still turn it on themselves from Settings -> Security.
-    if (!u.totp_enrolled && !mfaRequired(asRole(u.role), false, await editsSomewhere(u.id))) {
+    if (!u.totp_enrolled && !mfaRequired(asRole(u.role), asCross(u.cross_access) !== null, await editsSomewhere(u.id))) {
       await query(`UPDATE apsomh_users SET last_login = NOW() WHERE id = $1`, [u.id]);
       await beginSession(u, req);
-      return NextResponse.json({ next: u.must_change_password ? '/change-password' : '/' });
+      return NextResponse.json({ next: u.must_change_password ? '/change-password' : homeFor(asCross(u.cross_access)) });
     }
 
     await setPre2faCookie(await signPre2fa(u.id));

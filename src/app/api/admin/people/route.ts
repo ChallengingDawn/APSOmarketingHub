@@ -9,7 +9,7 @@ import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { ensureSchema } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { asRole, roleDefault, type Level, type Role } from "@/lib/auth/access";
+import { asCross, asRole, roleDefault, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { isNodeKey, nodeByKey } from "@/lib/auth/tree";
 
 export const runtime = "nodejs";
@@ -21,6 +21,8 @@ export type Person = {
   full_name: string;
   email: string | null;
   role: Role;
+  /** Cross access (src/lib/auth/access.ts): 'user' / 'admin', or null. */
+  cross_access: Cross | null;
   is_active: boolean;
   totp_enrolled: boolean;
   last_login: string | null;
@@ -42,7 +44,7 @@ export async function GET() {
   await ensureSchema();
 
   const people = await query<Omit<Person, "access">>(
-    `SELECT id, username, full_name, email, role, is_active, totp_enrolled, last_login, created_at
+    `SELECT id, username, full_name, email, role, cross_access, is_active, totp_enrolled, last_login, created_at
        FROM apsomh_users ORDER BY is_active DESC, full_name ASC`,
   );
   const grants = await query<{ user_id: number; app_key: string; level: Level }>(
@@ -58,7 +60,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
-    people: people.rows.map((p) => ({ ...p, role: asRole(p.role), access: byUser.get(p.id) ?? {} })),
+    people: people.rows.map((p) => ({ ...p, role: asRole(p.role), cross_access: asCross(p.cross_access), access: byUser.get(p.id) ?? {} })),
   });
 }
 
