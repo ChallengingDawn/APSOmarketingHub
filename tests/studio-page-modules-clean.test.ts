@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { clearanceOf, galleryOf, parseCategory } from "../src/lib/content/studio/kinds/page/modules/parse";
 import { photoBad, photoFlaws } from "../src/lib/content/studio/kinds/page/modules/photo";
-import { cleanCards, cleanedNote, knowGallery } from "../src/lib/content/studio/kinds/page/modules/source";
+import { cleanCards, cleanedNote, knowGallery } from "../src/lib/content/studio/kinds/page/modules/clean";
 import type { Card } from "../src/lib/content/studio/kinds/page/modules/types";
 
 // Content v7 (the lead 10.11.2026, after builder A's real runs filled a module with "(Nur solange Vorrat ...)", "(Nachfolge

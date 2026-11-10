@@ -22,10 +22,10 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FileUploadOutlinedIcon from "@mui/icons-material/FileUploadOutlined";
 import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
-import UndoIcon from "@mui/icons-material/Undo";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { whenOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import type { StudioChange } from "@/lib/content/studio/kinds/blog/changes";
 import { Label, PINK, btn, field } from "../../parts";
+import { useTimeline } from "../../frame";
 import { PicturePanel, makePicture, uploadPicture, type Picture, type PictureAspect } from "../../pictures";
 
 export const BLUE = "#2459d1";
@@ -299,7 +299,7 @@ export function TranslateRow({ what, langs, names, current, made, busy, disabled
           );
         })}
       </Box>
-      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); Undo below brings this ${names[current.toUpperCase()] ?? current} back.`}</Hint>
+      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); the history at the top (its Undo) brings this ${names[current.toUpperCase()] ?? current} back.`}</Hint>
     </Box>
   );
 }
@@ -307,35 +307,27 @@ export function TranslateRow({ what, langs, names, current, made, busy, disabled
 /**
  * "Changes made here", kept with the document (Content v4: it survives a reload). Undo for a change made in this sitting;
  * "Go back" for one made before (back to the version saved just before it - what came after goes too, and the state of
- * now is kept in Versions); no button when no version of it is found - the list says to use Versions.
+ * now is kept in Versions); no button when no version of it is found - the list says to use Versions. Since Content v7
+ * (SARCLA 10.11.2026: "bring it inside a small icon on top - a timeline") the list is the bar's history icon: this hands
+ * it there (../../frame.tsx) and draws nothing in the assistant.
  */
 export function ChangesList({ changes, mode, onUndo, disabled }: {
   changes: StudioChange[]; mode: (c: StudioChange) => "undo" | "back" | null; onUndo: (c: StudioChange) => void; disabled?: boolean;
 }) {
-  if (!changes.length) return null;
   const anyOld = changes.some((c) => mode(c) !== "undo");
-  return (
-    <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-      <Label mt={0}>Changes made here</Label>
-      {changes.map((c, i) => {
-        const m = mode(c);
-        return (
-          <Box key={c.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", p: 1.25, mb: 0.75, borderRadius: "6px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45, overflowWrap: "anywhere" }}>{c.text}</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{whenOf(c.at)}</Typography>
-            </Box>
-            {m && (
-              <Tooltip title={m === "undo" ? (i === 0 ? "Undo this change" : "Undo this change - the others stay") : "Back to before this change: what came after it goes too (the state of now is kept in Versions)"}>
-                <span><Button size="small" disabled={disabled} onClick={() => onUndo(c)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={toolBtn}>{m === "undo" ? "Undo" : "Go back"}</Button></span>
-              </Tooltip>
-            )}
-          </Box>
-        );
-      })}
-      {anyOld && <Hint mt={0.25}>Changes from before a reload go back by the version saved with them; older states are in Versions in the bar.</Hint>}
-    </Box>
-  );
+  useTimeline(changes.map((c, i) => {
+    const m = mode(c);
+    return {
+      id: c.id, label: c.text, at: c.at, by: "ai" as const, where: c.lang ?? null,
+      undo: m ? {
+        label: m === "undo" ? "Undo" as const : "Go back" as const, disabled,
+        tip: m === "undo" ? (i === 0 ? "Undo this change" : "Undo this change - the others stay") : "Back to before this change: what came after it goes too (the state of now is kept in Versions)",
+        run: () => onUndo(c),
+      } : null,
+      why: m ? null : "to go back: Versions, top right",
+    };
+  }), anyOld ? "Changes from before a reload go back by the version saved with them; older states are in Versions in the bar." : null);
+  return null;
 }
 
 /** The shop's pages whose address holds the words typed (AI testing & personalization's index of the shop's pages, on

@@ -17,6 +17,8 @@
 import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
 import { addEvent, addPiece } from "@/lib/content/workflow";
+import { defaultReviewerOf } from "@/lib/content/people";
+import { shareCandidates } from "@/lib/content/sharing";
 import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogDoc, blogText, emptyBlog, newId, newSection, slugify, type BlogDoc } from "./model";
 import { oneLine, partLabel, partText, sectionOf } from "./parts";
 import { blogCards } from "./posts";
@@ -268,10 +270,13 @@ const batch: ServerAction = async (ctx, _raw, input) => {
   const plan = batchPlan(String(input.topics ?? ""), start);
   if (!plan.length) throw new Error("Write the topics, one per line.");
   const made: { id: number; title: string; dueDate: string | null }[] = [];
+  // each new post's people prefilled as every new to-do's (SARCLA 10.11.2026): its owner who makes it, the reviewer this
+  // post's - or Claudio when it has none (lib/content/people.ts)
+  const reviewer = ctx.piece.reviewer ?? defaultReviewerOf(await shareCandidates());
   for (const p of plan) {
     const piece = await addPiece({
       projectId: ctx.projectId, contentType: "blog-article", language: ctx.piece.language, title: p.title,
-      writer: ctx.me.username, reviewer: ctx.piece.reviewer, dueDate: p.dueDate, by: ctx.me.username,
+      writer: ctx.me.username, reviewer, dueDate: p.dueDate, by: ctx.me.username,
     });
     await addEvent(ctx.projectId, piece.id, ctx.me.username, "piece", { piece: piece.title });
     made.push({ id: piece.id, title: piece.title, dueDate: piece.dueDate });

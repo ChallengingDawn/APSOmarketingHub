@@ -5,6 +5,8 @@
 // does `await r.json()` works unchanged. APSOconvert's work route has done this since its slice 1 (`slow()`).
 // The status is sent before the work ends, so it is always 200: the body's `ok` / `error` say how it went.
 
+import { answerOf } from "./answer";
+
 export function keepAlive(work: () => Promise<Response>, beatMs = 8000): Response {
   const enc = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -14,8 +16,9 @@ export function keepAlive(work: () => Promise<Response>, beatMs = 8000): Respons
       try {
         const r = await work();
         text = await r.text();
-        // an answer that is not JSON (it should always be) still reaches the browser as JSON
-        try { JSON.parse(text); } catch { text = JSON.stringify({ ok: false, error: text.slice(0, 300) || `The hub answered ${r.status}.` }); }
+        // an answer that is not JSON (it should always be) still reaches the browser as JSON - in plain words, never a
+        // page of HTML or a bare status (SARCLA 10.11.2026: "The hub answered 200.") - ./answer.ts
+        try { JSON.parse(text); } catch { text = JSON.stringify(answerOf(r.status, text)); }
       } catch (e) {
         text = JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) });
       }

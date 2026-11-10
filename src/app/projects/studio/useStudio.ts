@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { batches, diffOps } from "@/lib/content/studio/doc";
+import { readAnswer } from "@/lib/http/answer";
 import { wholeTaskLabel } from "@/lib/content/studio/versionNames";
 import type { StudioKind } from "@/lib/content/studio/kinds";
 import type { Brief, PersonOpt, Piece } from "../work/types";
@@ -77,9 +78,11 @@ export function lookApi(api: StudioApi, version: { id: number }, doc: unknown): 
 /** What the frame says while an AI task runs. */
 const AI_SAYS: Record<string, string> = { translate: "AI is translating…", design: "AI is laying it out…", variants: "AI is finding words…", subjects: "AI is finding words…", hashtags: "AI is finding words…", ideas: "AI is thinking…", plan: "AI is planning the page with modules…" };
 
-async function post(pieceId: number, body: Record<string, unknown>) {
-  const r = await fetch(`/api/content/pieces/${pieceId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: `The hub answered ${r.status}.` }));
+// the answer in plain words, never "The hub answered 200." (SARCLA 10.11.2026 - lib/http/answer.ts): a slow action's
+// status is always 200 (keepAlive), so an answer cut on the way is said as such; a network failure is said, not thrown
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function post(pieceId: number, body: Record<string, unknown>): Promise<any> {
+  return readAnswer(fetch(`/api/content/pieces/${pieceId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
 }
 
 export function useStudio(pieceId: number): { api: StudioApi | null; error: string | null } {
@@ -98,7 +101,7 @@ export function useStudio(pieceId: number): { api: StudioApi | null; error: stri
   /** Reads the to-do and its document; `remount` (a version brought back) opens the kind's studio again on it - in the same
    *  render as the new document, so no studio's own list ("Changes made here", Undo) outlives the document it was made on. */
   const load = useCallback(async (remount = false) => {
-    const j = (await fetch(`/api/content/pieces/${pieceId}`).then((r) => r.json()).catch((e) => ({ ok: false, error: String(e) }))) as StudioData;
+    const j = (await readAnswer(fetch(`/api/content/pieces/${pieceId}`))) as unknown as StudioData;
     if (!j.ok) { setError(j.error ?? "The studio could not open."); return; }
     setData(j);
     saved.current = j.doc;

@@ -10,6 +10,7 @@ import Tooltip from "@mui/material/Tooltip";
 import { field } from "@/app/reporting/marketing-kpis/tiles/ActionsPanel";
 import { TINT, type Tint } from "@/app/uc/report/ui";
 import { STAGE_LABEL, STATUS_LABEL, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
+import { readAnswer } from "@/lib/http/answer";
 
 export const PINK = "#c22c6e";
 
@@ -106,6 +107,6 @@ export function dueSoon(iso: string | null | undefined): boolean {
 }
 
 export async function postWork(projectId: number, body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; [k: string]: unknown }> {
-  const r = await fetch(`/api/content/projects/${projectId}/work`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  return r.json().catch(() => ({ ok: false, error: `The hub answered ${r.status}.` }));
+  // in plain words, never a bare status (Content v7 - lib/http/answer.ts)
+  return readAnswer(fetch(`/api/content/projects/${projectId}/work`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })) as Promise<{ ok: boolean; error?: string; [k: string]: unknown }>;
 }

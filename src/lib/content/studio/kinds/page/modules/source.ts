@@ -31,6 +31,7 @@ import { clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, 
 import { photoBad, photoFlaws } from "./photo";
 import { sharpImg } from "./kit";
 import { factsHead, parseFacts, type ProductFacts } from "./library2/facts";
+import { GALLERY, cleanCards as cleanCardsWith, cleanedNote } from "./clean";
 
 const BASE = "https://www.apsoparts.com";
 /** The shop's data is read from production: ACC's catalogue lags behind (the links a module writes follow the page's own host). */
@@ -121,46 +122,10 @@ export async function photoOk(img: string): Promise<boolean> {
   return ok;
 }
 
-export type Cleaned = { cards: Card[]; clearance: number; photo: number };
-
-/** " 2 left out: 1 on clearance or replaced, 1 whose photo ..." - "" when none. */
-export function cleanedNote(c: { clearance: number; photo: number }): string {
-  const n = c.clearance + c.photo;
-  if (!n) return "";
-  const parts = [c.clearance ? `${c.clearance} on clearance or replaced` : "", c.photo ? `${c.photo} whose photo has a sticker, a coloured card or is a drawing` : ""].filter(Boolean);
-  return ` ${n} left out: ${parts.join(", ")}.`;
-}
-
-/**
- * Products as an automatic fill shows them, in their order, at most `count`: none on clearance or replaced; a photo with a
- * sticker (NEW!, LIQUIDATION), a coloured card or a drawing swapped for another of its own page's photos, else the product
- * left out. Categories pass as they are.
- */
-export async function cleanCards(cards: Card[], count: number, check: (img: string) => Promise<boolean> = photoOk): Promise<Cleaned> {
-  const out: Card[] = [];
-  let clearance = 0, photo = 0, pageReads = 0;
-  for (const c of cards) {
-    if (out.length >= count) break;
-    if (c.kind !== "product") { out.push(c); continue; }
-    if (clearanceOf(c.name, c.url)) { clearance++; continue; }
-    if (await check(c.img)) { out.push(c); continue; }
-    // another photo of its own page
-    let alt: string[] = GALLERY.get(c.url) ?? [];
-    if (!GALLERY.has(c.url) && pageReads < 3) {
-      pageReads++;
-      alt = await readShop(pathOf(c.url)).then((h) => galleryOf(h)).catch(() => []);
-      GALLERY.set(c.url, alt);
-    }
-    let better = "";
-    for (const a of alt.filter((x) => sharpImg(x) !== sharpImg(c.img))) { if (await check(a)) { better = a; break; } }
-    if (better) out.push({ ...c, img: better });
-    else photo++;
-  }
-  return { cards: out, clearance, photo };
-}
-
-/** A product page's other photos, known before (a test, or a page read for another reason). */
-export const knowGallery = (url: string, imgs: string[]) => { GALLERY.set(url, imgs); };
+export { cleanedNote, knowGallery, type Cleaned } from "./clean";
+/** An automatic fill's products, cleaned (./clean.ts) - a product's other photos read from its own page when needed. */
+export const cleanCards = (cards: Card[], count: number, check: (img: string) => Promise<boolean> = photoOk) =>
+  cleanCardsWith(cards, count, check, (url) => readShop(pathOf(url)).then((h) => galleryOf(h)));
 
 /** A category as a card: its photo (the home page's tile, else its parent's tile, else its first subcategory's or product's). */
 export async function categoryCard(url: string, store: string, children: "subs" | "products" | "both" = "both", parentSubs: Card[] = []): Promise<Card> {
@@ -180,7 +145,6 @@ export async function categoryCard(url: string, store: string, children: "subs" 
 
 const CARDS = new Map<string, { at: number; card: Card | null }>();
 /** a product page's gallery (its other photos), by its address - read with the page */
-const GALLERY = new Map<string, string[]>();
 
 /** A product's page in a store view, from the shop's page index (the live shop's first). */
 async function productPath(number: string, store: string): Promise<{ path: string | null; elsewhere: string | null }> {

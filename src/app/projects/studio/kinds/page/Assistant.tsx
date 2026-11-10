@@ -4,25 +4,22 @@
 // row of languages, not a button each. The quick asks for a page (write it, more convincing, shorter, the search engine
 // fields), a free ask, and - when an element is selected in the preview - the same
 // for that element alone. Every change it makes is listed with an Undo (it puts the page back as it was before that
-// change, and before every later one).
+// change, and before every later one) - since Content v7 in the bar's timeline, not here (SARCLA 10.11.2026: "bring it
+// inside a small icon on top" - ../../frame.tsx).
 
-import { useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import CheckIcon from "@mui/icons-material/Check";
 import CloseIcon from "@mui/icons-material/Close";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import TranslateOutlinedIcon from "@mui/icons-material/TranslateOutlined";
-import UndoIcon from "@mui/icons-material/Undo";
-import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { langOfStore, mainView, viewState, viewsLine, viewsOf, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
+import type { PageDoc, StoreGroup } from "@/lib/content/studio/kinds/page/model";
 import { AssistantPanel, PINK, btn, type QuickAsk } from "../../parts";
 import { Chip, useCopy } from "./ui";
+import { TranslateMany } from "./MakeViews";
 
 export type Entry = { id: number; label: string; note?: string; at: number; lang: string; before: PageDoc; undone: boolean; by: "ai" | "you";
   /** the check after applying (Content v6): "Looks wrong - not applied: ..." */
@@ -61,55 +58,11 @@ function SaidCard({ said, onClose }: { said: Said; onClose: () => void }) {
   );
 }
 
-const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? `${Math.round(s / 60)} min ago` : `${Math.round(s / 3600)} h ago`; };
-
-/** "Translate the whole page into …": the store views of the shop's other languages, one squared row, each saying if it
- * is made (SARCLA 09.11.2026: "we select by store view") - the page's store views made, else each language's own store
- * view (FR-CH, IT-CH, EN-INT ...); the others of a language are copies of it, under "+ Store view" above the page. */
-function TranslateRow({ doc, groups, busy, onTranslate, enabled }: { doc: PageDoc; groups: StoreGroup[]; busy: string | null; onTranslate: (l: string) => Promise<string | null>; enabled: boolean }) {
-  const [msg, setMsg] = useState<string | null>(null);
-  const main = mainView(doc);
-  const made = viewsOf(doc);
-  const list = groups.filter((g) => g.lang !== langOfStore(main)).flatMap((g) => {
-    const have = g.stores.filter((s) => made.includes(s));
-    return (have.length ? have : g.stores.slice(0, 1)).map((store) => ({ store, name: g.name }));
-  });
-  if (!list.length) return null;
-  return (
-    <Box sx={{ mt: 2 }}>
-      <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Translate the whole page into</Typography>
-      <Box sx={{ display: "inline-flex", flexWrap: "wrap", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "#fff" }}>
-        {list.map((o, i) => {
-          const st = viewState(doc, o.store);
-          const on = busy === `translate:${o.store}`;
-          return (
-            <Tooltip key={o.store} title={`${st === "empty" ? "Translate" : "Translate again"} into ${o.name} for ${o.store}${st === "stale" ? " - out of date" : st === "done" ? " - made" : ""}`}>
-              <Box component="button" type="button" disabled={!enabled || !!busy} onClick={async () => { setMsg(null); setMsg(await onTranslate(o.store)); }} sx={{
-                all: "unset", cursor: !enabled || busy ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 0.4, px: 1.1, py: 0.6, fontSize: "0.8rem", fontWeight: 700,
-                borderLeft: i ? `1px solid ${HAIRLINE}` : "none", color: !enabled ? "#b3bccb" : INK, transition: "background-color .12s",
-                "&:hover": !enabled || busy ? {} : { bgcolor: "rgba(194,44,110,.07)", color: PINK },
-              }}>
-                {on ? <CircularProgress size={12} sx={{ color: PINK }} /> : null}
-                {o.store.toUpperCase()}
-                {!on && st === "done" && <CheckIcon sx={{ fontSize: 13, color: "#1b7a55" }} />}
-                {!on && st === "stale" && <WarningAmberIcon sx={{ fontSize: 13, color: "#b7791f" }} />}
-              </Box>
-            </Tooltip>
-          );
-        })}
-      </Box>
-      <Typography sx={{ mt: 0.75, fontSize: "0.74rem", color: MUTED }}>{viewsLine(doc, groups)}</Typography>
-      {msg && <Typography sx={{ mt: 1, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{msg}</Typography>}
-    </Box>
-  );
-}
-
-export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, history, onUndo, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid, plan, bare }: {
+export function Assistant({ quick, onAsk, enabled, context, contextKind, onClearContext, ideas, onIdea, seo, onUseSeo, inputRef, placeholder, lang, translate, said, onCloseSaid, plan, bare }: {
   quick: QuickAsk[]; onAsk: (text: string) => Promise<string | null>; enabled: boolean;
   context: string | null; onClearContext: () => void;
   /** what the selection is: "This element only" (the default), "This part only" */
   contextKind?: string;
-  history: Entry[]; onUndo: (e: Entry) => void;
   ideas: Idea[]; onIdea: (i: Idea) => void;
   seo: SeoCard | null; onUseSeo: (s: SeoCard) => void;
   inputRef: React.Ref<HTMLTextAreaElement>; placeholder: string; lang: string;
@@ -147,7 +100,8 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
     <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={inputRef} bare={bare}>
       {plan}
       {said && <SaidCard said={said} onClose={() => onCloseSaid?.()} />}
-      {translate && !context && <TranslateRow {...translate} enabled={enabled} />}
+      {/* tick several (Content v7, SARCLA 10.11.2026: "multiselect store view") - ./MakeViews.tsx */}
+      {translate && !context && <TranslateMany doc={translate.doc} groups={translate.groups} enabled={enabled} />}
       {seo && (
         <Box sx={{ mt: 2, p: 1.5, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Search engine fields</Typography>
@@ -171,27 +125,6 @@ export function Assistant({ quick, onAsk, enabled, context, contextKind, onClear
               <Typography sx={{ fontSize: "0.8rem", color: INK, mt: 0.5 }}>{i.change}</Typography>
               <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.5 }}>{i.why}</Typography>
               <Button size="small" disabled={!enabled} onClick={() => onIdea(i)} sx={{ ...btn, mt: 0.5, px: 0, color: PINK }}>Make it</Button>
-            </Box>
-          ))}
-        </Box>
-      )}
-      {history.length > 0 && (
-        <Box sx={{ mt: 2.5 }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Changes made here</Typography>
-          {history.map((e) => (
-            <Box key={e.id} sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.9, borderTop: `1px solid ${HAIRLINE}`, opacity: e.undone ? 0.45 : 1 }}>
-              <Box sx={{ mt: 0.6, width: 7, height: 7, borderRadius: "2px", bgcolor: e.by === "ai" ? PINK : "#2459d1", flexShrink: 0 }} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.83rem", color: INK, fontWeight: 600, textDecoration: e.undone ? "line-through" : "none" }}>{e.label}</Typography>
-                {e.note && <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>{e.note}</Typography>}
-                {e.warn && <Typography sx={{ fontSize: "0.76rem", color: "#c5221f", fontWeight: 600, mt: 0.25 }}>{e.warn}</Typography>}
-                <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{e.lang} · {ago(e.at)}{e.undone ? " · undone" : ""}</Typography>
-              </Box>
-              {!e.undone && (
-                <Tooltip title="Put the page back as it was before this (and every later change)">
-                  <Button size="small" onClick={() => onUndo(e)} startIcon={<UndoIcon sx={{ fontSize: 15 }} />} sx={{ ...btn, color: INK, minWidth: 0, px: 1 }}>Undo</Button>
-                </Tooltip>
-              )}
             </Box>
           ))}
         </Box>
