@@ -383,11 +383,10 @@ function OptimizationSlider({ items, at, onGo, children }: { items: Idea[]; at: 
   const down = useRef<number | null>(null);
   if (n < 2) return <Box sx={{ mt: 1 }}>{children}</Box>;
   const arrow = { flexShrink: 0, width: 32, height: 32, border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)", "&:hover": { bgcolor: "#fff", borderColor: ACCENT } } as const;
+  // the arrows together with the count and the dots, on the right (SARCLA 10.11.2026: a "‹" alone by the title read as
+  // a back arrow - "compared to the bar with the others makes no sense, it's why I thought 2")
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
-      <Tooltip title={at > 0 ? `Previous: ${items[at - 1].title}` : ""}>
-        <span><IconButton size="small" disabled={at <= 0} onClick={() => go(at - 1)} aria-label="Previous optimization" sx={arrow}><ChevronLeftRoundedIcon /></IconButton></span>
-      </Tooltip>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mt: 1 }}>
       <Box sx={{ flex: 1, minWidth: 0, overflow: "hidden", touchAction: "pan-y" }}
         onPointerDown={(e) => { down.current = e.clientX; }}
         onPointerUp={(e) => { const x0 = down.current; down.current = null; if (x0 === null) return; const dx = e.clientX - x0; if (Math.abs(dx) > 60) go(at + (dx < 0 ? 1 : -1)); }}>
@@ -398,8 +397,12 @@ function OptimizationSlider({ items, at, onGo, children }: { items: Idea[]; at: 
           "@media (prefers-reduced-motion: reduce)": { animation: "none" },
         }}>{children}</Box>
       </Box>
-      <Box sx={{ flexShrink: 0, display: "grid", justifyItems: "center", gap: 0.5 }}>
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{at + 1} / {n}</Typography>
+      <Box sx={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 0.75 }}>
+      <Tooltip title={at > 0 ? `Previous: ${items[at - 1].title}` : ""}>
+        <span><IconButton size="small" disabled={at <= 0} onClick={() => go(at - 1)} aria-label="Previous optimization" sx={arrow}><ChevronLeftRoundedIcon /></IconButton></span>
+      </Tooltip>
+      <Box sx={{ display: "grid", justifyItems: "center", gap: 0.5 }}>
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>Optimization {at + 1} / {n}</Typography>
         {n <= 12 && (
           <Box sx={{ display: { xs: "none", md: "flex" }, gap: "5px", alignItems: "center" }}>
             {items.map((x, k) => (
@@ -416,6 +419,7 @@ function OptimizationSlider({ items, at, onGo, children }: { items: Idea[]; at: 
       <Tooltip title={at < n - 1 ? `Next: ${items[at + 1].title}` : ""}>
         <span><IconButton size="small" disabled={at >= n - 1} onClick={() => go(at + 1)} aria-label="Next optimization" sx={arrow}><ChevronRightRoundedIcon /></IconButton></span>
       </Tooltip>
+      </Box>
     </Box>
   );
 }
@@ -627,6 +631,11 @@ function ConvertPreview() {
     router.push(`/website/ai-personalization/preview?env=${e}&path=${encodeURIComponent(p)}${idea ? `&idea=${idea}` : ""}`);
   }, [router]);
   const select = useCallback((idea: string | null, letter?: string | null) => { if (path) router.replace(href(path, idea, letter)); }, [router, href, path]);
+  // a step a person takes (another optimization, a version, side by side) is a step of the browser's history too: its
+  // back button goes to where they were (SARCLA 10.11.2026: "browser back leaves")
+  const visit = useCallback((idea: string | null, letter?: string | null) => { if (path) router.push(href(path, idea, letter)); }, [router, href, path]);
+  // the optimizations a person slides through do not start the AI by themselves (a block's come with their versions)
+  const slid = useRef(false);
 
   const url = path ? `${API}?env=${env}&path=${encodeURIComponent(path)}&n=${tick}${fresh ? "&fresh=1" : ""}` : null;
   const held = useHeld<StudioData>(url, [url]);
@@ -670,7 +679,9 @@ function ConvertPreview() {
   // where the frames open: at the TOP of the page (SARCLA 10.11.2026: "the page should always open on top"); a change
   // is gone to when it is clicked in "What changes". A shop block being optimized (the newsletter band, in the footer)
   // is the page's subject, so its frames open on it.
-  const beforeGoto: Goto | null = goSel ? { sel: goSel, n: goN } : block ? { sel: block.selector, n: goN } : null;
+  // An optimization of ONE block opens at its block (SARCLA 10.11.2026: "we cannot say where it is").
+  const blockSel = idea?.scope === "block" && idea.target ? idea.target : null;
+  const beforeGoto: Goto | null = goSel ? { sel: goSel, n: goN } : block ? { sel: block.selector, n: goN } : blockSel ? { sel: blockSel, n: goN } : null;
   const afterGoto: Goto | null = beforeGoto;
 
   const base = path ? `/api/website/ai-personalization/preview?env=${env}&path=${encodeURIComponent(path)}${fresh ? `&fresh=1&f=${fresh}` : ""}` : "";
@@ -768,7 +779,7 @@ function ConvertPreview() {
   useEffect(() => {
     if (!idea || !d || !d.canEdit || !d.ai || d.page.status !== 200 || busy || making) return;
     // a new landing page has no version on this page: Content writes the new page
-    if (idea.status === "dropped" || versions.length > 0 || autoBuilt.current.has(idea.id) || isLanding(idea)) return;
+    if (idea.status === "dropped" || versions.length > 0 || autoBuilt.current.has(idea.id) || isLanding(idea) || idea.scope === "block" || slid.current) return;
     const t = setTimeout(() => {
       if (autoBuilt.current.has(idea.id)) return;
       autoBuilt.current.add(idea.id);
@@ -810,13 +821,18 @@ function ConvertPreview() {
     const pg = data.page;
     const live = ranked.filter((i) => i.status !== "dropped");
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
-    const gallery = !!compare && withVersions.length >= 2;
+    // ONE optimization's versions side by side, framed on its block, until one is picked (SARCLA 10.11.2026: "3 or 4
+    // versions" against the block as it is); a block of the shop's optimizations side by side as before
+    const own = !!idea && versions.length >= 2 && !letterSel && !isLanding(idea);
+    const gallery = own || (!!compare && withVersions.length >= 2);
     const st = idea ? stateOf(idea) : null;
     const pos = idea ? live.findIndex((i) => i.id === idea.id) : -1;
-    const step = (dir: number) => { const k = pos + dir; if (k >= 0 && k < live.length) { setCompare(false); select(live[k].id); } };
+    const step = (dir: number) => { const k = pos + dir; if (k >= 0 && k < live.length) { setCompare(false); slid.current = true; visit(live[k].id); } };
     const building = idea ? busy === `build:${idea.id}` : false;
     const landing = isLanding(idea);
-    const btn = { borderRadius: "6px", textTransform: "none", fontWeight: 700 } as const;
+    // product pages come later: their layout is the theme's code (SARCLA 10.11.2026: "beside product pages")
+    const productPage = classify(path).kind === "product";
+    const btn ={ borderRadius: "6px", textTransform: "none", fontWeight: 700 } as const;
     const nums = numbers ? [
       numbers.views ? `${full(numbers.views)} views` : null,
       numbers.rate != null ? `cart rate ${pct(numbers.rate)}${numbers.typical ? ` - ${pct(numbers.typical)} is typical` : ""}` : null,
@@ -830,7 +846,20 @@ function ConvertPreview() {
       router.push(res.url);
     };
 
-    const pictures = pg.status !== 200 ? null : gallery ? (
+    const pictures = pg.status !== 200 ? null : own && idea ? (
+      // ONE block's versions side by side, each framed on the block - pick one to work on it
+      <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: versions.length >= 3 ? "repeat(4, minmax(0,1fr))" : "repeat(3, minmax(0,1fr))" } }}>
+        <StillBefore env={env} path={path} focus={blockSel ?? block?.focus ?? null} label="Before · the block as it is" />
+        {versions.map((v) => (
+          <Box key={v.id} sx={{ minWidth: 0, cursor: "pointer", borderRadius: "12px", "&:hover": { boxShadow: `0 0 0 2px ${ACCENT}` } }} onClick={() => { setCompare(false); visit(idea.id, v.letter); }}>
+            <OnScreen h={470}>
+              <Frame src={srcOf(v)} device={device} zoom="fit" name={`g${v.id}`} sync={null} pick={false} marks={false} goto={{ sel: blockSel ?? block?.selector ?? "[data-apso-c],[data-apso-v]", n: goN }} tall={420}
+                address={pg.url ?? path} label={`Version ${v.letter} · ${v.summary}`} onMsg={() => {}} onRetry={() => setFresh((n) => n + 1)} />
+            </OnScreen>
+          </Box>
+        ))}
+      </Box>
+    ) : gallery ? (
       // a block's versions side by side - pick one to work on it
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: "repeat(3, minmax(0,1fr))" } }}>
         <StillBefore env={env} path={path} focus={block?.focus ?? beforeGoto?.sel ?? null} label="Before · the page as it is" />
@@ -845,7 +874,7 @@ function ConvertPreview() {
       </Box>
     ) : (
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: version ? { xs: "minmax(0,1fr)", lg: "minmax(0,1fr) minmax(0,1fr)" } : "minmax(0,1fr)" }}>
-        {version && <StillBefore env={env} path={path} focus={goSel ?? block?.focus ?? null} label="Before" />}
+        {version && <StillBefore env={env} path={path} focus={goSel ?? block?.focus ?? blockSel ?? null} label={blockSel ? "Before · the block as it is" : "Before"} />}
         {version
           ? <Frame src={srcOf(version, rev)} device={device} zoom="fit" name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
               address={pg.url ?? path} label={`After · Version ${version.letter}${rev !== null && rev !== version.rev ? ` · revision ${rev}` : ""}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
@@ -881,6 +910,7 @@ function ConvertPreview() {
               {idea ? idea.title : block ? `${block.name} - ${block.goal}` : pg.h1[0] || pg.title || path}
             </Typography>
             <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
+              {idea?.part && <Chip tint="blue">{idea.part}</Chip>}
               {idea && pos === 0 && idea.source === "ai" && live.length > 1 && <Chip tint="pink">The lead</Chip>}
               {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
               {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
@@ -908,9 +938,10 @@ function ConvertPreview() {
         {/* no optimization yet (from Google's view: no new landing page yet): the page, and the AI's button */}
         {(seoMode ? !idea && !live.some((i) => isLanding(i)) : live.length === 0) && pg.status === 200 && (
           <GlassCard sx={{ display: "grid", gap: 1.25, justifyItems: "start" }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page and its numbers"} - about half a minute` : seoMode ? "No new landing page proposed from this page yet" : "No optimization on this page yet"}</Typography>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page's blocks and their clicks, and building 3-4 versions of each block it picks"} - about a minute` : seoMode ? "No new landing page proposed from this page yet" : productPage ? "Product pages come later" : "No optimization on this page yet"}</Typography>
+            {!seoMode && productPage && busy !== "ideas" && <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.45 }}>A product page&apos;s layout is the theme&apos;s code, so the AI proposes no optimization here for now. Home, category and content pages get block optimizations: a block of the page and 3-4 modules to replace it.</Typography>}
             {busy === "ideas" && <LinearProgress sx={{ width: "100%", height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />}
-            {data.canEdit && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find landing pages" : "Find optimizations"}</AiButton>}
+            {data.canEdit && (seoMode || !productPage) && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find landing pages" : "Find optimizations"}</AiButton>}
             {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand, under More.</Typography>}
           </GlassCard>
         )}
@@ -922,8 +953,12 @@ function ConvertPreview() {
           <GlassCard sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
             <Box sx={{ display: "flex", gap: 1, rowGap: 1, alignItems: "center", flexWrap: "wrap" }}>
               {idea && versions.length > 0 && (
-                <SquareChoice<string> label="Version" value={gallery ? "" : version?.letter ?? ""} onChange={(l) => { setCompare(false); select(idea.id, l); }}
+                <SquareChoice<string> label="Version" value={gallery ? "" : version?.letter ?? ""} onChange={(l) => { setCompare(false); visit(idea.id, l); }}
                   options={versions.map((v) => ({ key: v.letter, label: v.letter }))} />
+              )}
+              {idea && versions.length >= 2 && !landing && (
+                <Button size="small" variant={own ? "contained" : "outlined"} disableElevation onClick={() => { setCompare(false); if (!own) visit(idea.id, null); }}
+                  startIcon={<ViewModuleOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>All {versions.length} versions side by side</Button>
               )}
               {idea && data.canEdit && st !== "dropped" && data.ai && versions.length > 0 && versions.length < 4 && (
                 <Tooltip title="A clearly different way to make the same optimization - for the A/B test">
@@ -935,10 +970,11 @@ function ConvertPreview() {
                   </span>
                 </Tooltip>
               )}
-              {withVersions.length >= 2 && (
+              {block && !own && withVersions.length >= 2 && (
                 <Button size="small" variant={gallery ? "contained" : "outlined"} disableElevation onClick={() => { if (gallery) setCompare(false); else { setCompare(true); } }}
-                  startIcon={<ViewModuleOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>All side by side</Button>
+                  startIcon={<ViewModuleOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>The block&apos;s optimizations side by side</Button>
               )}
+              {own && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Click a version to work on it.</Typography>}
               <Box sx={{ flex: 1 }} />
               <SquareChoice<Device> value={device} onChange={setDevice} options={[{ key: "desktop", label: "Desktop" }, { key: "phone", label: "Phone" }]} />
             </Box>
@@ -976,7 +1012,7 @@ function ConvertPreview() {
 
           {idea && (
             <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
-              {data.canEdit && st !== "dropped" && data.ai && (!landing || version) && (
+              {data.canEdit && st !== "dropped" && data.ai && (!landing || version) && !own && (
                 <AiHelper version={version} ask={ask} setAsk={setAsk} busy={building} picked={picked} pick={pick} onPick={() => setPick((x) => !x)}
                   onSend={async () => { if (await build(idea, { request: ask.trim(), ...(version ? { letter: version.letter } : {}) })) setAsk(""); }} />
               )}
@@ -993,7 +1029,7 @@ function ConvertPreview() {
                   <Typography sx={{ fontSize: "0.82rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
                 </Box>
               ))}
-              {version && (
+              {version && !own && (
                 <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
                   {rev !== null && rev !== version.rev && <Box sx={{ mb: 1 }}><Notice tone="warn">After shows revision {rev}. <Box component="button" type="button" onClick={() => setRev(null)} sx={{ all: "unset", cursor: "pointer", color: ACCENT, fontWeight: 600 }}>Back to the latest</Box></Notice></Box>}
                   <WhatChanges version={version} hit={hit && (rev === null || rev === version.rev) ? hit : null} onGo={(sel) => { setGoSel(sel); setGoN((n) => n + 1); }} />

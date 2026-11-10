@@ -9,6 +9,8 @@
 //
 // Pure (no "@/" imports), so it is tested.
 
+import { parseHtml, parseSelector, selectAll } from "../content/studio/kinds/page/apply";
+
 export const PREVIEW_MARK = "apsoPreview";
 
 /** The frame's rules: the shop's own files only, no request out, no form, no frame inside, shown only by the hub. */
@@ -190,6 +192,17 @@ export function markFocus(html: string, selector: string): string {
       return html.slice(0, x.index) + anchor + tagged + html.slice(x.index + x[0].length);
     }
   }
+  // any other selector the hub made (a block of the page: div[data-pb-style="X"], div.column.main > div:nth-of-type(3)),
+  // found the way the preview lays changes over the page (the Content studio's parser)
+  try {
+    const g = parseSelector(selector.split(",")[0].trim());
+    const el = g ? selectAll(parseHtml(html), g)[0] : undefined;
+    if (el && el.openEnd > el.start) {
+      const open = html.slice(el.start, el.openEnd);
+      const tagged = /\bclass=["']/i.test(open) ? open.replace(/\bclass=(["'])/i, 'class=$1apx-still-focus ') : open.replace(/^<([a-z][a-z0-9-]*)/i, '<$1 class="apx-still-focus"');
+      return html.slice(0, el.start) + anchor + tagged + html.slice(el.openEnd);
+    }
+  } catch { /* the page's main column, below */ }
   const main = /<[a-z][a-z0-9-]*\b[^>]*\bid=["']maincontent["'][^>]*>/i.exec(html);
   return main ? html.slice(0, main.index) + anchor + html.slice(main.index) : html;
 }

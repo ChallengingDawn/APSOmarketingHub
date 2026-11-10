@@ -26,7 +26,7 @@ import {
   BO, BO_OPEN_STAGES, BO_OPEN_STAGES_HUB, CHAT_CALL_BACK, DEFAULT_PRIORITY, GQS, GQS_OPEN_STAGES_LEGACY, LEGACY, PEOPLE, QUEUE_OWNERS, ROSTER_LABEL, SALES_SPLIT_SENDERS, STAGE, SUB,
   assignBo, assignGqs, chatCallBackSubject, chatPlan, findSalesAgent, isQueueOwner, priorityFacts, priorityFor, route, withCallBackStage,
   type Priority, type PriorityFacts, type PrioritySettings,
-  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload, requeuedByHand,} from "./rules";
+  type AssignInput, type Availability, type CompanyFacts, type ContactFacts, type Mode, type Person, type Pick as RulePick, type RosterKey, type Route, type Workload, requeuedByHand, strayStage,} from "./rules";
 
 const LOCK = 4_107_231;
 /** Every minute: in live mode the hub must assign before the workflow's safety net (3 minutes) falls back to its own step. */
@@ -958,6 +958,9 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
     // a GQS task still in "New for Back-Office" (it waited for someone available): the whole GQS step, as live mode writes
     // it - contact / company from the linked ticket, the stage and the GQS status - since the workflow may be off
     const props: Record<string, string> = { hubspot_owner_id: owner };
+    // a Back Office ticket in Waiting Internally with nobody on it goes to Assigned with its owner (rules.ts strayStage)
+    const moveTo = strayStage(s.pipeline, s.stage);
+    if (moveTo) props.hs_pipeline_stage = moveTo;
     if (s.pipeline === "gqs" && s.stage === STAGE.gqsNewForBo) {
       for (const c of s.inherit?.contacts ?? []) await hs(`/crm/v4/objects/tickets/${s.ticketId}/associations/default/contacts/${c}`, "PUT").catch(() => null);
       for (const c of s.inherit?.companies ?? []) await hs(`/crm/v4/objects/tickets/${s.ticketId}/associations/default/companies/${c}`, "PUT").catch(() => null);
@@ -970,6 +973,7 @@ async function actStray(s: Stray, team: Person[] | null, settings: Settings, arc
     const had = s.why === "no owner" ? "had no owner" : s.why === "Backoffice Team" ? "had only the Backoffice Team queue" : s.why === "TSA Team" ? "had only the TSA Team (helpline) queue" : s.why === "APSOAssistant" ? "had only APSOAssistant (the chat's AI)" : `had a deactivated owner (${s.was ?? "?"})`;
     const body = [
       `✅ Owner given: ${s.hub!.ownerName}`, "", `The ticket ${had}${s.since ? ` since ${s.since.slice(0, 10)}` : ""}.`, `Method: ${s.hub!.method}`,
+      ...(moveTo ? [`Stage: Assigned (it was in ${s.stageLabel ?? "Waiting Internally"} with nobody on it)`] : []),
       ...(s.hub!.reasons.length ? [`Why: ${s.hub!.reasons.join("; ")}`] : []),
       "", "---", "APSOhub (Back Office distribution - waiting for an owner)",
     ].join("<br>");

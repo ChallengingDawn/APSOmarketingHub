@@ -7,6 +7,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv } from "@/lib/convert/model";
 import { blockByKey } from "@/lib/convert/blocks";
+import { proposeBlocks } from "@/lib/convert/blockIdeas";
 import {
   addIdea, cleanDrawn, cleanPath, editVersion, markSent, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
   type IdeaStatus, type Numbers,
@@ -106,7 +107,10 @@ export async function POST(req: NextRequest) {
         const blk = typeof b.block === "string" ? blockByKey(b.block) : null;
         // from Google's view of the pages (Insights > SEO landing page): new landing pages for its searches
         const landing = b.landing === true && !blk;
-        return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn, blk ? { key: blk.key, name: blk.name, selector: blk.selector, about: blk.about, goal: blk.goal } : null, landing));
+        // new landing pages stay the AI's page-wide proposals; everything else is per block (SARCLA 10.11.2026: "we
+        // cannot say where it is" -> ONE block, its versions modules that replace it - lib/convert/blockIdeas.ts)
+        if (landing) return slow(() => proposeIdeas(env, path, numbersOf(b.numbers), by, drawn, null, true));
+        return slow(() => proposeBlocks(env, path, numbersOf(b.numbers), by, blk ? { key: blk.key, name: blk.name, selector: blk.selector, about: blk.about, goal: blk.goal, focus: blk.focus } : null));
       }
       case "add": {
         const path = cleanPath(b.path);

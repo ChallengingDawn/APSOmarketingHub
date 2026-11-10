@@ -15,7 +15,10 @@
 import { getPool, query } from "@/lib/db/client";
 import { STEP_LABEL, sortProblems, type Step } from "./model";
 import { buildProblems } from "./problems";
-import { englishPass, pageWork, proposeIdeas, type Numbers } from "./studio";
+import { englishPass, pageWork, pagesToRedo, proposeIdeas, setAsidePageIdeas, type Numbers } from "./studio";
+import { proposeBlocks } from "./blockIdeas";
+import { blockPage } from "./blockRules";
+import { classify } from "./model";
 import { SCAN, TOPUP, pagesTonight, swissNow, typesToTopUp, type TopUpType } from "./scanRules";
 import { blockByKey } from "./blocks";
 import { buildSeo } from "./seo";
@@ -62,7 +65,7 @@ async function topUpOne(t: TopUpType, by: string): Promise<string> {
   if (t === "banner" || t === "newsletter") {
     const b = blockByKey(t === "banner" ? "home-slider" : "newsletter");
     if (!b) return "no such block";
-    const r = await proposeIdeas("prod", b.page, null, by, null, { key: b.key, name: b.name, selector: b.selector, about: b.about, goal: b.goal });
+    const r = await proposeBlocks("prod", b.page, null, by, { key: b.key, name: b.name, selector: b.selector, about: b.about, goal: b.goal, focus: b.focus });
     return r.ok ? `${r.data.length} for the ${b.name.toLowerCase()}` : r.error;
   }
   // new landing pages: the pages Google shows for searches they answer badly, the most clicks missed first (Search
@@ -117,13 +120,15 @@ export async function runScan(by = "the AI's night scan"): Promise<{ read: strin
   const read: string[] = [];
   for (const p of worst) {
     if (read.length >= room) break;
+    // product pages come later (their layout is the theme's code); a page with an optimization still open is not read again
+    if (!blockPage(classify(p.path).kind)) continue;
     const work = await pageWork("prod", p.path);
-    if (work.ideas.length) continue;
+    if (work.ideas.some((i) => i.status !== "dropped")) continue;
     const numbers: Numbers = {
       views: p.views, addToCarts: p.addToCarts, rate: p.rate, typical: p.typical, reasons: p.reasons,
       companies: p.shop?.companies ?? null, lost: p.shop?.lost ?? null, topLoss: p.shop?.topLoss ? STEP_LABEL[p.shop.topLoss as Step] : null, from, to,
     };
-    const r = await proposeIdeas("prod", p.path, numbers, by, null);
+    const r = await proposeBlocks("prod", p.path, numbers, by);
     if (!r.ok) {
       console.warn(`[convert-scan] ${p.path}: ${r.error}`);
       if (/times today/.test(r.error)) break; // the day's AI budget is spent
@@ -135,7 +140,33 @@ export async function runScan(by = "the AI's night scan"): Promise<{ read: strin
   return { read, note: `${read.length} of ${room} pages read; ${waiting} optimizations were waiting` };
 }
 
-/** Every hour, at any time of day: the English pass, then the types' top-up - one hub task at a time. */
+/**
+ * OPTIMIZATIONS PER BLOCK (SARCLA 10.11.2026 chose "Redo as block ones"): once, the AI's page-wide optimizations still
+ * waiting are set aside (./studio.ts setAsidePageIdeas); then every hour a few of their pages are read again for block
+ * optimizations (./blockIdeas.ts), each page at most once a day, inside the day's AI budget.
+ */
+export const REDO_PER_HOUR = 3;
+async function blocksSwitch(): Promise<string[]> {
+  await query(TOPUP_SCHEMA);
+  const notes: string[] = [];
+  const once = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ('2026-11-10', 'block-switch', 'set aside') ON CONFLICT (day, type) DO NOTHING RETURNING type`);
+  if (once.rows.length) notes.push(`${(await setAsidePageIdeas()).length} pages' page-wide optimizations set aside for block ones`);
+  const day = swissNow().day;
+  let done = 0;
+  for (const p of await pagesToRedo(REDO_PER_HOUR * 4)) {
+    if (done >= REDO_PER_HOUR) break;
+    const mine = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ($1, $2, 'started') ON CONFLICT (day, type) DO NOTHING RETURNING type`, [day, `redo:${p.env}:${p.path}`.slice(0, 300)]);
+    if (!mine.rows.length) continue;
+    done++;
+    const r = await proposeBlocks(p.env, p.path, null, "the AI's switch to block optimizations").catch((e: Error) => ({ ok: false as const, error: e.message }));
+    await query(`UPDATE apsomh_convert_topups SET at = now(), note = $3 WHERE day = $1 AND type = $2`, [day, `redo:${p.env}:${p.path}`.slice(0, 300), (r.ok ? `${r.data.length} block optimizations` : r.error).slice(0, 500)]);
+    notes.push(`${p.path}: ${r.ok ? `${r.data.length} block optimizations` : r.error}`);
+    if (!r.ok && /times today/.test(r.error)) break;
+  }
+  return notes;
+}
+
+/** Every hour, at any time of day: the English pass, the switch to block optimizations, then the types' top-up - one hub task at a time. */
 async function dayTick(): Promise<void> {
   const client = await getPool().connect();
   try {
@@ -144,6 +175,8 @@ async function dayTick(): Promise<void> {
     try {
       const en = await englishPass().catch((e: Error) => ({ ideas: 0, readings: 0, summaries: 0, left: 0, note: `failed: ${e.message}` }));
       if (en.ideas || en.readings || en.summaries || en.left || en.note.startsWith("failed")) console.log(`[convert-english] ${en.note}`);
+      const switched = await blocksSwitch().catch((e: Error) => [`failed: ${e.message}`]);
+      for (const n of switched) console.log(`[convert-blocks] ${n}`);
       const notes = await runTopUp().catch((e: Error) => [`failed: ${e.message}`]);
       for (const n of notes) console.log(`[convert-topup] ${n}`);
     } finally {
