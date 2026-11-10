@@ -91,15 +91,31 @@ export function useEdit(c: EditCtx) {
   /** a page of the shop's own element (not inside a change's HTML): its look as one stylesheet */
   const elementLook = (p: Picked): TextLookCtl | null => {
     if (!p.selector || p.frag) return null;
+    // words inside a line (a <span> in a heading): their alignment is the line's - it goes to the block they stand in
+    const line = p.box?.selector && /^(span|a|strong|b|em|i|small|label)$/.test(p.tag) ? p.box.selector : null;
     const rules = elementRules(c.view().changes, p.selector);
+    const lineRules = line ? elementRules(c.view().changes, line) : {};
+    const own = lookOfShopRules(rules);
     return {
-      value: lookOfShopRules(rules), grounds: groundsOfLook(p.look?.ground), large: isLarge(p),
+      value: line ? { ...own, align: lookOfShopRules(lineRules).align } : own, grounds: groundsOfLook(p.look?.ground), large: isLarge(p),
       set: (next, label) => {
-        const v = c.view();
-        const css = lookCss(p.selector, withShopLook(elementRules(v.changes, p.selector), next));
-        const r = applyElementEdit(v, p, { kind: "look", css });
-        if ("error" in r) { window.alert(r.error); return; }
-        c.setView({ ...v, changes: r.changes }, label);
+        let v = c.view();
+        const edit = (pk: Picked, look: TextLook, keepAlign: boolean): boolean => {
+          const cur = elementRules(v.changes, pk.selector);
+          const merged = withShopLook(cur, look);
+          if (!keepAlign) delete merged["text-align"];
+          const r = applyElementEdit(v, pk, { kind: "look", css: lookCss(pk.selector, merged) });
+          if ("error" in r) { window.alert(r.error); return false; }
+          v = { ...v, changes: r.changes };
+          return true;
+        };
+        if (!edit(p, line ? { ...next, align: undefined } : next, !line)) return;
+        if (line) {
+          const lp: Picked = { ...p, key: `e:${line}`, selector: line, tag: p.box?.tag ?? "div", frag: null, host: null };
+          const was = lookOfShopRules(elementRules(v.changes, line));
+          if (!edit(lp, { ...was, align: next.align }, true)) return;
+        }
+        c.setView(v, label);
       },
     };
   };

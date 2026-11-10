@@ -272,9 +272,9 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-p,.apx-np .apx-np-a{color:var(--text)}
 .apx-np p{margin:0 0 14px!important;font:inherit;color:inherit;line-height:inherit}
 .apx-np p:last-child{margin-bottom:0!important}
-.apx-np ul{margin:0 0 14px;padding:0;list-style:none}
-.apx-np li{position:relative;margin:0 0 8px;padding-left:22px}
-.apx-np li::before{content:"";position:absolute;left:0;top:.72em;width:10px;height:2px;background:var(--red)}
+.apx-np .apx-np-blk ul{margin:0 0 14px;padding:0;list-style:none}
+.apx-np .apx-np-blk li{position:relative;margin:0 0 8px;padding-left:22px}
+.apx-np .apx-np-blk li::before{content:"";position:absolute;left:0;top:.72em;width:10px;height:2px;background:var(--red)}
 .apx-np .apx-np-btns{margin-top:30px;display:flex;flex-wrap:wrap;gap:12px}
 .apx-np .apx-np-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:52px;padding:0 24px;border-radius:12px;font:600 16px/1 var(--head)!important;text-decoration:none!important;white-space:nowrap;transition:background .2s,color .2s,border-color .2s}
 .apx-np .apx-np-btn svg{flex:none;transition:transform .2s}

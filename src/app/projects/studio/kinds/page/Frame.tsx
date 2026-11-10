@@ -435,8 +435,8 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
         key: `nt:${inMod.getAttribute("data-apx-mod")}:${pathFrom(inMod, el).join(".")}`, selector: "", tag: el.tagName.toLowerCase(), text: text.slice(0, 4000),
         inner: clean.innerHTML.slice(0, 20_000), outer: clean.outerHTML.slice(0, 20_000), frag: null, host: null, editable: !!text && !el.querySelector("img,video,iframe,table"),
         href: el.closest("a")?.getAttribute("href") ?? undefined,
-        // Content v10: the ground it stands on, for the text popup's colours
-        ...(() => { try { const win = el.ownerDocument.defaultView as (Window & typeof globalThis) | null; return win ? { look: lookOf(el, win) } : {}; } catch { return {}; } })(),
+        // Content v10: the ground it stands on, for the text popup's colours (a button: the ground around it)
+        ...(() => { try { const win = el.ownerDocument.defaultView as (Window & typeof globalThis) | null; return win ? { look: lookOf(/^(A|BUTTON)$/.test(el.tagName) && el.parentElement ? el.parentElement : el, win) } : {}; } catch { return {}; } })(),
       };
     }
     const f = el.getAttribute("data-apx-f");
