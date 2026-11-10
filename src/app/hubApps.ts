@@ -212,6 +212,9 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "Smart sub-tickets", note: "Sub-tickets from a ticket, prefilled; GQS needs Margin % and Target price", href: "/uc/smart-tickets", icon: "tree", ...PURPLE },
       { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
       { name: "Duplicates & merges", note: "The same request twice, another ticket on the same order - flagged on the ticket, merged by a click", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
+      // the companies' check beside the tickets' (SARCLA 10.11.2026: "rework duplicates and merges to include a company
+      // duplicate check") - the COMPANIES FULL DUPLICATE CHECK workflow brought into the hub
+      { name: "Company duplicates", note: "The same ERP customer twice, the same name at one postcode, the same website - merged into the right company", href: "/uc/company-duplicates", icon: "copy", ...TEAL },
       { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
       { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
     ],
