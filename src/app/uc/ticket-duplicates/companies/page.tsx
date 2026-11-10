@@ -52,7 +52,7 @@ import { MERGE_PER_HOUR, type Company, type Group, type MergeEvent, type Rules }
 import { DupToggle } from "../DupToggle";
 import { GroupTable } from "./GroupTable";
 import { Decide, Decisions, useDecisionState } from "./decide";
-import { PerformisView } from "./Performis";
+import Link from "next/link";
 import { KIND_LABEL, cap, dmy, kindOf, link, numberText, place, type Kind } from "./parts";
 
 type Merge = MergeEvent & { name: string };
@@ -303,23 +303,11 @@ function PossibleTab({ d, onSaved }: { d: Data; onSaved: () => void }) {
 
 function LeftTab({ d }: { d: Data }) {
   const f = d.snapshot?.found;
-  const [view, setView] = useState<"left" | "performis">("left");
   if (!f) return <Info>After the first read.</Info>;
-  const toggle = (
-    <Box role="tablist" aria-label="Left alone or Performis" sx={{ display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 0.5, p: 0.5, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(21,34,58,.03)", width: { xs: "100%", sm: 520 } }}>
-      {([["left", "Left alone", "What the rules keep apart"], ["performis", "Performis", "One company, several customer numbers - new titles"]] as const).map(([k, label, note]) => (
-        <Box key={k} component="button" type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
-          sx={{ all: "unset", cursor: "pointer", px: 1.5, py: 0.9, borderRadius: "9px", bgcolor: view === k ? "#fff" : "transparent", boxShadow: view === k ? "0 1px 3px rgba(21,34,58,.12)" : "none", "&:hover": { bgcolor: view === k ? "#fff" : "rgba(21,34,58,.05)" } }}>
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 800, color: view === k ? INK : MUTED }}>{label}</Typography>
-          <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{note}</Typography>
-        </Box>
-      ))}
-    </Box>
-  );
-  if (view === "performis") return <>{toggle}<PerformisView /></>;
   return (
     <>
-      {toggle}
+      {/* the companies with two customer numbers or more get their new titles under Performis, a topic of the main toggle (10.11.2026) */}
+      <Info>A group&apos;s companies with two customer numbers or more stay apart here. Their new titles for Performis (MAIN ACCOUNT, SIDE ACCOUNT, DUPLICATE DON&apos;T USE) are under <Box component={Link} href="/uc/ticket-duplicates/performis" sx={{ color: INK, fontWeight: 700 }}>Performis</Box>, at the top.</Info>
       <Tiles items={[
         { label: "A group's companies", value: f.counts.families, icon: <AccountTreeOutlinedIcon />, tint: "slate", note: "the same name or website, two customer numbers or more - never merged" },
         { label: "Sites in two countries", value: f.counts.sites, icon: <PublicOutlinedIcon />, tint: "slate", note: "one website, companies in different countries" },

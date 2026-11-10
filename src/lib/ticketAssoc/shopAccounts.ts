@@ -9,10 +9,13 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { owners } from "@/lib/integrations/eshopActivity";
 import { reportProgress, slowReport, type SlowState } from "@/lib/integrations/slowReport";
 import { kvGet, kvSet } from "@/lib/db/init";
-import { INTERNAL, kindOf, rankCandidates, withOrderCompanies, type Candidate, type Unlinked, type UnlinkedRow } from "./shopAccountRules";
+import { INTERNAL, industryOf, kindOf, rankCandidates, shopNumberOf, storeOf, withOrderCompanies, type Candidate, type Unlinked, type UnlinkedRow } from "./shopAccountRules";
 
-// v2: the companies their orders are booked on (19.10); v3: who each person is, their orders (19.10)
-const KEY = "ticketAssoc:shopAccounts:v3";
+// v2: the companies their orders are booked on (19.10); v3: who each person is, their orders (19.10); v4: the shop's own
+// record, the web visits, the shop account's customer number and who each offered company is (10.11.2026)
+const KEY = "ticketAssoc:shopAccounts:v4";
+/** What a person needs to judge an offered company: its customer number, place, owner, last order, revenue. */
+const CANDIDATE_PROPS = ["name", "country", "domain", "erp_customer_id", "mandant", "zip", "city", "hubspot_owner_id", "order_last_order_date", "erp_rev_ytd_cy"];
 const LINKS = "ticketAssoc:shopLinks:v1";
 const TTL_MS = 10 * 60 * 1000;
 
@@ -30,7 +33,11 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
       body: {
         filterGroups: [{ filters: [{ propertyName: "eyemagine_customer_id", operator: "HAS_PROPERTY" }, { propertyName: "associatedcompanyid", operator: "NOT_HAS_PROPERTY" }] }],
         properties: ["hs_email_domain", "company", "country", "createdate", "hs_analytics_last_visit_timestamp",
-          "firstname", "lastname", "email", "phone", "mobilephone", "jobtitle", "address", "zip", "city", "hubspot_owner_id"],
+          "firstname", "lastname", "email", "phone", "mobilephone", "jobtitle", "address", "zip", "city", "hubspot_owner_id",
+          // the shop's own record and HubSpot's tracking (10.11.2026)
+          "hs_language", "eyemagine_lifetime_customer_since", "eyemagine_created_in", "eyemagine_last_login_at", "eyemagine_lifetime_order_total_sum",
+          "eyemagine_erp_customer_id", "eyemagine_lifetime_purchased_product_name_1", "eyemagine_industry",
+          "hs_analytics_num_visits", "hs_analytics_num_page_views", "hs_analytics_source"],
         sorts: [{ propertyName: "createdate", direction: "DESCENDING" }],
         limit: 100, ...(after ? { after } : {}),
       },
@@ -59,36 +66,78 @@ export async function unlinkedAccounts(year = new Date().getUTCFullYear(), progr
       next = r.paging?.next?.after;
     } while (next && ++pages < 10);
   }
+  // the company of the customer number the shop account carries (10.11.2026: 115 of 523 carry one, 27 numbers name one company)
+  if (progressKey) reportProgress(progressKey, "the customer numbers of their shop accounts");
+  const numbers = [...new Set(people.map((c) => shopNumberOf(c.properties.eyemagine_erp_customer_id)).filter((x): x is string => !!x))];
+  const byNumber = new Map<string, Candidate[]>();
+  for (let i = 0; i < numbers.length; i += 100) {
+    const r = await hubspotFetchJson<Page>({
+      path: "/crm/v3/objects/companies/search", method: "POST",
+      body: { filterGroups: [{ filters: [{ propertyName: "erp_customer_id", operator: "IN", values: numbers.slice(i, i + 100) }] }], properties: ["name", "country", "erp_customer_id"], limit: 100 },
+    });
+    for (const c of r.results ?? []) {
+      const n = String(c.properties.erp_customer_id ?? "").trim();
+      (byNumber.get(n) ?? byNumber.set(n, []).get(n)!).push({ id: c.id, name: c.properties.name ?? c.id, country: c.properties.country ?? "", why: "number" });
+    }
+  }
   // the companies each contact's orders are booked on (19.10: 56 of 609 have orders, 305 of their 308 orders on a company)
   if (progressKey) reportProgress(progressKey, "reading their orders");
   const { companies: fromOrders, orders: ordersOf } = await orderCompanies(people.map((c) => c.id));
   const ownerName = await owners().catch(() => new Map<string, string>());
+  const num = (x: string | null | undefined) => { const n = Number(x); return Number.isFinite(n) ? n : 0; };
+  const day = (x: string | null | undefined) => (x ? String(x).slice(0, 10) : null);
   const rows: UnlinkedRow[] = people.map((c) => {
     const d = dom(c);
     const typed = (c.properties.company ?? "").trim();
     const own = fromOrders.get(c.id) ?? [];
-    const candidates = withOrderCompanies(own, rankCandidates(typed, byDomain[d] ?? []));
+    const shopNumber = shopNumberOf(c.properties.eyemagine_erp_customer_id);
+    const numbered = shopNumber ? byNumber.get(shopNumber) ?? [] : [];
+    const candidates = withOrderCompanies(own, rankCandidates(typed, byDomain[d] ?? []), numbered);
     return {
       id: c.id, company: typed, domain: d, country: (c.properties.country ?? "").trim(), created: (c.properties.createdate ?? "").slice(0, 10),
       kind: kindOf(d, candidates.length > 0), candidates,
       match: candidates.length ? { id: candidates[0].id, name: candidates[0].name, more: candidates.length - 1 } : null,
       byOrder: own.length === 1,
+      byNumber: !own.length && numbered.length === 1,
       person: {
         name: [c.properties.firstname, c.properties.lastname].map((x) => (x ?? "").trim()).filter(Boolean).join(" "),
         email: (c.properties.email ?? "").trim(), phone: (c.properties.phone || c.properties.mobilephone || "").trim(), jobtitle: (c.properties.jobtitle ?? "").trim(),
         address: (c.properties.address ?? "").trim(), zip: (c.properties.zip ?? "").trim(), city: (c.properties.city ?? "").trim(),
         owner: ownerName.get(String(c.properties.hubspot_owner_id ?? "")) ?? "",
+        language: (c.properties.hs_language ?? "").trim() || undefined,
       },
       orders: ordersOf.get(c.id) ?? { n: 0, last: null },
+      shop: {
+        since: day(c.properties.eyemagine_lifetime_customer_since), store: storeOf(c.properties.eyemagine_created_in),
+        lastLogin: day(c.properties.eyemagine_last_login_at), value: Math.round(num(c.properties.eyemagine_lifetime_order_total_sum)),
+        number: shopNumber, products: (c.properties.eyemagine_lifetime_purchased_product_name_1 ?? "").split("|").map((x) => x.trim()).filter(Boolean).slice(0, 3).join(" · ") || null,
+        industry: industryOf(c.properties.eyemagine_industry),
+      },
+      web: { visits: num(c.properties.hs_analytics_num_visits), views: num(c.properties.hs_analytics_num_page_views), lastVisit: day(c.properties.hs_analytics_last_visit_timestamp), source: (c.properties.hs_analytics_source ?? "").trim() || null },
     };
   });
+  // who each offered company is - its customer number, place, owner, last order, revenue (10.11.2026)
+  if (progressKey) reportProgress(progressKey, "the companies offered");
+  const offered = [...new Set(rows.flatMap((r) => r.candidates.map((c) => c.id)))];
+  const about = new Map<string, Record<string, string | null>>();
+  for (let i = 0; i < offered.length; i += 100) {
+    const r = await hubspotFetchJson<Page>({ path: "/crm/v3/objects/companies/batch/read", method: "POST", body: { inputs: offered.slice(i, i + 100).map((id) => ({ id })), properties: CANDIDATE_PROPS } });
+    for (const c of r.results ?? []) about.set(c.id, c.properties);
+  }
+  for (const r of rows) r.candidates = r.candidates.map((c) => {
+    const p = about.get(c.id);
+    if (!p) return c;
+    return { ...c, name: p.name ?? c.name, country: p.country ?? c.country, erp: (p.erp_customer_id ?? "").trim() || null, mandant: p.mandant ?? null, zip: p.zip ?? null, city: p.city ?? null,
+      domain: p.domain ?? null, owner: ownerName.get(String(p.hubspot_owner_id ?? "")) ?? null, lastOrder: day(p.order_last_order_date), revenue: Math.round(num(p.erp_rev_ytd_cy)) };
+  });
+  for (const r of rows) if (r.match && r.candidates[0]) r.match = { ...r.match, name: r.candidates[0].name };
   const rank = { match: 0, business: 1, free: 2 } as const;
-  const sure = (r: UnlinkedRow) => (r.candidates[0]?.orders ? 1 : 0);
+  const sure = (r: UnlinkedRow) => (r.candidates[0]?.orders ? 2 : r.byNumber ? 1 : 0);
   // the surest first: by kind, a company their orders name, then the newest
   rows.sort((a, b) => rank[a.kind] - rank[b.kind] || sure(b) - sure(a) || b.created.localeCompare(a.created));
   return {
     total: people.length, internal: all.length - people.length,
-    matched: rows.filter((r) => r.kind === "match").length, withOrders: rows.filter((r) => sure(r)).length,
+    matched: rows.filter((r) => r.kind === "match").length, withOrders: rows.filter((r) => r.candidates[0]?.orders).length, withNumber: rows.filter((r) => r.byNumber).length,
     business: rows.filter((r) => r.kind === "business").length, free: rows.filter((r) => r.kind === "free").length,
     createdThisYear: people.filter((c) => (c.properties.createdate ?? "") >= `${year}-01-01`).length,
     seenThisYear: people.filter((c) => { const t = Date.parse(c.properties.hs_analytics_last_visit_timestamp ?? ""); return Number.isFinite(t) && t >= since; }).length,
@@ -163,7 +212,8 @@ export async function linkAccount(contactId: string, companyId: string, by: stri
 export async function linkAllByOrder(by: string): Promise<{ linked: number; failed: number; error?: string }> {
   const state = await shopAccounts();
   const done = new Set((await linked()).map((l) => l.contact));
-  const todo = (state.value?.rows ?? []).filter((r) => r.byOrder && !done.has(r.id)).map((r) => ({ contact: r.id, company: r.candidates[0].id }));
+  // since 10.11.2026 also the ones whose shop account's customer number names ONE company and no order says otherwise
+  const todo = (state.value?.rows ?? []).filter((r) => (r.byOrder || r.byNumber) && !done.has(r.id)).map((r) => ({ contact: r.id, company: r.candidates[0].id }));
   let n = 0, failed = 0, error: string | undefined;
   for (let i = 0; i < todo.length; i += 100) {
     const part = todo.slice(i, i + 100);

@@ -14,7 +14,7 @@ export default function ContactDuplicates() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader title="Duplicates & merges"
-        subtitle="Contacts: shop accounts whose contact has no company - linked to the company their orders are booked on, by a click" />
+        subtitle="Contacts: shop accounts whose contact has no company - linked by a click to the company their orders are booked on, their shop customer number names, or their e-mail domain" />
       <DupToggle on="contacts" />
       <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}><ShopAccountsTab /></Box>
     </Box>

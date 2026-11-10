@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   try {
     const c = req.nextUrl.searchParams.get("company");
     if (c && /^\d+$/.test(c)) return NextResponse.json({ configured: true, ok: true, data: await checkCompany(c) });
-    // Left alone > Performis: one company, several customer numbers - the accounts' new titles
+    // Performis (a topic of the main toggle): one company, several customer numbers - the accounts' new titles
     if (req.nextUrl.searchParams.get("part") === "performis") return NextResponse.json({ configured: true, ok: true, data: await performis() });
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Zurich" });
     const span = spanOk(req.nextUrl.searchParams.get("from"), req.nextUrl.searchParams.get("to"), today);

@@ -32,22 +32,34 @@ import type { Company, Group } from "@/lib/companyDuplicates/rules";
 import { KIND_LABEL, cap, dmy, kindOf, link, numberText, type Kind } from "./parts";
 import { Review } from "./Review";
 
-type Col = { key: string; label: string; cell: (c: Company) => React.ReactNode; text: (c: Company) => string; on: boolean; width?: number };
+// The table fits the page (SARCLA 10.11.2026: "tables are still broken" - 14 columns ran past the card's right edge, the
+// last order and the group's count cut off): the place in one column (street, postcode and town, country), the customer
+// number with the company unique number under it, deals and contacts together; each column a share of the width, the
+// text wraps inside it. The download keeps every field in its own column.
+const lines = (...xs: (React.ReactNode | null | undefined | false)[]) => (
+  <>{xs.filter((x) => x !== null && x !== undefined && x !== false && x !== "").map((x, i) => <Box key={i} component="span" sx={{ display: "block", ...(i ? { fontSize: "0.74rem", color: MUTED } : {}) }}>{x}</Box>)}</>
+);
+const placeOf = (c: Company) => [c.zip, c.city].filter(Boolean).join(" ");
+type Col = { key: string; label: string; cell: (c: Company) => React.ReactNode; on: boolean; weight: number; right?: boolean };
 const COLS: Col[] = [
-  { key: "address", label: "Address", cell: (c) => c.address ?? "—", text: (c) => c.address ?? "", on: true, width: 180 },
-  { key: "zip", label: "Postcode", cell: (c) => c.zip ?? "—", text: (c) => c.zip ?? "", on: true },
-  { key: "city", label: "City", cell: (c) => c.city ?? "—", text: (c) => c.city ?? "", on: true },
-  { key: "country", label: "Country", cell: (c) => cap(c.country), text: (c) => cap(c.country), on: true },
-  { key: "number", label: "Customer number", cell: (c) => (c.erp ? <b>{numberText(c)}</b> : <Box component="span" sx={{ color: FAINT }}>{numberText(c)}</Box>), text: (c) => numberText(c), on: true, width: 150 },
-  { key: "unique", label: "Company unique number", cell: (c) => c.unique ?? "—", text: (c) => c.unique ?? "", on: true },
-  { key: "website", label: "Website", cell: (c) => c.domain ?? "—", text: (c) => c.domain ?? "", on: true },
-  { key: "phone", label: "Phone", cell: (c) => c.phone ?? "—", text: (c) => c.phone ?? "", on: false },
-  { key: "owner", label: "Owner", cell: (c) => c.ownerName ?? (c.owner ? `owner ${c.owner}` : "—"), text: (c) => c.ownerName ?? c.owner ?? "", on: true },
-  { key: "created", label: "Created", cell: (c) => dmy(c.createdate), text: (c) => dmy(c.createdate), on: true },
-  { key: "lastOrder", label: "Last order", cell: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : "—"), text: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : ""), on: true },
-  { key: "revenue", label: "Revenue this year", cell: (c) => (c.revenue ? full(c.revenue) : "—"), text: (c) => String(c.revenue || ""), on: false },
-  { key: "deals", label: "Deals", cell: (c) => full(c.deals), text: (c) => String(c.deals), on: true },
-  { key: "contacts", label: "Contacts", cell: (c) => full(c.contacts), text: (c) => String(c.contacts), on: true },
+  { key: "address", label: "Address", cell: (c) => lines(c.address || placeOf(c) || "—", c.address ? placeOf(c) : null, cap(c.country)), on: true, weight: 19 },
+  { key: "number", label: "Customer number", cell: (c) => lines(c.erp ? <b>{numberText(c)}</b> : <Box component="span" sx={{ color: FAINT }}>{numberText(c)}</Box>, c.unique), on: true, weight: 12 },
+  { key: "website", label: "Website", cell: (c) => c.domain ?? "—", on: true, weight: 12 },
+  { key: "phone", label: "Phone", cell: (c) => c.phone ?? "—", on: false, weight: 10 },
+  { key: "owner", label: "Owner", cell: (c) => c.ownerName ?? (c.owner ? `owner ${c.owner}` : "—"), on: true, weight: 10 },
+  { key: "created", label: "Created", cell: (c) => dmy(c.createdate), on: true, weight: 8 },
+  { key: "lastOrder", label: "Last order", cell: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : "—"), on: true, weight: 8 },
+  { key: "revenue", label: "Revenue this year", cell: (c) => (c.revenue ? full(c.revenue) : "—"), on: false, weight: 9, right: true },
+  { key: "deals", label: "Deals · contacts", cell: (c) => `${full(c.deals)} · ${full(c.contacts)}`, on: true, weight: 8, right: true },
+];
+const NAME_WEIGHT = 20;
+/** The download: every field on its own. */
+const EXPORT: { label: string; text: (c: Company) => string }[] = [
+  { label: "Address", text: (c) => c.address ?? "" }, { label: "Postcode", text: (c) => c.zip ?? "" }, { label: "City", text: (c) => c.city ?? "" },
+  { label: "Country", text: (c) => cap(c.country) }, { label: "Customer number", text: (c) => numberText(c) }, { label: "Company unique number", text: (c) => c.unique ?? "" },
+  { label: "Website", text: (c) => c.domain ?? "" }, { label: "Phone", text: (c) => c.phone ?? "" }, { label: "Owner", text: (c) => c.ownerName ?? c.owner ?? "" },
+  { label: "Created", text: (c) => dmy(c.createdate) }, { label: "Last order", text: (c) => (c.lastOrder ? dmy(c.lastOrder) : c.lastYear ? String(c.lastYear) : "") },
+  { label: "Revenue this year", text: (c) => String(c.revenue || "") }, { label: "Deals", text: (c) => String(c.deals) }, { label: "Contacts", text: (c) => String(c.contacts) },
 ];
 const PAGE = 25;
 type Came = "any" | "30" | "90" | "365" | "load";
@@ -64,10 +76,10 @@ const sel = (label: string, value: string, onChange: (v: string) => void, option
 
 function csv(groups: Group[]) {
   const q = (s: string | number) => `"${String(s).replace(/"/g, '""')}"`;
-  const head = ["Group", "Shared", "Why", "Keeps", "Company id", "Company", ...COLS.map((c) => c.label)];
-  const lines = [head.map(q).join(";")];
-  groups.forEach((g, i) => { for (const c of g.members) lines.push([i + 1, KIND_LABEL[kindOf(g)], g.why, c.id === g.into ? "yes" : "", c.id, c.name, ...COLS.map((col) => col.text(c))].map(q).join(";")); });
-  return `﻿${lines.join("\r\n")}`;
+  const head = ["Group", "Shared", "Why", "Keeps", "Company id", "Company", ...EXPORT.map((c) => c.label)];
+  const out = [head.map(q).join(";")];
+  groups.forEach((g, i) => { for (const c of g.members) out.push([i + 1, KIND_LABEL[kindOf(g)], g.why, c.id === g.into ? "yes" : "", c.id, c.name, ...EXPORT.map((col) => col.text(c))].map(q).join(";")); });
+  return `﻿${out.join("\r\n")}`;
 }
 
 export function GroupTable({ title, hint, groups, decide, file, icon, review }: {
@@ -130,6 +142,7 @@ export function GroupTable({ title, hint, groups, decide, file, icon, review }: 
   const slice = shown.slice(at * PAGE, at * PAGE + PAGE);
   const visible = COLS.filter((c) => cols[c.key]);
   const span = visible.length + 1;
+  const weights = NAME_WEIGHT + visible.reduce((a, c) => a + c.weight, 0);
   const reset = () => setPage(0);
   const download = () => {
     const url = URL.createObjectURL(new Blob([csv(shown)], { type: "text/csv;charset=utf-8" }));
@@ -179,11 +192,15 @@ export function GroupTable({ title, hint, groups, decide, file, icon, review }: 
       </Typography>
 
       <Box sx={{ overflowX: "auto", border: `1px solid ${HAIRLINE}`, borderRadius: "12px" }}>
-        <Table size="small" sx={{ minWidth: 1100 }}>
+        <Table size="small" sx={{ tableLayout: "fixed", width: "100%", minWidth: 900 }}>
+          <colgroup>
+            <col style={{ width: `${(NAME_WEIGHT / weights) * 100}%` }} />
+            {visible.map((c) => <col key={c.key} style={{ width: `${(c.weight / weights) * 100}%` }} />)}
+          </colgroup>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ ...headCell, minWidth: 220 }}>Company</TableCell>
-              {visible.map((c) => <TableCell key={c.key} sx={{ ...headCell, ...(c.width ? { minWidth: c.width } : {}), ...(c.key === "deals" || c.key === "contacts" || c.key === "revenue" ? { textAlign: "right" } : {}) }}>{c.label}</TableCell>)}
+              <TableCell sx={{ ...headCell, whiteSpace: "normal" }}>Company</TableCell>
+              {visible.map((c) => <TableCell key={c.key} sx={{ ...headCell, whiteSpace: "normal", ...(c.right ? { textAlign: "right" } : {}) }}>{c.label}</TableCell>)}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -225,13 +242,13 @@ function GroupRows({ g, n, visible, span, decide }: { g: Group; n: number; visib
         const keeps = merges && c.id === g.into;
         return (
           <TableRow key={c.id} sx={{ bgcolor: keeps ? "rgba(27,122,85,.05)" : undefined }}>
-            <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", pl: 2.5 }}>
-              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+            <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", pl: 2.5, verticalAlign: "top", overflowWrap: "anywhere" }}>
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.75, minWidth: 0, flexWrap: "wrap" }}>
                 {link(c.id, c.name)}
                 {keeps && <Box component="span" sx={{ fontSize: "0.68rem", fontWeight: 800, color: TINT.green.fg, bgcolor: TINT.green.bg, px: 0.75, py: 0.1, borderRadius: "6px", whiteSpace: "nowrap" }} title="The others go into this company">keeps</Box>}
               </Box>
             </TableCell>
-            {visible.map((col) => <TableCell key={col.key} sx={{ ...bodyCell, fontSize: "0.8rem", color: INK, ...(col.key === "deals" || col.key === "contacts" || col.key === "revenue" ? { textAlign: "right", fontVariantNumeric: "tabular-nums" } : {}) }}>{col.cell(c)}</TableCell>)}
+            {visible.map((col) => <TableCell key={col.key} sx={{ ...bodyCell, fontSize: "0.8rem", color: INK, verticalAlign: "top", overflowWrap: "anywhere", ...(col.right ? { textAlign: "right", fontVariantNumeric: "tabular-nums" } : {}) }}>{col.cell(c)}</TableCell>)}
           </TableRow>
         );
       })}
