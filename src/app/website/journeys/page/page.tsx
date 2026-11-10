@@ -21,15 +21,16 @@ import CircularProgress from "@mui/material/CircularProgress";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import WestOutlinedIcon from "@mui/icons-material/WestOutlined";
 import EastOutlinedIcon from "@mui/icons-material/EastOutlined";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import AutoFixHighOutlinedIcon from "@mui/icons-material/AutoFixHighOutlined";
 import AdsClickOutlinedIcon from "@mui/icons-material/AdsClickOutlined";
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import TrendingUpOutlinedIcon from "@mui/icons-material/TrendingUpOutlined";
 import ReportProblemOutlinedIcon from "@mui/icons-material/ReportProblemOutlined";
 import PageHeader from "@/app/PageHeader";
+import { AiButton } from "@/app/website/ai-personalization/AiButton";
 import { useHeld } from "@/app/analytics/AnalyticsData";
 import { GUTTER, LoadingPanel, NotConnectedPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
@@ -101,47 +102,56 @@ function Neighbour({ it, total, onOpen }: { it: FlowSide; total: number; onOpen:
     <>
       <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", minWidth: 0 }}>
         <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: SIDE_COLOR[it.kind], flexShrink: 0, mt: "5px" }} />
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography sx={{ fontSize: "0.88rem", fontWeight: 650, color: it.kind === "left" ? MUTED : INK, lineHeight: 1.35, overflowWrap: "anywhere" }}>{it.label}</Typography>
-          {it.path && <Typography sx={{ fontSize: "0.72rem", color: FAINT, overflowWrap: "anywhere" }}>{it.path}</Typography>}
-        </Box>
-        <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-          <Typography sx={{ fontSize: "0.9rem", fontWeight: 750, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>{pct(share)}</Typography>
-          <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{full(it.views)}</Typography>
-        </Box>
+        <Typography sx={{ minWidth: 0, flex: 1, fontSize: "0.84rem", fontWeight: 650, color: it.kind === "left" ? MUTED : INK, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</Typography>
+        <Typography sx={{ flexShrink: 0, fontSize: "0.84rem", fontWeight: 750, color: INK, fontVariantNumeric: "tabular-nums", lineHeight: 1.35 }}>{pct(share)}</Typography>
+        <Typography sx={{ flexShrink: 0, width: 38, textAlign: "right", fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums", lineHeight: 1.6 }}>{full(it.views)}</Typography>
         {can && <ChevronRightIcon sx={{ fontSize: 18, color: ACCENT, mt: "1px", flexShrink: 0 }} />}
       </Box>
-      <Box sx={{ height: 6, borderRadius: "3px", bgcolor: TRACK, overflow: "hidden", ml: "18px", mt: 0.6 }}>
+      <Box sx={{ height: 4, borderRadius: "2px", bgcolor: TRACK, overflow: "hidden", ml: "18px", mt: 0.5 }}>
         <Box sx={{ height: "100%", width: `${Math.min(1, share) * 100}%`, bgcolor: SIDE_COLOR[it.kind], opacity: 0.85 }} />
       </Box>
     </>
   );
-  const box = { display: "block", width: "100%", boxSizing: "border-box", px: 1.25, py: 1, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)" } as const;
+  const box = { display: "block", width: "100%", boxSizing: "border-box", px: 1, py: 0.7, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)" } as const;
   return can
-    ? <Box component="button" type="button" onClick={() => onOpen(it.path!)} title={`Move to ${it.label}`} sx={{ all: "unset", cursor: "pointer", ...box, "&:hover": { borderColor: ACCENT, bgcolor: "rgba(36,89,209,.05)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` } }}>{inner}</Box>
+    ? <Box component="button" type="button" onClick={() => onOpen(it.path!)} title={`${it.label} - ${it.path} - click to move there`} sx={{ all: "unset", cursor: "pointer", ...box, "&:hover": { borderColor: ACCENT, bgcolor: "rgba(36,89,209,.05)" }, "&:focus-visible": { outline: `2px solid ${ACCENT}` } }}>{inner}</Box>
     : <Box sx={box}>{inner}</Box>;
 }
 
+// a side of the page: narrow, the first six of each group then all, and it folds (SARCLA 10.11.2026: "both left and
+// right side much smaller, the page should be the start"; "review the button design and collapsible")
+const FIRST = 6;
 function Side({ title, icon, groups, total, onOpen, empty }: {
   title: string; icon: React.ReactNode; groups: { head: string; items: FlowSide[] }[]; total: number; onOpen: (p: string) => void; empty: string;
 }) {
+  const [open, setOpen] = useState(true);
+  const [all, setAll] = useState(false);
   const any = groups.some((g) => g.items.length);
+  const more = groups.reduce((n, g) => n + Math.max(0, g.items.length - FIRST), 0);
   return (
-    <GlassCard sx={{ height: "100%", boxSizing: "border-box", p: { xs: 2, md: 2.25 } }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+    <GlassCard sx={{ boxSizing: "border-box", p: { xs: 1.5, md: 1.75 } }}>
+      <Box component="button" type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, width: "100%", boxSizing: "border-box", mb: open ? 1.25 : 0 }}>
         {icon}
-        <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK }}>{title}</Typography>
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED, ml: "auto", fontVariantNumeric: "tabular-nums" }}>{full(total)} views</Typography>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{title}</Typography>
+        <Typography sx={{ fontSize: "0.76rem", color: MUTED, ml: "auto", fontVariantNumeric: "tabular-nums" }}>{full(total)} views</Typography>
+        <ExpandMoreIcon sx={{ fontSize: 20, color: MUTED, transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
       </Box>
-      {!any && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>{empty}</Typography>}
-      <Box sx={{ display: "grid", gap: 1.75 }}>
-        {groups.filter((g) => g.items.length).map((g) => (
-          <Box key={g.head} sx={{ display: "grid", gap: 0.75 }}>
-            <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: ".05em" }}>{g.head}</Typography>
-            {g.items.map((it) => <Neighbour key={it.key} it={it} total={total} onOpen={onOpen} />)}
+      {open && (
+        <>
+          {!any && <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>{empty}</Typography>}
+          <Box sx={{ display: "grid", gap: 1.25 }}>
+            {groups.filter((g) => g.items.length).map((g) => (
+              <Box key={g.head} sx={{ display: "grid", gap: 0.5 }}>
+                <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: ".05em" }}>{g.head}</Typography>
+                {(all ? g.items : g.items.slice(0, FIRST)).map((it) => <Neighbour key={it.key} it={it} total={total} onOpen={onOpen} />)}
+              </Box>
+            ))}
           </Box>
-        ))}
-      </Box>
+          {more > 0 && (
+            <Button size="small" onClick={() => setAll((a) => !a)} sx={{ mt: 0.75, textTransform: "none", fontWeight: 600 }}>{all ? "Show fewer" : `Show all · ${more} more`}</Button>
+          )}
+        </>
+      )}
     </GlassCard>
   );
 }
@@ -175,10 +185,10 @@ function Middle({ path, data, jb, q }: { path: string; data: PageFlowData | null
           <Typography sx={{ fontSize: "0.76rem", color: MUTED, overflowWrap: "anywhere" }}>{path}</Typography>
         </Box>
         <Box component={Link} href={previewHref("prod", path)} title="Open it in the Preview" sx={{ display: "block", borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}>
-          <PageShot env="prod" path={path} ratio={0.62} label={flow?.name ?? path} />
+          <PageShot env="prod" path={path} ratio={0.72} label={flow?.name ?? path} />
         </Box>
         {data && flow && (
-          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5 }}>
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4, minmax(0,1fr))" }, gap: 1.5 }}>
             <Stat label="Views" value={full(data.page?.views ?? flow.views)} note={data.page ? `${full(data.page.sessions)} visits · ${full(data.page.addToCarts)} put in the cart here` : undefined} />
             <Stat label="Came in here" value={full(data.landing.sessions)}
               note={data.landing.sessions ? `${pct(data.landing.carts / data.landing.sessions)} to the cart · ${pct(data.landing.orders / data.landing.sessions)} ordered` : "no visit started here"} />
@@ -186,11 +196,12 @@ function Middle({ path, data, jb, q }: { path: string; data: PageFlowData | null
             <Stat label="Left the shop here" value={steps ? pct(flow.left / steps) : "—"} tone={RED} note={`${full(flow.left)} views with no next page`} />
           </Box>
         )}
-        <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-          <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", path)} startIcon={<VisibilityOutlinedIcon />} sx={btnSx}>Preview</Button>
-          <Button size="small" variant="outlined" component={Link} href={`${previewHref("prod", path)}&ask=1`} startIcon={<AutoFixHighOutlinedIcon />} sx={btnSx}>Find optimizations</Button>
-          <Button size="small" variant="outlined" component={Link} href={`${previewHref("prod", path)}&clicks=1`} startIcon={<AdsClickOutlinedIcon />} sx={btnSx}>Click map</Button>
-          <Button size="small" variant="outlined" component={Link} href={funnel} startIcon={<FilterAltOutlinedIcon />} sx={btnSx}>As a funnel step</Button>
+        <Box sx={{ display: "flex", gap: 1, rowGap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+          <Button variant="contained" disableElevation component={Link} href={previewHref("prod", path)} startIcon={<VisibilityOutlinedIcon />} sx={btnSx}>Preview</Button>
+          <AiButton href={`${previewHref("prod", path)}&ask=1`}>Find optimizations</AiButton>
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" component={Link} href={`${previewHref("prod", path)}&clicks=1`} startIcon={<AdsClickOutlinedIcon />} sx={{ ...btnSx, color: MUTED }}>Click map</Button>
+          <Button size="small" component={Link} href={funnel} startIcon={<FilterAltOutlinedIcon />} sx={{ ...btnSx, color: MUTED }}>As a funnel step</Button>
         </Box>
         {!inConvert && <Typography sx={{ fontSize: "0.72rem", color: FAINT }}>Preview, optimizations and the click map open in APSOconvert.</Typography>}
       </Box>
@@ -269,7 +280,7 @@ function Flow({ path, via, sug }: { path: string; via: string[]; sug: Suggestion
       {flow && flow.views === 0 && <Notice tone="warn">Google Analytics has no view of this page in this period{q.device ? " on this device" : ""} - check the address, or choose a longer period.</Notice>}
 
       <Grid container spacing={2.5}>
-        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 2, lg: 1 }}>
+        <Grid size={{ xs: 12, lg: 3 }} order={{ xs: 2, lg: 1 }}>
           {flow ? (
             <Side title="Came from" icon={<WestOutlinedIcon sx={{ color: "#2459d1" }} />} total={steps} onOpen={move} empty="No view of this page in this period."
               groups={[
@@ -278,10 +289,10 @@ function Flow({ path, via, sug }: { path: string; via: string[]; sug: Suggestion
               ]} />
           ) : sides}
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 1, lg: 2 }}>
+        <Grid size={{ xs: 12, lg: 6 }} order={{ xs: 1, lg: 2 }}>
           <Middle path={path} data={d} jb={jb} q={q} />
         </Grid>
-        <Grid size={{ xs: 12, lg: 4 }} order={{ xs: 3, lg: 3 }}>
+        <Grid size={{ xs: 12, lg: 3 }} order={{ xs: 3, lg: 3 }}>
           {flow && (
             <Side title="Went next" icon={<EastOutlinedIcon sx={{ color: GREEN }} />} total={Math.max(steps, went)} onOpen={move} empty="No next page recorded."
               groups={[

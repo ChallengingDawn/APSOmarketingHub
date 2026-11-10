@@ -202,3 +202,12 @@ test("journeysOf: the whole page's answer from the rows", () => {
   assert.ok(de.journeys.won.length > 0 && de.journeys.lost.length > 0);
   assert.equal(de.flow.total, 150);
 });
+
+test("the sign-in page is one page with a name, whatever page it sends back to (SARCLA 10.11.2026 screenshot)", async () => {
+  const { pathKey, pageName } = await import("../src/lib/journeys/model");
+  assert.equal(pathKey("/de-CH/customer/account/login/referer/aHR0cHM6Ly93d3cuYXBzb3BhcnRzLmNvbS9kZS1DSC8~/"), "/de-CH/customer/account/login");
+  assert.equal(pathKey("/de-CH/customer/account/login/referer/xyz"), pathKey("/de-CH/customer/account/login/"));
+  assert.equal(pageName("/de-CH/customer/account/login/referer/aHR0cHM6Ly93d3cu"), "Sign-in");
+  assert.equal(pageName("/de-CH/customer/account/logoutSuccess/"), "Signed out");
+  assert.equal(pageName("/de-CH/customer/account/"), "My account");
+});

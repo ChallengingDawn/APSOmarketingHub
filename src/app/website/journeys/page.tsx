@@ -240,6 +240,9 @@ function MainJourneysInner() {
   const [tick, setTick] = useState(0);
   const [pick, setPick] = useState<{ side: "won" | "lost"; i: number } | null>(null);
   const [kind, setKind] = useState<JKind | null>(null);
+  // three views, one at a time (SARCLA 10.11.2026: "main journeys needs to be split to bring more clarity, as the
+  // current funnel which I really like")
+  const [view, setView] = useState<"journeys" | "inout" | "flow">("journeys");
   const pagesRef = useRef<HTMLDivElement | null>(null);
   const url = `/api/website/journeys?from=${win.from}&to=${win.to}${q.store ? `&store=${q.store}` : ""}${q.device ? `&device=${q.device}` : ""}&n=${tick}`;
   const held = useHeld<JourneysData>(url, [url]);
@@ -292,6 +295,14 @@ function MainJourneysInner() {
         </Grid>
 
         {t.visits > 0 && (
+          <SquareChoice<"journeys" | "inout" | "flow"> label="Show" value={view} onChange={setView} options={[
+            { key: "journeys", label: `The journeys · ${J.won.length + J.lost.length}` },
+            { key: "inout", label: "Ways in & out" },
+            { key: "flow", label: "Page after page" },
+          ]} />
+        )}
+
+        {t.visits > 0 && view === "journeys" && (
           <GlassCard>
             <CardTitle icon={<RouteOutlinedIcon />} tint="blue" title="The main journeys"
               note={`From the way in to the order, or to where they leave - up to ${J.depth} steps, a step being one kind of page. Built from page-to-page steps.`} />
@@ -317,7 +328,7 @@ function MainJourneysInner() {
           </GlassCard>
         )}
 
-        {t.visits > 0 && chosen && (
+        {t.visits > 0 && view === "journeys" && chosen && (
           <GlassCard sx={{ borderTop: `3px solid ${chosen.end === "order" ? GREEN : RED}` }}>
             <CardTitle icon={<SlideshowOutlinedIcon />} tint={chosen.end === "order" ? "green" : "pink"}
               title={`${sel?.side === "won" ? "Ordered" : "Lost"} · journey ${(sel?.i ?? 0) + 1}: ${journeyWords(chosen)}`}
@@ -326,7 +337,7 @@ function MainJourneysInner() {
           </GlassCard>
         )}
 
-        {t.visits > 0 && (
+        {t.visits > 0 && view === "inout" && (
           <Grid container spacing={2.5}>
             <Grid size={{ xs: 12, lg: 6 }}>
               <GlassCard sx={{ height: "100%", boxSizing: "border-box" }}>
@@ -357,7 +368,7 @@ function MainJourneysInner() {
           </Grid>
         )}
 
-        {t.visits > 0 && (
+        {t.visits > 0 && view === "flow" && (
           <GlassCard>
             <CardTitle icon={<AccountTreeOutlinedIcon />} tint="purple" title="How visitors move, page after page"
               note="The way in and the next four pages, by kind - built from page-to-page steps. A kind opens its pages." />
@@ -369,7 +380,7 @@ function MainJourneysInner() {
           </GlassCard>
         )}
 
-        {t.visits > 0 && drill && (
+        {t.visits > 0 && view !== "journeys" && drill && (
           <Box ref={pagesRef} sx={{ scrollMarginTop: 16 }}>
             <KindPages data={data} kind={drill} setKind={setKind} jb={jb} q={q} />
           </Box>

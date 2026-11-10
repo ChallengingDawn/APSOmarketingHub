@@ -110,6 +110,8 @@ export function storeOf(path: string): string | null {
 export function pathKey(path: string): string {
   let p = path.split(/[?#]/)[0] || "/";
   try { p = decodeURIComponent(p); } catch { /* keep it as it is */ }
+  // one sign-in page, whatever page it sends back to ("/customer/account/login/referer/<coded address>")
+  p = p.replace(/(\/customer\/account\/login)\/referer\/.*$/i, "$1");
   return p.length > 1 && p.endsWith("/") ? p.replace(/\/+$/, "") || "/" : p;
 }
 
@@ -122,6 +124,13 @@ export function pageName(path: string): string {
   if (k === "cart") return "Cart";
   if (k === "checkout") return "Check-out";
   if (k === "order") return "Order placed";
+  // the account's pages by what they are - the sign-in page carries the page to come back to as a coded word
+  // ("/customer/account/login/referer/aHR0cHM6Ly93d3cu...") that read as a page name (SARCLA 10.11.2026 screenshot)
+  const acct = /(?:^|\/)customer\/account\/([a-z]+)/i.exec(`${c.rest}/`) ?? (/(?:^|\/)customer\/account\/?$/i.test(c.rest) ? ["", "account"] : null);
+  if (acct) {
+    const what = acct[1].toLowerCase();
+    return what === "login" ? "Sign-in" : what === "logoutsuccess" || what === "logout" ? "Signed out" : what === "create" ? "New account" : what === "forgotpassword" ? "Forgotten password" : "My account";
+  }
   const last = c.rest.split("/").filter(Boolean).pop() ?? c.rest;
   const words = last.replace(/\.html?$/i, "").replace(/^\d{8}-?/, "").replace(/[-_]+/g, " ").trim();
   return words ? words[0].toUpperCase() + words.slice(1) : c.rest || path;
