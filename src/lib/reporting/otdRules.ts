@@ -345,7 +345,15 @@ export function mergeCubes(erp: OtdCube | null, file: OtdCube | null): OtdCube |
 /** the transport days of a line: none when the customer collects it, Liechtenstein by DHL in one day (the OTD analysis file's
  *  lines: 72 %), else the customer's own transport time in the ERP where the hub has it (otd_transport.csv: the file's
  *  Transport_time is one value per customer on every line - Italy 3 or 4 days, Austria 3 or 4, by the customer), else the
- *  ERP's table per country */
+ *  ERP's table per country.
+ *  Measured 10.11.2026 against the file (97,409 lines in both). Publish by the verdict and the monthly on-time %, never tune to
+ *  "same date" - twice it rose while those got worse:
+ *  - holidays NOT counted on purpose: the ERP adds a holiday on ~1 line in 10 crossing it. A calendar by the mandant (100 CH,
+ *    110 DE) gave same date 94.1 -> 96.1 % but the verdict 98.91 -> 98.59 % and April 5.6 pts off the file; by the
+ *    destination country 98.48 %; both 98.25 %; Switzerland's for all 98.55 %.
+ *  - what is left is the forwarder's date at the customer (the ERP OTD report's ForwarderTerminBeimKunden): = the file's date on
+ *    100 % of the ~half of the lines that carry it; DeliveryDateCustomer is the same date on fewer lines (equal on all 16,916
+ *    with both). With it first: verdict 99.6 %, the months Mar-Aug 2026 = the file's. Not in the BI cube - to be added there. */
 export function transportWhy(l: { country: string; mode?: string; customer?: string }, transitOf: (country: string) => number,
   customerDaysOf?: (customer: string) => number | undefined): [number, "mode" | "customer" | "country"] {
   if (/picked up|abgeholt|abholung/i.test(l.mode ?? "")) return [0, "mode"];
