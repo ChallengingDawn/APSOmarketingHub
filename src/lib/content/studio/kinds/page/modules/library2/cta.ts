@@ -347,7 +347,7 @@ const actBrochure = def({
 @@ .am-br{grid-template-columns:minmax(0,1fr);gap:22px;padding:22px 18px;border-radius:20px}
 @@ .am-br-c{width:58%;justify-self:center}
 @@ .am-br.is-compact{grid-template-columns:72px minmax(0,1fr);gap:16px;padding:16px}
-@@ .am-br.is-compact .am-br-c{width:auto}
+@@ .am-br.is-compact .am-br-c{width:100%;justify-self:stretch}
 }`,
     };
   },

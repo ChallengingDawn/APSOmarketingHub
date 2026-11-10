@@ -124,7 +124,7 @@ const mediaVideo = def({
     const th = `<a class="am-vd-t" href="${link(s.link.url)}" aria-label="${esc(s.link.label.trim() || w.watch)}">${thumb || '<span class="am-vd-e"></span>'}${play}${side ? "" : `<span class="am-vd-c">${eyOf(s)}${s.title.trim() ? `<b>${marked(s.title.trim())}</b>` : ""}</span>`}</a>`;
     const words = side ? `<div class="am-vd-w">${eyOf(s)}${s.title.trim() ? `<h2 class="am-h">${marked(s.title.trim())}</h2>` : ph("Write the headline")}${s.text.trim() ? `<p class="am-sub">${esc(s.text.trim())}</p>` : ""}${textLink({ label: s.link.label || w.watch, url: s.link.url })}</div>` : (s.text.trim() ? `<p class="am-vd-x">${esc(s.text.trim())}</p>` : "");
     return {
-      html: `<div class="am-vd${side ? " is-side" : ""}">${th}${words}</div>`,
+      html: !thumb && !s.title.trim() ? ph("Pick the video's thumbnail, its title and the page it opens") : `<div class="am-vd${side ? " is-side" : ""}">${th}${words}</div>`,
       css: `
 @@ .am-vd{display:grid;gap:14px}
 @@ .am-vd-t{position:relative;display:block;aspect-ratio:21/9;border-radius:26px;overflow:hidden;background:#dfe5e8;color:#fff!important}

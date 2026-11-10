@@ -6,7 +6,7 @@
 // value the shop does not state, never a certificate list (a product's approvals stay on its own page).
 
 import { LINKS, MATS, MAT_NOTE, ORING, PRODUCTS } from "./data";
-import { cardFor, cardImg, def, esc, eyOf, header, icon, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink, w2, linesOf, pairOf } from "./kit";
+import { cardFor, cardImg, catUrl, def, esc, eyOf, header, icon, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink, w2, linesOf, pairOf } from "./kit";
 
 /* ── a product's technical summary ─────────────────────────────────────── */
 
@@ -34,7 +34,7 @@ const techSpecs = def({
     eyebrow: "Technische Zusammenfassung", title: "HITEC® O-Ring DW EPDM 70.503-00",
     text: "Zuverlässige EPDM-Dichtung für Wasser, Dampf, Witterung und langfristige industrielle Nutzung.",
     feature: cardFor(store, PRODUCTS[5]), table: DW_SPECS, link: { label: "Zum Produkt", url: pathFor(store, PRODUCTS[5].url) },
-  } : { feature: cardFor(store, PRODUCTS[5]) },
+  } : { feature: { ...PRODUCTS[5], url: catUrl(store, PRODUCTS[5].url, PRODUCTS[5].number) } },
   gap: (s) => needGap(s, { title: true, table: 2 }),
   draw: (s, o) => {
     const rows = rowsOf(s);
@@ -56,7 +56,7 @@ const techSpecs = def({
 @@ .am-sp{margin-top:20px!important;border-radius:18px;background:#fff;box-shadow:var(--card);overflow:hidden}
 @@ .am-sp thead th{padding:12px 20px;background:var(--pet);font:600 12px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:#cddbe3}
 @@ .am-sp tbody th,@@ .am-sp tbody td{padding:13px 20px;border-top:1px solid #edf0f2;font-size:15px;line-height:1.45}
-@@ .am-sp tbody th{width:42%;font:600 14.5px/1.4 var(--head);color:var(--mute)}
+@@ .am-sp tbody th{width:42%;overflow-wrap:anywhere;font:600 14.5px/1.4 var(--head);color:var(--mute)}
 @@ .am-sp tbody td{font:500 16px/1.4 var(--head);color:var(--ink)}
 @@ .am-sp tbody tr:nth-child(even){background:#fafbfc}
 @@ .am-sp tbody tr:hover{background:#fdf0ef}
@@ -104,7 +104,7 @@ const techCompare = def({
   defaults: (store) => isGerman(store) ? {
     eyebrow: "Werkstoffübersicht", title: "O-Ring-Werkstoffe im Vergleich", table: compareTable(), text: MAT_NOTE,
     points: COMPARE.map((k) => ({ title: ORING[k].name, text: "", icon: "ring", url: ORING[k].url })),
-  } : { points: COMPARE.map((k) => ({ title: k, text: "", icon: "ring", url: pathFor(store, ORING[k].url) })) },
+  } : { points: COMPARE.map((k) => ({ title: k, text: "", icon: "ring", url: catUrl(store, ORING[k].url, `O-Ring ${k}`) })) },
   gap: (s) => needGap(s, { table: 2 }),
   draw: (s) => {
     const rows = rowsOf(s).slice(0, 10);
@@ -149,7 +149,7 @@ const techCompare = def({
 @@ .am-cmp thead a::after{content:"";width:6px;height:6px;border:solid #fff;border-width:1.6px 1.6px 0 0;transform:rotate(45deg);opacity:.6;transition:transform .2s,opacity .2s}
 @@ .am-cmp thead a:hover::after{opacity:1;transform:translateX(3px) rotate(45deg)}
 @@ .am-cmp tbody th{position:sticky;left:0;z-index:1;padding:14px 16px;background:#f6f8f9;font:600 13.5px/1.35 var(--head);color:var(--ink);border-top:1px solid #e8ecee}
-@@ .am-cmp tbody td{padding:14px 16px;border-top:1px solid #edf0f2;border-left:1px solid #f1f3f5;font-size:14px;line-height:1.5;color:var(--txt)}
+@@ .am-cmp tbody td{overflow-wrap:anywhere;padding:14px 16px;border-top:1px solid #edf0f2;border-left:1px solid #f1f3f5;font-size:14px;line-height:1.5;color:var(--txt)}
 @@ .am-cmp tbody tr:hover td{background:#fbfcfc;color:var(--ink)}
 @@ .am-cmp-n{margin-top:14px!important;max-width:880px;font-size:13.5px;line-height:1.55;color:var(--mute)}
 @media (max-width:900px){@@ .am-cmp{border-radius:16px}@@ .am-cmp table{min-width:${130 + cols * 140}px}@@ .am-cmp thead th:first-child{width:130px}@@ .am-cmp tbody th{padding:12px}@@ .am-cmp thead th{font-size:17px}}`,
@@ -251,7 +251,7 @@ const techPick = def({
     text: "Starten Sie mit der wichtigsten Betriebsbedingung - eine Vorauswahl, keine endgültige Produktfreigabe.",
     points: PICKS.map(([t, x, k, ic]) => ({ title: t, text: x, icon: ic, url: ORING[k].url })),
     link: { label: "Zur O-Ring Auswahlhilfe", url: pathFor(store, LINKS.oringGuide) },
-  } : { points: PICKS.map(([, x, k, ic]) => ({ title: "", text: x, icon: ic, url: pathFor(store, ORING[k].url) })), link: { label: "", url: pathFor(store, LINKS.oringGuide) } },
+  } : { points: PICKS.map(([, x, k, ic]) => ({ title: "", text: x, icon: ic, url: catUrl(store, ORING[k].url, `O-Ring ${k}`) })), link: { label: "", url: pathFor(store, LINKS.oringGuide) } },
   gap: (s) => needGap(s, { points: 2 }),
   draw: (s) => {
     const pts = s.points.filter((p) => p.title.trim()).slice(0, 8);

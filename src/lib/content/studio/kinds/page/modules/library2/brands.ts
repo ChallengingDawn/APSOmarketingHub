@@ -6,7 +6,7 @@
 // published), the Angst+Pfister group as the grounding page states it. Brand names are set in type - never an invented logo.
 
 import { LINKS, ORING, PICS, TECH, TECH_LINES } from "./data";
-import { button, cardImg, def, esc, eyOf, header, img, isGerman, link, marked, needGap, pathFor, ph, prose, textLink } from "./kit";
+import { button, cardImg, catUrl, def, esc, eyOf, header, img, isGerman, link, marked, needGap, pathFor, ph, prose, textLink } from "./kit";
 
 const search = (store: string, q: string) => `${pathFor(store, LINKS.search)}?q=${encodeURIComponent(q)}`;
 
@@ -24,8 +24,8 @@ const brandWall = def({
       { title: "HITEC®", text: isGerman(store) ? "O-Ringe für Anwendungen mit Zulassungs- oder Dokumentationsanforderungen" : "", icon: "star", url: search(store, "hitec") },
       { title: "NORMATEC", text: isGerman(store) ? "O-Ringe für ein breites Spektrum industrieller Anwendungen" : "", icon: "star", url: search(store, "normatec") },
       { title: "evolast®", text: isGerman(store) ? "FFKM für extreme chemische und thermische Bedingungen" : "", icon: "star", url: search(store, "evolast") },
-      { title: "FEP-O-Seal", text: isGerman(store) ? "FEP-ummantelte O-Ringe für ausgewählte statische Dichtstellen" : "", icon: "star", url: ORING.FEP.url },
-      { title: "KAPSTO", text: isGerman(store) ? "Schutzkappen und Schutzstopfen für industrielle Anwendungen" : "", icon: "star", url: "https://www.apsoparts.com/de-CH/fluidtechnik/kapsto-schutzelemente.html" },
+      { title: "FEP-O-Seal", text: isGerman(store) ? "FEP-ummantelte O-Ringe für ausgewählte statische Dichtstellen" : "", icon: "star", url: catUrl(store, ORING.FEP.url, "FEP-O-Seal") },
+      { title: "KAPSTO", text: isGerman(store) ? "Schutzkappen und Schutzstopfen für industrielle Anwendungen" : "", icon: "star", url: catUrl(store, "https://www.apsoparts.com/de-CH/fluidtechnik/kapsto-schutzelemente.html", "KAPSTO") },
       { title: "CUPMOUNT", text: isGerman(store) ? "Lagerungselemente für mobile Anwendungsbereiche" : "", icon: "star", url: search(store, "cupmount") },
     ],
   }),
@@ -202,7 +202,7 @@ const brandLines = def({
       { title: "NORMATEC", text: isGerman(store) ? "Für allgemeine Industrieanwendungen" : "", icon: "star", url: search(store, "normatec") },
       { title: "HITEC®", text: isGerman(store) ? "Für Anwendungen mit Zulassungs- oder Dokumentationsanforderungen" : "", icon: "star", url: search(store, "hitec") },
       { title: "evolast® FFKM", text: isGerman(store) ? "Für Hochleistungs-FFKM-Dichtungen unter extremen Bedingungen" : "", icon: "star", url: search(store, "evolast") },
-      { title: "FEP-O-Seal", text: isGerman(store) ? "Für geeignete statische Anwendungen in Pharma, Chemie oder Verfahrenstechnik" : "", icon: "star", url: ORING.FEP.url },
+      { title: "FEP-O-Seal", text: isGerman(store) ? "Für geeignete statische Anwendungen in Pharma, Chemie oder Verfahrenstechnik" : "", icon: "star", url: catUrl(store, ORING.FEP.url, "FEP-O-Seal") },
     ],
   }),
   gap: (s) => needGap(s, { points: 2 }),

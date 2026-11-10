@@ -6,7 +6,7 @@
 // make, never an approval (they depend on the exact compound and article).
 
 import { LINKS, ORING, PICS, PRODUCTS } from "./data";
-import { button, cardImg, def, esc, eyOf, header, icon, img, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink } from "./kit";
+import { button, cardImg, catUrl, def, esc, eyOf, header, icon, img, isGerman, link, marked, needGap, pathFor, ph, rowsOf, textLink } from "./kit";
 
 /* ── industries with their materials ───────────────────────────────────── */
 
@@ -28,7 +28,7 @@ const indIcons = def({
   defaults: (store) => ({
     eyebrow: isGerman(store) ? "Branchen" : "", title: isGerman(store) ? "Der passende Werkstoff für ==Ihre Branche==" : "",
     text: isGerman(store) ? "Die Werkstoff-Vorauswahl berücksichtigt Medium, Temperatur, Druck, Bewegung und erforderliche Dokumentation." : "",
-    points: IND.map(([t, x, ic, k]) => ({ title: isGerman(store) ? t : "", text: isGerman(store) ? x : "", icon: ic, url: ORING[k].url })),
+    points: IND.map(([t, x, ic, k]) => ({ title: isGerman(store) ? t : "", text: isGerman(store) ? x : "", icon: ic, url: catUrl(store, ORING[k].url, `O-Ring ${k}`) })),
     link: { label: isGerman(store) ? "Zur O-Ring Auswahlhilfe" : "", url: pathFor(store, LINKS.oringGuide) },
   }),
   gap: (s) => needGap(s, { points: 2 }),
@@ -94,7 +94,7 @@ const indMatrix = def({
       text: "Nach den typischen Anwendungen der O-Ring Auswahlhilfe - eine Vorauswahl; Compound, Zulassungen und Einsatzgrenzen am Artikel prüfen.",
       table: matrixTable(),
     } : {}),
-    points: MX_COLS.map((k) => ({ title: k, text: "", icon: "ring", url: ORING[k].url })),
+    points: MX_COLS.map((k) => ({ title: k, text: "", icon: "ring", url: catUrl(store, ORING[k].url, `O-Ring ${k}`) })),
   }),
   gap: (s) => needGap(s, { table: 2 }),
   draw: (s) => {
@@ -164,7 +164,7 @@ const indFeature = def({
       points: ["Beständig gegen Wasser, Heisswasser und Dampf", "Beständig gegen Ozon, Witterung und Alterung", "Für den langfristigen Einsatz in der Wasserverteilung", "Wichtiger als Öl- oder Kraftstoffbeständigkeit"].map((t) => ({ title: t, text: "", icon: "check" })),
       link: { label: "Zum HITEC® O-Ring DW EPDM", url: PRODUCTS[5].url },
     } : {}),
-    feature: PRODUCTS[5],
+    feature: { ...PRODUCTS[5], url: catUrl(store, PRODUCTS[5].url, PRODUCTS[5].number) },
   }),
   gap: (s) => needGap(s, { title: true }),
   draw: (s, o) => {

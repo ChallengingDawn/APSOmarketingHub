@@ -425,7 +425,7 @@ const storyTabs = def({
 @@ .am-tl label:hover{color:var(--ink)}
 @@ .am-tps{margin-top:16px}
 @@ .am-tw .am-tps{margin-top:0}
-@@ .am-tp{display:none;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:40px;align-items:center;padding:24px;border-radius:24px;background:linear-gradient(#f6f8f9,#edf1f3);animation:am-in .35s ease}
+@@ .am-tp{display:none;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:40px;align-items:center;padding:24px;border-radius:24px;background:linear-gradient(#f6f8f9,#edf1f3)}
 @@ .am-tp:not(:has(.am-tp-p)){grid-template-columns:minmax(0,1fr);padding:28px 32px}
 @@ .am-tp-p{position:relative;display:block;aspect-ratio:4/3;border-radius:18px;overflow:hidden;background:var(--tile)}
 @@ .am-tp-p img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .5s}
@@ -434,7 +434,6 @@ const storyTabs = def({
 @@ .am-tp-t p{font:500 17px/1.5 var(--head);color:var(--ink)}
 @@ .am-tp-t .am-li{margin-top:14px!important;font-size:15px;line-height:1.55}
 @@ .am-tp-t .am-lk{margin-top:18px}
-@keyframes am-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 @@ .am-tb.is-side .am-tw{display:grid;grid-template-columns:220px minmax(0,1fr);gap:18px;align-items:start}
 @@ .am-tb.is-side .am-tl{display:grid;gap:4px;padding:6px;border-radius:18px}
 @@ .am-tb.is-side .am-tl label{padding:13px 16px}

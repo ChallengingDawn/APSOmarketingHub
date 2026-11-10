@@ -90,6 +90,8 @@ const EXTRA = `
 @@ .am-lk:hover::after,@@ a:hover>.am-lk::after{transform:translateX(3px) rotate(45deg)}
 @@ .am-p3{margin:18px 0 6px!important;font-size:18px!important;line-height:1.3!important}
 @@ .am-bs{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+@@ :is(td,th,dd,dt,b,h2,h3){overflow-wrap:break-word;hyphens:auto}
+@media (max-width:900px){@@ .am-hd{flex-wrap:wrap}@@ .am-hd>div{flex:1 1 100%}}
 `;
 /** A list with the shop's small red squares (prose's "- " lines). */
 const LI = `
@@ -177,6 +179,10 @@ export const pathFor = (store: string, p: string) => {
   return /^[a-z]{2}-[A-Z]{2,3}$/.test(sv) ? p.replace(/^(https:\/\/www\.apsoparts\.com)?\/de-CH\//, `$1/${sv}/`) : p;
 };
 export const isGerman = (store: string) => langOf(store) === "de";
+/** A shop category's page for a store view: German store views its own address; the others the shop's own search for
+ * it (a category's address is German words - another language's store view has its own). */
+export const catUrl = (store: string, url: string, q: string) =>
+  isGerman(store) ? pathFor(store, url) : `${pathFor(store, "/de-CH/catalogsearch/result/")}?q=${encodeURIComponent(q.toLowerCase())}`;
 /** A card with its addresses moved to the store view. */
 export const cardFor = (store: string, c: Card): Card => ({ ...c, url: pathFor(store, c.url), children: c.children.map((k) => cardFor(store, k)) });
 
