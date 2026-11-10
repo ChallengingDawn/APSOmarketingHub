@@ -21,6 +21,7 @@ import { SHOP_TOKENS, blockRules, cleanBlock, prefixOf } from "../block";
 import { insertChange, leftoversIn, replaceChange, type PageChange } from "../model";
 import type { Card, ModuleRef } from "../modules/types";
 import { moduleDef } from "../modules/registry";
+import { followPicture, pictureFrom, wantsPicture, type FollowInfo } from "../modules/follow";
 import { emptyWords, fullGap, isTeaser, libModule, library, libraryText, listsFrom, makeModule, moduleIdOf, pickModule, teaserField, teasersFrom, withWords, type LibModule, type PlanWords } from "./library";
 import type { PagePart } from "./places";
 
@@ -560,20 +561,32 @@ export function placeNow(s: Pick<PlanStep, "do" | "where" | "target">, now: { pa
 
 /** The module with what the hub filled it with from the shop (its items, its picture) and how - so "fill again" in its
  * panel does the same. */
-export function withFill(m: ModuleRef, out: { items: Card[]; feature: Card | null; missing?: string[] }, spec: FillSpec, at = new Date().toISOString()): ModuleRef {
+export function withFill(m: ModuleRef, out: { items: Card[]; feature: Card | null; missing?: string[]; follow?: FollowInfo | null }, spec: FillSpec, at = new Date().toISOString()): ModuleRef {
   const how = spec.how === "viewed" || spec.how === "bought" || spec.how === "numbers" ? spec.how : spec.how === "none" ? "ai" : "category";
   // a module of teasers (Content v10): the shop's cards become its teasers - each its picture and its page
   const teaser = teaserField(m.type);
-  return {
+  const filled: ModuleRef = {
     ...m,
     settings: {
       ...m.settings,
       ...(teaser ? { points: teasersFrom(m.settings.points, out.items, teaser.n) } : {}),
       items: teaser ? m.settings.items : out.items.length ? out.items : m.settings.items,
-      feature: out.feature ?? m.settings.feature,
       fill: { how, category: spec.category, numbers: spec.numbers, ask: "", at, missing: (out.missing ?? []).slice(0, 30) },
     },
   };
+  // its picture (Content v12, SARCLA 10.11.2026: "on some bento you change the product but the background photo keeps
+  // seals"): the person's stays; the fill's follows the products (../modules/follow.ts) - a picture the fill found for
+  // a module that needs one where the products say nothing
+  const was = m.settings.feature;
+  let feature = was;
+  if (pictureFrom(was) !== "person") {
+    const found = out.feature ? { ...out.feature, from: "fill" as const } : null;
+    if (out.follow) {
+      const r = followPicture(filled, out.follow);
+      feature = r.did ? r.m.settings.feature : wantsPicture(filled, out.follow.cats) && found ? found : was;
+    } else if (found) feature = found;
+  }
+  return { ...filled, settings: { ...filled.settings, feature } };
 }
 
 /** The change a step becomes: at its place, in place of a part, or the change it rewrites (its id, its place kept). */

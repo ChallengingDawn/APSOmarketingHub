@@ -80,6 +80,8 @@ function cardOf(v: unknown, depth = 0): Card | null {
     name, url, img: pictureAddress(v.img), meta: str(v.meta, 60).trim(),
     number: /^\d{8}$/.test(String(v.number ?? "")) ? String(v.number) : "",
     children: depth < 1 && Array.isArray(v.children) ? v.children.map((c) => cardOf(c, depth + 1)).filter((c): c is Card => !!c).slice(0, 8) : [],
+    // a picture's origin (Content v12, ./follow.ts): the fill's follows the products, the person's stays
+    ...(v.from === "fill" || v.from === "person" ? { from: v.from } : {}),
   };
 }
 

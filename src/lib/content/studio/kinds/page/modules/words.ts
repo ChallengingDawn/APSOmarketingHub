@@ -118,6 +118,8 @@ How:
   fits: no words for it.
 - A table (only when the module has one): its head first, rows only of what the page states; a value the page does not
   give is left out, never guessed.
+- A module that already shows the shop's products or categories ("shows" in IT READS NOW): its words speak of THOSE -
+  their kind, their material, their category - never of other products its old words or the page name.
 - "fill" (a module of the shop's products or categories only): "category" with the page's subject's category from THE
   SHOP'S CATEGORIES, "technologies", "bought" or "viewed"; any other module: "none".
 - "why" is ENGLISH.`;
@@ -137,7 +139,9 @@ ITS WORDS:
 ${words.map((w) => `- ${w}`).join("\n") || "- none"}${lists.length ? `\nITS LIST:\n${lists.map((l) => `- ${l}`).join("\n")}` : ""}${extras.length ? `\nITS OWN SETTINGS ("extras", by key):\n${extras.map((e) => `- ${e}`).join("\n")}` : ""}${table ? `\nITS TABLE: ${table.label ?? "a table"} - ${table.cols ?? 3} columns, at most ${table.maxRows ?? 12} rows, the first the head` : ""}`;
 }
 
-/** The module's words now, small (what the studio sends: a module's products never go in a request). */
+/** The module's words now, small (what the studio sends). Its products by their names only (Content v12, SARCLA
+ * 10.11.2026: a "Products on a photo" filled with POM-C plates kept "O-Ringe und Dichtungen in EPDM" - its words are
+ * written for what it SHOWS), and its picture's name. */
 export function nowWords(m: ModuleRef): Record<string, unknown> {
   const w = wordsOfModule(m);
   const s = m.settings;
@@ -145,10 +149,18 @@ export function nowWords(m: ModuleRef): Record<string, unknown> {
     eyebrow: w.eyebrow.slice(0, 80), title: w.title.slice(0, 160), text: w.text.slice(0, 600), button: w.button.slice(0, 40), button2: w.button2.slice(0, 40),
     points: w.points.slice(0, 8).map((p) => ({ title: p.title.slice(0, 80), text: p.text.slice(0, 160) })),
     faq: w.faq.slice(0, 6).map((q) => ({ q: q.q.slice(0, 160), a: q.a.slice(0, 300) })),
-    extras: Object.entries(s.extra ?? {}).filter(([k]) => !/^(look|split|open)/.test(k)).slice(0, 6).map(([key, value]) => ({ key, value: String(value).slice(0, 60) })),
+    extras: Object.entries(s.extra ?? {}).filter(([k]) => !/^(look|split|open|reword)/.test(k)).slice(0, 6).map(([key, value]) => ({ key, value: String(value).slice(0, 60) })),
     table: (s.table ?? []).slice(0, 8).map((r) => r.slice(0, 6).map((c) => c.slice(0, 60))),
+    ...(s.items.length ? { shows: s.items.slice(0, 8).map((c) => c.name.slice(0, 70)) } : {}),
+    ...(s.feature?.name && s.items.length ? { picture: s.feature.name.slice(0, 60) } : {}),
   };
 }
+
+/** The names of what a module shows, out of what the studio sent (`now.shows`) - its words may name them. */
+export const showsIn = (now: unknown): string => {
+  const v = now && typeof now === "object" ? (now as Record<string, unknown>).shows : null;
+  return Array.isArray(v) ? v.slice(0, 8).map((x) => str(x, 70)).filter(Boolean).join(" · ") : "";
+};
 
 /** A new page's words, block by block, without the module asked about (what the AI fills it from). */
 export function pageWordsOf(f: Fields, exceptModule = ""): string {

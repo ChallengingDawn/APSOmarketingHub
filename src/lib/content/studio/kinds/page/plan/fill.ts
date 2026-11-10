@@ -12,13 +12,16 @@
 // and a module that shows a picture gets one from the shop: its category's photo, else a product's. Never a price, never
 // stock: a card carries a name, a photo, a link and the shop's own count ("702 Artikel").
 
-import type { Card } from "../modules/types";
+import type { Card, ModuleRef } from "../modules/types";
 import { moduleDef } from "../modules/registry";
-import { cardsForNumbers, categoryCard, cleanCards, cleanedNote, shopCategory, shopTree, topCards } from "../modules/source";
+import { newModule } from "../modules/model";
+import { followable, type FollowInfo } from "../modules/follow";
+import { cardsForNumbers, categoryCard, cleanCards, cleanedNote, followInfo, shopCategory, shopTree, topCards } from "../modules/source";
 import { libModule, teaserField } from "./library";
 import type { FillSpec } from "./plan";
 
-export type FillOut = { items: Card[]; feature: Card | null; note: string; missing: string[] };
+/** `follow`: what the products are (their categories, their own category's photo) - the module's picture follows them. */
+export type FillOut = { items: Card[]; feature: Card | null; note: string; missing: string[]; follow?: FollowInfo | null };
 
 const BASE = "https://www.apsoparts.com";
 /** The store view whose shop is read: "de-CH/eur" reads de-CH (the same catalogue - the module writes its links there). */
@@ -123,24 +126,35 @@ export async function fillModule(o: { module: string; fill: FillSpec; store: str
     items = items.filter((x) => x.img && x.url && !seen.has(x.url) && (seen.add(x.url), true)).slice(0, teaser.n + 2);
   }
 
+  // Content v12 (SARCLA 10.11.2026: "on some bento you change the product but the background photo keeps seals"): what
+  // the products are - their categories and their own category's photo - so the module's picture follows them
+  // (../modules/follow.ts followPicture, in ./plan.ts withFill: the person's picture stays)
+  let follow: FollowInfo | null = null;
+  if (followable(def) && items.length) {
+    const probe: ModuleRef = { type: o.module, settings: { ...newModule(o.module, store).settings, items } };
+    follow = await followInfo({ m: probe, store, hint: category, force: true }).catch(() => null);
+  }
+
   if (lib.needs.includes("picture")) {
-    // its picture: the category's own photo, else the first item's, else a technology's from the shop's home page
-    if (category) {
+    // its picture: the products' own category photo, else the category's own, else the first item's, else a technology's
+    // from the shop's home page
+    if (follow?.photo?.img) feature = { ...follow.photo, children: [], from: "fill" };
+    if (!feature?.img && category) {
       const c = await shopCategory(category, store).catch(() => null);
-      if (c) feature = { kind: "category", name: c.name, url: c.url, img: c.img || c.subs.find((x) => x.img)?.img || c.products.find((x) => x.img)?.img || "", meta: c.count, number: "", children: [] };
+      if (c) feature = { kind: "category", name: c.name, url: c.url, img: c.img || c.subs.find((x) => x.img)?.img || c.products.find((x) => x.img)?.img || "", meta: c.count, number: "", children: [], from: "fill" };
     }
     if (!feature?.img) {
       const first = items.find((x) => x.img);
-      if (first) feature = { ...first, children: [] };
+      if (first) feature = { ...first, children: [], from: "fill" };
     }
     if (!feature?.img) {
       const t = await shopTree(store).catch(() => null);
       const n = t?.tree.find((x) => t.photos[x.url]);
-      if (t && n) feature = { kind: "category", name: n.name, url: n.url, img: t.photos[n.url], meta: "", number: "", children: [] };
+      if (t && n) feature = { kind: "category", name: n.name, url: n.url, img: t.photos[n.url], meta: "", number: "", children: [], from: "fill" };
     }
     if (feature && !feature.img) feature = null;
   }
-  return { items, feature, note, missing };
+  return { items, feature, note, missing, follow };
 }
 
 /** The store view's category tree as the AI is shown it: the technologies and their categories (two levels). */

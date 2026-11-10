@@ -27,7 +27,9 @@ import { shopPage } from "@/lib/convert/studio";
 import { engageData } from "@/lib/marketingKpis/engage";
 import { loadReport } from "@/lib/integrations/articleReport";
 import type { Card } from "./model";
-import { categoryDescription, clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos, type CategoryPage, type TreeNode } from "./parse";
+import { breadcrumbOf, categoryDescription, clearanceOf, findNode, galleryOf, numbersIn, parseCategory, parseMenu, parseProduct, tilePhotos, type CategoryPage, type TreeNode } from "./parse";
+import { categoryKey, chainKeys, commonCategory, urlOfKey, wantsPicture, type FollowInfo } from "./follow";
+import type { ModuleRef } from "./types";
 import { photoBad, photoFlaws } from "./photo";
 import { sharpImg } from "./kit";
 import { factsHead, parseFacts, type ProductFacts } from "./library2/facts";
@@ -165,6 +167,8 @@ async function productCard(number: string, store: string): Promise<{ card: Card 
   const html = await readShop(path);
   const card = parseProduct(html, `${BASE}${path}`);
   if (card) GALLERY.set(card.url, galleryOf(html));
+  // its categories, read with the page (a module's picture follows them - ./follow.ts)
+  keepCrumbs([`${BASE}${path}`, card?.url ?? ""], store, breadcrumbOf(html));
   CARDS.set(key, { at: Date.now(), card });
   while (CARDS.size > 2000) CARDS.delete(CARDS.keys().next().value as string);
   return { card, why: card ? "" : "its page shows no product" };
@@ -302,6 +306,102 @@ export async function cardsForPicks(numbers: string[], store: string, count: num
     if (k.cards[0]) cards.push(k.cards[0]);
   }
   return cards;
+}
+
+/* ── a module's picture follows its products (Content v12, SARCLA 10.11.2026: "on some bento you change the product but
+ *    the background photo keeps seals") - the decisions are ./follow.ts's; here what the shop says ── */
+
+/** A product page's categories (its breadcrumb), by its address - kept six hours; and the categories' names by key. */
+const CRUMBS = new Map<string, { at: number; leaf: string }>();
+const NAMES = new Map<string, string>();
+function keepCrumbs(urls: string[], store: string, chain: { name: string; url: string }[]): void {
+  const leaf = chain.length ? categoryKey(chain[chain.length - 1].url) : "";
+  for (const u of urls) if (u) CRUMBS.set(u, { at: Date.now(), leaf });
+  for (const c of chain) { const k = categoryKey(c.url); if (k) NAMES.set(`${store}|${k}`, c.name); }
+  while (CRUMBS.size > 5000) CRUMBS.delete(CRUMBS.keys().next().value as string);
+  while (NAMES.size > 5000) NAMES.delete(NAMES.keys().next().value as string);
+}
+
+/** A product's category (its key): its breadcrumb, from what the hub read already, else its own page (one read). */
+async function productCategory(url: string, store: string): Promise<string> {
+  const held = CRUMBS.get(url);
+  if (held && Date.now() - held.at < 6 * 3600_000) return held.leaf;
+  const path = pathOf(url);
+  if (!path.startsWith(`/${store}/`) || !/\.html$/.test(path)) return "";
+  const html = await readShop(path);
+  const chain = breadcrumbOf(html);
+  keepCrumbs([url, `${BASE}${path}`], store, chain);
+  return chain.length ? categoryKey(chain[chain.length - 1].url) : "";
+}
+
+/**
+ * Each item's category: a category card is its own; the products of a module filled from a category (`hint`) are that
+ * category's; the others' from their pages' breadcrumbs - three pages read at most (each kept), the rest unknown.
+ */
+async function itemCats(items: Card[], hint: string, store: string): Promise<string[]> {
+  const hk = hint && pathOf(hint).startsWith(`/${store}/`) ? categoryKey(hint) : "";
+  const out: string[] = [];
+  let reads = 0;
+  for (const it of items.slice(0, 12)) {
+    const own = categoryKey(it.url);
+    if (own) { out.push(own); continue; }
+    if (hk) { out.push(hk); continue; }
+    const held = CRUMBS.get(it.url);
+    if (held && Date.now() - held.at < 6 * 3600_000) { out.push(held.leaf); continue; }
+    if (reads >= 3 || out.filter(Boolean).length >= 3) { out.push(""); continue; }
+    reads++;
+    out.push(await productCategory(it.url, store).catch(() => ""));
+  }
+  return out;
+}
+
+/** A category's name: from a breadcrumb read, the shop's menu, else its page. */
+async function nameOfKey(key: string, store: string): Promise<string> {
+  const held = NAMES.get(`${store}|${key}`);
+  if (held) return held;
+  const t = await shopTree(store).catch(() => null);
+  const n = t ? findNode(t.tree, urlOfKey(key, store))?.name : "";
+  if (n) return n;
+  return (await shopCategory(urlOfKey(key, store), store).catch(() => null))?.name ?? "";
+}
+
+/**
+ * The photo of a category as a module's picture: the shop's own home page photo of it or of the nearest category above it
+ * (large, made for a banner - no read beyond the home page, kept six hours), else the tile its parent's page shows for it
+ * or for the nearest one above, else its own page's first subcategory tile. null when the shop shows none.
+ */
+export async function categoryPhoto(key: string, store: string): Promise<Card | null> {
+  const keys = chainKeys(key);
+  if (!keys.length) return null;
+  const t = await shopTree(store).catch(() => null);
+  const card = async (k: string, img: string, name = ""): Promise<Card> => ({ kind: "category", name: name || (await nameOfKey(k, store)) || k.split("/").pop() || k, url: urlOfKey(k, store), img, meta: "", number: "", children: [], from: "fill" });
+  for (let i = keys.length - 1; i >= 0; i--) {
+    const img = t?.photos[urlOfKey(keys[i], store)];
+    if (img) return card(keys[i], img);
+  }
+  for (let i = keys.length - 1; i >= 1; i--) {
+    const parent = await shopCategory(urlOfKey(keys[i - 1], store), store).catch(() => null);
+    const tile = parent?.subs.find((x) => x.url === urlOfKey(keys[i], store));
+    if (tile?.img) return card(keys[i], tile.img, tile.name);
+  }
+  const own = await shopCategory(urlOfKey(key, store), store).catch(() => null);
+  const sub = own?.subs.find((x) => x.img);
+  return sub ? card(key, sub.img, own?.name ?? "") : null;
+}
+
+/**
+ * What a module's products are (./follow.ts FollowInfo): their categories, the one they share, and - when the module
+ * wants a picture for them (its fill's picture no longer theirs, or none where it needs one; `force`: always, for a fill
+ * that does not know the module's picture) - that category's photo.
+ */
+export async function followInfo(o: { m: ModuleRef; store: string; hint?: string; force?: boolean }): Promise<FollowInfo> {
+  const store = String(o.store).split("/")[0];
+  if (!STORE_RE.test(store)) throw new Error("Which store view?");
+  const cats = await itemCats(o.m.settings.items, o.hint ?? "", store);
+  const key = commonCategory(cats);
+  const common = key ? { url: urlOfKey(key, store), name: await nameOfKey(key, store).catch(() => "") } : null;
+  const photo = key && (o.force || wantsPicture(o.m, cats)) ? await categoryPhoto(key, store).catch(() => null) : null;
+  return { cats, common, photo };
 }
 
 /* ── a category's own facts, for a new page about it (Content v8) ──────────────────────────────────────── */

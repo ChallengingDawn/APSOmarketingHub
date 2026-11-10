@@ -194,6 +194,47 @@ export function parseProduct(html: string, url: string): Card | null {
   return { kind: "product", name, url: u, img, meta: /^\s*\d/.test(cnt) ? countOf(cnt) : "", number: productOfUrl(u), children: [] };
 }
 
+/**
+ * A product page's categories, from the technology down (Content v12): its breadcrumb as the page itself states it - the
+ * schema.org BreadcrumbList (<script type="application/ld+json">), else Magento's "categoryBreadcrumbs" - "Kunststofftechnik
+ * > Platte > Polyoxymethylen (POM)", each with its address. A product's own address carries no category
+ * ("/de-CH/02320001-pom-c-platte-natur-weiss.html"), so this is where a module learns what its products are (./follow.ts).
+ */
+export function breadcrumbOf(html: string, base = "https://www.apsoparts.com"): { name: string; url: string }[] {
+  const s = String(html ?? "");
+  const out: { name: string; url: string }[] = [];
+  const add = (name: string, href: string) => {
+    const u = shopUrlOf(href, base);
+    const n = textOf(name);
+    if (u && n && /\.html$/.test(u) && !out.some((x) => x.url === u)) out.push({ name: n, url: u });
+  };
+  for (const m of s.matchAll(/<script\b[^>]*application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    if (!/BreadcrumbList/.test(m[1])) continue;
+    try {
+      const find = (v: unknown): unknown[] | null => {
+        if (!v || typeof v !== "object") return null;
+        const o = v as Record<string, unknown>;
+        if (o["@type"] === "BreadcrumbList" && Array.isArray(o.itemListElement)) return o.itemListElement;
+        for (const x of Object.values(o)) { const r = find(x); if (r) return r; }
+        return null;
+      };
+      const list = (find(JSON.parse(m[1])) ?? []) as { position?: number; name?: unknown; item?: unknown }[];
+      for (const it of [...list].sort((a, b) => (Number(a.position) || 0) - (Number(b.position) || 0))) {
+        const item = it.item && typeof it.item === "object" ? (it.item as Record<string, unknown>)["@id"] ?? (it.item as Record<string, unknown>).url : it.item;
+        add(String(it.name ?? ""), String(item ?? ""));
+      }
+    } catch { /* a script that is no JSON: the next way */ }
+    if (out.length) return out;
+  }
+  const cb = /"categoryBreadcrumbs"\s*:\s*(\[[^\]]*\])/.exec(s);
+  if (cb) {
+    try {
+      for (const it of JSON.parse(cb[1]) as { label?: unknown; link?: unknown }[]) add(String(it.label ?? ""), String(it.link ?? ""));
+    } catch { /* none */ }
+  }
+  return out;
+}
+
 /* ── clearance: never in an automatic fill ────────────────────────────── */
 
 /**
