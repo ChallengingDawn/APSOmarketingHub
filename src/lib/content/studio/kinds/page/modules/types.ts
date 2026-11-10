@@ -134,6 +134,9 @@ export type ModuleDef = {
   render: (m: ModuleRef, o: Opts) => Drawn;
   /** words a person might search it by ("carousel", "slider", "grid") */
   tags?: string[];
+  /** the words its picture in the gallery shows (de-CH; real facts only) - also an example for the AI. The products and
+   * categories come from the shop (the harness fills them). */
+  sample?: Partial<ModuleSettings>;
   /** where the design was proven ("home page version A (Calm drill-down)") */
   from?: string;
 };

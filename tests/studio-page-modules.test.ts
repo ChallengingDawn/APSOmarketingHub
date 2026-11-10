@@ -52,7 +52,8 @@ function selectors(css: string): string[] {
     }
     if (cur.trim()) out.push(cur.trim());
   }
-  return out;
+  // keyframe stops (a moving strip's) are not selectors
+  return out.filter((x) => !/^(from|to|[\d.]+%)$/.test(x));
 }
 
 test("every module is ONE element, every rule under its own class, no script - a version takes it as it is", () => {

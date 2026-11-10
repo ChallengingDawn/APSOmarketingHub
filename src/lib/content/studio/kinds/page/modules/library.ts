@@ -3,10 +3,23 @@
 // To add modules: a file in ./lib/ exporting a `ModuleDef[]` (./types.ts), drawn with the kit (./kit.ts), and ONE line
 // here. Builder B owns heroes, showcases, bentos, navigation, campaigns, trust; builder B2 stories, technical, tools, help,
 // cta, industries, references, media (each its own files - add your import and your spread below, nothing else).
+// The order here is the order inside a category in the Modules tab.
 
 import type { ModuleDef } from "./types";
 import { V6 } from "./lib/v6";
+import { HEROES } from "./lib/heroes";
+import { SHOWCASES } from "./lib/showcases";
+import { BENTOS } from "./lib/bentos";
+import { NAVIGATION } from "./lib/navigation";
+import { CAMPAIGNS } from "./lib/campaigns";
+import { TRUST } from "./lib/trust";
 
 export const LIBRARY: ModuleDef[] = [
+  ...HEROES,
   ...V6,
+  ...SHOWCASES,
+  ...BENTOS,
+  ...NAVIGATION,
+  ...CAMPAIGNS,
+  ...TRUST,
 ];
