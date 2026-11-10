@@ -14,10 +14,21 @@
 
 export const BO = "1726786777", GQS = "1726786775", ECOM = "1726786778";
 export const STAGE = {
-  boNew: "2338266325", boRedirectedFromChat: "2554860732", assigned: "2338266326", resolved: "2338266328",
+  boNew: "2338266325", boRedirectedFromChat: "2554860732", assigned: "2338266326", boWaitingInternally: "2726922455", resolved: "2338266328",
   cutToSizeIssue: "5948837104", chatNewBoTopic: "5166408896", gqsNewForBo: "2338266314", gqsWaitingOnApso: "2338266316",
   ecomNew: "2338266329",
 } as const;
+/**
+ * The stage a ticket takes when the "waiting for an owner" sweep gives it one (the owner only, otherwise). A Back Office
+ * ticket sitting in Waiting Internally with nobody on it goes to Assigned: in practice a customer mail also addressed to
+ * an angst-pfister.com team set it there at once ("SARCLA | Back Office Waiting on external team" reads the mail's To, in
+ * or out), so the routing never took it - and its new owner has to see it as theirs (SARCLA 10.11.2026 on 448924014805:
+ * "the ticket got assigned but on waiting internally - in this case it should go to assign").
+ */
+export function strayStage(pipeline: string, stage: string | null): string | null {
+  return pipeline === "bo" && stage === STAGE.boWaitingInternally ? STAGE.assigned : null;
+}
+
 /** Back Office stages the code counts as someone's workload. */
 export const BO_OPEN_STAGES = ["2338266326", "2473210048", "2726922455", "2728031473", "2338266327"];
 /** The hub's Back Office workload: the workflow's stages and "CHAT/C2S Issue" - a chat call-back is somebody's open
