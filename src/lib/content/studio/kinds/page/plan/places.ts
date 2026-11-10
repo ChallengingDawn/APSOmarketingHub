@@ -121,6 +121,22 @@ export function selectorFor(root: Node, el: Node, main: { el: Node; sel: string 
   return "";
 }
 
+/** A part with no words: what its pictures are (their alt text, else their file's name - "USPs_DE.png" shows the shop's
+ * promises, "BannerEvolast_DE.jpg" a campaign), so the AI never adds what a picture already says. */
+function picturesOf(inner: string): string {
+  const names: string[] = [];
+  for (const m of inner.matchAll(/<img\b[^>]*>|desktop_image\\?"\s*:\s*\\?"([^"\\]+)/gi)) {
+    if (/pagebuilder-mobile-only/.test(m[0])) continue;
+    const alt = /\balt\s*=\s*["']([^"']{3,80})["']/i.exec(m[0])?.[1];
+    const src = m[1] ?? /\bsrc\s*=\s*["']([^"']+)["']/i.exec(m[0])?.[1] ?? "";
+    const file = (src.split("/").pop() ?? "").replace(/\?.*$/, "");
+    let name = alt || file;
+    try { name = alt || decodeURIComponent(file); } catch { /* the name as written */ }
+    if (name && !names.includes(name)) names.push(name);
+  }
+  return names.length ? `(no words - pictures: ${names.slice(0, 6).join(", ")})` : "";
+}
+
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).replace(/\s+\S*$/, "")}…` : s);
 
 function holdsOf(inner: string): PagePart["holds"] {
@@ -167,7 +183,8 @@ export function pageMap(rawHtml: string, view: Pick<PageDoc, "changes" | "texts"
     if (out.length >= max) break;
     const inner = html.slice(el.start, el.end);
     const heading = wordsOf(/<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1\s*>/i.exec(inner)?.[2] ?? "");
-    const base = { tag: el.tag, heading: cut(heading, 90), h1: /<h1\b/i.test(inner), text: cut(wordsOf(inner), 260), holds: holdsOf(inner) };
+    const said = wordsOf(inner);
+    const base = { tag: el.tag, heading: cut(heading, 90), h1: /<h1\b/i.test(inner), text: cut(said, 260) || picturesOf(inner), holds: holdsOf(inner) };
     if (marked(el)) {
       const idx = Number(attrOf(el, "data-apx-c"));
       const c = Number.isInteger(idx) ? view.changes[idx] : undefined;
@@ -213,4 +230,37 @@ export function partOfSelection(rawHtml: string, view: Pick<PageDoc, "changes" |
     if (pe && pe.start <= el.start && el.end <= pe.end) return x;
   }
   return null;
+}
+
+
+/** Does a selector find an element on the page as the server's preview lays the store view's changes over it? (A block
+ * put at a place the page no longer has is said at once - never listed and not drawn.) */
+export function findsOnPage(rawHtml: string, view: Pick<PageDoc, "changes" | "texts" | "source" | "newPage" | "fields">, selector: string): boolean {
+  const g = parseSelector(selector);
+  if (!g) return false;
+  const final = finalChanges(view as PageDoc);
+  const html = applyChanges(rawHtml, final.changes as AnyChange[], { marks: final.from }).html;
+  return selectAll(parseHtml(html), g).length > 0;
+}
+
+/** The shop's own pages a page links to (its header, its content, its footer): address and words, once each - what a
+ * plan's buttons may go to besides the categories (contact, help, the tools). Product pages and other store views out. */
+export function pageLinks(rawHtml: string, store: string, max = 40): { url: string; text: string }[] {
+  const out: { url: string; text: string }[] = [];
+  const own = `/${store.split("/")[0]}/`;
+  for (const m of rawHtml.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi)) {
+    if (out.length >= max) break;
+    const text = wordsOf(m[2]).slice(0, 60);
+    if (!text || text.length < 3) continue;
+    try {
+      const u = new URL(m[1].replace(/&amp;/g, "&"), "https://www.apsoparts.com");
+      if (!/^(www|acc)\.apsoparts\.com$/.test(u.hostname) || !u.pathname.startsWith(own) || u.search) continue;
+      const first = u.pathname.slice(own.length).split("/")[0];
+      // the categories are listed with the tree; products, the account, the store switcher are no button's goal
+      if (/^\d{8}/.test(first) || /\.html$/i.test(u.pathname) || /^(customer|checkout|wishlist|sales|catalogsearch|newsletter|anp|review|catalog|purchaseorder|requisition_list)\b/.test(first)) continue;
+      const url = `https://www.apsoparts.com${u.pathname}`;
+      if (!out.some((x) => x.url === url)) out.push({ url, text });
+    } catch { /* not an address */ }
+  }
+  return out;
 }

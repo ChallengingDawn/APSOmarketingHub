@@ -30,6 +30,7 @@ function StateLine({ st }: { st: StepState | undefined }) {
     </Box>
   );
   if (st.state === "filling") return row(<CircularProgress size={11} sx={{ color: PINK }} />, "Filling it from the shop…", MUTED);
+  if (st.state === "placing") return row(<CircularProgress size={11} sx={{ color: PINK }} />, "Putting it in its place…", MUTED);
   if (st.state === "checking") return row(<CircularProgress size={11} sx={{ color: PINK }} />, "Checking that it reads well…", MUTED);
   if (st.state === "done") return row(<CheckIcon sx={{ fontSize: 14, color: GREEN }} />, st.note ? `On the page · ${st.note}` : "On the page", GREEN);
   if (st.state === "skipped") return row(<CloseIcon sx={{ fontSize: 14, color: MUTED }} />, "Skipped", MUTED);

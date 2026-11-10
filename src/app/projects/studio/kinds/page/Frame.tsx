@@ -214,8 +214,13 @@ export function selectorOf(el: Element): string {
   const path: string[] = [];
   let cur: Element | null = el;
   let depth = 0;
+  // a Page Builder element's own style key (one per element) does not move when a block is put before it (Content v7,
+  // point 4: a place by position alone pointed elsewhere once another change stood before it)
+  const pbKey = (x: Element) => { const k = x.getAttribute("data-pb-style"); if (!k || !/^[A-Z0-9]{4,12}$/i.test(k)) return null; const sel = `${x.tagName.toLowerCase()}[data-pb-style="${k}"]`; try { return doc.querySelectorAll(sel).length === 1 ? sel : null; } catch { return null; } };
   while (cur && cur !== doc.body && cur !== doc.documentElement && depth < 6) {
     if (cur.id && okId(cur.id)) { path.unshift(`#${cur.id}`); break; }
+    const pb = pbKey(cur);
+    if (pb) { path.unshift(pb); break; }
     let part = cur.tagName.toLowerCase();
     const cls = [...cur.classList].filter((c) => /^[A-Za-z_-][\w-]*$/.test(c) && !/^(active|_active|selected|clearfix|hidden|visible|apx-)/.test(c)).slice(0, 2);
     if (cls.length) part += `.${cls.join(".")}`;

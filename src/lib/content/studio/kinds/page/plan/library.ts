@@ -135,7 +135,7 @@ export function wordsOfModule(m: ModuleRef): PlanWords {
 
 /** The module with the plan's words in it: only the words it takes; a word left empty keeps what it had. `link`: a shop
  * address for its button (empty = its own). `extras`: its short settings by key (options checked). */
-export function withWords(m: ModuleRef, w: Partial<PlanWords>, link = "", extras: { key: string; value: string }[] = []): ModuleRef {
+export function withWords(m: ModuleRef, w: Partial<PlanWords>, link = "", extras: { key: string; value: string }[] = [], link2 = ""): ModuleRef {
   const lib = libModule(m.type);
   const field = (k: WordKey) => lib?.words.find((x) => x.key === k) ?? null;
   const s: ModuleSettings = { ...m.settings, link: { ...m.settings.link }, link2: { ...m.settings.link2 }, extra: { ...(m.settings.extra ?? {}) } };
@@ -146,6 +146,7 @@ export function withWords(m: ModuleRef, w: Partial<PlanWords>, link = "", extras
   put("button", w.button, (x) => { s.link.label = x; });
   put("button2", w.button2, (x) => { s.link2.label = x; });
   if (link && field("button")) s.link.url = link;
+  if (link2 && field("button2")) s.link2.url = link2;
   const pf = field("points");
   if (pf && w.points?.some((p) => p.title.trim())) {
     const old = s.points;

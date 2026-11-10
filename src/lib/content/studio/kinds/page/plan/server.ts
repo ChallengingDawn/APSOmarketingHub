@@ -14,7 +14,7 @@ import { changeId, languageOfStore, pageDoc, shopUrl, viewOf, type PageDoc } fro
 import { readShopPage } from "../shop";
 import { readBrain } from "@/lib/brain";
 import { fillModule, readStore, treeFor } from "./fill";
-import { mapText, pageMap, partOfSelection, type PagePart } from "./places";
+import { mapText, pageLinks, pageMap, partOfSelection, type PagePart } from "./places";
 import { PLAN_SCHEMA, cleanPlan, pageWords, placeNow, planSystem, planUser, type FillHow, type PlanMode, type StepDo, type StepPlace } from "./plan";
 
 const MODES: PlanMode[] = ["ideas", "convincing", "part", "ask"];
@@ -45,7 +45,8 @@ const planFill: ServerAction = async (ctx, raw, input) => {
     const p = await readPlanPage(ctx, raw, input);
     const kind = t.kind === "module" || t.kind === "block" ? t.kind : "page";
     const doing = (["add", "replace", "words", "block"] as StepDo[]).find((x) => x === input.do) ?? "add";
-    const r = placeNow({ do: doing, where: input.where === "before" || input.where === "after" ? input.where : "", target: { kind, fp: s(t.fp, 600) } }, p);
+    const earlier = Array.isArray(input.earlier) ? input.earlier.map((x) => s(x, 30)).filter(Boolean).slice(0, 8) : [];
+    const r = placeNow({ do: doing, where: input.where === "before" || input.where === "after" ? input.where : "", target: { kind, fp: s(t.fp, 600) } }, p, earlier);
     place = r.place; placeWhy = r.why;
   }
   const f = (input.fill && typeof input.fill === "object" ? input.fill : {}) as Record<string, unknown>;
@@ -78,7 +79,7 @@ export function planTask(context: (ctx: StudioCtx, d: PageDoc) => string): AiTas
 Title: ${o.title}
 The page's H1 (above its content - it stays as it is): ${o.h1.join(" | ") || "-"}` : ""}`;
       return planUser({
-        context: context(ctx, d), page, parts: p.parts, partsText: mapText(p.parts), tree: p.tree, language: languageOfStore(d.store) ?? "German", store: d.store,
+        context: context(ctx, d), page, parts: p.parts, partsText: mapText(p.parts), tree: p.tree, links: pageLinks(p.html, d.store), language: languageOfStore(d.store) ?? "German", store: d.store,
         mode: modeIn(input), request: s(input.request, 2000), selected, selectedText: s(input.text, 400),
       });
     },
@@ -89,8 +90,8 @@ The page's H1 (above its content - it stays as it is): ${o.h1.join(" | ") || "-"
       const brain = await readBrain().catch(() => null);
       const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
       const plan = cleanPlan(raw, {
-        parts: p.parts, container: p.container, categories: p.tree.map((t) => t.url), pageUrl: shopUrl("prod", p.d.path), pageKind: c.kind,
-        pageText: `${pageWords(p.parts)} ${facts}`, newId: () => changeId(),
+        parts: p.parts, container: p.container, categories: p.tree.map((t) => t.url), links: pageLinks(p.html, p.d.store).map((l) => l.url), pageUrl: shopUrl("prod", p.d.path), pageKind: c.kind,
+        pageText: `${pageWords(p.parts)} ${facts}`, newId: () => changeId(), lang: p.d.store.slice(0, 2),
       });
       // the parts the steps aim at, for the studio's lines and its "+" (small: ids, headings, selectors)
       const used = new Set(plan.steps.map((x) => x.at));

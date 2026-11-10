@@ -50,8 +50,9 @@ export type PlanStep = {
   layout: string;
   words: PlanWords;
   extras: { key: string; value: string }[];
-  /** a shop address for its button ("" = its own) */
+  /** shop addresses for its buttons ("" = its own / none) */
   link: string;
+  link2: string;
   fill: FillSpec;
   /** a free block's HTML, cleaned (the kit's rules) */
   html: string;
@@ -85,7 +86,7 @@ export const PLAN_SCHEMA = {
       type: "array",
       items: {
         type: "object", additionalProperties: false,
-        required: ["do", "module", "at", "where", "layout", "why", "words", "extras", "link", "fill", "html"],
+        required: ["do", "module", "at", "where", "layout", "why", "words", "extras", "link", "link2", "fill", "html"],
         properties: {
           do: { type: "string", enum: ["add", "replace", "words", "block"] },
           module: { type: "string", description: "The module's id from THE LIBRARY ('' for do=block)" },
@@ -95,7 +96,8 @@ export const PLAN_SCHEMA = {
           why: { type: "string", description: "Why, in ENGLISH, under 10 words" },
           words: WORDS_SCHEMA,
           extras: { type: "array", items: { type: "object", additionalProperties: false, required: ["key", "value"], properties: { key: { type: "string" }, value: { type: "string" } } } },
-          link: { type: "string", description: "The button's address: one of THE SHOP'S CATEGORIES or a link of the page, else ''" },
+          link: { type: "string", description: "The button's address: from THE SHOP'S CATEGORIES or THE SHOP'S PAGES YOU MAY LINK - where the button's words say it goes; else ''" },
+          link2: { type: "string", description: "The second button's address (the same lists), else ''" },
           fill: {
             type: "object", additionalProperties: false, required: ["how", "category", "numbers", "count"],
             properties: {
@@ -123,12 +125,12 @@ export function workedExamples(lib: LibModule[] = library()): string {
   const cta = pick((m) => m.takes === "none" && m.words.some((w) => w.key === "button2"), [faq?.id ?? ""]) ?? pick((m) => m.takes === "none" && m.words.some((w) => w.key === "button") && !m.needs.includes("picture"), [faq?.id ?? "", points?.id ?? ""]);
   const w = (o: Partial<PlanWords>) => JSON.stringify({ ...emptyWords(), ...o });
   const step = (o: { do: StepDo; module: string; at: string; where: string; why: string; words: string; fill: string; layout?: string; link?: string }) =>
-    `{"do":"${o.do}","module":"${o.module}","at":"${o.at}","where":"${o.where}","layout":"${o.layout ?? ""}","why":"${o.why}","words":${o.words},"extras":[],"link":"${o.link ?? ""}","fill":${o.fill},"html":""}`;
+    `{"do":"${o.do}","module":"${o.module}","at":"${o.at}","where":"${o.where}","layout":"${o.layout ?? ""}","why":"${o.why}","words":${o.words},"extras":[],"link":"${o.link ?? ""}","link2":"","fill":${o.fill},"html":""}`;
   const none = `{"how":"none","category":"","numbers":"","count":0}`;
   const out: string[] = [];
   const s1: string[] = [];
   if (points) s1.push(step({ do: "add", module: points.id, at: "P1", where: "after", why: "Reasons to order here, right under the title", words: w({ points: [{ title: "Keine Zuschläge", text: "für Kleinbestellungen" }, { title: "Zuschnitte", text: "nach Mass" }, { title: "Schnell bestellen", text: "mit Schnellbestellung & DirectUP" }] }), fill: none }));
-  if (prod) s1.push(step({ do: "add", module: prod.id, at: "P2", where: "after", why: "The O-rings buyers order most, ready to click", words: w({ eyebrow: "Beliebt", title: "Meistgekaufte O-Ringe", button: "Alle O-Ringe" }), fill: `{"how":"bought","category":"https://www.apsoparts.com/de-CH/o-ringe.html","numbers":"","count":5}`, link: "https://www.apsoparts.com/de-CH/o-ringe.html" }));
+  if (prod) s1.push(step({ do: "add", module: prod.id, at: "P2", where: "after", why: "The O-rings buyers order most, ready to click", words: w({ eyebrow: "Beliebt", title: "Meistgekaufte O-Ringe", button: "Alle O-Ringe" }), fill: `{"how":"bought","category":"https://www.apsoparts.com/de-CH/dichtungstechnik/o-ringe-x-ringe.html","numbers":"","count":5}`, link: "https://www.apsoparts.com/de-CH/dichtungstechnik/o-ringe-x-ringe.html" }));
   if (faq) s1.push(step({ do: "add", module: faq.id, at: "P3", where: "after", why: "Answers the page already gives, easy to scan", words: w({ title: "Häufige Fragen zu O-Ringen", faq: [{ q: "Welche Werkstoffe gibt es?", a: "NBR, EPDM, FKM und weitere - wie in der Werkstoffübersicht oben beschrieben." }, { q: "Kann ich auch kleine Mengen bestellen?", a: "Ja, ohne Zuschlag für Kleinbestellungen." }] }), fill: none }));
   if (s1.length) out.push(`EXAMPLE 1 - a category page (store view de-CH, German), the person asks "Make it more convincing".
 THE PAGE'S PARTS:
@@ -183,7 +185,12 @@ How a good plan looks:
 - Its words are written FOR THIS PAGE, in the page's language: short, concrete, plain. Headings of 2-6 words. Facts only
   from the page's own words and the brand facts: no prices, no discounts or "% off", no stock or delivery-time promises,
   no certificate or approval the page does not name, no figures you were not given, never the name "Chemours". A button
-  says where it goes ("Alle O-Ringe", "Zu den Werkstoffen").
+  says where it goes ("Alle O-Ringe", "Zu den Werkstoffen") and its "link" / "link2" goes exactly there (an address from
+  the lists below); a button with no fitting address gets no words.
+- Every word on the page is in the page's language: the brand's English strapline and phrases ("Engineering solutions.
+  One click away.") are never put on a page in another language - say the same in the page's language, or leave it.
+- A part with no words is named by its pictures ("USPs_DE.png" is a picture of the shop's promises, "Banner..." a
+  campaign): never add a module that says what a picture of the page already says.
 - "note" and "why" are ENGLISH, short (the person approving reads English): note under 12 words, why under 10.
 - A word the module does not take stays "". A list it does not take stays [].
 
@@ -200,8 +207,11 @@ ${SHOP_TOKENS}`;
 /** The question: the page, its parts, the shop's categories, the language, what is asked. */
 export function planUser(a: {
   context: string; page: string; parts: PagePart[]; partsText: string; tree: { name: string; url: string; depth: number }[];
+  /** the shop's own pages the page links to (./places.ts pageLinks) */
+  links?: { url: string; text: string }[];
   language: string; store: string; mode: PlanMode; request: string; selected: PagePart | null; selectedText?: string;
 }): string {
+  const links = a.links?.length ? a.links.slice(0, 40).map((l) => `${l.url} · ${l.text}`).join("\n") : "(none)";
   const tree = a.tree.length ? a.tree.slice(0, 120).map((t) => `${"  ".repeat(t.depth)}${t.url} · ${t.name}`).join("\n") : "(not read - fill with \"bought\", \"viewed\" or \"page\")";
   const ask = a.mode === "ideas"
     ? "Propose what would help a buyer most on this page: 2 to 4 steps, the strongest first."
@@ -217,8 +227,11 @@ ${a.page}
 THE PAGE'S PARTS, IN THEIR ORDER (id · what it is · its heading · what it holds, then its words):
 ${a.partsText}
 
-THE SHOP'S CATEGORIES (for "fill" and "link": address · name):
+THE SHOP'S CATEGORIES (for "fill" and a button's link: address · name):
 ${tree}
+
+THE SHOP'S PAGES YOU MAY LINK (the page's own links - contact, help, tools: address · its words):
+${links}
 
 WRITE THE MODULES' WORDS IN: ${a.language} (store view ${a.store}). The note and each "why": English.
 ${a.selected ? `\nTHE PERSON SELECTED: ${a.selected.id}${a.selected.heading ? ` (heading "${a.selected.heading}")` : ""}${a.selectedText ? ` - the element reads: "${a.selectedText.slice(0, 300)}"` : ""}\n` : ""}
@@ -241,9 +254,27 @@ const NEVER: RegExp[] = [
 /** Certificates and approvals: only when the page itself names them. */
 const CERTS = /\b(FDA|KTW|W270|WRAS|ACS|NSF|USP\s*Class|EC\s*1935|1935\/2004|10\/2011|REACH|RoHS|ATEX|UL\s?\d+|DVGW|BAM|3-A|EHEDG|ISO\s?\d{3,5}|DIN\s?EN\s?\d+|ADI[- ]free)\b/gi;
 
+const EN_WORDS = /\b(the|and|or|with|for|of|to|your|our|you|we|is|are|one|away|click|more|now|get|here|find|solutions?|order|shop|parts|engineering|support|today)\b/gi;
+const LANG_WORDS: Record<string, RegExp> = {
+  de: /\b(der|die|das|und|mit|für|ein|eine|zu|zum|zur|ihr|ihre|unser|unsere|sie|wir|ist|sind|alle|jetzt|hier|auf|bei|von|im|in)\b|[äöüß]/gi,
+  fr: /\b(le|la|les|et|avec|pour|de|des|du|un|une|votre|vos|notre|nous|est|sont|tous|ici|sur|chez|en)\b|[éèêàçù]/gi,
+  it: /\b(il|lo|la|gli|le|e|con|per|di|del|della|un|una|vostro|nostro|noi|è|sono|tutti|qui|su|in)\b|[àèéìòù]/gi,
+  nl: /\b(de|het|een|en|met|voor|van|uw|onze|wij|is|zijn|alle|hier|op|bij|in)\b/gi,
+  pl: /\b(i|w|z|na|dla|do|się|jest|są|nasz|wasz|wszystkie|tutaj)\b|[ąćęłńóśźż]/gi,
+};
+/** Is a text written in the page's language? English words alone on a German page are not (the brand's English
+ * strapline came back on the de-CH home page in a test). Short or mixed text passes. */
+export function inLanguage(text: string, lang: string): boolean {
+  const l = lang.slice(0, 2).toLowerCase();
+  if (l === "en" || !LANG_WORDS[l]) return true;
+  const en = (text.match(EN_WORDS) ?? []).length;
+  const own = (text.match(LANG_WORDS[l]) ?? []).length;
+  return !(en >= 2 && own === 0);
+}
+
 /** A text kept when it may stand on the shop: sentences with a price, a discount, a stock or delivery promise, "Chemours",
  * a certificate the page does not name, or a placeholder are taken out (and said). */
-export function safeWords(text: string, pageText: string, said: string[]): string {
+export function safeWords(text: string, pageText: string, said: string[], lang = ""): string {
   const plain = text.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
   if (!plain) return "";
   const parts = plain.split(/(?<=[.!?])\s+/);
@@ -253,6 +284,7 @@ export function safeWords(text: string, pageText: string, said: string[]): strin
       if (!new RegExp(m[0].replace(/[.*+?^${}()|[\]\\/]/g, "\\$&").replace(/\s+/g, "\\s*"), "i").test(pageText)) { said.push(`"${p.slice(0, 60)}" left out (${m[0]}: the page does not name it)`); return false; }
     }
     if (leftoversIn(p).length) { said.push(`"${p.slice(0, 60)}" left out (not final words)`); return false; }
+    if (lang && !inLanguage(p, lang)) { said.push(`"${p.slice(0, 60)}" left out (not in the page's language)`); return false; }
     return true;
   });
   return keep.join(" ").trim();
@@ -270,13 +302,17 @@ export function looksEnglish(s: string): boolean {
 /** "Product row" -> "product row"; "USP bar" stays (a short word in capitals is a name). */
 const lower = (s: string) => (/^[A-Z]{2}/.test(s) ? s : s.charAt(0).toLowerCase() + s.slice(1));
 /** "a" or "an" as it sounds: "an FAQ", "a USP bar", "an O-ring row" */
-const article = (s: string) => (/^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
+const headNoun = (s: string) => (s.split(" of ")[0].trim().split(" ").pop() ?? "");
+const article = (s: string) => (/[^su]s$/i.test(headNoun(s)) ? "" : /^[A-Z]{2}/.test(s) ? (/^[AEFHILMNORSX]/.test(s) ? "an" : "a") : /^[aeiou]/i.test(s) ? "an" : "a");
+const withArticle = (s: string) => { const a = article(s); return a ? `${a} ${s}` : s; };
 const quoteOf = (p: PagePart | undefined): string => {
   if (!p) return "the page";
   if (p.kind !== "page") return `the ${lower(libModule(p.module)?.name ?? "block")}${p.heading ? ` "${cutWords(p.heading, 26)}"` : ""}`;
   if (p.heading) return `"${cutWords(p.heading, 30)}"`;
   if (p.h1) return "the page's title";
-  return p.text ? `"${cutWords(p.text, 26)}"` : `part ${p.id}`;
+  if (p.text && !p.text.startsWith("(no words")) return `"${cutWords(p.text, 26)}"`;
+  const n = p.holds.pictures;
+  return n ? `the ${n > 1 ? `${n} pictures` : "picture"}${p.id === "P1" ? " at the top" : ` (part ${p.id.slice(1)})`}` : `part ${p.id.slice(1)}`;
 };
 const cutWords = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n).replace(/\s+\S*$/, "")}…`);
 
@@ -286,10 +322,10 @@ export function stepLine(s: Pick<PlanStep, "do" | "module" | "at" | "where" | "p
   const name = s.do === "block" ? "block" : lower(libModule(s.module)?.name ?? "module");
   if (s.do === "words") return `New words for ${quoteOf(p)}`;
   if (s.do === "replace" || s.place.how === "replace" || s.place.how === "change") {
-    if (s.place.how === "insert") return `Add ${article(name)} ${name} ${s.where || "after"} ${quoteOf(p)}`;
-    return p && p.kind !== "page" ? `Swap ${quoteOf(p)} for ${article(name)} ${name}` : `Replace ${quoteOf(p)} with ${article(name)} ${name}`;
+    if (s.place.how === "insert") return `Add ${withArticle(name)} ${s.where || "after"} ${quoteOf(p)}`;
+    return p && p.kind !== "page" ? `Swap ${quoteOf(p)} for ${withArticle(name)}` : `Replace ${quoteOf(p)} with ${withArticle(name)}`;
   }
-  return `Add ${article(name)} ${name} ${s.where || "after"} ${quoteOf(p)}`;
+  return `Add ${withArticle(name)} ${s.where || "after"} ${quoteOf(p)}`;
 }
 
 /** The note in one short English line: the AI's when it is that, else made from the steps. */
@@ -305,14 +341,18 @@ export type CleanCtx = {
   parts: PagePart[];
   /** the element the parts stand in (./places.ts) - a step at the very start or end */
   container: string;
-  /** the shop's category addresses the AI was shown */
+  /** the shop's category addresses the AI was shown (what a fill may read) */
   categories: string[];
+  /** every address a button may go to: the categories and the page's own links the AI was shown */
+  links?: string[];
   /** the page's own address (a category page fills "page" from itself) and kind */
   pageUrl: string; pageKind: string;
   /** every word of the page and the brand facts (what a word may name) */
   pageText: string;
   /** a new id per step (the change it becomes) */
   newId: () => string;
+  /** the page's language ("de") - a module's words in another are left out */
+  lang?: string;
 };
 
 const WHERE = ["before", "after"] as const;
@@ -342,13 +382,14 @@ export function placeOf(doing: StepDo, at: PagePart, where: "before" | "after" |
   return { place: null, problem: `No place was found ${side} ${at.id}` };
 }
 
-function wordsIn(v: unknown, pageText: string, said: string[]): PlanWords {
+function wordsIn(v: unknown, pageText: string, said: string[], lang = ""): PlanWords {
   const o = isObj(v) ? v : {};
-  const w = (k: string, n: number) => safeWords(str(o[k], n * 2), pageText, said).slice(0, n);
+  const sw = (t: string) => safeWords(t, pageText, said, lang);
+  const w = (k: string, n: number) => sw(str(o[k], n * 2)).slice(0, n);
   return {
     eyebrow: w("eyebrow", 40), title: w("title", 120), text: w("text", 600), button: w("button", 30), button2: w("button2", 30),
-    points: (Array.isArray(o.points) ? o.points : []).filter(isObj).slice(0, 8).map((p) => ({ title: safeWords(str(p.title, 80), pageText, said), text: safeWords(str(p.text, 200), pageText, said) })).filter((p) => p.title),
-    faq: (Array.isArray(o.faq) ? o.faq : []).filter(isObj).slice(0, 8).map((x) => ({ q: safeWords(str(x.q, 300), pageText, said), a: safeWords(str(x.a, 1200), pageText, said) })).filter((x) => x.q && x.a),
+    points: (Array.isArray(o.points) ? o.points : []).filter(isObj).slice(0, 8).map((p) => ({ title: sw(str(p.title, 80)), text: sw(str(p.text, 200)) })).filter((p) => p.title),
+    faq: (Array.isArray(o.faq) ? o.faq : []).filter(isObj).slice(0, 8).map((x) => ({ q: sw(str(x.q, 300)), a: sw(str(x.a, 1200)) })).filter((x) => x.q && x.a),
   };
 }
 
@@ -402,10 +443,11 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     const lib = id ? libModule(id) : null;
     const layouts = lib?.layouts.map((l) => l.key) ?? [];
     const layout = layouts.includes(str(x.layout, 30)) ? str(x.layout, 30) : "";
-    const words = wordsIn(x.words, ctx.pageText, said);
+    const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
     const extras = (Array.isArray(x.extras) ? x.extras : []).filter(isObj).map((e) => ({ key: str(e.key, 30), value: safeWords(str(e.value, 120), ctx.pageText, said) })).filter((e) => e.key && e.value && lib?.extras.some((s) => s.key === e.key)).slice(0, 8);
-    const linkRaw = str(x.link, 400);
-    const link = ctx.categories.includes(linkRaw) || linkRaw === ctx.pageUrl ? linkRaw : "";
+    const okLink = (v: unknown) => { const u = str(v, 400); return u && (ctx.categories.includes(u) || (ctx.links ?? []).includes(u) || u === ctx.pageUrl) ? u : ""; };
+    const link = okLink(x.link);
+    const link2 = okLink(x.link2);
     const fill = doing === "words" || doing === "block" ? { how: "none" as FillHow, category: "", numbers: "", count: 0 } : fillIn(x.fill, lib, ctx);
     const stepId = ctx.newId();
     let html = "";
@@ -421,7 +463,7 @@ export function cleanPlan(raw: unknown, ctx: CleanCtx): Plan {
     }
     if (doing === "words" && !Object.values(words).some((v) => (Array.isArray(v) ? v.length : !!v))) { problems.push(`The step for ${at.id} brought no words - left out.`); continue; }
     const s: PlanStep = {
-      id: stepId, do: doing, module: id ?? "", at: at.id, where: place.how === "insert" ? (where || "after") : "", place, target: { kind: at.kind, fp: partFp(at) }, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""),
+      id: stepId, do: doing, module: id ?? "", at: at.id, where: place.how === "insert" ? (where || "after") : "", place, target: { kind: at.kind, fp: partFp(at) }, layout, words, extras, link: link || (fill.how === "category" ? fill.category : ""), link2,
       fill, html, line: "", why: looksEnglish(str(x.why, 120)) ? str(x.why, 120) : "", problems: [...new Set(said)].slice(0, 4),
     };
     s.line = stepLine(s, ctx.parts);
@@ -439,13 +481,18 @@ export function partFp(p: Pick<PagePart, "kind" | "change" | "heading" | "text" 
 
 /** The step's place on the page as it is NOW (the parts read again, with every change applied): its part found by what
  * it is, the place made again. null + why when the part is not on the page any more. */
-export function placeNow(s: Pick<PlanStep, "do" | "where" | "target">, now: { parts: PagePart[]; container: string }): { place: StepPlace | null; why: string } {
+export function placeNow(s: Pick<PlanStep, "do" | "where" | "target">, now: { parts: PagePart[]; container: string }, planIds: string[] = []): { place: StepPlace | null; why: string } {
   const at = now.parts.find((p) => p.kind === s.target.kind && partFp(p) === s.target.fp)
     // a part of the page whose words the page cut differently: its heading alone
     ?? (s.target.kind === "page" ? now.parts.find((p) => p.kind === "page" && p.heading && `${p.tag}|${p.heading}|` === s.target.fp.slice(0, s.target.fp.indexOf("|", s.target.fp.indexOf("|") + 1) + 1)) : undefined);
   if (!at) return { place: null, why: "The part it was planned at is not on the page any more." };
   const doing: StepDo = s.do;
-  const r = placeOf(doing, at, s.where === "before" || s.where === "after" ? s.where : "", now);
+  // "after P8" when an earlier step of this plan went after P8 already: after that one (the plan's order kept)
+  let to = at;
+  if ((doing === "add" || doing === "block") && s.where === "after") {
+    for (let i = now.parts.indexOf(at) + 1; i < now.parts.length && now.parts[i].kind !== "page" && planIds.includes(now.parts[i].change); i++) to = now.parts[i];
+  }
+  const r = placeOf(doing, to, s.where === "before" || s.where === "after" ? s.where : "", now);
   return { place: r.place, why: r.problem };
 }
 

@@ -54,7 +54,7 @@ test("the library is the registry's: every module, by category, never a name wri
   assert.equal(moduleIdOf("no such module"), null);
   // the schema asks for every field (the model answers in it)
   const item = (PLAN_SCHEMA.properties.steps as { items: { required: string[] } }).items;
-  assert.deepEqual(item.required.sort(), ["at", "do", "extras", "fill", "html", "layout", "link", "module", "where", "why", "words"]);
+  assert.deepEqual(item.required.sort(), ["at", "do", "extras", "fill", "html", "layout", "link", "link2", "module", "where", "why", "words"]);
 });
 
 test("the page's parts: the main column's blocks in order, each with a selector the hub made and checked (point 4)", () => {

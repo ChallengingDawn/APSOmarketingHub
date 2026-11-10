@@ -28,7 +28,7 @@ import type { Card, ModuleRef } from "@/lib/content/studio/kinds/page/modules/ty
 import type { Flash, Pending } from "./overlay";
 
 export type StepState =
-  | { state: "waiting" } | { state: "filling" } | { state: "checking" }
+  | { state: "waiting" } | { state: "placing" } | { state: "filling" } | { state: "checking" }
   | { state: "done"; note?: string } | { state: "held"; why: string } | { state: "failed"; why: string } | { state: "lost"; why: string } | { state: "skipped" };
 
 export type PlanRun = { plan: Plan; parts: Omit<PagePart, "text">[]; lang: string; at: number; states: Record<string, StepState> };
@@ -76,6 +76,8 @@ export function usePlan(o: {
   const [flash, setFlash] = useState<Flash | null>(null);
   const [busy, setBusy] = useState(false);
   const flashed = useRef(new Set<string>());
+  /** the steps of the plan open now whose change is on the page (saved) - a later one after the same part goes after them */
+  const placed = useRef<string[]>([]);
 
   const setState = (id: string, st: StepState) => setRun((r) => (r ? { ...r, states: { ...r.states, [id]: st } } : r));
   const pendFor = (step: PlanStep, html: string): Pending => {
@@ -97,11 +99,11 @@ export function usePlan(o: {
     const store = ref.current.lang();
     if (step.do === "words") {
       const m = base ? readModule((base as { module?: unknown }).module) : null;
-      return m ? withWords(m, step.words, step.link, step.extras) : null;
+      return m ? withWords(m, step.words, step.link, step.extras, step.link2) : null;
     }
     const m0 = makeModule(step.module, store);
     if (!m0) return null;
-    const m1 = withWords(m0, step.words, step.link, step.extras);
+    const m1 = withWords(m0, step.words, step.link, step.extras, step.link2);
     return step.layout ? { ...m1, settings: { ...m1.settings, layout: step.layout } } : m1;
   };
 
@@ -114,17 +116,19 @@ export function usePlan(o: {
     if (step.place.how === "change" && !base) { const why = "What it was to change is not on the page any more."; setState(step.id, { state: "failed", why }); return why; }
     let module: ModuleRef | null = null;
     let html = "";
-    setState(step.id, { state: "filling" });
     const m1 = step.do === "block" ? null : moduleOf(step, base);
     if (step.do !== "block" && !m1) { const why = `"${step.module}" is not in the module library any more.`; setState(step.id, { state: "failed", why }); return why; }
     const lib = m1 ? libModule(m1.type) : null;
     const needsShop = step.do !== "words" && step.do !== "block" && !!lib && (lib.takes !== "none" || lib.needs.includes("picture"));
+    setState(step.id, { state: needsShop ? "filling" : "placing" });
     // 1. at once: its skeleton (or the block, the module with its new words) at its place, scrolled to and lit
     show(step, step.do === "block" ? step.html : needsShop ? skeletonOf(m1!, FILLING) : drawModule(m1!), true);
     // 2. its place found again on the page as it is now (an earlier step may stand before it), and - a module of the
     //    shop's products, categories or pictures - filled from the shop
     const r = await ref.current.api.act<{ items: Card[]; feature: Card | null; note: string; missing: string[]; place: PlanStep["place"] | null; placeWhy: string }>("plan_fill", {
       lang: forLang, module: m1?.type ?? "", shop: needsShop, fill: step.fill, count: step.fill.count, target: step.target, do: step.do, where: step.where,
+      // the plan's steps already on the page: one planned after the same part goes after them (the plan's order kept)
+      earlier: placed.current.filter((id) => id !== step.id),
     });
     if (!r.ok) {
       const why = needsShop ? `It could not be filled from the shop: ${r.error}` : r.error;
@@ -164,6 +168,7 @@ export function usePlan(o: {
     if (!change?.id) { const why = "The change could not be made."; setState(step.id, { state: "failed", why }); return why; }
     setState(step.id, { state: "checking" });
     const note = runRef.current?.plan.note ?? "";
+    placed.current = [...placed.current.filter((x) => x !== change.id), change.id];
     await ref.current.put(forLang, (cur) => ({ ...cur, changes: withChange(cur.changes, { ...change, off: "Not checked yet - the check did not finish. Show it anyway, or ask again." } as PageChange) }), `AI: ${step.line}`, note);
     // 4. the check: it must read well (a free block is fixed once by the AI when it does not)
     let msg: string | null = null;
@@ -190,6 +195,7 @@ export function usePlan(o: {
       const plan = r.result.plan;
       // what is drawn of an earlier plan goes
       setPend({});
+      placed.current = [];
       if (!plan.steps.length) {
         setRun(null);
         return `${plan.note}.${plan.problems.length ? ` ${plan.problems.join(" ")}` : ""} Ask again in other words.`;

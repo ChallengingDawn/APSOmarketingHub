@@ -61,11 +61,12 @@ import {
 } from "./model";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
-import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, relinkOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
+import { findsOnPage } from "./plan/places";
 
 /* ── what the AI is told ──────────────────────────────────────────────── */
 
@@ -270,7 +271,7 @@ ${blockAsk({
     language: langOf(d), problems: fix ? s(input.problems, 1500) || "It could not be read well." : undefined,
   })}`;
     },
-    clean: (raw, docRaw, ctx, input) => {
+    clean: async (raw, docRaw, ctx, input) => {
       const d = viewFor(ctx, docRaw, input);
       const base = fix || modeIn(input) === "rework" ? baseChange(d, input) : null;
       const mode: BlockMode = base ? "rework" : modeIn(input);
@@ -280,6 +281,11 @@ ${blockAsk({
         id, mode, prefix, base, ground: groundOf(lookIn(input)), hadH1: input.hadH1 === true || (!!base && /<h1\b/i.test((base as { html: string }).html)),
         selector: base ? (base as { selector: string }).selector : s(input.selector, 300), where: s(input.where, 10),
       });
+      // Content v7 (point 4): a block put at a place that is not on the page as it is now is never listed in silence
+      if (r.change && !base && (r.change.op === "insert" || r.change.op === "replace")) {
+        const pg = await readShopPage(d).catch(() => null);
+        if (pg?.ok && !findsOnPage(pg.page.html, d, (r.change as { selector: string }).selector)) r.problems.unshift("Its place was not found on the page as it is now (the page changed under it) - pick the place again with the +.");
+      }
       return { ...r, leftovers: r.change ? leftoversIn(JSON.stringify(r.change)) : [] };
     },
   };
