@@ -17,15 +17,16 @@
 //   - the period, the business units and the sales organisations in Digital Growth's Filters window (FilterPanel), the
 //     choice as chips under the title, all of it in the address - carried from page to page.
 //
-// The pilot's KPIs and its graphs' logic (SARCLA 11.11.2026: "on graph styles we should follow more his logic, but on
-// structure more like the advanced graph style, and so forth on his KPI"): the tiles and the figures are the pilot's
-// (index.html, revision.js) - the largest customer account, the leading material family and identified compound, the
-// largest article and its margin, the accounts and articles in the red, the largest one's share, the share with no
-// approval written. Each of its charts asks the same question with the same encoding, drawn by the hub's chart kit
-// (src/app/charts): the revenue mixes as rings (Donut), the rankings with their gross margin and a rank to read them by
-// (BarList), scale against profitability as numbered bubbles (Bubbles), the approval evidence as a share bar (ShareBar),
-// "From results to action" as cards, the pilot's drawer as the detail window (a customer's articles, an article's or a
-// compound's customers). The hub's own charts - against a year earlier, month by month - follow the pilot's on a page.
+// The pilot's KPIs, charts and structure in the hub's style (SARCLA 11.11.2026: "mix with the hub, on the style of the
+// hub, but content-wise what he requests; if we can add more, perfect, but we should find his structure"): each of the
+// pilot's views (index.html, revision.js) is a page here, its sections in its order under its own questions - the
+// overview's four cards, "Where does revenue come from?" and "Which materials sell most?", "From results to action",
+// "The business at a glance" (who buys, which compounds lead, what sells most, which approvals matter); a view's title,
+// its cards, its search and ranking controls, its notice, its charts, its ranking, its cards of actions; "Definitions &
+// source notes" at the foot. Drawn by the hub's chart kit (src/app/charts): the revenue mixes as rings (Donut), the
+// rankings with their gross margin (BarList), scale against profitability as numbered bubbles (Bubbles), the approval
+// evidence as share bars (ShareBar), the hub's tiles, glass cards and detail window. The hub's own figures - against a
+// year earlier, month by month, every figure in a table - follow the pilot's content on each page.
 // No tile toolbar (tasks, tickets, promote, drag, Actions): that is the APSOparts action plan, closed to Angst+Pfister.
 // Margins are always the margin of the sums (sealingRules sumBy / rateMonths), never an average of margins.
 
@@ -88,9 +89,9 @@ import { fmtValue, type Fmt } from "@/lib/marketingKpis/measures";
 import { SEALING_PAGES, type SealingSlug } from "@/lib/apHub/sealingPages";
 import type { DetailRow, SealingDetail, SealingMonth, SealingView } from "@/lib/apHub/sealingStore";
 import {
-  APPROVAL_ACTIONS, APPROVAL_KINDS, approvalKind, familyActions, familyFigures, isMonth, materialOf, monthsBetween, monthsSpan, noCompound,
-  periodWords, rateMonths, reviewActions, sealingPresets, sumMonths, tileSeries,
-  type ApprovalKind, type DetailKind, type Figure, type KeyMonth, type MonthPair, type Priority,
+  APPROVAL_ACTIONS, APPROVAL_KINDS, SEALING_DEFINITIONS, actionsCaption, approvalKind, familyActions, familyFigures, isMonth, leadingRefs, matchesQuery,
+  materialOf, monthsBetween, monthsSpan, noCompound, periodWords, rankBy, rateMonths, reviewActions, sealingPresets, sumMonths, tileSeries,
+  type ApprovalKind, type DetailKind, type Figure, type KeyMonth, type MonthPair, type Priority, type RankBy,
 } from "@/lib/apHub/sealingRules";
 
 /* ── words and numbers, in full (Digital Growth: no abbreviations) ─────── */
@@ -378,6 +379,8 @@ const item = (v: SView | null, chart?: React.ReactNode): Item | null => (v ? { v
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
 const TILE_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", md: "span 4", lg: "span 3", xl: "span 2" } };
 const THIRD_SPAN = { gridColumn: { xs: "span 12", lg: "span 4" } };
+/** The pilot's four overview cards, four to a row on a wide screen (revision.css .cards). */
+const QUARTER_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", lg: "span 3" } };
 /** A topic's charts under its tiles, two to a row - the macro page's half-width cards. */
 const PAIR = { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } } as const;
 
@@ -393,10 +396,10 @@ const TOPIC: Record<"revenue" | "priorities" | Exclude<SealingSlug, "overview">,
 };
 
 /** A tile of the macro page (tiles/KpiStyled KpiTileChart): the badge, the name, the figure, the comparison, its months. */
-function Tile({ f, it, t }: { f: Frame; it: Item; t: Topic }) {
+function Tile({ f, it, t, span = TILE_SPAN }: { f: Frame; it: Item; t: Topic; span?: object }) {
   const chart = it.chart ?? (it.v.labels ? <MiniBars v={it.v} labels={it.v.labels} /> : undefined);
   return (
-    <Box sx={{ minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", ...TILE_SPAN }}>
+    <Box sx={{ minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", ...span }}>
       <KpiTileChart v={it.v} slug="sealing" tint={t.tint} icon={t.icon} upTo={f.upTo} title={it.v.id} chart={chart} />
     </Box>
   );
@@ -506,15 +509,52 @@ function ActionGrid({ items, onInspect }: { items: Priority[]; onInspect?: (comp
   );
 }
 
-/** A page's "From results to action" - the pilot's cards under its figures. */
-function Actions({ items, note }: { items: Priority[]; note: string }) {
+/**
+ * The pilot's "From results to action" (revision.js actionCards: "Commercial priorities", "Evidence · action ·
+ * opportunity"; the approvals' index.html insights: "What should we do?", "Evidence → recommendation") - its cards under
+ * the caption, the last of the pilot's sections on a page.
+ */
+function Actions({ items, title, first = false, empty }: { items: Priority[]; title: string; first?: boolean; empty?: string }) {
   const inspect = useContext(InspectCtx);
-  if (!items.length) return null;
+  if (!items.length && !empty) return null;
   return (
     <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <CardTitle icon={<LightbulbOutlinedIcon />} tint="amber" title="From results to action" note={note} />
-      <Box sx={{ mt: -1 }}><ActionGrid items={items} onInspect={(c) => inspect(compoundPick(c))} /></Box>
+      <CardTitle icon={<LightbulbOutlinedIcon />} tint="amber" title={title}
+        note={`From results to action · ${first ? "evidence → recommendation" : "evidence · action · opportunity"}`} />
+      <Box sx={{ mt: -1 }}>
+        {items.length
+          ? <ActionGrid items={items} onInspect={(c) => inspect(compoundPick(c))} />
+          : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>{empty}</Typography>}
+      </Box>
     </GlassCard>
+  );
+}
+
+/** A section's heading between the cards (the pilot's "The business at a glance" and its hint on the right). */
+function SectionHead({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 2, flexWrap: "wrap", mt: 0.5 }}>
+      <Typography component="h2" sx={{ fontSize: "1.2rem", fontWeight: 650, color: INK, letterSpacing: "-0.02em" }}>{title}</Typography>
+      {hint && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{hint}</Typography>}
+    </Box>
+  );
+}
+
+/** The pilot's notice under its controls - what the view's figures can and cannot say. */
+function Notice({ children }: { children: React.ReactNode }) {
+  return (
+    <Box sx={{ bgcolor: "#f4f6fa", borderRadius: "12px", px: 1.75, py: 1.1 }}>
+      <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 }}>{children}</Typography>
+    </Box>
+  );
+}
+
+/** "Explore all", "Inspect" - the pilot's way from a panel to its view. */
+function MoreLink({ href, children = "Explore all" }: { href: string; children?: React.ReactNode }) {
+  return (
+    <Box component={Link} href={href} sx={{ display: "inline-flex", alignItems: "center", gap: 0.25, fontSize: "0.8rem", fontWeight: 700, color: TINT.blue.fg, textDecoration: "none", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>
+      {children}<ChevronRightIcon sx={{ fontSize: 18 }} />
+    </Box>
   );
 }
 
@@ -553,71 +593,78 @@ const negativeItem = (f: Frame, what: "customers" | "articles") => {
     <ShareLine share={all > 0 ? n.rev / all : null} of={`of the net revenue sits with them · ${eur(n.rev)}`} tint={what === "customers" ? TOPIC.customers.tint : TOPIC.articles.tint} />);
 };
 
+/**
+ * The pilot's Overview (revision.js overview), in its order: "Understand the business." - its four cards, "Where does
+ * revenue come from?" and "Which materials sell most?", "From results to action" (the commercial priorities), "The
+ * business at a glance" (who buys from us, which compounds lead, what sells most, which approvals matter). Then the hub's
+ * own: each topic's figures against a year earlier and month by month, its title the way to its page.
+ */
 function Overview({ f, busy, err, again }: { f: Frame; busy: boolean; err: string | null; again: () => void }) {
-  const [panel, setPanel] = useState(false);
+  const [win, setWin] = useState<Win>(null);
   const [pick, setPick] = useState<DetailPick | null>(null);
   const router = useRouter();
-  const inspect = useCallback((p: DetailPick) => { setPanel(false); setPick(p); }, []);
+  const inspect = useCallback((p: DetailPick) => { setWin(null); setPick(p); }, []);
+  const open = (w: Win) => { setPick(null); setWin((x) => (x === w ? null : w)); };
   const units = topKeys(f.d.byBu);
   const custRows = rowsOf(f.d.customers), artRows = rowsOf(f.d.articles), compRows = rowsOf(f.d.compounds);
+  const compound = { ...TOPIC.materials, icon: <ScienceOutlinedIcon />, tint: "purple" as Tint };
+  const cards: [Item | null, Topic][] = [[largestCustomer(f), TOPIC.customers], [leadingFamily(f), TOPIC.materials], [leadingCompound(f), compound], [largestArticle(f), TOPIC.articles]];
   return (
     <InspectCtx.Provider value={inspect}>
-      {/* the macro page: the full width, the panels one under the other (marketing-kpis/page.tsx) */}
+      {/* the macro page's frame: the full width, the sections one under the other (marketing-kpis/page.tsx) */}
       <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-        <Head f={f} title="Sealing Business Review" busy={busy} panel={panel} onPanel={() => { setPick(null); setPanel((x) => !x); }} />
+        <Head f={f} kicker="Sealing Business Review · Executive Committee pilot" title="Understand the business." lead="Who buys. What sells. Where to focus next."
+          busy={busy} panel={win === "filters"} onPanel={() => open("filters")} />
         <Trouble err={err} again={again} />
-        <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }} aria-busy={busy}>
-          <TopicPanel t={TOPIC.revenue} href={hrefOf("units", f.carry, "months")} note={`Every business unit's sealing invoices, ${f.now} - month by month on its page`}>
+        <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)", opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }} aria-busy={busy}>
+          {/* 1 · the pilot's cards: the largest customer account, the leading material family and compound, the largest article */}
+          <Box sx={GRID}>
+            {cards.filter((c): c is [Item, Topic] => !!c[0] && c[0].v.ytd != null).map(([it, t]) => <Tile key={it.v.id} f={f} it={it} t={t} span={QUARTER_SPAN} />)}
+          </Box>
+          {/* 2 · where revenue comes from, which materials sell most */}
+          <Box sx={PAIR}>
+            <BuMix f={f} title="Where does revenue come from?" hint="Click an organisation to explore its customer accounts"
+              onPick={(k) => router.push(hrefOf("customers", plus(f.carry, "bu", k)))} />
+            <FamilyMix f={f} onPick={(x) => router.push(hrefOf("materials", f.carry, undefined, { family: x }))} hint="Click a family to open its compounds" />
+          </Box>
+          {/* 3 · from results to action */}
+          <Actions items={f.d.priorities} title="Commercial priorities" empty="Nothing in these months with these filters meets the thresholds of a priority." />
+          {/* 4 · the business at a glance */}
+          <SectionHead title="The business at a glance" hint="Click a name to explore the relationship" />
+          <Box sx={PAIR}>
+            <Ranked title="Who buys from us?" hint={`Top 5 of ${int(f.d.totals.customers)} customer accounts`} rows={custRows} by="rev" n={5}
+              nameHead="Customer" onPick={(r) => inspect(pickOf("customer", r))} labelWidth={200} right={<MoreLink href={hrefOf("customers", f.carry)} />} />
+            <Ranked title="Which compounds lead?" hint="Top 5 named entries · as written on the articles" rows={compRows} by="rev" n={5}
+              nameHead="Compound" onPick={(r) => inspect(pickOf("compound", r))} labelWidth={200} right={<MoreLink href={hrefOf("materials", f.carry)} />} />
+            <Ranked title="What sells most?" hint={`Top 5 of ${int(f.d.totals.articles)} articles`} rows={artRows} by="rev" n={5}
+              nameHead="Article" onPick={(r) => inspect(pickOf("article", r))} labelWidth={200} right={<MoreLink href={hrefOf("articles", f.carry)} />} />
+            <ApprovalShare f={f} href={hrefOf("approvals", f.carry)} />
+          </Box>
+          {/* the hub's own, after the pilot's: each topic against a year earlier, month by month - its title opens its page */}
+          <SectionHead title="Against a year earlier" hint="Each topic month by month · its title opens its page" />
+          <TopicPanel t={TOPIC.revenue} href={hrefOf("units", f.carry, "months")} note={`Every business unit's sealing invoices, ${f.now}`}>
             <Tiles f={f} t={TOPIC.revenue} items={[item(V.rev(f)), item(V.gp(f)), item(V.margin(f))]} />
           </TopicPanel>
-          {/* the pilot's "From results to action": the three priorities side by side */}
-          <TopicPanel t={TOPIC.priorities} note={`Found in the figures of ${f.now} - evidence, then a next move. Illustrative, never a forecast: validate before acting.`}>
-            {f.d.priorities.length
-              ? <ActionGrid items={f.d.priorities} onInspect={(c) => inspect(compoundPick(c))} />
-              : <Typography sx={{ fontSize: "0.86rem", color: FAINT }}>Nothing in these months with these filters meets the thresholds.</Typography>}
+          <TopicPanel t={TOPIC.customers} href={hrefOf("customers", f.carry)} note="The customer accounts invoiced, the largest one's share, the accounts at a negative margin">
+            <Tiles f={f} t={TOPIC.customers} items={[item(V.customers(f)), item(V.customerShare(f)), negativeItem(f, "customers")]} />
           </TopicPanel>
-          <TopicPanel t={TOPIC.units} href={hrefOf("units", f.carry)} note="Where does revenue come from? Each Angst+Pfister company that invoiced - their margins and the sales organisations on the page">
-            <Tiles f={f} t={TOPIC.units} items={units.keys.map((k, i) => item(keyView(f, `${units.names[i]} net revenue`, f.d.unitMonths, k)))} />
-            <Box sx={PAIR}>
-              <BuMix f={f} title="Where does revenue come from?" hint="Each business unit's part of the net revenue · click one to see its customers"
-                onPick={(k) => router.push(hrefOf("customers", plus(f.carry, "bu", k)))} />
-              <MarginChart f={f} title="Gross margin, by business unit" rows={rowsOf(f.d.byBu)} labelWidth={120} />
-            </Box>
+          <TopicPanel t={TOPIC.articles} href={hrefOf("articles", f.carry)} note="The articles invoiced, the articles at a negative margin">
+            <Tiles f={f} t={TOPIC.articles} items={[item(V.articles(f)), negativeItem(f, "articles")]} />
           </TopicPanel>
-          <TopicPanel t={TOPIC.customers} href={hrefOf("customers", f.carry)} note="Who buys from us? Every customer account's figures on the page">
-            <Tiles f={f} t={TOPIC.customers} items={[largestCustomer(f), item(V.customers(f)), item(V.customerShare(f)), negativeItem(f, "customers")]} />
-            <Box sx={PAIR}>
-              <Ranked title="Who buys from us?" hint={`The 5 largest of ${int(f.d.totals.customers)} customer accounts`} rows={custRows} by="rev" n={5}
-                nameHead="Customer" onPick={(r) => inspect(pickOf("customer", r))} labelWidth={200} />
-              <Scale rows={custRows} by="rev" what="customer accounts" onPick={(r) => inspect(pickOf("customer", r))} />
-            </Box>
+          <TopicPanel t={TOPIC.materials} href={hrefOf("materials", f.carry)} note={`The named compounds - ${pct(f.d.noCompoundShare)} of the net revenue names none`}>
+            <Tiles f={f} t={TOPIC.materials} items={[item(V.compounds(f)), item(V.noCompound(f))]} />
           </TopicPanel>
-          <TopicPanel t={TOPIC.articles} href={hrefOf("articles", f.carry)} note="What sells most? Every article's figures and compound on the page">
-            <Tiles f={f} t={TOPIC.articles} items={[largestArticle(f), item(V.articles(f)), negativeItem(f, "articles")]} />
-            <Box sx={PAIR}>
-              <Ranked title="What sells most?" hint={`The 5 largest of ${int(f.d.totals.articles)} articles`} rows={artRows} by="rev" n={5}
-                nameHead="Article" onPick={(r) => inspect(pickOf("article", r))} labelWidth={200} />
-              <ArticleMix f={f} onPick={(x) => router.push(hrefOf("articles", f.carry, undefined, { family: x }))} hint="The articles' net revenue by the family of their compound · click one to see its articles" />
-            </Box>
-          </TopicPanel>
-          <TopicPanel t={TOPIC.materials} href={hrefOf("materials", f.carry)} note={`Which materials sell most? Which compounds lead? Named compounds only - ${pct(f.d.noCompoundShare)} of the net revenue names none`}>
-            <Tiles f={f} t={TOPIC.materials} items={[leadingFamily(f), leadingCompound(f), item(V.compounds(f)), item(V.noCompound(f))]} />
-            <Box sx={PAIR}>
-              <FamilyMix f={f} onPick={(x) => router.push(hrefOf("materials", f.carry, "compounds", { family: x }))} hint="The named compounds' net revenue by material family · click one to open its compounds" />
-              <Ranked title="Which compounds lead?" hint="The 5 largest named compounds" rows={compRows} by="rev" n={5}
-                nameHead="Compound" onPick={(r) => inspect(pickOf("compound", r))} labelWidth={200} />
-            </Box>
-          </TopicPanel>
-          <TopicPanel t={TOPIC.approvals} href={hrefOf("approvals", f.carry)} note="Which approvals matter? What is written on the articles sold - each approval's figures on the page">
+          <TopicPanel t={TOPIC.approvals} href={hrefOf("approvals", f.carry)} note="What is written on the articles sold">
             <Tiles f={f} t={TOPIC.approvals} items={[item(V.noApproval(f)), item(V.withApproval(f)), item(V.approvals(f))]} />
-            <Box sx={PAIR}>
-              <ApprovalShare f={f} />
-              <References f={f} onPick={(ref) => router.push(hrefOf("approvals", f.carry, undefined, { find: ref }))} />
-            </Box>
+          </TopicPanel>
+          <TopicPanel t={TOPIC.units} href={hrefOf("units", f.carry)} note="Each Angst+Pfister company that invoiced - their margins and the sales organisations on the page">
+            <Tiles f={f} t={TOPIC.units} items={units.keys.map((k, i) => item(keyView(f, `${units.names[i]} net revenue`, f.d.unitMonths, k)))} />
+            <MarginChart f={f} title="Gross margin, by business unit" rows={rowsOf(f.d.byBu)} labelWidth={120} />
           </TopicPanel>
         </Box>
-        <Foot f={f} slug="overview" />
-        <FilterWindow f={f} open={panel} onClose={() => setPanel(false)} />
+        <Foot f={f} slug="overview" onDefinitions={() => open("definitions")} />
+        <FilterWindow f={f} open={win === "filters"} onClose={() => setWin(null)} />
+        <Definitions open={win === "definitions"} onClose={() => setWin(null)} />
         <DetailWindow f={f} pick={pick} onClose={() => setPick(null)} />
       </Box>
     </InspectCtx.Provider>
@@ -666,12 +713,22 @@ function FiltersButton({ f, open, onClick }: { f: Frame; open: boolean; onClick:
   );
 }
 
-/** The overview's head: the title, the line, the chips - and the Filters button on the right. */
-function Head({ f, title, busy, panel, onPanel }: { f: Frame; title: string; busy: boolean; panel: boolean; onPanel: () => void }) {
+/** The window open over a page besides the detail: the Filters, or the pilot's definitions. */
+type Win = "filters" | "definitions" | null;
+
+/** Above a title: whose review it is (the pilot's "Executive committee · Pilot 01"). */
+const KICKER = { fontSize: "0.72rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.08em" } as const;
+/** Under a title: what the view is for (the pilot's "Who buys. What sells. Where to focus next."). */
+const LEAD = { fontSize: "0.98rem", color: INK, lineHeight: 1.45 } as const;
+
+/** The overview's head: the pilot's eyebrow, title and line, the period, the chips - and the Filters button on the right. */
+function Head({ f, kicker, title, lead, busy, panel, onPanel }: { f: Frame; kicker?: string; title: string; lead?: string; busy: boolean; panel: boolean; onPanel: () => void }) {
   return (
     <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(240px, 1fr) auto" } }}>
       <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
+        {kicker && <Typography sx={KICKER}>{kicker}</Typography>}
         <Typography component="h1" sx={H1}>{title}</Typography>
+        {lead && <Typography sx={LEAD}>{lead}</Typography>}
         <Line f={f} busy={busy} />
         <Chosen f={f} />
       </Box>
@@ -690,8 +747,37 @@ function Trouble({ err, again }: { err: string | null; again: () => void }) {
   );
 }
 
-/** Where the figures come from, and the pilot's source notes that still hold - small, at the foot. */
-function Foot({ f, slug }: { f: Frame; slug: SealingSlug }) {
+/** The pilot's "Definitions & source notes" - a window as the Filters open, the hub's figures in the pilot's sections. */
+function Definitions({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <FilterPanel id="sealing-definitions" open={open} onClose={onClose} title="Definitions & source notes" icon={<InfoOutlinedIcon />} tint="slate" width={520}
+      closeLabel="Close the definitions" subtitle="About this review - how its figures are read">
+      <Box sx={{ display: "grid", gap: 0, px: 1, py: 0.5 }}>
+        {SEALING_DEFINITIONS.map((x, i) => (
+          <Box key={x.title} sx={{ py: 1.4, borderTop: i ? `1px solid ${HAIRLINE}` : "none" }}>
+            <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mb: 0.4 }}>{x.title}</Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.55 }}>{x.text}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </FilterPanel>
+  );
+}
+
+/** Where the figures come from, and the pilot's source notes that still hold - small, at the foot - and its definitions. */
+function Foot({ f, slug, onDefinitions }: { f: Frame; slug: SealingSlug; onDefinitions: () => void }) {
+  return (
+    <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap" }}>
+      <Box sx={{ flex: "1 1 420px", minWidth: 0 }}><FootWords f={f} slug={slug} /></Box>
+      <Button size="small" startIcon={<InfoOutlinedIcon />} onClick={onDefinitions} aria-controls="sealing-definitions"
+        sx={{ textTransform: "none", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>
+        Definitions &amp; source notes
+      </Button>
+    </Box>
+  );
+}
+
+function FootWords({ f, slug }: { f: Frame; slug: SealingSlug }) {
   const m = f.d.meta;
   const file = m.file ? m.file.split(/[\\/]/).pop() : null;
   const from = [file, m.sheet ? `sheet "${m.sheet}"` : null].filter(Boolean).join(", ");
@@ -703,7 +789,7 @@ function Foot({ f, slug }: { f: Frame; slug: SealingSlug }) {
     `invoices from ${monthWords(f.min)} up to ${monthWords(f.max)}`,
   ].filter(Boolean).join(" · ")
     + ". Gross margin = gross profit over net revenue of the same invoices, never an average of margins."
-    + " The views overlap: their totals do not add up."
+    + " Selections overlap: totals across views are not additive."
     + (slug === "overview" ? " The priorities are illustrative sensitivities (+5 pp margin, +10% sales), never a forecast or a target." : "")
     + (slug === "customers" ? " Customer numbers stay apart even where two accounts carry the same name." : "")
     + (slug === "materials" || slug === "articles" ? " The material family follows the pilot's rule, by the compound's name; compounds are shown as written." : "")
@@ -843,7 +929,7 @@ function FilterWindow({ f, open, onClose }: { f: Frame; open: boolean; onClose: 
 const PICK_LOOK: Record<DetailPick["kind"], { title: string; icon: React.ReactNode; tint: Tint; rows: string; rowHead: string }> = {
   customer: { title: "Customer account", icon: <GroupsOutlinedIcon />, tint: "green", rows: "Articles purchased", rowHead: "Article" },
   article: { title: "Article", icon: <InventoryOutlinedIcon />, tint: "pink", rows: "Customer exposure", rowHead: "Customer" },
-  compound: { title: "Compound", icon: <ScienceOutlinedIcon />, tint: "purple", rows: "Its customers", rowHead: "Customer" },
+  compound: { title: "Compound", icon: <ScienceOutlinedIcon />, tint: "purple", rows: "Available customer breakdown", rowHead: "Customer" },
   approval: { title: "Approval as written", icon: <VerifiedOutlinedIcon />, tint: "slate", rows: "", rowHead: "" },
 };
 
@@ -895,7 +981,7 @@ function DetailWindow({ f, pick, onClose }: { f: Frame; pick: DetailPick | null;
                   Indicative category: <b style={{ color: INK }}>{kindName}</b>. A text is not evidence of a current certification, nor of what caused a sale.
                 </Typography>
               </Box>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>The text as written</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Original text</Typography>
               <Typography sx={{ fontSize: "0.86rem", color: INK, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.55 }}>{pick.key}</Typography>
             </>
           ) : busy ? (
@@ -946,11 +1032,16 @@ const marginNote = (r: Row) => { const p = prevMargin(r); return p == null ? nul
 /* ── the drill-down's parts: charts, then tables (Customers.tsx, Reach.tsx) ── */
 
 /** A chart's own box inside a breakdown's card - DimChart's look, for the charts that are not DimCharts. */
-function ChartBox({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function ChartBox({ title, hint, right, children }: { title: string; hint?: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
     <Box sx={{ ...glass, borderRadius: "18px", p: 2, minWidth: 0 }}>
-      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
-      {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>{hint}</Typography>}
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, mb: 1 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>{title}</Typography>
+          {hint && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{hint}</Typography>}
+        </Box>
+        {right}
+      </Box>
       {children}
     </Box>
   );
@@ -960,58 +1051,75 @@ const NONE = (what = "No invoice in these months with these filters.") => <Typog
 /* the pilot's charts, drawn by the hub's kit */
 
 /** What a ranking ranks by - the pilot's "Rank by revenue / gross profit". */
-type By = "rev" | "gp";
+type By = RankBy;
 /** How many a ranking shows - the pilot's "Top 10 / 20 / 30 / All entries" (0: all). */
 const TOPS = [10, 20, 30, 0];
-const rankOf = (rows: Row[], by: By) => [...rows].sort((a, b) => (by === "gp" ? b.gp - a.gp : b.rev - a.rev) || a.label.localeCompare(b.label));
+
+/**
+ * The pilot's controls above a view's charts (index.html controls): the search over names and identifiers, rank by net
+ * revenue or gross profit, the first 10, 20, 30 or all - the business unit is the Filters'. The ranking and the
+ * scatter follow them.
+ */
+function Controls({ what, q, onQ, by, onBy, n, onN, count, children }: {
+  what: string; q: string; onQ: (q: string) => void; by: By; onBy: (b: By) => void; n: number; onN: (n: number) => void; count: number; children?: React.ReactNode;
+}) {
+  return (
+    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: 1.25, height: 36, flex: "1 1 260px", maxWidth: 460, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}` }}>
+        <SearchIcon sx={{ fontSize: 17, color: MUTED }} />
+        <InputBase value={q} onChange={(e) => onQ(e.target.value)} placeholder={`Search ${what}…`} inputProps={{ "aria-label": `Search ${what}` }} sx={{ fontSize: "0.84rem", flex: 1 }} />
+      </Box>
+      <ToggleButtonGroup size="small" exclusive value={by} onChange={(_, v: By | null) => v && onBy(v)} aria-label="Rank by" sx={TOGGLE}>
+        <ToggleButton value="rev">Rank by net revenue</ToggleButton>
+        <ToggleButton value="gp">Rank by gross profit</ToggleButton>
+      </ToggleButtonGroup>
+      <ToggleButtonGroup size="small" exclusive value={n} onChange={(_, v: number | null) => v != null && onN(v)} aria-label="Number of results" sx={TOGGLE}>
+        {TOPS.map((t) => <ToggleButton key={t} value={t}>{t ? `Top ${t}` : `All ${int(count)}`}</ToggleButton>)}
+      </ToggleButtonGroup>
+      {children}
+    </Box>
+  );
+}
+
+/** The rows the pilot's search finds - by name, identifier (and compound, on the articles). */
+const found = (rows: Row[], q: string) => rows.filter((r) => matchesQuery(`${r.label} ${r.compound ?? ""}`, r.key, q));
 
 /**
  * The pilot's ranking ("Who buys from us?", "What sells most?", "Which compounds lead?"): the rank, the name, its bar,
  * the figure ranked by and the gross margin beside it - a loss in red; ranked by net revenue or gross profit, the first
  * 10, 20, 30 or all; a click opens what the name is made of.
  */
-function Ranked({ title, hint, rows, by, onBy, n, onN, nameHead, onPick, labelWidth = 220 }: {
-  title: string; hint?: string; rows: Row[]; by: By; onBy?: (b: By) => void; n: number; onN?: (n: number) => void; nameHead: string;
-  onPick?: (r: Row) => void; labelWidth?: number;
+function Ranked({ title, hint, rows, by, n, nameHead, onPick, labelWidth = 220, right, foot }: {
+  title: string; hint?: string; rows: Row[]; by: By; n: number; nameHead: string;
+  onPick?: (r: Row) => void; labelWidth?: number; right?: React.ReactNode; foot?: boolean;
 }) {
-  const shown = (n ? rankOf(rows, by).slice(0, n) : rankOf(rows, by));
+  const shown = rankBy(rows, by, n);
   const byLabel = new Map(shown.map((r) => [r.label, r]));
-  const words = [hint, onPick ? "click a name to see what it is made of" : ""].filter(Boolean).join(" · ");
-  const aside = onBy || onN ? (
-    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
-      {onBy && (
-        <ToggleButtonGroup size="small" exclusive value={by} onChange={(_, v: By | null) => v && onBy(v)} aria-label="Rank by" sx={TOGGLE}>
-          <ToggleButton value="rev">Net revenue</ToggleButton>
-          <ToggleButton value="gp">Gross profit</ToggleButton>
-        </ToggleButtonGroup>
-      )}
-      {onN && (
-        <ToggleButtonGroup size="small" exclusive value={n} onChange={(_, v: number | null) => v != null && onN(v)} aria-label="How many" sx={TOGGLE}>
-          {TOPS.map((t) => <ToggleButton key={t} value={t}>{t ? `Top ${t}` : `All ${int(rows.length)}`}</ToggleButton>)}
-        </ToggleButtonGroup>
-      )}
-    </Box>
-  ) : undefined;
   return (
-    <ChartBox title={title} hint={words}>
+    <ChartBox title={title} hint={hint} right={right}>
       {shown.length ? (
-        <ChartFrame aside={aside} table={{ columns: ["Rank", nameHead, "Net revenue", "Gross profit", "Gross margin"], rows: shown.map((r, i) => [i + 1, r.label, Math.round(r.rev), Math.round(r.gp), pct(r.margin)]), numeric: [0, 2, 3, 4] }}>
+        <ChartFrame table={{ columns: ["Rank", nameHead, "Net revenue", "Gross profit", "Gross margin"], rows: shown.map((r, i) => [i + 1, r.label, Math.round(r.rev), Math.round(r.gp), pct(r.margin)]), numeric: [0, 2, 3, 4] }}>
           <BarList ranked format={eur} labelWidth={labelWidth} maxLabel={Math.max(18, Math.round(labelWidth / 6.6))}
             heads={{ label: nameHead, value: by === "gp" ? "Gross profit" : "Net revenue", note: "Gross margin" }}
             rows={shown.map((r) => ({ label: r.label, value: by === "gp" ? r.gp : r.rev, color: r.margin < 0 ? DELTA.bad : undefined, note: { text: pct(r.margin), color: r.margin < 0 ? DELTA.bad : DELTA.good } }))}
             onSelect={onPick ? (l) => { const r = byLabel.get(l); if (r) onPick(r); } : undefined} />
         </ChartFrame>
-      ) : NONE()}
+      ) : NONE("No records match this selection.")}
+      {foot && (
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1.25 }}>
+          {onPick ? "Click an entry to inspect its available detail. " : ""}Gross profit is the ERP's: the net revenue less the cost of the goods; the gross margin is the margin of the sums.
+        </Typography>
+      )}
     </ChartBox>
   );
 }
 
 /** The pilot's "Scale & profitability": the first ten of the ranking as bubbles - across their margin, up their revenue. */
 function Scale({ rows, by, what, onPick }: { rows: Row[]; by: By; what: string; onPick?: (r: Row) => void }) {
-  const top = rankOf(rows, by).slice(0, 10);
+  const top = rankBy(rows, by, 10);
   const byLabel = new Map(top.map((r) => [r.label, r]));
   return (
-    <ChartBox title="Scale & profitability" hint={`The first ${top.length} ${what} of the ranking, numbered as in it · higher: more net revenue, further right: a higher gross margin`}>
+    <ChartBox title="Scale & profitability" hint={`Top ${top.length} ${what} in the current ranking · numbers match the list`}>
       {top.length ? (
         <ChartFrame table={{ columns: ["Rank", "Name", "Net revenue", "Gross margin"], rows: top.map((r, i) => [i + 1, r.label, Math.round(r.rev), pct(r.margin)]), numeric: [0, 2, 3] }}>
           <Bubbles points={top.map((r, i) => ({ label: r.label, x: r.margin, y: r.rev, size: r.rev, rank: i + 1, bad: r.margin < 0 }))}
@@ -1019,7 +1127,7 @@ function Scale({ rows, by, what, onPick }: { rows: Row[]; by: By; what: string; 
             onSelect={onPick ? (l) => { const r = byLabel.get(l); if (r) onPick(r); } : undefined} />
         </ChartFrame>
       ) : NONE()}
-      <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1 }}>A bubble&apos;s size is its net revenue; a red one has a negative margin. Different product mixes can explain the differences.</Typography>
+      <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1 }}>Higher points represent more revenue. Further right represents a higher margin; a red one is a loss. Different product mixes can explain differences.</Typography>
     </ChartBox>
   );
 }
@@ -1043,60 +1151,71 @@ function Mix({ title, hint, parts, first, centerLabel, onPick, selected, foot }:
 }
 
 const partsOf = (figs: Figure[]) => figs.map((x) => ({ label: x.name || x.key || NOT_KNOWN, value: x.rev }));
+/** "the sealing invoices" or "the invoices chosen" - the pilot's "not total portfolio" in the hub's words. */
+const scopeWords = (f: Frame) => (f.bus.length || f.orgs.length ? "The sealing invoices chosen in the Filters · not the total portfolio" : "Every business unit's sealing invoices (profit centre DT)");
 
-/** "Where does revenue come from?" / "Business-unit contribution" - each business unit's part; a click filters by it. */
+/** "Where does revenue come from?" / "Business-unit contribution" (revision.js buMix) - each business unit's part; a click filters by it. */
 function BuMix({ f, title, hint, onPick }: { f: Frame; title: string; hint?: string; onPick?: (key: string) => void }) {
   const keyOf = new Map(f.d.byBu.map((x) => [x.name || x.key || NOT_KNOWN, x.key]));
   const pick = (label: string) => { const k = keyOf.get(label); if (k) (onPick ?? ((x: string) => toggleParam("bu", x)))(k); };
-  return <Mix title={title} hint={hint} parts={partsOf(f.d.byBu)} first="Business unit" centerLabel="net revenue" onPick={pick} selected={f.bus.length ? f.bus : undefined} />;
+  return <Mix title={title} hint={hint} parts={partsOf(f.d.byBu)} first="Business unit" centerLabel={f.bus.length || f.orgs.length ? "revenue in selection" : "net revenue"}
+    onPick={pick} selected={f.bus.length ? f.bus : undefined} foot={scopeWords(f)} />;
 }
 
-/** "Which materials sell most?" - each family's part of the named compounds; a click opens its compounds. */
+/** "Which materials sell most?" (revision.js materialRows) - each family's part of the named compounds; a click opens its compounds. */
 function FamilyMix({ f, onPick, chosen, hint }: { f: Frame; onPick: (family: string) => void; chosen?: string | null; hint?: string }) {
   return (
-    <Mix title="Which materials sell most?" hint={hint} parts={partsOf(f.d.byFamily)} first="Material family" centerLabel="named compounds' net revenue"
+    <Mix title="Which materials sell most?" hint={hint} parts={partsOf(f.d.byFamily)} first="Material family" centerLabel="named compound revenue"
       onPick={onPick} selected={chosen ? [chosen] : undefined}
-      foot="Named compounds only. The family by the compound's name (Kalrez and Evolast are FFKM); a compound no rule names is Unclassified." />
+      foot="Named compound entries only. The family by the compound's name (Kalrez and Evolast are FFKM); a compound no rule names is Unclassified." />
   );
 }
 
-/** The articles' material mix - the family of each article's compound, "No compound named" where it names none. */
+/** "Material mix of the articles" (revision.js detailView, articles) - the family of each article's compound; a click filters the articles. */
 function ArticleMix({ f, onPick, chosen, hint }: { f: Frame; onPick: (family: string) => void; chosen?: string | null; hint?: string }) {
   const none = f.d.noCompoundShare * f.d.totals.rev;
   return (
     <Mix title="Material mix of the articles" hint={hint} parts={[...partsOf(f.d.byFamily), ...(none > 0 ? [{ label: NO_COMPOUND, value: none }] : [])]}
-      first="Material family" centerLabel="net revenue" onPick={onPick} selected={chosen ? [chosen] : undefined}
-      foot="The compound as written on the article - designations that do not match need checking." />
+      first="Material family" centerLabel="article revenue" onPick={onPick} selected={chosen ? [chosen] : undefined}
+      foot="The compound as written on the article - designations that do not match need validation." />
   );
 }
 
 const KIND_COLOR: Record<ApprovalKind, string> = { none: DEEMPHASIS, datasheet: SERIES[2], explicit: SERIES[0], other: SERIES[1] };
 
-/** The pilot's "Which approvals matter?": the net revenue with no approval written against the rest, as one bar. */
-function ApprovalShare({ f }: { f: Frame }) {
+/**
+ * The pilot's "Which approvals matter?" (index.html overview): the share of the revenue with no approval written, large,
+ * that share against the rest as one bar, the references that appear - and the way to the evidence.
+ */
+function ApprovalShare({ f, href }: { f: Frame; href: string }) {
   const s = f.d.noApprovalShare, all = f.d.totals.rev;
-  const named = f.d.approvalRefs.filter((r) => r.rev > 0).slice(0, 3).map((r) => r.name);
+  const named = leadingRefs(f.d.approvalRefs);
   return (
-    <ChartBox title="Which approvals matter?" hint={`${pct(s)} of the net revenue has no approval written on the article`}>
+    <ChartBox title="Which approvals matter?" hint="Current evidence from the approvals written on the articles" right={<MoreLink href={href}>Inspect</MoreLink>}>
       {all > 0 ? (
-        <ShareBar keepOrder format={eur} segments={[
-          { label: "No approval written", value: all * s, color: DEEMPHASIS },
-          { label: "An approval written", value: all * (1 - s), color: ACCENT },
-        ]} />
+        <>
+          <Typography sx={{ fontSize: "2rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{pct(s)}</Typography>
+          <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>of the net revenue has no approval written on the article.</Typography>
+          <ShareBar keepOrder format={eur} segments={[
+            { label: "No approval written", value: all * s, color: DEEMPHASIS },
+            { label: "An approval written", value: all * (1 - s), color: ACCENT },
+          ]} />
+        </>
       ) : NONE()}
-      <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 1.25 }}>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1.25 }}>
         {named.length ? `${andList(named)} appear in some texts. ` : ""}The figures cannot establish which approvals caused sales.
       </Typography>
+      <Box sx={{ mt: 1 }}><MoreLink href={href}>Explore the available evidence</MoreLink></Box>
     </ChartBox>
   );
 }
 
-/** The pilot's "The evidence available today": the approval texts' net revenue by their indicative category. */
+/** The pilot's "The evidence available today" (index.html approvalSummary): the approval texts' revenue by their indicative category. */
 function Evidence({ f }: { f: Frame }) {
   const kinds = f.d.approvalKinds;
   const all = kinds.reduce((a, k) => a + Math.max(0, k.rev), 0);
   return (
-    <ChartBox title="The evidence available today" hint="Every approval text of the period by the pilot's keywords - an indication, not a validated approval">
+    <ChartBox title="The evidence available today" hint="Every approval text of the period · indicative text classifications, not validated approval status">
       {all > 0 ? (
         <ChartFrame table={{ columns: ["Category", "Net revenue", "Share"], rows: kinds.map((k) => [k.name, Math.round(k.rev), pct(k.rev / all)]), numeric: [1, 2] }}>
           <ShareBar keepOrder format={eur} segments={kinds.map((k) => ({ label: k.name, value: k.rev, color: KIND_COLOR[k.key as ApprovalKind] }))} />
@@ -1107,13 +1226,16 @@ function Evidence({ f }: { f: Frame }) {
   );
 }
 
-/** The pilot's "Most prominent approval references": the net revenue of the texts naming each - they overlap. */
+/**
+ * The pilot's "Most prominent approval references" (index.html mentionSummary): the revenue of the texts mentioning each
+ * reference - they overlap; a click searches the texts for it.
+ */
 function References({ f, onPick }: { f: Frame; onPick?: (ref: string) => void }) {
   const refs = f.d.approvalRefs.filter((r) => r.rev > 0);
   const none = f.d.approvalRefs.filter((r) => r.rev <= 0).map((r) => r.name);
   const all = f.d.totals.rev;
   return (
-    <ChartBox title="Most prominent approval references" hint={`The texts naming each - a text naming two counts in both, so they overlap and never add up${onPick ? " · click one to find its texts" : ""}`}>
+    <ChartBox title="Most prominent approval references" hint={`Revenue associated with the texts mentioning each reference. Groups overlap and cannot be added${onPick ? " · click one to inspect its texts" : ""}`}>
       {refs.length ? (
         <ChartFrame table={{ columns: ["Reference", "Net revenue", "Of the net revenue"], rows: refs.map((r) => [r.name, Math.round(r.rev), pct(all ? r.rev / all : 0)]), numeric: [1, 2] }}>
           <BarList format={eur} labelWidth={64} heads={{ label: "Reference", value: "Net revenue", note: "Of all" }} onSelect={onPick}
@@ -1125,23 +1247,45 @@ function References({ f, onPick }: { f: Frame; onPick?: (ref: string) => void })
   );
 }
 
-/** The pilot's material cards ("Materials first. Compounds next."), as the macro page's tiles - a click opens its compounds. */
-function FamilyTiles({ f, onPick }: { f: Frame; onPick: (family: string) => void }) {
+/**
+ * The pilot's material cards (revision.js materialCards: "Materials first. Compounds next."), as the macro page's tiles -
+ * each family's revenue, its compounds and margin, its share of the named compounds; the family list on the right, the
+ * family chosen outlined; a click opens (or filters) its compounds.
+ */
+function FamilyTiles({ f, active = null, onPick }: { f: Frame; active?: string | null; onPick: (family: string | null) => void }) {
   const figs = familyFigures(f.d.compounds);
   const t = TOPIC.materials;
   if (!figs.length) return null;
+  const pickList = (
+    <Select size="small" value={active ?? ""} displayEmpty onChange={(e) => onPick(String(e.target.value) || null)} inputProps={{ "aria-label": "Material family" }}
+      sx={{ height: 34, minWidth: 170, fontSize: "0.84rem", fontWeight: 600, borderRadius: "10px", bgcolor: "#fff" }}>
+      <MenuItem value="">All materials</MenuItem>
+      {figs.map((x) => <MenuItem key={x.key} value={x.key}>{x.name}</MenuItem>)}
+    </Select>
+  );
   return (
     <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <CardTitle icon={t.icon} tint={t.tint} title="Materials first. Compounds next." note="Each family of the named compounds - click one to open its compounds" />
+      <CardTitle icon={t.icon} tint={t.tint} title="Materials first. Compounds next." note="Choose a family to explore the compounds underneath it" right={pickList} />
       <Box sx={{ ...GRID, mt: -1 }}>
-        {figs.map((x) => (
-          <Box key={x.key} component="button" type="button" onClick={() => onPick(x.key)} title={`Open the ${x.name} compounds`}
-            sx={{ ...TILE_SPAN, minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", p: 0, border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: "pointer", borderRadius: "20px", "&:hover > div": { boxShadow: `inset 0 0 0 1.5px ${TINT[t.tint].fg}` }, "&:focus-visible": { outline: `2px solid ${TINT[t.tint].fg}`, outlineOffset: 2 } }}>
-            <KpiTileChart v={keyView(f, x.name, f.d.familyMonths, [x.key], `The ${x.name} compounds' net revenue`)} slug="sealing" tint={t.tint} icon={t.icon} upTo={f.upTo} title={x.name}
-              chart={<ShareLine share={x.share} of="of the named compounds" margin={x.margin} lead={`${int(x.count)} compound${x.count === 1 ? "" : "s"}`} tint={t.tint} />} />
-          </Box>
-        ))}
+        {figs.map((x) => {
+          const on = active === x.key;
+          return (
+            <Box key={x.key} component="button" type="button" onClick={() => onPick(on ? null : x.key)} aria-pressed={on} title={on ? "Click again for all materials" : `Open the ${x.name} compounds`}
+              sx={{
+                ...TILE_SPAN, minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", p: 0, border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: "pointer", borderRadius: "20px",
+                opacity: active && !on ? 0.6 : 1,
+                "& > div": on ? { boxShadow: `inset 0 0 0 2px ${TINT[t.tint].fg}` } : {},
+                "&:hover > div": { boxShadow: `inset 0 0 0 1.5px ${TINT[t.tint].fg}` }, "&:hover": { opacity: 1 }, "&:focus-visible": { outline: `2px solid ${TINT[t.tint].fg}`, outlineOffset: 2 },
+              }}>
+              <KpiTileChart v={keyView(f, x.name, f.d.familyMonths, [x.key], `The ${x.name} compounds' net revenue`)} slug="sealing" tint={t.tint} icon={t.icon} upTo={f.upTo} title={x.name}
+                chart={<ShareLine share={x.share} of="of named-entry revenue" margin={x.margin} lead={`${int(x.count)} compound ${x.count === 1 ? "entry" : "entries"}`} tint={t.tint} />} />
+            </Box>
+          );
+        })}
       </Box>
+      <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: -0.5 }}>
+        Material families are derived from compound names (Kalrez → FFKM). Compound designations and amounts remain unchanged. Unresolved entries are excluded from family totals.
+      </Typography>
     </GlassCard>
   );
 }
@@ -1296,16 +1440,37 @@ function KpiCards({ f, t, items }: { f: Frame; t: Topic; items: (Item | null)[] 
   );
 }
 
-/* ── the topic pages: Digital Growth's stage pages ─────────────────────── */
+/* ── the topic pages: the pilot's views, in Digital Growth's stage-page frame ── */
 
 type TabDef = { id: string; label: string; count?: (f: Frame) => string | null; Body: (p: { f: Frame }) => React.ReactNode };
 /** A figure top right of a page - left out when there is none to show. */
 type PageFigure = { label: string; icon: React.ReactNode; tint: Tint; v: SView | null; sub?: string };
-type PageDef = { title: string; topic: Topic; figures: (f: Frame) => PageFigure[]; tabs: TabDef[] };
+/**
+ * A page: the pilot's title and line for its view (index.html detailView titles), its cards top right - the revenue in
+ * the selection, how many are displayed, the reporting period - and its tabs.
+ */
+type PageDef = { title: string; lead: string; topic: Topic; figures: (f: Frame) => PageFigure[]; tabs: TabDef[] };
 
 const glyph = (I: typeof EuroOutlinedIcon) => <I />;
 
-/** A business unit or a sales organisation: its part of the revenue, its margin, the bars that filter, its months, every figure. */
+/** The pilot's third card, "Reporting period" - drawn as a figure card (ExplorerKit FigureCards) with the period's words. */
+function PeriodFigure({ f }: { f: Frame }) {
+  return (
+    <Box sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 124, maxWidth: 200, display: "grid", gap: 0.25, alignContent: "start" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <Badge icon={<CalendarMonthOutlinedIcon />} tint="slate" size={22} />
+        <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>Reporting period</Typography>
+      </Box>
+      <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>{f.now}</Typography>
+      <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{hasBefore(f) ? `against ${f.before} · month by month` : "month by month"}</Typography>
+    </Box>
+  );
+}
+
+/** The hub's own, after the pilot's content on a page: its heading. */
+const HubAfter = ({ hint }: { hint: string }) => <SectionHead title="Against a year earlier" hint={hint} />;
+
+/** A business unit or a sales organisation (the hub's own page): where revenue comes from, its margin, a year earlier, its months, every figure. */
 function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
   const units = kind === "units";
   const figs = units ? f.d.byBu : f.d.byChannel;
@@ -1321,8 +1486,8 @@ function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
     <Breakdown t={t} title={`Where does revenue come from? By ${what}, ${f.now}`}
       note={`${units ? "The Angst+Pfister company that invoiced" : "The organisation that sold to the customer"} · ${against(f)} · click one to show only it`}
       charts={<>
-        <Mix title={units ? "Business-unit contribution" : "Sales-organisation contribution"} hint={`Each ${what}'s part of the net revenue`}
-          parts={rows.map((r) => ({ label: r.label, value: r.rev }))} first={units ? "Business unit" : "Sales organisation"} centerLabel="net revenue" onPick={pick} selected={picked} />
+        <Mix title={units ? "Business-unit contribution" : "Sales-organisation contribution"} hint={`Revenue split within the selection · click one to show only it`}
+          parts={rows.map((r) => ({ label: r.label, value: r.rev }))} first={units ? "Business unit" : "Sales organisation"} centerLabel="revenue in selection" onPick={pick} selected={picked} foot={scopeWords(f)} />
         <MarginChart f={f} title={`Gross margin, by ${what}`} rows={rows} labelWidth={units ? 120 : 190} />
         <Wide><RevenueChart f={f} title={`Net revenue against the same months a year earlier, by ${what}`} rows={rows} labelWidth={units ? 120 : 190} onPick={pick} selected={picked} /></Wide>
         <Wide><MonthStack f={f} rows={units ? f.d.unitMonths : f.d.channelMonths} order={figs.map((x) => ({ key: x.key, name: x.name || NOT_KNOWN }))} title={`Net revenue month by month, by ${what}`} /></Wide>
@@ -1349,84 +1514,165 @@ const compareCompound = (f: Frame) => f.d.priorities.find((p) => p.kind === "spr
 /** The rows as the pilot's review cards read them. */
 const positions = (rows: Row[]) => rows.map((r) => ({ name: r.label, rev: r.rev, margin: r.margin }));
 
-function CustomersTab({ f }: { f: Frame }) {
-  const inspect = useContext(InspectCtx);
+/** A view's ranking state - the pilot's search, rank by and how many (index.html go: revenue, the first 10). */
+function useRanking(initial = "") {
+  const [q, setQ] = useState(initial);
   const [by, setBy] = useState<By>("rev");
   const [n, setN] = useState(10);
-  const rows = rowsOf(f.d.customers);
+  return { q, setQ, by, setBy, n, setN };
+}
+
+/**
+ * The pilot's Customers view (index.html detailView + revision.js): "Our leading customers" - its cards top right, the
+ * search and ranking controls, the notice, "Business-unit contribution" and "Scale & profitability", the ranking, the
+ * account review priorities. Then the hub's own: a year earlier, month by month, every figure.
+ */
+function CustomersTab({ f }: { f: Frame }) {
+  const inspect = useContext(InspectCtx);
+  const k = useRanking();
+  const all = rowsOf(f.d.customers);
+  const rows = found(all, k.q);
   const t = TOPIC.customers;
   const open = (r: Row) => inspect(pickOf("customer", r));
   return (
     <>
-      <KpiCards f={f} t={t} items={[item(V.customers(f)), largestCustomer(f), negativeItem(f, "customers")]} />
-      <Breakdown t={t} title={`Who buys from us? ${f.now}`}
-        note={`${int(f.d.totals.customers)} customer accounts invoiced${f.d.customers.length < f.d.totals.customers ? ` · the ${int(f.d.customers.length)} with the most net revenue below` : ""} · ${against(f)}`}
+      <Controls what="customers or identifiers" q={k.q} onQ={k.setQ} by={k.by} onBy={k.setBy} n={k.n} onN={k.setN} count={rows.length} />
+      <Notice>Customer numbers remain separate even when names match. With a business unit chosen in the Filters, the ranking covers only its accounts{f.d.customers.length < f.d.totals.customers ? ` · the ${int(f.d.customers.length)} accounts with the most net revenue of ${int(f.d.totals.customers)} invoiced are ranked` : ""}.</Notice>
+      <Box sx={PAIR}>
+        <BuMix f={f} title="Business-unit contribution" hint="Revenue split within the selected customer accounts · click one to show only its customers" />
+        <Scale rows={rows} by={k.by} what="accounts" onPick={open} />
+      </Box>
+      <Ranked title="Customer accounts, ranked" hint={`${k.by === "gp" ? "By gross profit" : "By net revenue"} · each with its gross margin${k.q ? ` · search "${k.q.trim()}"` : ""}`} rows={rows} by={k.by} n={k.n}
+        nameHead="Customer" onPick={open} labelWidth={260} foot />
+      <Actions items={reviewActions("customers", positions(rows), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
+      {/* the hub's own, after the pilot's */}
+      <HubAfter hint="The customer accounts month by month, against the same months a year earlier" />
+      <KpiCards f={f} t={t} items={[item(V.customers(f)), largestCustomer(f), item(V.customerShare(f)), negativeItem(f, "customers")]} />
+      <Breakdown t={t} title={`The customer accounts against a year earlier, ${f.now}`} note={`${int(f.d.totals.customers)} customer accounts invoiced · ${against(f)}`}
         charts={<>
-          <BuMix f={f} title="Business-unit contribution" hint="Each business unit's part of the net revenue · click one to show only its customers" />
-          <Scale rows={rows} by={by} what="customer accounts" onPick={open} />
-          <Wide><Ranked title="Our leading customers" hint="Ranked as chosen, each with its gross margin" rows={rows} by={by} onBy={setBy} n={n} onN={setN} nameHead="Customer" onPick={open} labelWidth={260} /></Wide>
-          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={rows} labelWidth={220} pageSize={12} />
-          <MarginChart f={f} title="Gross margin of the largest customers" rows={rows} labelWidth={220} top={60} pageSize={12} />
+          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={all} labelWidth={220} pageSize={12} />
+          <MarginChart f={f} title="Gross margin of the largest customers" rows={all} labelWidth={220} top={60} pageSize={12} />
         </>}
-        table={<FigTable f={f} title="All the figures, by customer" first="Customer" rows={rows} find="a customer" extra={[{ head: "Customer number", cell: (r) => r.key || "—", sort: (r) => r.key, text: true }]} />}
+        table={<FigTable f={f} title="All the figures, by customer" first="Customer" rows={all} find="a customer" extra={[{ head: "Customer number", cell: (r) => r.key || "—", sort: (r) => r.key, text: true }]} />}
       />
-      <Actions items={reviewActions("customers", positions(rows), f.d.totals.rev, compareCompound(f))} note="The pilot's account reviews, found in these figures - review actions, never targets" />
     </>
   );
 }
 
+/**
+ * The pilot's Articles view: "The products behind the revenue" - its cards, the controls, the notice, the breadcrumb of a
+ * material chosen, "Business-unit contribution" and the articles' material mix, the ranking, the review priorities.
+ * Then the hub's own.
+ */
 function ArticlesTab({ f }: { f: Frame }) {
   const inspect = useContext(InspectCtx);
   const params = useSearchParams();
-  const [by, setBy] = useState<By>("rev");
-  const [n, setN] = useState(10);
+  const k = useRanking();
   const asked = params.get("family");
   const family = asked && (asked === NO_COMPOUND || f.d.byFamily.some((x) => x.key === asked)) ? asked : null;
   const all = rowsOf(f.d.articles);
-  const rows = family ? all.filter((r) => familyOfArticle(r.compound ?? "") === family) : all;
+  const ofFamily = family ? all.filter((r) => familyOfArticle(r.compound ?? "") === family) : all;
+  const rows = found(ofFamily, k.q);
   const t = TOPIC.articles;
   const open = (r: Row) => inspect(pickOf("article", r));
   return (
     <>
+      <Controls what="articles or identifiers" q={k.q} onQ={k.setQ} by={k.by} onBy={k.setBy} n={k.n} onN={k.setN} count={rows.length} />
+      <Notice>Compound labels are shown as written on the article; apparent designation mismatches need validation. With a business unit chosen in the Filters, the ranking covers only its articles{f.d.articles.length < f.d.totals.articles ? ` · the ${int(f.d.articles.length)} articles with the most net revenue of ${int(f.d.totals.articles)} invoiced are ranked` : ""}.</Notice>
+      {/* the pilot's breadcrumb when a material is chosen: "All article materials / FKM" */}
+      {family && (
+        <Box>
+          <Chip size="small" label={<span><b>All article materials</b> / {family} · {int(ofFamily.length)} of the {int(all.length)} articles</span>} onDelete={() => setParam("family", null)}
+            sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[t.tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[t.tint].fg } }} />
+        </Box>
+      )}
+      <Box sx={PAIR}>
+        <BuMix f={f} title="Business-unit contribution" hint="Revenue split within the selected articles · click one to show only it" />
+        <ArticleMix f={f} chosen={family} onPick={(x) => setParam("family", x === family ? null : x)} hint="Click to filter these articles. Compound labels need validation" />
+      </Box>
+      <Ranked title={family ? `Articles, ranked · ${family}` : "Articles, ranked"} hint={`${k.by === "gp" ? "By gross profit" : "By net revenue"} · each with its gross margin${k.q ? ` · search "${k.q.trim()}"` : ""}`}
+        rows={rows} by={k.by} n={k.n} nameHead="Article" onPick={open} labelWidth={300} foot />
+      <Actions items={reviewActions("articles", positions(rows), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
+      {/* the hub's own, after the pilot's */}
+      <HubAfter hint="The articles month by month, against the same months a year earlier" />
       <KpiCards f={f} t={t} items={[item(V.articles(f)), largestArticle(f), negativeItem(f, "articles")]} />
-      <Breakdown t={t} title={`What sells most? ${f.now}`}
-        note={`${int(f.d.totals.articles)} articles invoiced${f.d.articles.length < f.d.totals.articles ? ` · the ${int(f.d.articles.length)} with the most net revenue below` : ""}, each with its compound · ${against(f)}`}
+      <Breakdown t={t} title={`The articles against a year earlier${family ? ` · ${family}` : ""}, ${f.now}`} note={`${int(f.d.totals.articles)} articles invoiced, each with its compound · ${against(f)}`}
         charts={<>
-          {family && (
-            <Wide>
-              <Chip size="small" label={<span><b>Material family:</b> {family} · {int(rows.length)} of the {int(all.length)} articles below</span>} onDelete={() => setParam("family", null)}
-                sx={{ height: 26, fontSize: "0.78rem", bgcolor: TINT[t.tint].bg, color: INK, "& .MuiChip-deleteIcon": { color: TINT[t.tint].fg } }} />
-            </Wide>
-          )}
-          <BuMix f={f} title="Business-unit contribution" hint="Each business unit's part of the net revenue · click one to show only it" />
-          <ArticleMix f={f} chosen={family} onPick={(x) => setParam("family", x === family ? null : x)} hint="The articles' net revenue by the family of their compound · click one to show only its articles" />
-          <Wide><Ranked title={family ? `The products behind the revenue · ${family}` : "The products behind the revenue"} hint="Ranked as chosen, each with its gross margin"
-            rows={rows} by={by} onBy={setBy} n={n} onN={setN} nameHead="Article" onPick={open} labelWidth={300} /></Wide>
-          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={rows} labelWidth={220} pageSize={12} />
-          <MarginChart f={f} title="Gross margin of the largest articles" rows={rows} labelWidth={220} top={60} pageSize={12} />
+          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={ofFamily} labelWidth={220} pageSize={12} />
+          <MarginChart f={f} title="Gross margin of the largest articles" rows={ofFamily} labelWidth={220} top={60} pageSize={12} />
         </>}
-        table={<FigTable f={f} title={family ? `All the figures, by article · ${family}` : "All the figures, by article"} first="Article" rows={rows} find="an article" extra={[
+        table={<FigTable f={f} title={family ? `All the figures, by article · ${family}` : "All the figures, by article"} first="Article" rows={ofFamily} find="an article" extra={[
           { head: "Article number", cell: (r) => r.key || "—", sort: (r) => r.key, text: true },
           { head: "Compound", cell: (r) => r.compound || "—", sort: (r) => (r.compound ?? "").toLowerCase(), text: true },
         ]} />}
       />
-      <Actions items={reviewActions("articles", positions(rows), f.d.totals.rev, compareCompound(f))} note="The pilot's article reviews, found in these figures - review actions, never targets" />
     </>
   );
 }
 
+/**
+ * The pilot's "Materials & compounds" view (revision.js compounds): "Materials first. Compounds next." - the family
+ * cards and list, the breadcrumb, the controls with "Include unresolved entries", the notice, the compounds' ranking,
+ * the commercial priorities of the family. Then the hub's own.
+ */
+function CompoundsTab({ f }: { f: Frame }) {
+  const inspect = useContext(InspectCtx);
+  const params = useSearchParams();
+  const [unresolved, setUnresolved] = useState(false);
+  const k = useRanking();
+  const asked = params.get("family");
+  const family = asked && f.d.byFamily.some((x) => x.key === asked) ? asked : null;
+  const list = [...f.d.compounds, ...(unresolved ? f.d.unresolved : [])].filter((c) => !family || materialOf(c.name) === family);
+  const all = rowsOf(list);
+  const rows = found(all, k.q);
+  const t = { ...TOPIC.materials, icon: <ScienceOutlinedIcon />, tint: "purple" as Tint };
+  const open = (r: Row) => inspect(pickOf("compound", r));
+  const chipSx = (on: boolean) => ({ height: 30, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.purple.bg : "#fff", color: on ? TINT.purple.fg : INK, border: `1px solid ${on ? TINT.purple.fg : "rgba(21,34,58,.14)"}` });
+  return (
+    <>
+      <FamilyTiles f={f} active={family} onPick={(x) => setParam("family", x)} />
+      {/* the pilot's breadcrumb: "All materials / FKM / Compounds" */}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", fontSize: "0.84rem", color: MUTED }}>
+        <Button size="small" onClick={() => setParam("family", null)} sx={{ textTransform: "none", fontWeight: 700, minWidth: 0, px: 0.5 }}>All materials</Button>
+        <span>/ {family ? `${family} / Compounds` : "Compounds"}</span>
+      </Box>
+      <Controls what="compounds" q={k.q} onQ={k.setQ} by={k.by} onBy={k.setBy} n={k.n} onN={k.setN} count={rows.length}>
+        {f.d.unresolved.length > 0 && (
+          <Chip icon={unresolved ? <CheckIcon /> : undefined} label={`Include unresolved entries (${int(f.d.unresolved.length)})`} onClick={() => setUnresolved((x) => !x)} aria-pressed={unresolved} sx={chipSx(unresolved)} />
+        )}
+      </Controls>
+      <Notice>A compound&apos;s customers come from the same invoices, so their totals match its own. Name variants of one compound remain separate; no names are merged. {pct(f.d.noCompoundShare)} of the net revenue names no compound.</Notice>
+      <Ranked title={family ? `Compounds, ranked · ${family}` : "Compounds, ranked"} hint={`${k.by === "gp" ? "By gross profit" : "By net revenue"} · each with its gross margin${unresolved ? " · the unresolved entries included" : " · named entries only"}`}
+        rows={rows} by={k.by} n={k.n} nameHead="Compound" onPick={open} labelWidth={260} foot />
+      <Actions items={familyActions(f.d.priorities, family, list)} title="Commercial priorities" />
+      {/* the hub's own, after the pilot's */}
+      <HubAfter hint="The compounds against the same months a year earlier" />
+      <Breakdown t={t} title={`The compounds against a year earlier${family ? ` · ${family}` : ""}, ${f.now}`}
+        note={`${int(all.length)} compound${all.length === 1 ? "" : "s"}${unresolved ? ", the unresolved entries included" : " named"} · ${against(f)}`}
+        charts={<>
+          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={all} labelWidth={200} pageSize={12} />
+          <MarginChart f={f} title="Gross margin of the largest compounds" rows={all} labelWidth={200} top={60} pageSize={12} />
+        </>}
+        table={<FigTable f={f} title="All the figures, by compound" first="Compound" rows={all} find="a compound" total={null}
+          extra={[{ head: "Material family", cell: (r) => (noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)), sort: (r) => materialOf(r.key), text: true }]} />}
+        foot="Compounds are shown as written - two spellings of one compound stay apart. A click on a compound opens its customers."
+      />
+    </>
+  );
+}
+
+/** The hub's own: the material families against a year earlier, month by month (the pilot's families, by their revenue). */
 function FamiliesTab({ f }: { f: Frame }) {
   const rows = rowsOf(f.d.byFamily);
   const t = TOPIC.materials;
-  const toCompounds = (family: string) => setQuery((q) => { q.set("tab", "compounds"); q.set("family", family); });
+  const toCompounds = (family: string) => setQuery((q) => { q.delete("tab"); q.set("family", family); });
   return (
     <>
       <KpiCards f={f} t={t} items={[leadingFamily(f), leadingCompound(f), item(V.noCompound(f)), item(V.compounds(f))]} />
-      <FamilyTiles f={f} onPick={toCompounds} />
       <Breakdown t={t} title={`Which materials sell most? ${f.now}`}
         note={`Named compounds only - ${pct(f.d.noCompoundShare)} of the net revenue names none · ${against(f)}`}
         charts={<>
-          <FamilyMix f={f} onPick={toCompounds} hint="Each family's part of the named compounds' net revenue · click one to open its compounds" />
+          <FamilyMix f={f} onPick={toCompounds} hint="Click a family to open its compounds" />
           <MarginChart f={f} title="Gross margin, by material family" rows={rows} labelWidth={120} />
           <Wide><RevenueChart f={f} title="Net revenue against the same months a year earlier, by material family" rows={rows} labelWidth={120} /></Wide>
           <Wide><MonthStack f={f} rows={f.d.familyMonths} order={f.d.byFamily.map((x) => ({ key: x.key, name: x.name }))} title="Net revenue month by month, by material family" /></Wide>
@@ -1438,81 +1684,87 @@ function FamiliesTab({ f }: { f: Frame }) {
   );
 }
 
-function CompoundsTab({ f }: { f: Frame }) {
-  const inspect = useContext(InspectCtx);
-  const params = useSearchParams();
-  const [unresolved, setUnresolved] = useState(false);
-  const [by, setBy] = useState<By>("rev");
-  const [n, setN] = useState(10);
-  const asked = params.get("family");
-  const family = asked && f.d.byFamily.some((x) => x.key === asked) ? asked : null;
-  const list = [...f.d.compounds, ...(unresolved ? f.d.unresolved : [])].filter((c) => !family || materialOf(c.name) === family);
-  const rows = rowsOf(list);
-  const t = { ...TOPIC.materials, icon: <ScienceOutlinedIcon />, tint: "purple" as Tint };
-  const open = (r: Row) => inspect(pickOf("compound", r));
-  const chipSx = (on: boolean) => ({ height: 28, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.purple.bg : "#fff", color: on ? TINT.purple.fg : INK, border: `1px solid ${on ? TINT.purple.fg : "rgba(21,34,58,.14)"}` });
-  return (
-    <>
-      {/* the pilot's "All materials / a family" and "Include unresolved entries" */}
-      <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center" }}>
-        <Chip label="All materials" onClick={() => setParam("family", null)} aria-pressed={!family} sx={chipSx(!family)} />
-        {f.d.byFamily.map((x) => <Chip key={x.key} label={x.name} onClick={() => setParam("family", family === x.key ? null : x.key)} aria-pressed={family === x.key} sx={chipSx(family === x.key)} />)}
-        <Box sx={{ flex: 1 }} />
-        {f.d.unresolved.length > 0 && (
-          <Chip icon={unresolved ? <CheckIcon /> : undefined} label={`Include the ${int(f.d.unresolved.length)} with no compound named`} onClick={() => setUnresolved((x) => !x)} aria-pressed={unresolved} sx={chipSx(unresolved)} />
-        )}
-      </Box>
-      <Breakdown t={t} title={`Our compound portfolio${family ? ` · ${family}` : ""}, ${f.now}`}
-        note={`${int(rows.length)} compound${rows.length === 1 ? "" : "s"}${unresolved ? ", the unnamed ones included" : ` named - ${pct(f.d.noCompoundShare)} of the net revenue names none`} · ${against(f)}`}
-        charts={<>
-          <Wide><Ranked title={family ? `The ${family} compounds` : "Which compounds lead?"} hint="Ranked as chosen, each with its gross margin" rows={rows} by={by} onBy={setBy} n={n} onN={setN} nameHead="Compound" onPick={open} labelWidth={260} /></Wide>
-          <RevenueChart f={f} title="Net revenue against the same months a year earlier" rows={rows} labelWidth={200} pageSize={12} />
-          <MarginChart f={f} title="Gross margin of the largest compounds" rows={rows} labelWidth={200} top={60} pageSize={12} />
-        </>}
-        table={<FigTable f={f} title="All the figures, by compound" first="Compound" rows={rows} find="a compound" total={null}
-          extra={[{ head: "Material family", cell: (r) => (noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)), sort: (r) => materialOf(r.key), text: true }]} />}
-        foot="Compounds are shown as written - two spellings of one compound stay apart. A click on a compound opens its customers."
-      />
-      <Actions items={familyActions(f.d.priorities, family, list)} note={family ? `The commercial priorities on the ${family} compounds` : "The commercial priorities, found in these figures - illustrative, never a forecast"} />
-    </>
-  );
-}
-
+/**
+ * The pilot's "Approval information" view (index.html detailView, approvals): its cards, "Most prominent approval
+ * references", "The evidence available today", the controls, the notice, the ranking, "What should we do?". Then the
+ * hub's own.
+ */
 function ApprovalsTab({ f }: { f: Frame }) {
   const inspect = useContext(InspectCtx);
   const params = useSearchParams();
-  const [q, setQ] = useState(params.get("find") ?? "");
-  const [by, setBy] = useState<By>("rev");
-  const [n, setN] = useState(10);
-  const rows = rowsOf(f.d.approvals);
+  const k = useRanking(params.get("find") ?? "");
+  const all = rowsOf(f.d.approvals);
+  const rows = found(all, k.q);
   const t = TOPIC.approvals;
-  const find = (ref: string) => {
-    setQ(ref);
-    document.getElementById("sealing-approvals-table")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // the pilot's data-mention: a reference searches the texts
+  const mention = (ref: string) => {
+    k.setQ(ref);
+    document.getElementById("sealing-approvals-ranking")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   return (
     <>
+      <References f={f} onPick={mention} />
+      <Evidence f={f} />
+      <Box id="sealing-approvals-ranking" sx={{ scrollMarginTop: 16 }}>
+        <Controls what="approval texts" q={k.q} onQ={k.setQ} by={k.by} onBy={k.setBy} n={k.n} onN={k.setN} count={rows.length} />
+      </Box>
+      <Notice>Approvals as written are not verified approvals. Revenue is associated with the text, not attributed to an approval causing a sale. The {int(all.length)} texts with the most net revenue are ranked; {pct(f.d.noApprovalShare)} of the net revenue has none.</Notice>
+      <Ranked title="Approval texts, ranked" hint={`${k.by === "gp" ? "By gross profit" : "By net revenue"} · each with its gross margin${k.q ? ` · search "${k.q.trim()}"` : ""}`} rows={rows} by={k.by} n={k.n}
+        nameHead="Approval as written" onPick={(r) => inspect(pickOf("approval", r))} labelWidth={320} foot />
+      <Actions items={APPROVAL_ACTIONS} title="What should we do?" first />
+      {/* the hub's own, after the pilot's */}
+      <HubAfter hint="The approvals month by month, against the same months a year earlier" />
       <KpiCards f={f} t={t} items={[item(V.noApproval(f)), item(V.withApproval(f)), item(V.approvals(f))]} />
-      <Breakdown t={t} title={`Which approvals matter? ${f.now}`}
-        note={`${pct(f.d.noApprovalShare)} of the net revenue has no approval written on the article · ${against(f)}`}
-        charts={<>
-          <Evidence f={f} />
-          <References f={f} onPick={find} />
-          <Wide><Ranked title="The approvals as written" hint="Ranked as chosen, each with its gross margin" rows={rows} by={by} onBy={setBy} n={n} onN={setN}
-            nameHead="Approval as written" onPick={(r) => inspect(pickOf("approval", r))} labelWidth={320} /></Wide>
-          <Wide><MarginChart f={f} title="Gross margin of the largest approvals" rows={rows} labelWidth={260} top={30} /></Wide>
-        </>}
-        table={<Box id="sealing-approvals-table" sx={{ scrollMarginTop: 16 }}><FigTable f={f} title="All the figures, by approval" first="Approval as written" rows={rows} find="an approval" query={q} onQuery={setQ} /></Box>}
-        foot={`A text can name several approvals, and the figures cannot tell which approval caused a sale. The ${int(rows.length)} approvals with the most net revenue are listed.`}
+      <Breakdown t={t} title={`The approvals against a year earlier, ${f.now}`} note={`${pct(f.d.noApprovalShare)} of the net revenue has no approval written on the article · ${against(f)}`}
+        charts={<Wide><MarginChart f={f} title="Gross margin of the largest approvals" rows={all} labelWidth={260} top={30} /></Wide>}
+        table={<FigTable f={f} title="All the figures, by approval" first="Approval as written" rows={all} find="an approval" query={k.q} onQuery={k.setQ} />}
+        foot="A text can name several approvals, and the figures cannot tell which approval caused a sale."
       />
-      <Actions items={APPROVAL_ACTIONS} note="What the approval texts can tell us today - and what would make them usable" />
     </>
   );
 }
 
+/** "Revenue in this selection" - the pilot's first card; on Materials & compounds the named compounds' revenue. */
+const inSelection = (f: Frame, sub?: string): PageFigure => ({ label: "Revenue in this selection", icon: glyph(EuroOutlinedIcon), tint: "blue", v: V.rev(f), sub });
+
 const PAGES: Record<Exclude<SealingSlug, "overview">, PageDef> = {
+  customers: {
+    title: "Our leading customers", lead: "Explore customer accounts and their article mix.", topic: TOPIC.customers,
+    figures: (f) => [
+      inSelection(f),
+      { label: "Customer accounts invoiced", icon: glyph(GroupsOutlinedIcon), tint: "green", v: V.customers(f) },
+    ],
+    tabs: [{ id: "customers", label: "Customers", Body: CustomersTab }],
+  },
+  articles: {
+    title: "The products behind the revenue", lead: "Explore articles, compound labels and customer exposure.", topic: TOPIC.articles,
+    figures: (f) => [
+      inSelection(f),
+      { label: "Articles invoiced", icon: glyph(InventoryOutlinedIcon), tint: "pink", v: V.articles(f) },
+    ],
+    tabs: [{ id: "articles", label: "Articles", Body: ArticlesTab }],
+  },
+  materials: {
+    title: "Our compound portfolio", lead: "Materials first, compounds next - the compounds as written on the articles.", topic: TOPIC.materials,
+    figures: (f) => [
+      { label: "Revenue in this selection", icon: glyph(EuroOutlinedIcon), tint: "blue", v: keyView(f, "Named compound revenue", f.d.familyMonths, f.d.byFamily.map((x) => x.key)), sub: "named compound entries" },
+      { label: "Compound entries named", icon: glyph(ScienceOutlinedIcon), tint: "purple", v: V.compounds(f) },
+    ],
+    tabs: [
+      { id: "compounds", label: "Materials & compounds", count: (f) => String(f.d.compounds.length), Body: CompoundsTab },
+      { id: "families", label: "By material family", count: (f) => String(f.d.byFamily.length), Body: FamiliesTab },
+    ],
+  },
+  approvals: {
+    title: "Approval information", lead: "What the approvals written on the articles can currently tell us.", topic: TOPIC.approvals,
+    figures: (f) => [
+      inSelection(f),
+      { label: "Approval texts written", icon: glyph(VerifiedOutlinedIcon), tint: "slate", v: V.approvals(f) },
+    ],
+    tabs: [{ id: "approvals", label: "Approvals", Body: ApprovalsTab }],
+  },
   units: {
-    title: "Business units", topic: TOPIC.units,
+    title: "Business units", lead: "Where does revenue come from? Each Angst+Pfister company that invoiced, and the organisations that sold.", topic: TOPIC.units,
     figures: (f) => [
       { label: "Net revenue", icon: glyph(EuroOutlinedIcon), tint: "green", v: V.rev(f) },
       { label: "Gross profit", icon: glyph(SavingsOutlinedIcon), tint: "purple", v: V.gp(f) },
@@ -1525,79 +1777,44 @@ const PAGES: Record<Exclude<SealingSlug, "overview">, PageDef> = {
       { id: "months", label: "Month by month", Body: MonthsTab },
     ],
   },
-  customers: {
-    title: "Customers", topic: TOPIC.customers,
-    figures: (f) => [
-      { label: "Net revenue", icon: glyph(EuroOutlinedIcon), tint: "blue", v: V.rev(f) },
-      { label: "Customers invoiced", icon: glyph(GroupsOutlinedIcon), tint: "green", v: V.customers(f) },
-      { label: "Largest customer account", icon: glyph(GroupsOutlinedIcon), tint: "amber", v: largestView(f, "Largest customer account", f.d.customers[0], ""), sub: cut(f.d.customers[0]?.name || NOT_KNOWN, 30) },
-      { label: "Negative gross margin", icon: glyph(TrendingDownOutlinedIcon), tint: "pink", v: V.negCustomers(f), sub: `customer accounts · ${eur(f.d.negative.customers.rev)}` },
-    ],
-    tabs: [{ id: "customers", label: "Customers", Body: CustomersTab }],
-  },
-  articles: {
-    title: "Articles", topic: TOPIC.articles,
-    figures: (f) => [
-      { label: "Net revenue", icon: glyph(EuroOutlinedIcon), tint: "blue", v: V.rev(f) },
-      { label: "Articles invoiced", icon: glyph(InventoryOutlinedIcon), tint: "pink", v: V.articles(f) },
-      { label: "Largest article", icon: glyph(InventoryOutlinedIcon), tint: "amber", v: largestView(f, "Largest article", f.d.articles[0], ""), sub: f.d.articles[0] ? `${f.d.articles[0].key || "—"} · ${pct(f.d.articles[0].margin)} gross margin` : undefined },
-      { label: "Negative gross margin", icon: glyph(TrendingDownOutlinedIcon), tint: "pink", v: V.negArticles(f), sub: `articles · ${eur(f.d.negative.articles.rev)}` },
-    ],
-    tabs: [{ id: "articles", label: "Articles", Body: ArticlesTab }],
-  },
-  materials: {
-    title: "Materials", topic: TOPIC.materials,
-    figures: (f) => [
-      { label: "Net revenue", icon: glyph(EuroOutlinedIcon), tint: "blue", v: V.rev(f) },
-      { label: "Leading material family", icon: glyph(CategoryOutlinedIcon), tint: "purple", v: largestView(f, "Leading material family", leadFamily(f), ""), sub: leadFamily(f)?.name },
-      { label: "Leading identified compound", icon: glyph(ScienceOutlinedIcon), tint: "green", v: largestView(f, "Leading identified compound", f.d.compounds[0], ""), sub: f.d.compounds[0] ? cut(f.d.compounds[0].name, 30) : undefined },
-      { label: "No compound named", icon: glyph(CategoryOutlinedIcon), tint: "amber", v: V.noCompound(f), sub: "of the net revenue" },
-    ],
-    tabs: [
-      { id: "families", label: "Material families", count: (f) => String(f.d.byFamily.length), Body: FamiliesTab },
-      { id: "compounds", label: "Compounds", count: (f) => String(f.d.compounds.length), Body: CompoundsTab },
-    ],
-  },
-  approvals: {
-    title: "Approvals", topic: TOPIC.approvals,
-    figures: (f) => [
-      { label: "Net revenue", icon: glyph(EuroOutlinedIcon), tint: "blue", v: V.rev(f) },
-      { label: "No approval written", icon: glyph(VerifiedOutlinedIcon), tint: "amber", v: V.noApproval(f) },
-      { label: "Approvals written", icon: glyph(VerifiedOutlinedIcon), tint: "slate", v: V.approvals(f) },
-      { label: "Gross margin", icon: glyph(PercentOutlinedIcon), tint: "purple", v: V.margin(f) },
-    ],
-    tabs: [{ id: "approvals", label: "Approvals", Body: ApprovalsTab }],
-  },
 };
 
-/** A topic's page, as a stage page of Digital Growth: the way back, the head with its figures, the tabs and Filters, the cards. */
+/**
+ * A view's page, as a stage page of Digital Growth: the way back; the pilot's view name, title and line on the left,
+ * its cards top right; the tabs and the Filters; the view; its foot and the definitions.
+ */
 function TopicPage({ slug, f, busy, err, again }: { slug: Exclude<SealingSlug, "overview">; f: Frame; busy: boolean; err: string | null; again: () => void }) {
   const page = PAGES[slug];
   const params = useSearchParams();
   const asked = params.get("tab");
   const tab = page.tabs.find((x) => x.id === asked) ?? page.tabs[0];
   const setTab = (id: string) => setQuery((q) => { if (id === page.tabs[0].id) q.delete("tab"); else q.set("tab", id); });
-  const [panel, setPanel] = useState(false);
+  const [win, setWin] = useState<Win>(null);
   const [pick, setPick] = useState<DetailPick | null>(null);
-  const inspect = useCallback((p: DetailPick) => { setPanel(false); setPick(p); }, []);
+  const inspect = useCallback((p: DetailPick) => { setWin(null); setPick(p); }, []);
+  const openWin = (w: Win) => { setPick(null); setWin((x) => (x === w ? null : w)); };
   const figures = page.figures(f).filter((x): x is PageFigure & { v: SView } => !!x.v);
+  const name = SEALING_PAGES.find((p) => p.slug === slug)?.name ?? page.title;
   return (
     <InspectCtx.Provider value={inspect}>
       {/* the stage page's frame ([stage]/page.tsx): the way back, then the page */}
       <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.25 }}>
         <Box component={Link} href={hrefOf("overview", f.carry)} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: MUTED, textDecoration: "none", fontSize: "0.85rem", fontWeight: 600, justifySelf: "start", "&:hover": { color: INK } }}>
-          <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to Sealing Business Review
+          <ArrowBackIcon sx={{ fontSize: 18 }} /> Back to the overview
         </Box>
         <Box sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)" }}>
-          {/* the title and what is shown on the left; the figures top right */}
+          {/* the pilot's title and line on the left; its cards top right */}
           <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "minmax(240px, 1fr) auto" } }}>
             <Box sx={{ minWidth: 0, display: "grid", gap: 0.75 }}>
+              <Typography sx={KICKER}>Sealing Business Review · {name}</Typography>
               <Typography component="h1" sx={H1}>{page.title}</Typography>
+              <Typography sx={LEAD}>{page.lead}</Typography>
               <Line f={f} busy={busy} />
               <Chosen f={f} />
             </Box>
-            <Box sx={{ display: "flex", justifyContent: { lg: "flex-end" }, opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }}>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "flex-start", justifyContent: { lg: "flex-end" }, opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }}>
               <FigureCards items={figures.map((x, i) => ({ id: `${i}-${x.label}`, ...x }))} />
+              <PeriodFigure f={f} />
             </Box>
           </Box>
           {/* the tabs, and at their right end the Filters button */}
@@ -1606,15 +1823,16 @@ function TopicPage({ slug, f, busy, err, again }: { slug: Exclude<SealingSlug, "
               {page.tabs.length > 1 && <ReportTabs name={`sealing-${slug}`} tab={tab.id} onSelect={setTab} tabs={page.tabs.map((x) => ({ id: x.id, label: x.label, count: x.count?.(f) ?? null }))} />}
             </Box>
             <Box sx={{ flex: 1 }} />
-            <FiltersButton f={f} open={panel} onClick={() => { setPick(null); setPanel((x) => !x); }} />
+            <FiltersButton f={f} open={win === "filters"} onClick={() => openWin("filters")} />
           </Box>
           <Trouble err={err} again={again} />
           <Box id={`sealing-${slug}-panel-${tab.id}`} sx={{ display: "grid", gap: 1.75, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)", opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }} aria-busy={busy}>
             <tab.Body f={f} />
           </Box>
-          <Foot f={f} slug={slug} />
+          <Foot f={f} slug={slug} onDefinitions={() => openWin("definitions")} />
         </Box>
-        <FilterWindow f={f} open={panel} onClose={() => setPanel(false)} />
+        <FilterWindow f={f} open={win === "filters"} onClose={() => setWin(null)} />
+        <Definitions open={win === "definitions"} onClose={() => setWin(null)} />
         <DetailWindow f={f} pick={pick} onClose={() => setPick(null)} />
       </Box>
     </InspectCtx.Provider>
@@ -1623,8 +1841,10 @@ function TopicPage({ slug, f, busy, err, again }: { slug: Exclude<SealingSlug, "
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
+/** A page's title while its figures are read - the pilot's titles. */
 const TITLE: Record<SealingSlug, string> = {
-  overview: "Sealing Business Review", units: "Business units", customers: "Customers", articles: "Articles", materials: "Materials", approvals: "Approvals",
+  overview: "Understand the business.", units: "Business units", customers: "Our leading customers", articles: "The products behind the revenue",
+  materials: "Our compound portfolio", approvals: "Approval information",
 };
 
 export function SealingPage({ slug }: { slug: SealingSlug }) {

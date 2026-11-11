@@ -4,6 +4,7 @@ import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaReq
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
 import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
+import { SEALING_DEFINITIONS, actionsCaption, leadingRefs, matchesQuery, rankBy } from "../src/lib/apHub/sealingRules";
 import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
 import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
 
@@ -224,11 +225,12 @@ test("sealing: the months between, a year before, the period in words", () => {
   assert.equal(periodWords("2025-11", "2026-10"), "Nov 2025 – Oct 2026");
 });
 
-test("sealing: the pages the side panel lists", () => {
+test("sealing: the pages the side panel lists - the pilot's views in its order and names, then the hub's own", () => {
   assert.deepEqual(SEALING_PAGES.map((p) => p.href), [
-    "/ap/reporting/sealing", "/ap/reporting/sealing/units", "/ap/reporting/sealing/customers",
-    "/ap/reporting/sealing/articles", "/ap/reporting/sealing/materials", "/ap/reporting/sealing/approvals",
+    "/ap/reporting/sealing", "/ap/reporting/sealing/customers", "/ap/reporting/sealing/articles",
+    "/ap/reporting/sealing/materials", "/ap/reporting/sealing/approvals", "/ap/reporting/sealing/units",
   ]);
+  assert.deepEqual(SEALING_PAGES.map((p) => p.name), ["Overview", "Customers", "Articles", "Materials & compounds", "Approval information", "Business units"]);
   assert.equal(new Set(SEALING_PAGES.map((p) => p.slug)).size, SEALING_PAGES.length);
 });
 
@@ -398,4 +400,37 @@ test("sealing: a material family's cards - its priorities, else its portfolio re
 test("sealing: the detail window opens a customer, an article or a compound - nothing else reaches the query", () => {
   for (const k of ["customer", "article", "compound"]) assert.equal(isDetailKind(k), true, k);
   for (const k of ["approval", "customer_name", "bu", "", null, undefined, 1]) assert.equal(isDetailKind(k), false, String(k));
+});
+
+test("sealing: the pilot's ranking - by revenue or gross profit, the first n or all, the scatter's ten the list's first", () => {
+  const rows = [
+    { label: "B", rev: 300, gp: 30 },
+    { label: "A", rev: 300, gp: 90 },
+    { label: "C", rev: 100, gp: 120 },
+    { label: "D", rev: 50, gp: -10 },
+  ];
+  assert.deepEqual(rankBy(rows, "rev").map((r) => r.label), ["A", "B", "C", "D"], "a tie on revenue goes by the name");
+  assert.deepEqual(rankBy(rows, "gp").map((r) => r.label), ["C", "A", "B", "D"]);
+  assert.deepEqual(rankBy(rows, "rev", 2).map((r) => r.label), ["A", "B"]);
+  assert.equal(rankBy(rows, "rev", 0).length, 4, "0 is the pilot's All entries");
+  assert.deepEqual(rows.map((r) => r.label), ["B", "A", "C", "D"], "the rows given stay as they were");
+});
+
+test("sealing: the pilot's search, its cards' caption, the references named, its definitions", () => {
+  assert.equal(matchesQuery("Hilti Aktiengesellschaft", "100234", "hilti"), true);
+  assert.equal(matchesQuery("Hilti Aktiengesellschaft", "100234", "0023"), true, "the identifier too");
+  assert.equal(matchesQuery("Hilti Aktiengesellschaft", "100234", "  "), true, "no search: everything");
+  assert.equal(matchesQuery("Hilti Aktiengesellschaft", "100234", "geberit"), false);
+  assert.equal(actionsCaption([]), "Commercial priorities");
+  assert.equal(actionsCaption(["APDE"]), "APDE · account review priorities");
+  assert.equal(actionsCaption(["APDE", "APCH"]), "Commercial priorities");
+  assert.deepEqual(leadingRefs([{ name: "NSF", rev: 5 }, { name: "FDA", rev: 50 }, { name: "KTW", rev: 0 }, { name: "WRAS", rev: 20 }, { name: "ACS", rev: 1 }]), ["FDA", "WRAS", "NSF"]);
+  assert.deepEqual(leadingRefs([{ name: "FDA", rev: 0 }]), []);
+  assert.deepEqual(SEALING_DEFINITIONS.map((d) => d.title), [
+    "Period and population", "Revenue and margin", "Compound treatment", "Material grouping", "Accounts and approvals",
+    "Opportunity scenarios", "Recommendations", "Pending scope decisions",
+  ]);
+  assert.ok(SEALING_DEFINITIONS.every((d) => d.text.length > 60));
+  assert.match(SEALING_DEFINITIONS[1].text, /never an average of margins/);
+  assert.match(SEALING_DEFINITIONS[3].text, /Kalrez and Evolast treated as FFKM/);
 });

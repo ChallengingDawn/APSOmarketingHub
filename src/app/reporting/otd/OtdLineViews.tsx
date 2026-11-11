@@ -15,7 +15,7 @@ import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { MUTED, type Tint } from "@/app/uc/report/ui";
 import { ChartBox, FullTable, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { FigureCards, int, pct, type Fig } from "@/app/reporting/products/views/kit";
-import { BarList } from "@/app/charts/BarList";
+import { PagedBars } from "./OtdPaged";
 import { GLC_KINDS } from "@/lib/reporting/otdRules";
 import type { GlcCustomerRow, GlcKindRow, SupplierRow } from "@/lib/reporting/otdLines";
 import { params, useRead, type CustomerQuery } from "./OtdCustomers";
@@ -61,10 +61,8 @@ export function SupplierLeads({ q, fallback }: { q: CustomerQuery; fallback: Rea
       <ChartBox title={`Every supplier's lead time, ${int(rows.length)} suppliers`} hint="working days, on average · GLC = no supplier in the ERP: cut to size and made in house · the most lines first, a header sorts">
         <FullTable first="Supplier" find="a supplier" initial="n" rows={rows} cols={cols} />
       </ChartBox>
-      <ChartBox title="Real lead time of every supplier" hint="working days from the order to the customer, on average · the most lines first">
-        <Box sx={{ maxHeight: 560, overflowY: "auto", pr: 1 }}>
-          <BarList rows={rows.map((x) => ({ label: x.label, value: x.r, secondary: `${int(x.n)} lines · promised ${days1(x.p)}` }))} format={days1} labelWidth={200} />
-        </Box>
+      <ChartBox title="Real lead time of every supplier" hint="working days from the order to the customer, on average · the most lines first, 15 a page">
+        <PagedBars rows={rows.map((x) => ({ label: x.label, value: x.r, secondary: `${int(x.n)} lines · promised ${days1(x.p)}` }))} size={15} format={days1} />
       </ChartBox>
     </Box>
   );
