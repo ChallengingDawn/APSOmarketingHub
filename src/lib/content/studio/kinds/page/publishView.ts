@@ -135,7 +135,8 @@ export function abActionsOf(status: AbTestLite["status"]): AbAction[] {
  * (hubspot-orders-cf, 11.11.2026, commit 42c2eb51 on feat/apsoconvert-night) - until then the tests are matched on the
  * page's published addresses and the button says it comes with that release.
  */
-export const AB_FROM_PAGE = false;
+// ON since AI testing & personalization's 6b387678 (with 42c2eb51) is live (SARCLA 11.11.2026: "control it from here")
+export const AB_FROM_PAGE = true;
 export const AB_FROM_PAGE_WAIT = "Comes with the next A/B testing release";
 
 /** A change of the page (lib/convert/versions.ts Change, with the studio's id/module/off) - only what is read here. */

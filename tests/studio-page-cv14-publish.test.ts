@@ -143,6 +143,6 @@ test("a test made from the page: version B over the page as it is - what A alrea
   assert.equal(changeWords({ op: "hide", selector: ".old", note: "the old banner" }), "Hidden in .old - the old banner");
 });
 
-test("making a test from the page waits for AI testing & personalization's release (one flag)", () => {
-  assert.equal(AB_FROM_PAGE, false);
+test("making a test from the page is on since AI testing & personalization's release is live (one flag)", () => {
+  assert.equal(AB_FROM_PAGE, true);
 });
