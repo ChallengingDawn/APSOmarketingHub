@@ -194,6 +194,25 @@ export function glcCustomers(s: LineStore, f: LineFilter): { kinds: GlcKindRow[]
   return { kinds, customers: [...by.values()].sort((a, b) => b.n - a.n) };
 }
 
+/** an article in the period: its number and name, groups, profit centre and supplier, its lines and how many customers and
+ *  orders they went to (SARCLA 11.11.2026: "misses also a tab article level", "product number next to name") */
+export type ArticleRow = { a: string; name: string; group: string; sub: string; product: string; pc: string; sup: string;
+  n: number; late: number; days: number; over10: number; customers: number; orders: number };
+export function articleList(s: LineStore, f: LineFilter): ArticleRow[] {
+  const by = new Map<number, ArticleRow & { cs: Set<number>; os: Set<string> }>();
+  for (const r of pick(s, f)) {
+    let x = by.get(r[3]);
+    if (!x) {
+      const a = s.art[r[3]], i = s.info[a];
+      by.set(r[3], (x = { a, name: i?.[0] ?? "", group: r[9] < 0 ? "" : s.grp[r[9]], sub: i?.[1] ?? "", product: i?.[2] ?? "", pc: s.pc[r[7]] ?? "",
+        sup: r[8] < 0 ? "" : s.sup[r[8]], n: 0, late: 0, days: 0, over10: 0, customers: 0, orders: 0, cs: new Set(), os: new Set() }));
+    }
+    x.n++; if (r[18] > 0) { x.late++; x.days += r[18]; if (r[18] > 10) x.over10++; }
+    x.cs.add(r[0]); x.os.add(r[1].replace(/\.\d+$/, ""));
+  }
+  return [...by.values()].map(({ cs, os, ...x }) => ({ ...x, customers: cs.size, orders: os.size })).sort((a, b) => b.late - a.late || b.n - a.n);
+}
+
 /** one customer's lines in the period, with what the pages name: its company and owner, each article's text and groups */
 export function customerLines(s: LineStore, f: LineFilter, customer: string): {
   c: string; name: string; owner: string; lines: StoredLine[]; info: Record<string, [string, string, string]>;
