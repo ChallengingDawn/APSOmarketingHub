@@ -124,14 +124,19 @@ export function useModuleAi(o: {
    * after "Write it all again"): every module of the page still lacking something is filled by the AI, one after the
    * other; one it cannot fill is taken off the page (its line in "Changes made here" has the Undo). Returns what was said.
    */
-  const fillLeft = async (forLang: string): Promise<string[]> => {
+  const fillLeft = async (forLang: string, opts: { rewrite?: boolean; request?: string } = {}): Promise<string[]> => {
     const said: string[] = [];
     const api = ref.current.api;
-    const keys = (viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang).fields.modules ?? []).filter((x) => moduleGap(x.module)).map((x) => `${NP}${x.id}`);
+    // Content v12 (SARCLA 11.11.2026: "the AI generation doesn't include the modules I added - they should count as
+    // blocks"): "Write it all again" also writes the person's own modules again (the AI's own came new with the page)
+    const mine = (id: string) => !id.startsWith("ai");
+    const keys = (viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang).fields.modules ?? [])
+      .filter((x) => moduleGap(x.module) || (opts.rewrite && mine(x.id))).map((x) => `${NP}${x.id}`);
     for (const key of keys) {
       const now = moduleAt(viewOf(pageDoc(latestRaw(api), api.data.piece.language), forLang), key);
-      if (!now || !moduleGap(now)) continue;
-      const r = await fill(key);
+      if (!now) continue;
+      if (!moduleGap(now) && !(opts.rewrite && mine(key.slice(NP.length)))) continue;
+      const r = await fill(key, opts.request ?? "");
       if (r.full) continue;
       const name = kindOf(now.type).name;
       const why = r.text.replace(/^.*It still lacks something: /, "").replace(/[.\s]+$/, "") || "the page gives nothing to fill it with";

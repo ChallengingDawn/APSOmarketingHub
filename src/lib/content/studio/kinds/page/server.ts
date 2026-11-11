@@ -43,7 +43,7 @@ import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
 import { markerFor, notesFor } from "@/lib/content/convertTodo";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsWrittenContent, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
 
 /** Production only after the same to-do was written on ACC and looked at there (Content v11 - the first production CMS
  * write of the hub must never be its first write). */
@@ -67,6 +67,7 @@ import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockC
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, picturesOn, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
 import { picturesHold, type MediaFile, type PictureCheck } from "./media";
+import { sinceOf } from "./published";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask, moduleWordsTask } from "./modules/server";
@@ -120,7 +121,28 @@ function context(ctx: StudioCtx, d: PageDoc): string {
   ].filter(Boolean).join("\n");
 }
 
-function pageBlock(d: PageDoc): string {
+/**
+ * "Write it all again" in one of three ways (Content v12, SARCLA 10.11.2026: "on content when write back should be able to
+ * write from topic or direct or ask") - the same whole-page write (fill_page), told how:
+ *   topic    from the to-do's subject and brief, the page written FRESH - its blocks kept, its present words not shown
+ *   better   the page as it stands, written again better - its facts and its blocks kept, no question asked
+ *   ask      the person's words ("What should change?") - THE PERSON ASKS, the whole page written with them
+ */
+export type WriteMode = "topic" | "better" | "ask";
+export const writeModeIn = (input: Record<string, unknown>): WriteMode | null => (input.mode === "topic" || input.mode === "better" || input.mode === "ask" ? input.mode : null);
+export const WRITE_MODE_TELL: Record<WriteMode, string> = {
+  topic: "WRITE IT FRESH FROM THE TOPIC: the to-do's subject and brief (above) are what the page is about. Its present words are NOT shown on purpose - do not try to keep or rephrase them; write every block new, as on a first write, in the blocks the page has.",
+  better: "WRITE IT AGAIN, BETTER: the page as it stands (its fields, above) is the base - keep its subject, its facts, its dates and its blocks, and make every block clearer, more concrete and more useful for a buyer. Nothing is asked: do not add a claim the page, the brief or the shop's facts do not hold.",
+  ask: "WRITE IT AGAIN AS THE PERSON ASKS (below): the whole page, every block it has, with that change - what the ask does not touch keeps its facts.",
+};
+
+/** The page as the AI sees it - "From the topic" (Content v12): its blocks only, never its present words. */
+function pageBlock(d: PageDoc, how: { words?: boolean } = {}): string {
+  if (d.source === "new" && how.words === false) {
+    return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
+THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
+(Its present words are left out on purpose - the page is written fresh from its topic.)`;
+  }
   if (d.source === "new") {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
 THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
@@ -345,15 +367,17 @@ function fillUser(part: Exclude<Part, "field">) {
       : part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
       : part === "section" ? `Write THIS section only (${sec?.title.trim() ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.${where}`
         : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
+    // "Write it all again" from the topic, directly or as asked (Content v12)
+    const mode = part === "all" ? writeModeIn(input) : null;
     return `${context(ctx, d)}
 
-${pageBlock(d)}
+${pageBlock(d, { words: mode !== "topic" })}
 
 THE SHOP'S PAGES YOU MAY LINK (address · name · kind):
 ${cands.map((c) => `${c.url} · ${c.name} · ${c.kind}`).join("\n") || "(none - leave every address empty)"}
 
 WRITE IN: ${langOf(d)} (store view ${d.store})
-${what}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
+${what}${mode ? `\n\n${WRITE_MODE_TELL[mode]}` : ""}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
   };
 }
 
@@ -1005,19 +1029,23 @@ function viewsIn(doc: PageDoc, input: Record<string, unknown>): string[] {
 const magento: ServerAction = async (ctx, raw) => {
   const doc = pageDoc(raw, ctx.piece.language);
   const keys = cmsKeys();
-  const [views, grant, backups] = await Promise.all([
+  const [views, grant, backups, written] = await Promise.all([
     Promise.all(viewsOf(doc).map((v) => magentoOf(raw, v))),
     mayShip(),
     cmsPageBackups(String(ctx.pieceId)).catch(() => []),
+    // what each store view's page got at its last write - "changed since the publish" (Content v12)
+    cmsWrittenContent(String(ctx.pieceId)).catch(() => []),
   ]);
   const onAcc = await pieceOnAcc(String(ctx.pieceId)).catch(() => false);
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore })
     ?? (env === "prod" && !restore && !onAcc ? ACC_FIRST : null);
   return {
     // each version (a language - Content v10) with the store views it goes to, and what the hub knows of each in Magento
-    views: views.map(({ want: _want, ...v }) => ({
+    views: views.map(({ want, ...v }) => ({
       ...v, label: versionLabel(doc, v.view),
       stores: storesOfView(doc, v.view).map((x) => ({ view: x, ...storeKnown(x) })),
+      // on ACC / production since when, and changed since (SARCLA 10.11.2026: "update current pages after changes here")
+      since: sinceOf(want?.kind === "page" ? want.content : null, storesOfView(doc, v.view), written),
     })),
     // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
     envs: publishTargets(doc).map((env) => ({

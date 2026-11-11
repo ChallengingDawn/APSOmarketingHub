@@ -46,7 +46,7 @@ import { PictureSlot as StandardSlot } from "../../standard";
 import type { StudioApi } from "../../useStudio";
 import { Choice, Hint } from "./ui";
 
-export type FillRun = (part: Part, opts?: { id?: string; request?: string }) => Promise<string | null>;
+export type FillRun = (part: Part, opts?: { id?: string; request?: string; mode?: "topic" | "better" | "ask" }) => Promise<string | null>;
 
 /** A picture slot being made, or what went wrong (the studio keeps it by language and path). */
 export type Making = { state: "making" | "error"; error?: string; label?: string };

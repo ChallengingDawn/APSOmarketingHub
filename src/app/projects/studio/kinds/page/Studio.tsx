@@ -34,10 +34,10 @@
 import { relinkModule } from "@/lib/content/studio/kinds/page/links";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
+  LIMIT, addBlock, addItem, asWritten, blockOrder, emptyFields, fieldKind, fieldLabel, filledCount, getField, heroBack, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
-  duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
+  duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, takeOutField, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
   type BlockRow, type FoundBlock,
 } from "@/lib/content/studio/kinds/page/blocklist";
 import { limitOf } from "@/lib/content/studio/kinds/page/fit";
@@ -79,6 +79,7 @@ import { VersionStrip } from "./Versions";
 import { ModulesTab } from "./modules/ModulesTab";
 import { SideTabs } from "./modules/SideTabs";
 import { ModulePanel } from "./modules/Panel";
+import { WROTE, WriteAgain, type WriteMode } from "./WriteAgain";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
 import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
@@ -95,6 +96,8 @@ import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
+import Typography from "@mui/material/Typography";
+import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { looksEnglish } from "@/lib/content/studio/kinds/page/plan/plan";
 import { PlanCard } from "./plan/PlanCard";
 import { servedOf, usePlan } from "./plan/usePlan";
@@ -394,7 +397,9 @@ export default function Studio({ api }: StudioProps) {
       if (kind === "picture") return { kind: "picture", key: k };
       return kind === "block" || kind === "item" ? null : { kind: "text", key: k };
     }
-    if (k.startsWith("nt:")) return p.editable ? { kind: "text", key: k } : { kind: "settings", key: moduleKeyOf(k.split(":")[1]) };
+    // a module's words: their setting's popup - words that are none of its settings (a product's name, the shop's) open its
+    // settings, where its products are chosen, never a box that cannot keep them (Content v12)
+    if (k.startsWith("nt:")) return p.editable && tools.moduleField(p) ? { kind: "text", key: k } : { kind: "settings", key: moduleKeyOf(k.split(":")[1]) };
     if (k.startsWith("np:")) return { kind: "settings", key: k };
     if (k.startsWith("i:")) return { kind: "settings", key: k };
     if (k.startsWith("e:")) {
@@ -402,6 +407,7 @@ export default function Studio({ api }: StudioProps) {
       const mod = c?.id && moduleOfChange(c) ? `c:${c.id}` : null;
       // a module's picture comes from its products or its settings: those open
       if (p.tag === "img" && p.src) return mod ? { kind: "settings", key: mod } : { kind: "picture", key: k };
+      if (p.editable && mod && !tools.moduleField(p)) return { kind: "settings", key: mod };
       if (p.editable) return { kind: "text", key: k };
       // the module itself (not one of its texts): its settings
       if (mod) return { kind: "settings", key: mod };
@@ -479,7 +485,7 @@ export default function Studio({ api }: StudioProps) {
       const id = p.key.split(":")[1];
       const pm = (cur.fields.modules ?? []).find((m) => m.id === id);
       if (!pm) return "That module is not on the page any more.";
-      const r = moduleWordsEdit(pm.module, p.text, text);
+      const r = moduleWordsEdit(pm.module, p.text, text, p.href ?? null);
       if (!r) return "These words come from the shop (a product's or a category's name) - the module's settings choose its products.";
       setView({ ...cur, fields: { ...cur.fields, modules: (cur.fields.modules ?? []).map((m) => (m.id === id ? { ...m, module: r.module } : m)) } }, `Changed the ${kindOf(pm.module.type).name.toLowerCase()}'s words`);
       return null;
@@ -487,7 +493,7 @@ export default function Studio({ api }: StudioProps) {
     const mc = p.frag ? cur.changes[p.frag.change] : undefined;
     const mod = mc ? moduleOfChange(mc) : null;
     if (mc && mod) {
-      const r = moduleWordsEdit(mod, p.text, text);
+      const r = moduleWordsEdit(mod, p.text, text, p.href ?? null);
       if (!r) return "These words come from the shop (a product's or a category's name) - the module's settings choose its products.";
       setView({ ...cur, changes: cur.changes.map((c) => (c === mc ? moduleChangeOf(c, r.module) : c)) }, `Changed the ${kindOf(mod.type).name.toLowerCase()}'s words`);
       return null;
@@ -699,12 +705,13 @@ export default function Studio({ api }: StudioProps) {
       }
       const cands = part === "all" || part === "links" || part === "hero" || part === "cta" ? await candidates() : [];
       // the whole page written (Content v8, point 5): with its modules - unless the ask only reworks the words
-      const compose = part === "all" && (!opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
+      // Content v12: "Write it all again" from the topic, directly or as asked - always the whole page with its modules
+      const compose = part === "all" && (!!opts.mode || !opts.request || /^THE PAGE THE PERSON WANTS:/.test(opts.request) || filledCount(viewOf(docRef.current, forLang).fields) === 0);
       // an empty page (Content v9, SARCLA 10.11.2026: "it should by default start empty ... the block and number of
       // blocks are decided by the AI on the first prompt"): the AI decides its blocks and modules
       composed = compose;
       const decide = compose && !blockOrder(viewOf(docRef.current, forLang).fields).length;
-      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}) });
+      const r = await api.ai<{ answer: FillAnswer; leftovers: string[]; modules?: NewPageModule[]; problems?: string[] }>(compose ? "fill_page" : `fill_${part}`, { lang: forLang, id: opts.id ?? null, request: opts.request ?? null, candidates: cands, ...(compose ? { decide } : {}), ...(compose && opts.mode ? { mode: opts.mode } : {}) });
       if (!r.ok) return r.error;
       if (!Object.keys(r.result.answer).length) return "Nothing came back - ask again.";
       // a module of words that is not full is not put on the page (Content v9) - the server kept full ones; checked again
@@ -718,7 +725,7 @@ export default function Studio({ api }: StudioProps) {
         const c = npModules.place(fields, full.kept, forLang);
         placed = c.placed;
         return { ...cur, fields: c.fields };
-      }, `AI wrote ${PART_LABEL[part as Part]}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
+      }, `AI wrote ${PART_LABEL[part as Part]}${opts.mode === "topic" ? " again from the topic" : opts.mode === "better" ? " again, better" : opts.mode === "ask" ? " again as asked" : ""}${compose && full.kept.length ? ` with ${full.kept.length} module${full.kept.length === 1 ? "" : "s"}` : ""}`, r.result.answer.summary ?? opts.request ?? undefined, forLang);
       wrote = true;
       if (part === "all") setToTop((n) => n + 1);
       const out = [...(r.result.problems ?? []), ...full.left];
@@ -730,7 +737,7 @@ export default function Studio({ api }: StudioProps) {
       if (wrote && (part === "all" || part === "hero" || part === "sections" || part === "section")) setTimeout(() => void autoPictures(forLang, part, opts.id), 50);
       // its modules, filled from the shop in front of the person (Content v8) - then every module of the page still lacking
       // something filled by the AI, or taken out (Content v11: no module "Not on the page yet" after an AI write)
-      if (wrote && composed) void npModules.fillAll(forLang, placed).then(() => moduleAi.fillLeft(forLang));
+      if (wrote && composed) void npModules.fillAll(forLang, placed).then(() => moduleAi.fillLeft(forLang, { rewrite: !!opts.mode, request: opts.mode === "ask" ? opts.request ?? "" : "" }));
       else if (wrote && placed.length) void npModules.fillAll(forLang, placed);
     }
   };
@@ -1067,6 +1074,26 @@ export default function Studio({ api }: StudioProps) {
     }
     const made = entryId > mark;
     return { ok: ok && made, text, undo: made ? () => undoSince(mark) : null };
+  };
+
+  /** "Write it all again" from the topic, directly or as asked (Content v12): the whole page written, what it did said under
+   * the header with its Undo - everything since, the modules filled after it too */
+  const [wrote, setWrote] = useState<BlockAiAnswer | null>(null);
+  const writeAgain = async (mode: WriteMode, request?: string) => {
+    const mark = entryId;
+    setWrote(null);
+    // "Start again" (SARCLA 11.11.2026): the page empty - its words, blocks, modules and looks out; its search engine fields
+    // (the URL key its Magento pages carry), store views and records kept, so a publish later updates the same pages
+    if (mode === "reset") {
+      const cur = viewOf(docRef.current, langRef.current);
+      setView({ ...cur, fields: { ...emptyFields(), seo: cur.fields.seo }, changes: [], texts: [] }, "Started again - an empty page");
+      try { window.localStorage.removeItem(emptyKey); } catch { /* no storage */ }
+      setWrote({ ok: true, text: `${WROTE.reset}. Add blocks with +, or ask the assistant on the right to write it.`, undo: () => undoSince(mark) });
+      return;
+    }
+    const m = await fill("all", { mode, ...(request ? { request } : {}) });
+    const made = entryId > mark;
+    setWrote({ ok: made, text: made ? `${WROTE[mode]}${m ? ` - ${m}` : "."}` : m ?? "Nothing came back - ask again.", undo: made ? () => undoSince(mark) : null });
   };
 
   /* ── blocks added, moved, taken out (Content v5: "add more elements by + next to sections, or in the photo") ── */
@@ -1482,7 +1509,9 @@ export default function Studio({ api }: StudioProps) {
       acts.push({ key: "dup", label: "Duplicate", icon: <ContentCopyOutlinedIcon />, run: () => dup(r), disabled: !r.copyable, tip: `A page has one ${r.name.toLowerCase()}` });
       acts.push({ key: "up", label: "Move up", icon: <ArrowUpwardIcon />, run: () => moveBy(r, -1), disabled: !r.movable || i <= (r.module ? 0 : 1) });
       acts.push({ key: "down", label: "Move down", icon: <ArrowDownwardIcon />, run: () => moveBy(r, 1), disabled: !r.movable || i >= rows.length - 1 });
-      acts.push({ key: "out", label: "Take it out", icon: <DeleteOutlineIcon />, run: () => removeRowAct(r), disabled: r.key === "hero", tip: "The hero stays - it holds the page's title", danger: true });
+      // Content v12 (SARCLA 10.11.2026: "also you should delete here if you want to replace by another hero"): the hero too -
+      // the first module then carries the page's H1; "+" > "The page's hero" brings it back
+      acts.push({ key: "out", label: "Take it out", icon: <DeleteOutlineIcon />, run: () => removeRowAct(r), danger: true });
     } else if (r.kind === "page") {
       acts.push({ key: "replace", label: "Replace it with a module", icon: <SwapHorizIcon />, run: () => replaceWithModule(r) });
       acts.push({ key: "hide", label: r.state === "hidden" ? "Show it again" : "Hide it on the page", icon: r.state === "hidden" ? <VisibilityOutlinedIcon /> : <VisibilityOffOutlinedIcon />, run: () => hideShop(r, r.state !== "hidden"), danger: r.state !== "hidden" });
@@ -1501,6 +1530,26 @@ export default function Studio({ api }: StudioProps) {
   // a new page's module the AI or the shop fills from its settings: its block says so on the page too (Content v11)
   const npBusy = Object.fromEntries(Object.entries(modules.busy).filter(([k]) => isModuleKey(k)).map(([k, v]) => [k.slice(3), v]));
 
+  /* "Take it out" where the selection is (Content v12, SARCLA 10.11.2026: "here on tile I cannot take out - also other small
+   * elements, I should be able to delete them"): a tile, a question, a link, a small line, a button, a picture - a module's
+   * part, a product of it; taken out at once, the line above the blocks with its Undo */
+  const takeOutHere = (): { label: string; run: () => void } | null => {
+    if (!sel || !canEdit) return null;
+    const k = sel.key;
+    const done = (text: string, mark: number) => { setSel(null); setWrote({ ok: true, text: `${text}.`, undo: () => undoSince(mark) }); };
+    if (isNew && (k.startsWith("f:") || k.startsWith("b:"))) {
+      const path = k.slice(2);
+      const t = takeOutField(viewOf(docRef.current, langRef.current).fields, path);
+      if (!t) return null;
+      return { label: t.label, run: () => { const mark = entryId; const c = viewOf(docRef.current, langRef.current); const t2 = takeOutField(c.fields, path); if (!t2) return; setView({ ...c, fields: t2.fields }, t2.done); done(t2.done, mark); } };
+    }
+    const p = sel.picked;
+    if (!p || !(k.startsWith("nt:") || p.frag)) return null;
+    const m = tools.moduleTakeOut(p);
+    return m ? { label: m.label, run: () => { const mark = entryId; m.run(); if (entryId > mark) done(m.label.replace(/^Take/, "Took"), mark); } } : null;
+  };
+  const outHere = takeOutHere();
+
   /* the bar over the selection */
   const popOfSel: Pop | null = !sel ? null : sel.picked ? popFor(sel.picked)
     : sel.key.startsWith("f:") && !sel.key.startsWith("f:seo.") ? (fieldKind(sel.key.slice(2)) === "picture" ? { kind: "picture", key: sel.key } : { kind: "text", key: sel.key }) : null;
@@ -1512,7 +1561,7 @@ export default function Studio({ api }: StudioProps) {
       onBlock={selRow && !wholeRow ? () => selectRow(selRow) : undefined}
       edit={popOfSel && pop?.key !== popOfSel.key && canEdit ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : "Edit text", run: () => openPop(popOfSel) } : null}
       onSettings={selRow && !(pop?.kind === "settings" && pop.key === selRow.key) ? () => openSettings(selRow) : undefined}
-      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onClose={() => onPick(null)} />
+      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
   ) : undefined;
 
   /* the popup at the selection */
@@ -1533,7 +1582,7 @@ export default function Studio({ api }: StudioProps) {
         if (!l) return null;
         return { at: "below", width: 400, node: (
           <TextPop key={k} kicker={kick} title={title || "Link"} value={l.label} max={LIMIT.linkLabel} multiline={false} canEdit={canEdit} live
-            onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop}
+            onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop} onRemove={outHere}
             ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null}
             link={{ api, store: d.store, value: l.url, onChange: (v) => setFieldText(`${path}.url`, v), label: "The page" }}
             note={{ value: l.note, onChange: (v) => setFieldText(`${path}.note`, v), max: LIMIT.linkNote }} />
@@ -1546,7 +1595,7 @@ export default function Studio({ api }: StudioProps) {
           <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)} stores={pageStores}
             api={api} store={d.store} look={buttonLookOfField(d.fields.looks[path])} grounds={groundOfField(d.fields, path)} fallback="red" canEdit={canEdit}
             onLook={(next, label) => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: setLook(cur.fields, path, fieldButtonPatchOf(next)) }, label); }}
-            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} />
+            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} onRemove={outHere} />
         ) };
       }
       const value = (getField(d.fields, path) as string | undefined) ?? "";
@@ -1556,7 +1605,7 @@ export default function Studio({ api }: StudioProps) {
         <TextPop key={k} kicker={kick} title={title} value={value} max={limitOf(path) ?? null} multiline={long} marks={marks} canEdit={canEdit} live
           onChange={(v) => setFieldText(path, v)} onDone={(v) => { setFieldText(path, v); closePop(); }} onClose={closePop}
           ai={aiHere ? (ask) => aiField(path, ask) : null}
-          textLook={tools.fieldLook(path)} />
+          textLook={tools.fieldLook(path)} onRemove={outHere} />
       ) };
     }
     if (pop.kind === "text" && sel?.picked && sel.picked.key === k) {
@@ -1569,22 +1618,25 @@ export default function Studio({ api }: StudioProps) {
       const richOk = !inMod && !heading && /^(p|div|li|td|dd|blockquote|figcaption|span)$/.test(p.tag);
       // Content v10 (point 3): a module's button clicked on the page - its words, page and look
       const modBtn = inMod ? tools.moduleButton(p) : null;
+      // the setting the words are (Content v12): its name over the box, its own words in it - never the page's capitals
+      const modHit = inMod ? tools.moduleField(p) : null;
       if (modBtn) {
         return { at: "below", width: MODULE_POP_WIDTH, node: (
-          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} />
+          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} onRemove={modBtn.leads ? null : outHere} />
         ) };
       }
       return { at: "below", width: 420, node: (
-        <TextPop key={k} kicker={kick} title={inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={p.text} multiline={!heading}
+        <TextPop key={k} kicker={kick} title={modHit ? modHit.label : inMod ? "The module's words" : inHeading ? "Heading" : heading ? "Words" : "Text"} value={modHit ? modHit.words : p.text} multiline={!heading}
           rich={richOk ? p.inner : null} canEdit={canEdit} live={false} onClose={closePop}
           // Content v10 (point 2): its look - a page of the shop's own element (its look change), a module's words (its settings)
           textLook={inMod ? tools.moduleTextLook(p) : tools.elementLook(p)}
           onHide={!inMod ? () => { elEdit(p, { kind: "hide", on: true }); setSel(null); } : null}
+          onRemove={inMod ? outHere : null}
           href={!inMod && p.tag === "a" ? p.href ?? "" : null}
           onDone={(text, html, href) => {
             if (href) elEdit(p, { kind: "attr", name: "href", value: href });
             // nothing changed (the box gives back the element's words as it cleans them): nothing written
-            if (text === p.text && (html === undefined || html === cleanRich(p.inner))) { closePop(); return; }
+            if (text === (modHit ? modHit.words : p.text) && (html === undefined || html === cleanRich(p.inner))) { closePop(); return; }
             const err = putWords(p, text, html && /<(?!br\b)[a-z]/i.test(html) ? html : undefined);
             if (err) { window.alert(err); return; }
             closePop();
@@ -1657,7 +1709,7 @@ export default function Studio({ api }: StudioProps) {
         // every module's settings as wide as a module of products' (Content v10: 620 px, so each one's number and link
         // show) - Content v11, SARCLA 10.11.2026: "make the popup wider like the product"
         return { at: "side", width: MODULE_POP_WIDTH, node: (
-          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: () => askBlock(r.key, "") } : null} stores={pageStores}
+          <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: (ask) => askBlock(r.key, ask ?? "") } : null} stores={pageStores}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }
@@ -1690,17 +1742,27 @@ export default function Studio({ api }: StudioProps) {
   const selectedBlock = !selRow ? null : isNew ? selectionOfRow(selRow.key)
     : selRow.kind === "page" && selRow.selector ? `e:${selRow.selector}` : selRow.change !== undefined ? `e:[data-apx-c="${selRow.change}"]:not(style)` : null;
   const blockList = (
+    <>
+    {wrote && (
+      <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mb: 1, px: 1.25, py: 0.75, borderRadius: "8px", bgcolor: wrote.ok ? "#f3f8f5" : "#fff8ec", border: `1px solid ${wrote.ok ? "#cfe5d8" : "#f1d9ad"}` }}>
+        <Typography sx={{ flex: 1, fontSize: "0.78rem", lineHeight: 1.45, color: INK }}>{wrote.text}</Typography>
+        {wrote.undo && <Button size="small" onClick={() => { wrote.undo?.(); setWrote({ ok: true, text: "Taken back - the page is as it was.", undo: null }); }} sx={{ ...btn, px: 1, minWidth: 0, color: PINK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", flexShrink: 0 }}>Undo</Button>}
+        <Button size="small" onClick={() => setWrote(null)} sx={{ ...btn, px: 0.5, minWidth: 0, color: MUTED, flexShrink: 0 }} aria-label="Close">×</Button>
+      </Box>
+    )}
     <BlockList rows={rows} selected={selRowKey} busy={rowBusy} canEdit={canEdit} onSelect={(r) => selectRow(r)} onSettings={openSettings} menu={rowMenu}
       onMove={isNew && canEdit ? moveTo : undefined} onAdd={canEdit ? addAt : undefined}
       // a new page with no block yet (Content v9): its first one added here - or, while the AI writes it, it says so
       empty={!isNew ? <><CircularProgress size={13} /> Reading the page&apos;s blocks…</>
         : busyHere === "all" ? <><CircularProgress size={13} sx={{ color: PINK }} /> The AI is choosing the page&apos;s blocks…</>
           : <><Box component="span" sx={{ flex: 1 }}>No blocks yet - the page is empty.</Box>{canEdit && <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={(e) => addAt(0, e.currentTarget)} sx={{ ...btn, color: PINK, px: 1, py: 0.25, fontSize: "0.8rem", flexShrink: 0 }}>Add a block</Button>}</>} />
+    </>
   );
-  const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (
+  // Content v12 (SARCLA 10.11.2026: "write from topic or direct or ask"): "Write it all again" a choice of three, its Undo after
+  const blocksRight = isNew && canEdit && busyHere !== "all" && (filledCount(d.fields) > 0 || isLegacyBody(d)) ? (isLegacyBody(d) ? (
     <Button size="small" disabled={!aiHere || !!busyHere} onClick={() => void fill("all")} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-      sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>{isLegacyBody(d) ? "Move the draft in with AI" : "Write it all again"}</Button>
-  ) : undefined;
+      sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>Move the draft in with AI</Button>
+  ) : <WriteAgain label="Write it all again" disabled={!aiHere || !!busyHere} busy={false} onRun={(mode, request) => void writeAgain(mode, request)} />) : undefined;
 
   return (
     <MakeViewsProvider value={makeViews}>
@@ -1741,6 +1803,7 @@ export default function Studio({ api }: StudioProps) {
           onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />} />}
       />
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)}
+        onHero={isNew && d.fields.noHero && canEdit ? () => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: heroBack(cur.fields) }, "Put the page's hero back"); } : undefined}
         onGallery={canEdit ? (at) => modules.openGallery({ how: "block", after: blockOrder(d.fields)[at - 1] ?? "", label: `block ${at}` }) : undefined} />
       <AddElementMenu place={addPlace} onClose={() => setAddPlace(null)} onInsert={insertAt} canAi={aiHere}
         onAskAi={(text, place) => { void designBlock(text, { place }).then((m) => { if (m) window.alert(m); }); }}

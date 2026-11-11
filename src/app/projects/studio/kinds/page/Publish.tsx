@@ -34,6 +34,10 @@ import { noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoC
 import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
 import { mediaGallerySteps, picturesHold, type PictureCheck } from "@/lib/content/studio/kinds/page/media";
+import { SHOP_LABEL, abStore, abTestHref, lastWrite, liveOn, type LivePage, type Since } from "@/lib/content/studio/kinds/page/published";
+import { h1ModuleOf } from "@/lib/content/studio/kinds/page/blocklist";
+import { moduleGap } from "@/lib/content/studio/kinds/page/modules/model";
+import { blockOrder } from "@/lib/content/studio/kinds/page/fields";
 import { PINK, btn, mainBtn } from "../../parts";
 import { fileStem, saveFiles, type FileOut } from "../../frame";
 import type { StudioApi } from "../../useStudio";
@@ -46,7 +50,7 @@ export type EnvState = {
   from?: "cms" | "order" | "none"; connection?: string; check?: Check | null;
 };
 /** A version as the last step reads it (Content v10): its language's label and the store views it goes to. */
-export type StatusView = Omit<MagentoView, "want"> & { label?: string; stores?: { view: string; open: boolean; id: number | null }[] };
+export type StatusView = Omit<MagentoView, "want"> & { label?: string; stores?: { view: string; open: boolean; id: number | null }[]; since?: Partial<Record<Env, Since>> };
 export type Status = { views: StatusView[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
 export type PlanOut = PagePlan | SharedPlan | { view: string; env: Env; action: "none"; why: string; error: true };
 /** A new page's own pictures in one target's media (10.11.2026), read with the plan: each there or not, and what holds. */
@@ -142,12 +146,13 @@ function StoreChips({ v, plan }: { v: StatusView; plan: PlanOut | undefined }) {
         const st = extra.includes(k) ? "out" : t?.state ?? (s && !s.id ? "unknown" : "");
         const look = st ? CHIP[st] : null;
         return (
-          <Box key={k} component="span" title={t?.why ?? (st === "out" ? `${k} is no longer ticked - the page leaves it` : s?.id ? `Magento store id ${s.id}` : "Magento has it; the hub does not know its id")}
+          <Box key={k} component="span" title={t?.why ?? (st === "out" ? `${k} is no longer ticked - the page leaves it` : t?.pageId ? `Magento page #${t.pageId} · store id ${s?.id ?? "?"}` : s?.id ? `Magento store id ${s.id}` : "Magento has it; the hub does not know its id")}
             sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 0.6, py: 0.15, borderRadius: "3px", border: `1px solid ${look ? `${look.c}44` : HAIRLINE}`, bgcolor: look ? `${look.c}0d` : "#fff",
               fontSize: "0.7rem", fontWeight: 700, color: INK, whiteSpace: "nowrap", textDecoration: st === "out" ? "line-through" : "none" }}>
             {k.split("/")[0].toUpperCase()}{k.includes("/") && <Box component="span" sx={{ fontSize: "0.58rem", color: BLUE }}>{k.split("/")[1].toUpperCase()}</Box>}
-            <Box component="span" sx={{ fontWeight: 500, color: MUTED, fontVariantNumeric: "tabular-nums" }}>{s?.id ? `#${s.id}` : ""}</Box>
             {look && <Box component="span" sx={{ fontWeight: 700, color: look.c }}>{look.w}</Box>}
+            {/* the Magento page it updates (Content v12: "each store view row says updated, its page #") */}
+            {t?.pageId && st === "has" && <Box component="span" sx={{ fontWeight: 500, color: MUTED, fontVariantNumeric: "tabular-nums" }}>#{t.pageId}</Box>}
           </Box>
         );
       })}
@@ -381,6 +386,59 @@ function OrCalendar({ api }: { api: StudioApi }) {
   );
 }
 
+
+/** A page's addresses on a shop as links, each its store view (a new tab). */
+function PageLinks({ pages }: { pages: LivePage[] }) {
+  return (
+    <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 0.25, rowGap: 0.25 }}>
+      {pages.map((p, i) => (
+        <Box key={p.store} component="span" sx={{ display: "inline-flex", alignItems: "center" }}>
+          {i > 0 && <Box component="span" sx={{ color: MUTED, px: 0.5 }}>·</Box>}
+          <Box component="a" href={p.url} target="_blank" rel="noopener noreferrer" title={`${p.url}${p.pageId ? ` · Magento page #${p.pageId}` : ""}`}
+            sx={{ color: BLUE, fontWeight: 700, fontSize: "0.8rem", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 0.25, "&:hover": { textDecoration: "underline" } }}>
+            {p.store}<OpenInNewIcon sx={{ fontSize: 11 }} />
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/**
+ * The page where it is in Magento (Content v12, SARCLA 10.11.2026): "if already created I should have the link" - on each
+ * shop, every store view's page as a link; "on send to Magento you should add another button - set up A/B testing
+ * optimization" - AI testing & personalization's preview of one of them with its question open, in a new tab.
+ */
+function OnShops({ records, envs, pieceId, prefer }: { records: MagentoRecord[]; envs: EnvState[]; pieceId: number; prefer: (string | null | undefined)[] }) {
+  const rows = envs.map((e) => ({ e, pages: liveOn(records, e.env), last: lastWrite(records, e.env) })).filter((x) => x.pages.length);
+  if (!rows.length) return null;
+  return (
+    <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "8px", bgcolor: "#f3f8f5", border: "1px solid #cfe5d8", display: "grid", gap: 1 }}>
+      {rows.map(({ e, pages, last }) => {
+        const ab = abStore(pages, prefer);
+        return (
+          <Box key={e.env}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: GREEN, flex: 1, minWidth: 0 }}>
+                On {e.label} · {pages.length} page{pages.length === 1 ? "" : "s"}{last ? ` · ${when(last.at)}` : ""}
+              </Typography>
+              {ab && (
+                <Button size="small" variant="outlined" component="a" href={abTestHref(e.env, ab.path, pieceId)} target="_blank" rel="noopener noreferrer"
+                  endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+                  sx={{ ...btn, height: 30, borderRadius: "7px", borderColor: HAIRLINE, color: INK, bgcolor: "#fff", fontSize: "0.78rem", px: 1.25 }}>
+                  Set up an A/B test
+                </Button>
+              )}
+            </Box>
+            <Box sx={{ mt: 0.5 }}><PageLinks pages={pages} /></Box>
+            {ab && <Typography sx={{ mt: 0.4, fontSize: "0.72rem", color: MUTED }}>The A/B test starts on {ab.store} ({ab.path}) in AI testing &amp; personalization.</Typography>}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string;
   /** what Magento was read to say (a static check draws the step with it) */
@@ -395,7 +453,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   const [plans, setPlans] = useState<Record<string, PlanOut[]>>(initial?.plans ?? {});
   const [reading, setReading] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [said, setSaid] = useState<{ env: Env; results: Result[] } | null>(null);
+  const [said, setSaid] = useState<{ env: Env; results: Result[]; records?: MagentoRecord[] } | null>(null);
   const [handOver, setHandOver] = useState(false);
   const madeKey = viewsOf(doc).join(",");
   // the studio's api is a new object at each render: the reads below hold the latest one
@@ -447,7 +505,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
     const said0 = views.map((v) => status?.views.find((x) => x.view === v)?.label ?? v).join(", ");
     if (!window.confirm(`Write ${said0} into Magento ${env.label}? Each page is backed up first, and can be brought back as it was.`)) return;
     setBusy(`publish:${env.env}`); setSaid(null);
-    const r = await api.act<{ env: Env; results: Result[] }>("magento_publish", { env: env.env, views });
+    const r = await api.act<{ env: Env; results: Result[]; records: MagentoRecord[] }>("magento_publish", { env: env.env, views });
     setBusy(null);
     if (!r.ok) { setSaid({ env: env.env, results: [{ view: "", ok: false, error: r.error }] }); return; }
     setSaid(r.result);
@@ -491,11 +549,20 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   const gateWhy = status.gate.why;
   return (
     <Box>
+      {/* Content v12: the page's hero taken out and no module in its place - the page would go without its H1 */}
+      {d.source === "new" && !blockOrder(d.fields).includes("hero") && (() => { const id = h1ModuleOf(d.fields); const pm = (d.fields.modules ?? []).find((x) => x.id === id); return !pm || !!moduleGap(pm.module); })() && (
+        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
+          <Typography sx={{ fontSize: "0.82rem", color: INK }}>This page has no H1: its hero was taken out and no finished module stands in its place - the first module carries the H1 once it is filled. Fill it, or put the page&apos;s hero back (the &quot;+&quot; between two blocks).</Typography>
+        </Box>
+      )}
       {gateWhy && (
         <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
           <Typography sx={{ fontSize: "0.82rem", color: INK }}>{gateWhy}</Typography>
         </Box>
       )}
+
+      {/* where it is already: its pages as links, and its A/B test (Content v12) */}
+      <OnShops records={doc.magento} envs={envs} pieceId={api.data.piece.id} prefer={[lang, d.store, ...viewsOf(doc)]} />
 
       <Kick>Where to</Kick>
       <Targets envs={envs} on={on} onToggle={toggleEnv} />
@@ -582,12 +649,26 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
           const off = !!why || !!busy || !!reading[e.env] || !!blocked;
           // the review or the grant is said once, at the top; the key, per target
           const say = why && why !== gateWhy && why !== e.waiting ? why : null;
+          // already on this shop (Content v12, SARCLA 10.11.2026: "update current pages after changes here"): changed since?
+          const since = cmsViews.filter((v) => sel.includes(v.view)).map((v) => v.since?.[e.env]).filter((x): x is Since => !!x);
+          const changed = since.some((x) => x.changed);
+          const sinceAt = since.map((x) => x.at).sort().at(-1) ?? null;
+          const sincePages = since.reduce((n, x) => n + x.pages, 0);
+          const shopPages = writable.reduce((n, v) => { const p = plans[e.env]?.find((x) => x.view === v && isShared(x)); return n + (isShared(p) ? p.storeIds.length : status.views.find((x) => x.view === v)?.stores?.length ?? 1); }, 0);
+          const verb = since.length ? `Update on ${e.env === "acc" ? "ACC" : "production"}` : `Publish to ${e.env === "acc" ? "ACC" : "production"}`;
           return (
             <Box key={e.env}>
+              {since.length > 0 && (
+                <Typography sx={{ mb: 0.6, fontSize: "0.78rem", fontWeight: changed ? 700 : 500, color: changed ? AMBER : GREEN }}>
+                  {changed
+                    ? `Changed since the publish on ${e.label}${sinceAt ? ` (${when(sinceAt)})` : ""} - update the ${sincePages} page${sincePages === 1 ? "" : "s"}.`
+                    : `On ${e.label} as it is here (${sinceAt ? when(sinceAt) : "published"}) - nothing changed since.`}
+                </Typography>
+              )}
               <Button fullWidth variant={i === 0 ? "contained" : "outlined"} disableElevation disabled={off} onClick={() => void publish(e)}
                 startIcon={busy === `publish:${e.env}` ? <CircularProgress size={14} color="inherit" /> : undefined}
                 sx={i === 0 ? { ...mainBtn, height: 42, borderRadius: "8px" } : { ...btn, height: 42, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
-                {busy === `publish:${e.env}` ? `Writing into ${e.label}…` : `Publish to ${e.env === "acc" ? "ACC" : "production"}${writable.length && !why ? ` · ${writable.length === 1 ? "1 page" : `${writable.length} pages`} for ${writable.reduce((n, v) => { const p = plans[e.env]?.find((x) => x.view === v && isShared(x)); return n + (isShared(p) ? p.storeIds.length : status.views.find((x) => x.view === v)?.stores?.length ?? 1); }, 0)} store views` : ""}`}
+                {busy === `publish:${e.env}` ? `Writing into ${e.label}…` : `${verb}${writable.length && !why ? ` · ${writable.length === 1 ? "1 page" : `${writable.length} pages`} for ${shopPages} store views` : ""}`}
               </Button>
               {(say || blocked > 0) && <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: MUTED }}>{say ?? `${blocked} store view${blocked === 1 ? " has" : "s have"} words to finish first.`}</Typography>}
             </Box>
@@ -595,17 +676,25 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
         })}
         {!on.length && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Pick ACC, production or both above.</Typography>}
       </Box>
-      {canEdit && <OrCalendar api={api} />}
-
       {said && (
         <Box sx={{ mt: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
-          {said.results.map((r) => (
-            <Typography key={r.view || "all"} sx={{ fontSize: "0.8rem", color: r.ok ? GREEN : "#c5221f" }}>
-              {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} (page #${r.pageId})${r.stores?.length ? ` for ${r.stores.join(", ")}` : ""}${r.note ? ` - ${r.note}` : ""}` : r.error}
-            </Typography>
-          ))}
+          {said.results.map((r) => {
+            // each store view written: its page on that shop, a link (Content v12, SARCLA: "if already created I should have the link")
+            const mine = (said.records ?? []).filter((x) => x.env === said.env && (r.stores?.length ? r.stores.includes(x.store) : x.store === r.view));
+            const pages = liveOn(mine, said.env);
+            return (
+              <Box key={r.view || "all"} sx={{ py: 0.25 }}>
+                <Typography sx={{ fontSize: "0.8rem", color: r.ok ? GREEN : "#c5221f" }}>
+                  {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} on ${SHOP_LABEL[said.env]} (page #${r.pageId})${pages.length > 1 ? ` in ${pages.length} store views` : ""}${r.note ? ` - ${r.note}` : ""}` : r.error}
+                </Typography>
+                {r.ok && pages.length > 0 && <Box sx={{ mt: 0.25 }}><PageLinks pages={pages} /></Box>}
+              </Box>
+            );
+          })}
         </Box>
       )}
+      {canEdit && <OrCalendar api={api} />}
+
 
       <Box sx={{ mt: 2.5, borderTop: `1px solid ${HAIRLINE}`, pt: 1.25 }}>
         <Button size="small" onClick={() => setHandOver(!handOver)} endIcon={<KeyboardArrowDownIcon sx={{ transform: handOver ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />}

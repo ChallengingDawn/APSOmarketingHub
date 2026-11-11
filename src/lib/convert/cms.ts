@@ -415,6 +415,17 @@ export async function cmsSharedWrite(pieceId: string, env: Env, it: { view: stri
   }
 }
 
+/** What this to-do last wrote into each store view's page, by environment - its content as Magento got it (Content v12,
+ * SARCLA 10.11.2026: "I should be able to update current pages after changes here": the last step tells a page changed
+ * since its publish from this). A page brought back or switched off since is not "on" any more: left out. */
+export async function cmsWrittenContent(pieceId: string): Promise<{ env: Env; view: string; at: string; content: string }[]> {
+  await ensureCmsSchema();
+  const r = await query<{ env: Env; store: string; at: Date; kind: string; content_after: string }>(
+    `SELECT DISTINCT ON (env, store) env, store, at, kind, content_after FROM apsomh_convert_cms_backups
+      WHERE piece_id = $1 AND written AND kind IN ('create', 'update', 'restore') ORDER BY env, store, at DESC`, [pieceId]);
+  return r.rows.filter((x) => x.kind !== "restore").map((x) => ({ env: x.env, view: x.store, at: new Date(x.at).toISOString(), content: x.content_after ?? "" }));
+}
+
 export type PageBackup = { id: string; env: Env; view: string; identifier: string; pageId: string; action: string; by: string | null; at: string; written: boolean; error: string | null };
 export async function cmsPageBackups(pieceId: string): Promise<PageBackup[]> {
   await ensureCmsSchema();

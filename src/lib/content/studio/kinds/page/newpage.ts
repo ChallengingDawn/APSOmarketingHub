@@ -11,6 +11,7 @@
 
 import { SPLITS, blockOrder, type BlockBg, type Fields, type Look, type Pic } from "./fields";
 import { moduleGap } from "./modules/model";
+import { h1ModuleOf } from "./blocklist";
 import { renderModule, renderSkeleton } from "./modules/render";
 import { labelOn } from "./style";
 import { inStore } from "./links";
@@ -197,6 +198,8 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
   // the gallery's modules (Content v6): each after its block, one whose block is gone at the end; in the preview each
   // says which it is (data-apx-mod) - Magento's copy is the module alone
   const mods = f.modules ?? [];
+  // Content v12: the page's hero taken out - the first (hero) module carries the H1
+  const h1Mod = h1ModuleOf(f);
   const modsAfter = (key: string) => mods.filter((x) => (key === "~end" ? x.after && !order.includes(x.after) : x.after === key))
     .map((x) => {
       // one that still lacks something: its skeleton in the preview with the reason (Content v7, SARCLA point 6: "added a
@@ -206,10 +209,10 @@ ${one("cta.title", "h2", "apx-np-h2", c.title, "The call to action")}${many("cta
       const filling = m ? o.busy?.modules?.[x.id] : undefined;
       const gap = moduleGap(x.module);
       // Content v11: a module the AI writes again stays in view, veiled and moving, until its new words land
-      if (filling && !gap) return `<div data-apx-mod="${esc(x.id)}" data-apx-busy>${renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}) })}</div>`;
+      if (filling && !gap) return `<div data-apx-mod="${esc(x.id)}" data-apx-busy>${renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}), ...(x.id === h1Mod ? { h1: true } : {}) })}</div>`;
       if (filling) return `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { busy: filling })}</div>`;
       if (gap) return m ? `<div data-apx-mod="${esc(x.id)}" class="apx-np-in">${renderSkeleton(x.module, { reason: o.busy?.moduleWhy?.[x.id] ?? `${gap} - in its settings (click it).` })}</div>` : "";
-      const h = renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}) });
+      const h = renderModule(x.module, { ...(o.picture ? { picture: o.picture } : {}), ...(o.store ? { store: o.store } : {}), ...(x.id === h1Mod ? { h1: true } : {}) });
       return m ? `<div data-apx-mod="${esc(x.id)}">${h}</div>` : h;
     }).join("\n");
   const parts: string[] = [];

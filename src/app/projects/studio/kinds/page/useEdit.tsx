@@ -11,7 +11,7 @@
 //                      share, a tile's span, a module's two columns
 
 import { useState } from "react";
-import { removeRow, moveRow, moduleKeyOf, newPageRows, moduleWordsEdit, type BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
+import { removeRow, moveRow, moduleKeyOf, newPageRows, moduleFieldEdit, moduleFieldLabel, moduleWordsAt, takeOutOfModule, type BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
 import { SPLITS, setLook, type Fields } from "@/lib/content/studio/kinds/page/fields";
 import type { PageChange, PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { kindOf, moduleId, moduleOfChange, type ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
@@ -120,13 +120,15 @@ export function useEdit(c: EditCtx) {
     };
   };
 
-  /** which of a module's settings a click hit ("title", "link", "points.2.title") - null: the shop's words (a product) */
-  const moduleField = (p: Picked): { key: string; field: string; m: ModuleRef } | null => {
+  /** which of a module's settings a click hit ("title", "link", "points.2.title", "words.all") and the words it holds -
+   * null: the shop's words (a product's name). Content v12: the words compared as the page shows them (capitals, a hyphen
+   * that never breaks), a tile's button told from the module's own by the page it leads to. */
+  const moduleField = (p: Picked): { key: string; field: string; m: ModuleRef; words: string; label: string } | null => {
     const key = moduleKeyOfPicked(p);
     const at = key ? moduleAt(key) : null;
     if (!key || !at || !p.text.trim()) return null;
-    const r = moduleWordsEdit(at.m, p.text, p.text);
-    return r ? { key, field: r.field, m: at.m } : null;
+    const r = moduleWordsAt(at.m, p.text, p.href ?? null);
+    return r ? { key, field: r.field, m: at.m, words: r.words, label: moduleFieldLabel(at.m, r.field) } : null;
   };
 
   /** a module's words (its title, small line, line under it): their look kept in its settings */
@@ -150,7 +152,19 @@ export function useEdit(c: EditCtx) {
   /** a module's button clicked on the page: what its popup needs (null when the click was not on one) */
   const moduleButton = (p: Picked): Omit<ButtonPopProps, "kicker" | "api" | "store" | "canEdit" | "onClose"> | null => {
     const hit = moduleField(p);
-    if (!hit || (hit.field !== "link" && hit.field !== "link2")) return null;
+    if (!hit) return null;
+    // a tile's button ("Alle anzeigen" on a bento's big tile): its words, kept in the module (Content v12)
+    if (hit.field.startsWith("words.")) {
+      const name = kindOf(hit.m.type).name.toLowerCase();
+      return {
+        title: "The tiles' button", label: hit.words, max: 40,
+        onLabel: (v) => { const at = moduleAt(hit.key); const next = at ? moduleFieldEdit(at.m, hit.field, v) : null; if (at && next) at.put(next, `Changed the ${name}'s tile button`); },
+        leads: "It leads to the page of the tile it stands on - a tile's product or category is chosen in the module's settings. Every tile of this module says these words.",
+        grounds: groundsOfLook(p.look?.ground), fallback: "red",
+        hint: "Kept in the module's settings - empty, it says the shop's own words again.",
+      };
+    }
+    if (hit.field !== "link" && hit.field !== "link2") return null;
     const f = hit.field as ButtonField;
     const s = hit.m.settings;
     const name = kindOf(hit.m.type).name.toLowerCase();
@@ -176,12 +190,35 @@ export function useEdit(c: EditCtx) {
     };
   };
 
+  /** a module's part where the click landed, taken out (Content v12, SARCLA 10.11.2026: "other small elements, I should be
+   * able to delete them"): its small line, a line, a button, a date, a point, a question, a product - null where none */
+  const moduleTakeOut = (p: Picked): { label: string; run: () => void } | null => {
+    const key = moduleKeyOfPicked(p);
+    const at = key ? moduleAt(key) : null;
+    if (!key || !at) return null;
+    const hit = p.text.trim() ? moduleWordsAt(at.m, p.text, p.href ?? null) : null;
+    const t = takeOutOfModule(at.m, hit?.field ?? null, p.text);
+    if (!t) return null;
+    return {
+      label: t.label,
+      run: () => {
+        const a = moduleAt(key);
+        if (!a) return;
+        const h = p.text.trim() ? moduleWordsAt(a.m, p.text, p.href ?? null) : null;
+        const t2 = takeOutOfModule(a.m, h?.field ?? null, p.text);
+        if (t2) a.put(t2.module, t2.done);
+      },
+    };
+  };
+
   /* ── switching a block into another module (point 4) ─────────────────── */
 
   /** the modules a row can become, and what it keeps - null when it holds content no other module holds */
   const optionsFor = (r: BlockRow): { options: SwitchOption[]; keeps: string } | null => {
     const cur = c.view();
     if (c.isNew && r.kind === "block") {
+      // the page's hero: every hero module, its title (the H1), line, button and picture kept (Content v12)
+      if (r.key === "hero") return { options: compatibleWithBlock(cur.fields, r.key, cur.store), keeps: "its title (the page's H1), its line, its button and its picture" };
       const fam = blockFamily(r.key);
       if (!fam) return null;
       return { options: compatibleWithBlock(cur.fields, r.key, cur.store), keeps: FAMILY_WORDS[fam] };
@@ -292,7 +329,7 @@ export function useEdit(c: EditCtx) {
     };
   };
 
-  return { fieldLook, elementLook, moduleTextLook, moduleButton, optionsFor, switchRow, switchedBar, resizeFor, clearSwitched: () => setSwitched(null) };
+  return { fieldLook, elementLook, moduleTextLook, moduleButton, moduleField, moduleTakeOut, optionsFor, switchRow, switchedBar, resizeFor, clearSwitched: () => setSwitched(null) };
 }
 
 /** The grid of a module's two columns (lib .../modules/looks.ts SPLIT_GRID). */
