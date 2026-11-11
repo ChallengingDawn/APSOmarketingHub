@@ -20,6 +20,7 @@
 import { isTileStyle, type TileStyle } from "./tileStyles";
 import { query } from "@/lib/db/client";
 import { stageOfStatus, statusOfStage } from "./actionPlanRules";
+import { inPlanSql, planRows } from "./planRows";
 
 const TASKS = "apsomh_kpi_tasks";
 const LINKS = "apsomh_kpi_ticket_links";
@@ -195,7 +196,9 @@ const VISIBLE = `(tile = $1 OR ($2::int IS NOT NULL AND plan_item = $2))`;
 
 export async function tasksOf(tile: string): Promise<KpiTask[]> {
   await ensure();
-  const r = await query<TaskRow>(`SELECT * FROM ${TASKS} WHERE ${VISIBLE} ORDER BY (status = 'done'), due NULLS LAST, id`, [tile, planIdOf(tile)]);
+  // its own always; one tied to it from elsewhere only when it is a row of the plan - a content to-do only with its
+  // ticket (planRows.ts, SARCLA 11.11.2026)
+  const r = await query<TaskRow>(`SELECT * FROM ${TASKS} t WHERE ${VISIBLE} AND (t.tile = $1 OR ${inPlanSql("t", LINKS)}) ORDER BY (status = 'done'), due NULLS LAST, id`, [tile, planIdOf(tile)]);
   return r.rows.map(task);
 }
 
@@ -289,14 +292,18 @@ export async function ticketsOf(tile: string): Promise<{ ticketId: string; creat
     .map((x) => ({ ticketId: x.ticket_id, created: x.created, linkedBy: x.linked_by, linkedAt: iso(x.linked_at) ?? "", taskId: x.task_id ?? null }));
 }
 
-/** Every sub-action of the action plan, with how many tickets each carries - one read for the whole plan. */
+/**
+ * Every sub-action of the action plan, with how many tickets each carries - one read for the whole plan. A content
+ * project's to-do is one only while it has its ticket (planRows.ts, SARCLA 11.11.2026: "take them out if no ticket"), so
+ * the Gantt, the counts, the %, the main actions' status and dates and the HubSpot sync all read the same rows.
+ */
 export async function planTasks(): Promise<(KpiTask & { tickets: number })[]> {
   await ensure();
   const r = await query<TaskRow & { tickets: string }>(
     `SELECT t.*, (SELECT count(DISTINCT l.ticket_id) FROM ${LINKS} l WHERE l.task_id = t.id)::text AS tickets
        FROM ${TASKS} t WHERE t.tile LIKE 'plan:%' OR t.plan_item IS NOT NULL ORDER BY t.due NULLS LAST, t.id`,
   );
-  return r.rows.map((x) => ({ ...task(x), tickets: Number(x.tickets) }));
+  return planRows(r.rows.map((x) => ({ ...task(x), tickets: Number(x.tickets) })));
 }
 
 /**

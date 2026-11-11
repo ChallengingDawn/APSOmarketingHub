@@ -2,7 +2,9 @@
 // we should have the ticket or the associated ticket per task, association to the action plan, this whole logic as well").
 //
 // A to-do is a row of apsomh_kpi_tasks - the table the plan's sub-actions are - with the tile "content:<project>" and,
-// once the project has its place in the plan, plan_item = that action. So it shows under the action on the Gantt, takes
+// once the project has its place in the plan, plan_item = that action. It shows under the action on the Gantt ONLY while
+// it has its ticket (planRows.ts, SARCLA 11.11.2026: "take them out if no ticket"); without one it is the project's
+// to-do alone. It takes
 // ONE "From Scroll to Sale" ticket (made here, or an existing one linked), and the plan's two-way sync keeps the ticket
 // and the to-do in step (title, stage, owner, dates, status note). The plan's rules hold here too:
 //   - a to-do takes a ticket only when its action is led by Digital Growth, or it is a Digital Growth person's (takesTicket);
@@ -274,8 +276,12 @@ export async function linkTodoTicket(projectId: number, todoId: number, ticketId
 }
 
 export async function unlinkTodoTicket(projectId: number, todoId: number, ticketId: string): Promise<boolean> {
-  if (!(await todoOf(projectId, todoId))) return false;
+  const t = await todoOf(projectId, todoId);
+  if (!t) return false;
   await unlinkTicket(todoTile(projectId), ticketId);
+  await forgetTaskSync(todoId);
+  // without its ticket the to-do is no row of the plan any more (planRows.ts): its action is read again without it
+  if (t.planItem != null) queuePlanSync("content to-do ticket unlinked");
   return true;
 }
 

@@ -112,7 +112,7 @@ export function PlaceAssist({ w, place, act, compact }: { w: Work; place: Place 
           </Typography>
         ) : (
           <Typography sx={{ fontSize: "0.88rem", color: "#7f4f0b", flex: 1, minWidth: 0 }}>
-            <b>Not in the action plan yet.</b> Its to-dos become sub-actions with their ticket once it is.
+            <b>Not in the action plan yet.</b> Once it is, each to-do with its ticket shows under its action.
           </Typography>
         )}
         {w.isAdmin && place && !changing && <Button size="small" onClick={() => setChanging(true)} sx={btn}>Change</Button>}
