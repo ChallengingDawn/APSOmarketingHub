@@ -24,7 +24,7 @@ export async function GET() {
     // a contact linked here is done, even before the next read shows it
     const done = new Set(links.map((l) => l.contact));
     const value = state.value ? { ...state.value, rows: state.value.rows.filter((r) => !done.has(r.id)) } : undefined;
-    return NextResponse.json({ configured: true, ok: true, data: { ...state, value, links: links.slice(0, 50), linkedCount: links.length } });
+    return NextResponse.json({ configured: true, ok: true, data: { ...state, value, links: links.slice(0, 50), linkedCount: links.length, admin: access.role === "admin" } });
   } catch (err) {
     return NextResponse.json({ configured: true, ok: false, ...describeIntegrationError(err) });
   }
@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
   if (!access.canOpen("uc")) return NextResponse.json({ error: "No access" }, { status: 403 });
   const b = (await req.json().catch(() => ({}))) as { contact?: string; company?: string; all?: string };
   if (b.all === "orders") {
+    // "Link all" is for admins only (SARCLA 11.11.2026: "yes only for admin"); one by one stays open to every UC user
+    if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Linking them all at once is for admins - link each one below" }, { status: 403 });
     try { return NextResponse.json({ ok: true, data: await linkAllByOrder(`user ${access.userId}`) }); }
     catch (err) { return NextResponse.json({ ok: false, ...describeIntegrationError(err) }, { status: 500 }); }
   }
