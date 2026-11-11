@@ -378,7 +378,7 @@ export function upToOf(v: KpiView, state: MkState | null, year: number): string 
 export const periodOf = (v: KpiView) => (v.measure.agg.kind === "ytd" ? "this year so far" : v.period ?? (v.upTo ? `Jan–${MONTHS[v.upTo - 1]}` : "no months yet"));
 
 /** A measured KPI: its year so far, against last year or its target, and the months. */
-export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, title }: {
+export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, title, stacked = false }: {
   v: KpiView; kpi?: CatalogueKpi; icon?: React.ReactNode; tint?: Tint; upTo?: string;
   /** the page's own name for the KPI (Reach: "SEA Google impressions"; the nutshell keeps the catalogue's) */
   title?: string;
@@ -386,12 +386,29 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, 
   actions?: React.ReactNode;
   /** a chart of the card's own in place of the months (Visit: users outside Switzerland by country, a store's channels) */
   children?: React.ReactNode;
+  /** the name on its own line, the figure under it, then where it reaches - for long names in narrow cards (the Sealing
+   *  Business Review's, SARCLA 11.11.2026: "completely broken"); off, the card is as it always was */
+  stacked?: boolean;
 }) {
   const L = MONTHS;
   const hasMonths = v.series.months.some((x) => x != null);
   const hasPy = v.series.py.some((x) => x != null);
   return (
     <GlassCard sx={{ display: "grid", gap: 1.25, alignContent: "start" }}>
+      {stacked ? (
+        <Box sx={{ display: "grid", gap: 0.75, minWidth: 0 }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
+            {icon && <Badge icon={icon} tint={tint} size={32} />}
+            <Typography data-kpi={v.id} sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, letterSpacing: "-0.01em", lineHeight: 1.3, flex: 1, minWidth: 0 }}>{title ?? nameOf(v.id)}</Typography>
+            {actions && <Box sx={{ flex: "0 0 auto" }}>{actions}</Box>}
+          </Box>
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, flexWrap: "wrap" }}>
+            <Typography sx={{ fontSize: "1.9rem", fontWeight: 700, color: INK, lineHeight: 1.05, letterSpacing: "-0.03em", fontVariantNumeric: "tabular-nums" }}>{fmtValue(v.measure.fmt, v.ytd)}</Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: FAINT }}>{periodOf(v)}</Typography>
+          </Box>
+          {upTo && <Typography sx={{ fontSize: "0.7rem", color: FAINT, fontWeight: 600 }}>{upTo}</Typography>}
+        </Box>
+      ) : (
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
         {icon && <Badge icon={icon} tint={tint} />}
         <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -409,6 +426,7 @@ export function KpiCard({ v, kpi, icon, tint = "blue", upTo, actions, children, 
         </Box>
         {actions && <Box sx={{ flex: "0 0 auto", alignSelf: "flex-start" }}>{actions}</Box>}
       </Box>
+      )}
       <Compare v={v} />
       {children}
       {/* a count of the year so far: the nutshell's two bars, this year against last (SARCLA 18.10: the nutshell's graphs inside the pages) */}
