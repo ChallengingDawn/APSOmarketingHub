@@ -247,7 +247,7 @@ export async function listPages(f: { kind: PageKind | null; store: string | null
              OR ($3 = 'prod' AND acc_url IS NULL AND store IN (SELECT store FROM st WHERE env = 'acc'))
              OR ($3 = 'acc' AND prod_url IS NULL AND store IN (SELECT store FROM st WHERE env = 'prod')))
         AND ($4 = '' OR rest ILIKE '%' || $4 || '%' OR product = $4)
-      ORDER BY store, CASE kind WHEN 'home' THEN 0 WHEN 'cms' THEN 1 WHEN 'category' THEN 2 WHEN 'product' THEN 3 ELSE 4 END, rest
+      ORDER BY (kind <> 'home'), (store <> 'de-CH'), store, CASE kind WHEN 'home' THEN 0 WHEN 'cms' THEN 1 WHEN 'category' THEN 2 WHEN 'product' THEN 3 ELSE 4 END, rest
       LIMIT $5 OFFSET $6`,
     [f.kind, f.store, f.where, q, f.perPage, f.page * f.perPage],
   );

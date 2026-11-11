@@ -768,7 +768,7 @@ function ConvertPreview() {
   useEffect(() => {
     if (autoPicked.current || !d || !path || ideaSel || compare || clicks) return;
     // from Google's view: the lead new landing page - the page's other optimizations wait under More
-    const lead = seoMode ? ranked.find((i) => i.status !== "dropped" && isLanding(i)) : ranked.find((i) => i.status !== "dropped");
+    const lead = seoMode ? ranked.find((i) => i.status !== "dropped" && isLanding(i)) : ranked.find((i) => i.status !== "dropped" && !isLanding(i));
     if (!lead) return;
     autoPicked.current = true;
     const compared = ranked.filter((i) => i.status !== "dropped" && (versionsOf.get(i.id)?.length ?? 0) > 0).length;
@@ -819,7 +819,10 @@ function ConvertPreview() {
     // code, the revisions, the clicks, what the AI reads) folded under "More".
     const data = r.data;
     const pg = data.page;
-    const live = ranked.filter((i) => i.status !== "dropped");
+    // a new landing page changes nothing on THIS page (SARCLA 10.11.2026: "I don't understand this optimization, it
+    // changes nothing"): it is not one of the page's optimizations - they are listed apart, from Google's view only
+    const live = ranked.filter((i) => i.status !== "dropped" && (seoMode || !isLanding(i)));
+    const newPages = seoMode ? [] : ranked.filter((i) => i.status !== "dropped" && isLanding(i));
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
     // ONE optimization's versions side by side, framed on its block, until one is picked (SARCLA 10.11.2026: "3 or 4
     // versions" against the block as it is); a block of the shop's optimizations side by side as before
@@ -1038,6 +1041,21 @@ function ConvertPreview() {
             </Box>
           )}
         </Box>
+
+        {/* new landing pages proposed from this page's Google searches: not changes of this page - Content writes them */}
+        {newPages.length > 0 && (
+          <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
+            <CardTitle icon={<SearchIcon />} tint="purple" title={`New pages proposed from this page's Google searches · ${newPages.length}`} note="They change nothing on this page: each is a NEW page for Content to write" />
+            <Box sx={{ display: "grid", gap: 0.5, mt: 1 }}>
+              {newPages.map((i) => (
+                <Box key={i.id} component="button" type="button" onClick={() => router.push(`${href(path, i.id)}&seo=1`)}
+                  sx={{ all: "unset", cursor: "pointer", fontSize: "0.84rem", color: ACCENT, fontWeight: 600, "&:hover": { textDecoration: "underline" } }}>
+                  {i.title}
+                </Box>
+              ))}
+            </Box>
+          </GlassCard>
+        )}
 
         {/* everything else, folded */}
         <Box component="details" sx={{ px: 0.5, "& > summary": { cursor: "pointer", fontSize: "0.84rem", fontWeight: 700, color: MUTED, py: 0.5 } }}>

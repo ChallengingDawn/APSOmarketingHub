@@ -354,6 +354,13 @@ export default function ConvertInsights() {
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         } />
+      {/* SARCLA 10.11.2026: "put a disclaimer on Insights: product pages are deactivated for the moment, as cart and my
+          account - not sent [the] token on dotSource['s] hard-coded pages" */}
+      <Notice tone="warn">
+        For the moment the AI proposes no optimization on <b>product pages</b>, the <b>cart</b> or <b>My account</b>: dotSource codes those
+        pages in the shop&apos;s theme, and the hub has no access to change them yet. Home, category and content pages get block
+        optimizations - a block of the page and 3 or 4 modules to replace it.
+      </Notice>
       {body}
     </Box>
   );

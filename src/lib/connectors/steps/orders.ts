@@ -52,8 +52,8 @@ import {
 } from "./orderFiles";
 import {
   PIPELINE, WEB_CARRY, baseOf000, candidates, dedupDecision, deliveryBases, detailUpdate, enrichPayload, fnum, hsDate,
-  isDeliveryOf, orderPayload, pyRepr, pyStrip, stageUpdate, unpackDetail, unresolvedIds, webCarry,
-  type ArtInfo, type FctOrder, type FixMap,
+  isDeliveryOf, orderPayload, pyRepr, pyStrip, stageUpdate, unpackDetail, unresolvedIds, webCarry, companyForKey,
+  type ArtInfo, type CompanyHit, type FctOrder, type FixMap,
 } from "./orderRules";
 
 const FIXMAP = fixmapJson as unknown as FixMap;
@@ -615,27 +615,117 @@ const MAP_TTL_MS = 30 * 86_400_000;
  * with several companies gets the lowest id, as the connector's crawl kept the first.
  * Nothing is created: a customer not found stays unlinked and is reported.
  */
-async function customerMap(uns: string[]): Promise<{ map: Map<string, string>; looked_up: number; not_found: string[] }> {
+async function customerMap(uns: string[]): Promise<{ map: Map<string, string>; looked_up: number; not_found: string[]; by_number: number }> {
   const { store } = deps;
   const map = await store.mapGet(uns, deps.now() - MAP_TTL_MS);
   const todo = uns.filter((u) => !map.has(u));
   const found: [string, string][] = [];
+  let byNumber = 0;
   for (let i = 0; i < todo.length; i += 50) {
+    const part = todo.slice(i, i + 50);
     const res = await searchAll("companies", {
-      filterGroups: [{ filters: [{ propertyName: "company_unique_number", operator: "IN", values: todo.slice(i, i + 50) }] }],
+      filterGroups: [{ filters: [{ propertyName: "company_unique_number", operator: "IN", values: part }] }],
       properties: ["company_unique_number"], limit: 100,
     });
-    const best = new Map<string, string>();
-    for (const c of res) {
-      const un = pyStrip(c.properties?.company_unique_number ?? "");
-      if (!un) continue;
-      const have = best.get(un);
-      if (!have || BigInt(c.id) < BigInt(have)) best.set(un, String(c.id));
+    const hits: CompanyHit[] = res.map((c) => ({ id: String(c.id), un: pyStrip(c.properties?.company_unique_number ?? "") }));
+    // the key not on the company yet (it is written later - a new customer's first order comes before it): the ERP
+    // customer number in that mandant, typed on the company (orderRules.ts companyForKey; SARCLA 10.11.2026)
+    const left = part.filter((u) => !hits.some((h) => h.un === u));
+    const nums = [...new Set(left.map((u) => u.split("-")[1] ?? "").filter((n) => /^\d+$/.test(n)))];
+    for (let k = 0; k < nums.length; k += 50) {
+      const more = await searchAll("companies", {
+        filterGroups: [{ filters: [{ propertyName: "erp_customer_id", operator: "IN", values: nums.slice(k, k + 50) }] }],
+        properties: ["erp_customer_id", "mandant", "company_unique_number"], limit: 100,
+      });
+      for (const c of more) hits.push({ id: String(c.id), un: pyStrip(c.properties?.company_unique_number ?? ""), erp: c.properties?.erp_customer_id ?? null, mandant: c.properties?.mandant ?? null });
     }
-    for (const [un, id] of best) { map.set(un, id); found.push([un, id]); }
+    for (const u of part) {
+      const id = companyForKey(u, hits);
+      if (!id) continue;
+      if (left.includes(u)) byNumber++;
+      map.set(u, id);
+      found.push([u, id]);
+    }
   }
   await store.mapPut(found);
-  return { map, looked_up: todo.length, not_found: todo.filter((u) => !map.has(u)) };
+  return { map, looked_up: todo.length, not_found: todo.filter((u) => !map.has(u)), by_number: byNumber };
+}
+
+/* ── orders without their company, linked again (SARCLA 10.11.2026) ───── */
+
+const LINK_DAYS = 45;
+/** An order is linked to its company once, right after it is made; a company whose key (or ERP number) comes later -
+ *  a new customer's first order - stayed without its orders for good (262 of 413,503 on 10.11.2026). This looks at the
+ *  orders of the last 45 days without a company: by the customer key (customerMap, with the ERP number fallback), and an
+ *  order with no customer number (a web order) by its only contact's company, as the shop sync links it. */
+export async function orderCompanyLink(live: boolean, beat: Beat): Promise<StepResult> {
+  const t0 = deps.now();
+  const since = String(t0 - LINK_DAYS * 86_400_000);
+  const recent: Obj[] = [];
+  let cursor = "0";
+  for (;;) {
+    // an id cursor: the search stops at 10,000 results
+    const j = await search("orders", {
+      filterGroups: [{ filters: [{ propertyName: "hs_createdate", operator: "GTE", value: since }, { propertyName: "hs_object_id", operator: "GT", value: cursor }] }],
+      properties: ["order_mandant", "order_customer_number", "hs_order_name"], sorts: [{ propertyName: "hs_object_id", direction: "ASCENDING" }], limit: 100,
+    });
+    const res = j.results ?? [];
+    if (!res.length) break;
+    recent.push(...res);
+    cursor = String(res[res.length - 1].id);
+    if (recent.length % 2000 < 100) await beat();
+  }
+  const linked = new Set<string>();
+  for (let i = 0; i < recent.length; i += 100) {
+    const j = await hs<{ results?: { from: { id: string }; to?: unknown[] }[] }>({ path: "/crm/v4/associations/orders/companies/batch/read", method: "POST", body: { inputs: recent.slice(i, i + 100).map((o) => ({ id: String(o.id) })) } });
+    for (const r of j.results ?? []) if ((r.to ?? []).length) linked.add(String(r.from.id));
+  }
+  const orphans = recent.filter((o) => !linked.has(String(o.id)));
+  const keyOf = (o: Obj) => {
+    const m = pyStrip(o.properties?.order_mandant ?? ""), c = pyStrip(o.properties?.order_customer_number ?? "");
+    return m && c ? `${m}-${c}` : "";
+  };
+  const withKey = orphans.filter((o) => keyOf(o));
+  const cm = await customerMap([...new Set(withKey.map(keyOf))].sort(cmpStr));
+  const plan: { order: string; name: string; company: string; how: "key" | "contact" }[] = [];
+  for (const o of withKey) {
+    const c = cm.map.get(keyOf(o));
+    if (c) plan.push({ order: String(o.id), name: o.properties?.hs_order_name ?? "", company: c, how: "key" });
+  }
+  // a web order with no customer number: its only contact's company
+  const noKey = orphans.filter((o) => !keyOf(o));
+  for (let i = 0; i < noKey.length; i += 100) {
+    const part = noKey.slice(i, i + 100);
+    const a = await hs<{ results?: { from: { id: string }; to?: { toObjectId: string | number }[] }[] }>({ path: "/crm/v4/associations/orders/contacts/batch/read", method: "POST", body: { inputs: part.map((o) => ({ id: String(o.id) })) } });
+    const only = new Map<string, string>();
+    for (const r of a.results ?? []) if ((r.to ?? []).length === 1) only.set(String(r.from.id), String(r.to![0].toObjectId));
+    const people = await hs<{ results?: Obj[] }>({ path: "/crm/v3/objects/contacts/batch/read", method: "POST", body: { inputs: [...new Set(only.values())].map((id) => ({ id })), properties: ["associatedcompanyid"] } });
+    const companyOf = new Map((people.results ?? []).map((p) => [String(p.id), pyStrip(p.properties?.associatedcompanyid ?? "")]));
+    for (const o of part) {
+      const c = companyOf.get(only.get(String(o.id)) ?? "");
+      if (c) plan.push({ order: String(o.id), name: o.properties?.hs_order_name ?? "", company: c, how: "contact" });
+    }
+  }
+  const out: StepResult = {
+    days: LINK_DAYS, orders: recent.length, without_company: orphans.length, to_link: plan.length,
+    by_key: plan.filter((p) => p.how === "key").length, by_contact: plan.filter((p) => p.how === "contact").length,
+    by_erp_number: cm.by_number, still_without: orphans.length - plan.length,
+    examples: plan.slice(0, 10).map((p) => ({ order: p.name || p.order, company: p.company, how: p.how })),
+    still_without_samples: orphans.filter((o) => !plan.some((p) => p.order === String(o.id))).slice(0, 10).map((o) => o.properties?.hs_order_name ?? String(o.id)),
+  };
+  if (live && plan.length) {
+    let done = 0, failed = 0;
+    for (let i = 0; i < plan.length; i += 100) {
+      const chunk = plan.slice(i, i + 100);
+      try {
+        const j = await hs<{ errors?: unknown[] }>({ path: "/crm/v4/associations/orders/companies/batch/create", method: "POST", body: { inputs: chunk.map((p) => ({ from: { id: p.order }, to: { id: p.company }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 509 }] })) } });
+        failed += j.errors?.length ?? 0;
+        done += chunk.length - (j.errors?.length ?? 0);
+      } catch { failed += chunk.length; }
+    }
+    Object.assign(out, { linked: done, failed });
+  }
+  return { ...out, seconds: Math.round((deps.now() - t0) / 1000) };
 }
 
 async function companyNames(ids: string[]): Promise<Map<string, string>> {
@@ -809,6 +899,7 @@ export async function ordersDaily(live: boolean, beat: Beat, opts: { file: strin
     articles_found: art.size, articles_asked: keys.size, articles_from_memory: [...lacking].filter((x) => known.has(x)).length,
     customers: uns.length, customers_looked_up: cm.looked_up,
     customers_not_found: cm.not_found.length, ...(cm.not_found.length ? { customers_not_found_samples: cm.not_found.slice(0, 10) } : {}),
+    customers_by_erp_number: cm.by_number,
   });
   const bases = deliveryBases(missing.keys());
 

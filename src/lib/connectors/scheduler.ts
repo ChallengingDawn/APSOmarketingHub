@@ -3,6 +3,7 @@
 //   mandant_sweep, wrong_owners   every 30 minutes  } the sweeps' own lane, beside the chain
 //   deputy_sweep,                 every 15 minutes  }
 //   magento_link                                     }
+//   order_company_link            every 6 hours    }
 //   the chain steps               in the hub's chain (chain.ts): pull the ERP's new files,
 //                                 then the steps whose files arrived - started beside the
 //                                 ticks, since a chain can take an hour
@@ -76,6 +77,8 @@ async function stepsTick() {
   await every("task_deputy_sweep", live, 15 * 60_000);
   await every("bo_sentiment_sweep", live, 15 * 60_000);
   await every("magento_link", live, 15 * 60_000);
+  // orders still without their company (a new customer's key or ERP number came after the order) - SARCLA 10.11.2026
+  await every("order_company_link", live, 6 * 3_600_000);
   // the chain can take an hour: it runs beside the ticks, so the sweeps above keep their
   // rhythm on their own lane (one chain per copy; the lock keeps it to one across both)
   if (!chainRunning) {

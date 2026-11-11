@@ -6,6 +6,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv, isKind } from "@/lib/convert/model";
 import { isWhere, lastReads, listPages, pagesSummary, readShop } from "@/lib/convert/pages";
+import { optimizationsOn } from "@/lib/convert/studio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +36,10 @@ export async function GET(req: NextRequest) {
         perPage: PER_PAGE,
       }),
     ]);
-    return NextResponse.json({ configured: true, ok: true, data: { reads, summary, list, canRead: access.levelAt(PAGE) === "write" } });
+    // each listed page's optimizations (its production address), for the row's chip
+    const paths = list.rows.map((r) => { try { return new URL((r.prod ?? r.acc)!.url).pathname; } catch { return ""; } }).filter(Boolean);
+    const work = await optimizationsOn("prod", paths).catch(() => ({}));
+    return NextResponse.json({ configured: true, ok: true, data: { reads, summary, list, work, canRead: access.levelAt(PAGE) === "write" } });
   } catch (e) {
     return NextResponse.json({ configured: true, ok: false, error: String((e as Error)?.message ?? e) }, { status: 200 });
   }
