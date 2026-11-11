@@ -7,11 +7,19 @@
 //           hubspot (send the e-mail to HubSpot as a DRAFT - switched off until SARCLA tests it: CONTENT_HUBSPOT_PUSH=on;
 //           a draft is never sent by the hub, a person schedules it), pageLinks (the Page builder's new pages for the
 //           link picker - ./pageLinksRead.ts, 11.11.2026)
+// cv16 (11.11.2026, "compare the evolution of this page to the other content types and improve them"): every task and the
+// html / hubspot actions work on ONE language's e-mail (`input.lang`, ./langs.ts versionIn - the newsletter's own when
+// none); every AI text passes the shop's word rules (./guard.ts - what was taken out comes back as `left`); "Write it all
+// again" writes the blocks the person added too (`extra`); an element's own "Ask AI" changes that one field (`field`);
+// a HubSpot refusal comes back in plain words (`done: false`, never a thrown error), a draft with the words it was made
+// from (`sig`), named with its language.
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
-import { asNewsletter, editable, emptyNewsletter, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
+import { editable, emptyNewsletter, extraBlocks, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX, type DraftAnswer, type Edits } from "./model";
+import { guardDraft, guardEdits } from "./guard";
+import { languagesOf, refusalSaid, versionIn, versionSig } from "./langs";
 import { blocksFrom, digestOf, draftInHubspot, emailParts, ourEmails } from "./hubspotEmails";
 import { pageLinksFor } from "./pageLinksRead";
 
@@ -37,21 +45,31 @@ const PICTURE = "what a photo for it would show, in English, concrete: the part 
 
 const str = (max: number) => ({ type: "string", description: `at most ${max} characters` });
 
+/** The language's e-mail a task or an action works on (cv16): `input.lang`, else the newsletter's own. */
+const viewOf = (doc: unknown, input: Record<string, unknown>) => versionIn(doc, s(input.lang, 4) || null);
+/** What the rules may take as named (a certificate the brief or the e-mail names stays): the brief and the e-mail's words. */
+const knownOf = (ctx: StudioCtx, doc: unknown) => [ctx.brief.goal, ctx.brief.audience, ctx.brief.message, ctx.brief.keywords.join(" "), ctx.piece.title, ctx.projectTitle, newsletterText(doc)].filter(Boolean).join("\n");
+
 export const newsletterKind: KindDef = {
   kind: "newsletter",
   channel: "newsletter",
   empty: (ctx) => emptyNewsletter(ctx.piece.language ?? "EN"),
-  toText: newsletterText,
+  // every language's words (cv16), each under its language when there is more than one
+  toText: (doc) => { const ls = languagesOf(doc); return ls.map((l) => `${ls.length > 1 ? `[${l}]\n` : ""}${newsletterText(versionIn(doc, l))}`).join("\n\n"); },
   tasks: {
     draft: {
       label: "Write it from the brief",
-      system: `${RULES}\nWrite the whole newsletter: subject, preheader, a lead story with its eyebrow (two to four words), headline and two short paragraphs, as many shorter stories as asked (one paragraph each, with a link label), an intro or closing line for a text block, and a closing call to action. Give the lead story and each story an idea for its photo.`,
+      system: `${RULES}\nWrite the whole newsletter: subject, preheader, a lead story with its eyebrow (two to four words), headline and two short paragraphs, as many shorter stories as asked (one paragraph each, with a link label), an intro or closing line for a text block, and a closing call to action. Give the lead story and each story an idea for its photo. When other blocks are listed, write their fields too ("extra", under their own id and field names; a product's own name is never written).`,
       user: (ctx, doc, input) => {
-        const d = asNewsletter(doc);
+        const d = viewOf(doc, input);
         const n = Math.max(1, Math.min(4, d.blocks.filter((b) => b.kind === "article").length || 2));
-        return [ctxText(ctx), `Stories to write: ${n}`, s(input.request) && `What the person asks: ${s(input.request)}`,
+        const extra = extraBlocks(d);
+        // "From the topic": the brief only - the e-mail's words are not shown, so it is written fresh (cv16, as the Page builder)
+        const fresh = s(input.mode, 10) === "topic";
+        return [ctxText(ctx, d.language), `Stories to write: ${n}`, s(input.request) && `What the person asks: ${s(input.request)}`,
           s(input.learned, 3000) && `What our last newsletters were (subject - opens - clicks):\n${s(input.learned, 3000)}`,
-          newsletterText(d).replace(/^Subject: \nPreheader: \n?/, "").trim() ? `The newsletter now (keep what still fits):\n${newsletterText(d).slice(0, 4000)}` : ""].filter(Boolean).join("\n\n");
+          !fresh && newsletterText(d).replace(/^Subject: \nPreheader: \n?/, "").trim() ? `The newsletter now (keep what still fits):\n${newsletterText(d).slice(0, 4000)}` : "",
+          extra.length ? `Other blocks the person added - write their fields too (extra):\n${JSON.stringify(extra).slice(0, 4000)}` : ""].filter(Boolean).join("\n\n");
       },
       schema: {
         type: "object", additionalProperties: false,
@@ -64,29 +82,56 @@ export const newsletterKind: KindDef = {
           stories: { type: "array", items: { type: "object", additionalProperties: false, required: ["title", "text", "link", "picture"], properties: { title: str(70), text: { type: "string" }, link: str(28), picture: { type: "string", description: PICTURE } } } },
           intro: { type: "string", description: "one or two sentences for a text block: what this letter brings, or a practical suggestion to close" },
           cta: str(90), ctaButton: str(28),
+          extra: {
+            type: "array", description: "the other blocks' words, when listed - else []",
+            items: {
+              type: "object", additionalProperties: false, required: ["id", "fields"],
+              properties: { id: { type: "string" }, fields: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "value"], properties: { name: { type: "string" }, value: { type: "string" } } } } },
+            },
+          },
         },
       },
-      maxTokens: 4000,
-      clean: (raw) => {
+      maxTokens: 5000,
+      clean: (raw, doc, ctx, input) => {
         const r = (raw ?? {}) as Record<string, unknown>;
+        const d = viewOf(doc, input);
         const stories = Array.isArray(r.stories) ? r.stories.slice(0, 4).map((x) => { const o = (x ?? {}) as Record<string, unknown>; return { title: s(o.title, 120), text: s(o.text, 1500), link: s(o.link, 40), picture: s(o.picture, 600) }; }) : [];
-        return {
+        // the extra blocks' fields: only blocks and names that are there to write
+        const allowed = new Map(extraBlocks(d).map((b) => [b.id, new Set(b.fields.map((f) => f.name))]));
+        const extra = (Array.isArray(r.extra) ? r.extra : []).map((x) => {
+          const o = (x ?? {}) as Record<string, unknown>;
+          const names = allowed.get(s(o.id, 40));
+          if (!names) return null;
+          const fields = (Array.isArray(o.fields) ? o.fields : []).map((f) => { const y = (f ?? {}) as Record<string, unknown>; return { name: s(y.name, 40), value: s(y.value, 2000) }; }).filter((f) => names.has(f.name) && f.value);
+          return fields.length ? { id: s(o.id, 40), fields } : null;
+        }).filter((x): x is { id: string; fields: { name: string; value: string }[] } => !!x);
+        const answer: DraftAnswer = {
           subject: s(r.subject, 120), preheader: s(r.preheader, 160), eyebrow: s(r.eyebrow, 60), headline: s(r.headline, 140),
-          lead: s(r.lead, 2500), button: s(r.button, 40), picture: s(r.picture, 600), stories, intro: s(r.intro, 600), cta: s(r.cta, 200), ctaButton: s(r.ctaButton, 40),
+          lead: s(r.lead, 2500), button: s(r.button, 40), picture: s(r.picture, 600), stories, intro: s(r.intro, 600), cta: s(r.cta, 200), ctaButton: s(r.ctaButton, 40), extra,
         };
+        // the shop's word rules on every word (cv16): what was taken out is said
+        const g = guardDraft(answer, knownOf(ctx, d), d.language);
+        return { ...g.answer, left: g.left };
       },
     },
     subjects: {
       label: "Five subject lines",
       system: `${RULES}\nPropose five different subject lines, each with its preheader, and one short reason each (why it would be opened). Vary the angle: the benefit, the news, a question, the detail, the customer's job.`,
-      user: (ctx, doc) => `${ctxText(ctx)}\n\nThe newsletter now:\n${newsletterText(doc).slice(0, 4000)}`,
+      user: (ctx, doc, input) => { const d = viewOf(doc, input); return `${ctxText(ctx, d.language)}\n\nThe newsletter now:\n${newsletterText(d).slice(0, 4000)}`; },
       schema: {
         type: "object", additionalProperties: false, required: ["options"],
         properties: { options: { type: "array", items: { type: "object", additionalProperties: false, required: ["subject", "preheader", "why"], properties: { subject: str(SUBJECT_MAX), preheader: str(PREHEADER_MAX), why: str(120) } } } },
       },
-      clean: (raw) => {
+      clean: (raw, doc, ctx, input) => {
         const o = ((raw ?? {}) as { options?: unknown[] }).options ?? [];
-        return o.slice(0, 6).map((x) => { const r = (x ?? {}) as Record<string, unknown>; return { subject: s(r.subject, 120), preheader: s(r.preheader, 160), why: s(r.why, 200) }; });
+        const d = viewOf(doc, input);
+        const known = knownOf(ctx, d);
+        // under the shop's word rules: a subject line that breaks one is not offered (cv16)
+        return o.slice(0, 6).map((x) => {
+          const r = (x ?? {}) as Record<string, unknown>;
+          const g = guardEdits({ subject: s(r.subject, 120), preheader: s(r.preheader, 160), blocks: [] }, d, known).edits;
+          return { subject: g.subject ?? "", preheader: g.preheader ?? "", why: s(r.why, 200) };
+        }).filter((x) => x.subject);
       },
     },
     edit: {
@@ -99,10 +144,14 @@ given (subject and preheader too). "button" and "link" are button labels; "image
 a fact's figure (keep the figure, translate only its unit words).`,
       user: (ctx, doc, input) => {
         const lang = s(input.language, 4).toUpperCase();
-        const words = editable(doc, s(input.blockId, 40) || undefined);
+        const d = viewOf(doc, input);
+        const words = editable(d, s(input.blockId, 40) || undefined);
+        // one element (cv16): only its field is shown and may change
+        const field = s(input.field, 40);
+        const shown = field ? { subject: "", preheader: "", blocks: words.blocks.map((b) => ({ ...b, fields: b.fields.filter((f) => f.name === field) })).filter((b) => b.fields.length) } : words;
         const ask = s(input.request, 2000) || "Make it shorter and more concrete.";
-        return [ctxText(ctx), lang ? `Translate into: ${LANGUAGE[lang] ?? lang}` : "", `What the person asks: ${ask}`,
-          `The words now:\n${JSON.stringify(words).slice(0, 14_000)}`].filter(Boolean).join("\n\n");
+        return [ctxText(ctx, d.language), lang ? `Translate into: ${LANGUAGE[lang] ?? lang}` : "", field ? `Change only this one field (${field}) - nothing else.` : "", `What the person asks: ${ask}`,
+          `The words now:\n${JSON.stringify(shown).slice(0, 14_000)}`].filter(Boolean).join("\n\n");
       },
       schema: {
         type: "object", additionalProperties: false, required: ["subject", "preheader", "blocks", "note"],
@@ -123,11 +172,12 @@ a fact's figure (keep the figure, translate only its unit words).`,
         },
       },
       maxTokens: 6000,
-      clean: (raw, doc, _ctx, input) => {
+      clean: (raw, doc, ctx, input) => {
         const r = (raw ?? {}) as Record<string, unknown>;
-        const d = asNewsletter(doc);
+        const d = viewOf(doc, input);
         const only = s(input.blockId, 40);
-        const known = new Map(d.blocks.filter((b) => !only || b.id === only).map((b) => [b.id, new Set(textFields(b).map((f) => f.name))]));
+        const field = s(input.field, 40);
+        const known = new Map(d.blocks.filter((b) => !only || b.id === only).map((b) => [b.id, new Set(textFields(b).map((f) => f.name).filter((n) => !field || n === field))]));
         const blocks = (Array.isArray(r.blocks) ? r.blocks : []).map((x) => {
           const o = (x ?? {}) as Record<string, unknown>;
           const names = known.get(s(o.id, 40));
@@ -136,7 +186,11 @@ a fact's figure (keep the figure, translate only its unit words).`,
             .filter((f) => names.has(f.name));
           return fields.length ? { id: s(o.id, 40), fields } : null;
         }).filter((x): x is { id: string; fields: { name: string; value: string }[] } => !!x);
-        return { subject: only ? "" : s(r.subject, 120), preheader: only ? "" : s(r.preheader, 160), blocks, note: s(r.note, 200) };
+        const edits: Edits & { note: string } = { subject: only ? "" : s(r.subject, 120), preheader: only ? "" : s(r.preheader, 160), blocks, note: s(r.note, 200) };
+        // the shop's word rules on every changed word (cv16); a translation's words are judged in its own language
+        const lang = s(input.language, 4).toUpperCase();
+        const g = guardEdits(edits, lang ? { ...d, language: lang } : d, knownOf(ctx, d));
+        return { ...g.edits, left: g.left };
       },
     },
   },
@@ -198,7 +252,7 @@ a fact's figure (keep the figure, translate only its unit words).`,
     },
     /** The e-mail as HTML, built here - the browser never sends it (the 8 KB limit). Pictures kept in the hub carry the
      *  hub's full address: HubSpot can only show them once that address is public (or the pictures are in HubSpot's files). */
-    html: async (_ctx, doc) => ({ html: renderEmail(doc, { origin: (process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com").replace(/\/+$/, "") }) }),
+    html: async (_ctx, doc, input) => ({ html: renderEmail(viewOf(doc, input), { origin: (process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com").replace(/\/+$/, "") }) }),
     /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from (its look, footer,
      *  subscription settings) with what was changed here; a person checks it and schedules it in HubSpot.
      *  Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
@@ -217,15 +271,23 @@ a fact's figure (keep the figure, translate only its unit words).`,
         return { done: false, why: "Sending drafts to HubSpot is not switched on yet. Download the HTML and paste it into a HubSpot e-mail (custom HTML), or ask an admin to switch it on (here, under Send it out)." };
       }
       if (input.confirm !== true) return { done: false, why: "Confirm first." };
-      const d = asNewsletter(doc);
+      const d = viewOf(doc, input);
       if (!d.startedFrom?.emailId) {
         return { done: false, why: "Start the newsletter from one of our e-mails (Our e-mails) - the HubSpot draft copies its look, footer and subscription settings." };
       }
-      const r = await draftInHubspot(d, `${ctx.projectTitle} - ${ctx.piece.title}`.slice(0, 200));
-      return {
-        done: true, emailId: r.id, url: r.url,
-        note: [r.changed.length ? `In the draft: ${r.changed.length} change${r.changed.length === 1 ? "" : "s"} from here.` : "The draft is the original with this subject and preheader.", ...r.notes].join(" "),
-      };
+      // its language in the draft's name when the newsletter has more than one (cv16): one draft per language
+      const several = languagesOf(doc).length > 1;
+      try {
+        const r = await draftInHubspot(d, `${ctx.projectTitle} - ${ctx.piece.title}${several ? ` (${d.language.toUpperCase()})` : ""}`.slice(0, 200));
+        return {
+          done: true, emailId: r.id, url: r.url, lang: d.language.toUpperCase(), sig: versionSig(d), at: new Date().toISOString(),
+          note: [r.changed.length ? `In the draft: ${r.changed.length} change${r.changed.length === 1 ? "" : "s"} from here.` : "The draft is the original with this subject and preheader.", ...r.notes].join(" "),
+        };
+      } catch (e) {
+        // a refusal said in plain words, for the last step's "Try again" (never a thrown error)
+        const status = e && typeof e === "object" && "status" in e && typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : null;
+        return { done: false, why: refusalSaid(e instanceof Error ? e.message : String(e), status) };
+      }
     },
   },
 };

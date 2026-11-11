@@ -42,14 +42,24 @@ export type NewsletterDoc = {
   blocks: Block[];
   /** The layout it was started from (a key of TEMPLATES). */
   layout?: string;
-  /** What happened in HubSpot - set by the server action, shown in the studio. */
-  hubspot?: { emailId?: string; url?: string; state?: string; at?: string };
+  /** What happened in HubSpot - set by the server action, shown in the studio (`sig`: the words it was made from - cv16). */
+  hubspot?: { emailId?: string; url?: string; state?: string; at?: string; sig?: string };
   /** The HubSpot e-mail it started from - its look is what a HubSpot draft copies (SARCLA 08.11.2026: "look at the
    *  latest we sent"). */
   startedFrom?: { emailId: string; subject: string; language: string; date: string };
   /** Our e-mails the assistant writes like (picked in "Our e-mails"; "we should be able to select more"). */
   learnFrom?: { emailId: string; subject: string }[];
   /** "Changes made here": the assistant's changes, kept with the e-mail (Content v4 - never a picture or the text itself) */
+  changes?: StudioChange[];
+  /** cv16 (11.11.2026): its other languages, each a version of its own - its words, its blocks, its HubSpot draft - keyed
+   *  "FR", "DE"...; the top level is the newsletter's own language (./langs.ts). */
+  langs?: Record<string, LangVersion>;
+};
+
+/** A language's version of the newsletter (./langs.ts): what changes per language; the rest is the newsletter's. */
+export type LangVersion = {
+  subject: string; preheader: string; fromName?: string; blocks: Block[];
+  hubspot?: NewsletterDoc["hubspot"] & { sig?: string };
   changes?: StudioChange[];
 };
 
@@ -170,17 +180,33 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 export function asNewsletter(doc: unknown): NewsletterDoc {
   const d = isObj(doc) ? doc : {};
   const base = emptyNewsletter(typeof d.language === "string" ? d.language : "EN");
+  const main = base.language.toUpperCase();
+  const blocksOf = (x: unknown[]) => x.filter((b) => isObj(b) && typeof b.kind === "string" && typeof b.id === "string" && b.kind in BLOCK_LABEL) as Block[];
+  // its other languages (cv16): a version with blocks; never the newsletter's own language twice
+  const langs = isObj(d.langs) ? Object.fromEntries(Object.entries(d.langs)
+    .filter(([k, v]) => /^[a-z]{2}$/i.test(k) && k.toUpperCase() !== main && isObj(v) && Array.isArray(v.blocks))
+    .map(([k, raw]): [string, LangVersion] => {
+      const v = raw as Record<string, unknown>;
+      return [k.toUpperCase(), {
+        subject: typeof v.subject === "string" ? v.subject : "", preheader: typeof v.preheader === "string" ? v.preheader : "",
+        ...(typeof v.fromName === "string" && v.fromName ? { fromName: v.fromName } : {}),
+        blocks: blocksOf(v.blocks as unknown[]),
+        ...(isObj(v.hubspot) ? { hubspot: v.hubspot as LangVersion["hubspot"] } : {}),
+        changes: changesOf(v.changes),
+      }];
+    })) : {};
   return {
     ...base,
     subject: typeof d.subject === "string" ? d.subject : "",
     preheader: typeof d.preheader === "string" ? d.preheader : "",
     fromName: typeof d.fromName === "string" && d.fromName ? d.fromName : base.fromName,
-    blocks: Array.isArray(d.blocks) ? (d.blocks.filter((b) => isObj(b) && typeof b.kind === "string" && typeof b.id === "string" && b.kind in BLOCK_LABEL) as Block[]) : base.blocks,
+    blocks: Array.isArray(d.blocks) ? blocksOf(d.blocks) : base.blocks,
     layout: typeof d.layout === "string" ? d.layout : Array.isArray(d.blocks) ? undefined : base.layout,
     hubspot: isObj(d.hubspot) ? (d.hubspot as NewsletterDoc["hubspot"]) : undefined,
     startedFrom: isObj(d.startedFrom) && typeof d.startedFrom.emailId === "string" ? (d.startedFrom as NewsletterDoc["startedFrom"]) : undefined,
     learnFrom: Array.isArray(d.learnFrom) ? (d.learnFrom.filter((x) => isObj(x) && typeof x.emailId === "string").slice(0, 8) as NewsletterDoc["learnFrom"]) : undefined,
     changes: changesOf(d.changes),
+    ...(Object.keys(langs).length ? { langs } : {}),
   };
 }
 
@@ -577,14 +603,40 @@ export function checks(doc: unknown): Check[] {
 export type DraftAnswer = {
   subject: string; preheader: string; eyebrow: string; headline: string; lead: string; button: string; picture?: string;
   stories: { title: string; text: string; link: string; picture?: string }[]; intro?: string; cta: string; ctaButton: string;
+  /** cv16 (the Page builder's "the AI rewrite also writes parts the person added"): the words of the blocks the shape
+   *  above does not cover - a second text, a products block's title and lines, a story past the fourth -, by block id */
+  extra?: { id: string; fields: TextField[] }[];
 };
+
+/** The blocks "Write it all again" writes besides the lead story, the stories, the first text and the call to action:
+ *  every other block with words (cv16) - a product's own name never (it is the shop's). */
+export function extraBlocks(docIn: unknown): { id: string; kind: BlockKind; fields: TextField[] }[] {
+  const d = asNewsletter(docIn);
+  let stories = 0;
+  let texts = 0;
+  let heroes = 0;
+  const out: { id: string; kind: BlockKind; fields: TextField[] }[] = [];
+  for (const b of d.blocks) {
+    if (b.kind === "article" && ++stories <= 4) continue;
+    if (b.kind === "text" && ++texts === 1) continue;
+    if (b.kind === "hero" && ++heroes === 1) continue;
+    if (b.kind === "cta" || b.kind === "facts" || b.kind === "footer" || b.kind === "header" || b.kind === "divider") continue;
+    const fields = textFields(b).filter((f) => !/^item\dName$/.test(f.name) && !(b.kind === "products" && /^item\dText$/.test(f.name) && !b.items[Number(f.name[4]) - 1]?.name.trim()));
+    if (fields.length) out.push({ id: b.id, kind: b.kind, fields });
+  }
+  return out;
+}
 
 export function applyDraft(docIn: unknown, a: DraftAnswer): NewsletterDoc {
   const d = asNewsletter(docIn);
   let story = 0;
   let wroteText = false;
+  let wroteHero = false;
+  const extra = new Map((a.extra ?? []).map((x) => [x.id, x.fields]));
   const blocks: Block[] = d.blocks.map((b) => {
-    if (b.kind === "hero") return { ...b, eyebrow: a.eyebrow || b.eyebrow, headline: a.headline || b.headline, text: a.lead || b.text, button: { ...b.button, label: a.button || b.button.label }, imagePrompt: a.picture || b.imagePrompt };
+    const own = extra.get(b.id);
+    if (own) return own.reduce((acc, f) => (typeof f.value === "string" && f.value.trim() && !/^item\dName$/.test(f.name) ? setTextField(acc, f.name, f.value) : acc), b);
+    if (b.kind === "hero" && !wroteHero) { wroteHero = true; return { ...b, eyebrow: a.eyebrow || b.eyebrow, headline: a.headline || b.headline, text: a.lead || b.text, button: { ...b.button, label: a.button || b.button.label }, imagePrompt: a.picture || b.imagePrompt }; }
     if (b.kind === "article" && a.stories[story]) { const x = a.stories[story++]; return { ...b, title: x.title, text: x.text, link: { ...b.link, label: x.link || b.link.label }, imagePrompt: x.picture || b.imagePrompt }; }
     if (b.kind === "text" && a.intro && !wroteText) { wroteText = true; return { ...b, text: a.intro }; }
     if (b.kind === "banner" && a.picture && !b.imagePrompt) return { ...b, imagePrompt: a.picture };

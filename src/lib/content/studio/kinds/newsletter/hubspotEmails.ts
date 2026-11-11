@@ -9,7 +9,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { hubspotToken } from "@/lib/integrations/status";
 import { assetBytes } from "@/lib/content/assets";
 import type { NewsletterDoc } from "./model";
-import { draftFrom, groupEmails, picturesToUpload, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail, type SourceEmail } from "./ourEmails";
+import { draftFrom, fileNameOf, groupEmails, picturesToUpload, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail, type SourceEmail } from "./ourEmails";
 
 export { blocksFrom, digestOf } from "./ourEmails";
 export type { EmailGroup, EmailPart, EmailVariant } from "./ourEmails";
@@ -45,14 +45,14 @@ const PORTAL = "26492587";
 export const draftUrl = (id: string) => `https://app-eu1.hubspot.com/email/${PORTAL}/edit/${id}/content`;
 
 /** A picture kept in the hub, into HubSpot's files (public, not indexed) - its address there. */
-async function toHubspotFiles(url: string): Promise<string | null> {
+async function toHubspotFiles(url: string, alt = ""): Promise<string | null> {
   const m = /\/api\/content\/picture\/(\d+)-([a-f0-9]{18})/.exec(url);
   const found = m ? await assetBytes(Number(m[1]), m[2]) : null;
   const token = hubspotToken();
   if (!found || !token) return null;
   const fd = new FormData();
   const ext = found.mime === "image/png" ? "png" : "jpg";
-  fd.append("file", new Blob([new Uint8Array(found.data)], { type: found.mime }), `apsohub-${m![1]}.${ext}`);
+  fd.append("file", new Blob([new Uint8Array(found.data)], { type: found.mime }), fileNameOf(alt, m![1], ext));
   fd.append("folderPath", "/APSOhub/newsletters");
   fd.append("options", JSON.stringify({ access: "PUBLIC_NOT_INDEXABLE", overwrite: false, duplicateValidationStrategy: "RETURN_EXISTING", duplicateValidationScope: "EXACT_FOLDER" }));
   const r = await fetch("https://api.hubapi.com/files/v3/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd });
@@ -66,8 +66,10 @@ export async function draftInHubspot(doc: NewsletterDoc, name: string): Promise<
   if (!doc.startedFrom?.emailId) throw new Error("Start the newsletter from one of our e-mails first - the draft copies its look.");
   const source = await hubspotFetchJson<SourceEmail>({ path: `/marketing/v3/emails/${encodeURIComponent(doc.startedFrom.emailId)}` });
   const uploaded: Record<string, string> = {};
+  // each picture named from what it shows (its block's alt text)
+  const altOf = (u: string) => { for (const b of doc.blocks) if ("imageUrl" in b && b.imageUrl === u && "imageAlt" in b) return b.imageAlt; return ""; };
   for (const u of picturesToUpload(doc)) {
-    const at = await toHubspotFiles(u).catch(() => null);
+    const at = await toHubspotFiles(u, altOf(u)).catch(() => null);
     if (at) uploaded[u] = at;
   }
   const plan = draftFrom(source, doc, { name, uploaded });

@@ -16,14 +16,18 @@
 // this block / the whole letter" switch (the assistant works on what is picked - the x goes back to the whole e-mail);
 // the warnings box at the top (under "Send it out", as "Before it goes out"); the "Line beside the logo" field and the
 // logo written in letters (our real logo, as our e-mails carry it); "How the last did" (the figures are in Our e-mails).
+//
+// cv16 (SARCLA 11.11.2026 ~18:25: "compare the evolution of this page [the Page builder] to the other content types'
+// generators, and improve them"): every language is a tab of its own over the e-mail (a translation makes the language's
+// own e-mail - every part, the shop's facts and our footer in it, a Page builder page linked in its store view - and the
+// e-mail it came from stays); a click on words, a button or a picture opens ITS card beside the e-mail (./ElementPop.tsx:
+// its words, its link, its own Ask AI applied at once with Undo, take it out); "Write it all again" in four ways
+// (./WriteAgain.tsx); the last step is a publishing view - one HubSpot draft per language (./Send.tsx), the assistant
+// folded away while it is open.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Dialog from "@mui/material/Dialog";
-import DialogActions from "@mui/material/DialogActions";
-import DialogContent from "@mui/material/DialogContent";
-import DialogTitle from "@mui/material/DialogTitle";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import Popover from "@mui/material/Popover";
@@ -38,36 +42,38 @@ import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
-import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
-import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
-import TranslateIcon from "@mui/icons-material/Translate";
-import UndoIcon from "@mui/icons-material/Undo";
-import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
 
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import {
-  BLOCK_LABEL, PREHEADER_MAX, SUBJECT_MAX, TEMPLATES, applyDraft, applyEdits, applyTemplate, asNewsletter, blockOf, checks, copyBlock, hubPictures,
+  BLOCK_LABEL, PREHEADER_MAX, SUBJECT_MAX, TEMPLATES, applyDraft, applyEdits, applyTemplate, asNewsletter, blockOf, copyBlock,
   isBlank, moveBlock, oneLine, partText, renderEmail, sendDay, setPart, type BlockKind, type DraftAnswer, type Edits, type NewsletterDoc,
 } from "@/lib/content/studio/kinds/newsletter/model";
+import { followLanguage, languagesOf, mainLanguage, translationBase, versionIn, withVersion, withoutLanguage } from "@/lib/content/studio/kinds/newsletter/langs";
 import { AssistantPanel, Label, PINK, Pane, StudioPanes, btn, mainBtn, type QuickAsk } from "../../parts";
 import type { StudioProps } from "../../registry";
 import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "../blog/EditFrame";
 import { setDocSafely } from "../blog/safeSet";
-import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
-import { BLUE, ChangesList, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "../blog/ui";
+import { addChange, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { BLUE, ChangesList, Working, shopPageSearch, toolBtn, useSettled } from "../blog/ui";
 import { BlockTools, Gallery, Layouts, Outline, made } from "./Blocks";
 import { OurEmails, type Learned } from "./OurEmails";
-import { ReadPagesOnShow, usePageLinks } from "./PagePick";
-import { linkIssues } from "@/lib/content/studio/kinds/newsletter/pageLinks";
+import { usePageLinks } from "./PagePick";
+import { LangTabs, TranslateInto } from "./LangTabs";
+import { Send } from "./Send";
+import { ElementPop } from "./ElementPop";
+import { WriteAgain, type WriteMode } from "./WriteAgain";
+import { BlockAsk } from "./BlockAsk";
 
 const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" }, { key: "FR", label: "French" }, { key: "IT", label: "Italian" }, { key: "EN", label: "English" }, { key: "NL", label: "Dutch" }, { key: "PL", label: "Polish" }];
 
 const LANG_KEYS = LANGS.map((l) => l.key);
 const LANG_NAME: Record<string, string> = Object.fromEntries(LANGS.map((l) => [l.key, l.label]));
-type EditAnswer = Edits & { note: string };
+type EditAnswer = Edits & { note: string; left?: string[] };
+/** What the shop's word rules took out of an AI answer, said in its change (cv16). */
+const leftLine = (left?: string[]) => (left?.length ? ` - left out by the shop's rules: ${left.length === 1 ? left[0] : `${left.length} sentences`}` : "");
 type Work = { label: string; key: string | null; since: number } | null;
 
 /** A part's name in the label over it: the block, and which of its words. */
@@ -127,12 +133,26 @@ function InboxLine({ api, d, set, width }: { api: StudioApi; d: NewsletterDoc; s
 }
 
 export default function Studio({ api }: StudioProps) {
-  const d = useMemo(() => asNewsletter(api.doc), [api.doc]);
+  // cv16: every language is a version of its own - the tab open is the e-mail edited here (./langs.ts)
+  const langs = useMemo(() => languagesOf(api.doc), [api.doc]);
+  const main = langs[0];
+  const [tabWanted, setTab] = useState<string | null>(null);
+  const tab = tabWanted && langs.includes(tabWanted) ? tabWanted : main;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const d = useMemo(() => versionIn(api.doc, tab), [api.doc, tab]);
   const canEdit = api.data.access.canEdit;
   const p = api.data.piece;
   const docRef = useRef(d);
   docRef.current = d;
-  const set = useCallback((next: NewsletterDoc) => api.setDoc(next), [api]);
+  const wholeRef = useRef<unknown>(api.doc);
+  wholeRef.current = api.doc;
+  /** The open language's e-mail changed (a value, or a change of the e-mail as it is when it lands). */
+  const setV = useCallback((next: NewsletterDoc | ((cur: NewsletterDoc) => NewsletterDoc)) => {
+    const lang = tabRef.current;
+    api.setDoc((cur: unknown) => withVersion(cur, lang, typeof next === "function" ? next(versionIn(cur, lang)) : next));
+  }, [api]);
+  const set = useCallback((next: NewsletterDoc) => setV(next), [setV]);
 
   const [sel, setSel] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ key: string; at: number } | null>(null);
@@ -147,7 +167,6 @@ export default function Studio({ api }: StudioProps) {
   const befores = useRef(new Map<number, NewsletterDoc>());
   /** the language being made by a translation */
   const [tl, setTl] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const askRef = useRef<HTMLTextAreaElement | null>(null);
   // a link's address: the shop's pages, found as it is typed (an e-mail carries the full address)
@@ -166,7 +185,6 @@ export default function Studio({ api }: StudioProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void api.act<{ on: boolean; byEnv: boolean; admin: boolean }>("pushState").then((r) => { if (r.ok) setPush(r.result); }); }, [p.id]);
 
-  const issues = useMemo(() => checks(d), [d]);
   const blank = useMemo(() => isBlank(d), [d]);
   const settled = useSettled(d, 120);
   const blockId = blockOf(sel);
@@ -181,19 +199,23 @@ export default function Studio({ api }: StudioProps) {
   /** A change by the assistant (or a layout, or one of our e-mails): laid over the newsletter as it is now, with Undo. */
   // listed in "Changes made here" (kept in the e-mail, it survives a reload); a version saved just before each change lets
   // it be gone back from after a reload too
-  const apply = async (next: NewsletterDoc, text: string, lang?: string) => {
+  // cv16: into the open language's e-mail - or, for a translation, into the language made (`into`); its Undo brings the
+  // whole newsletter back as it was (every language)
+  const apply = async (next: NewsletterDoc, text: string, lang?: string, into?: string) => {
     const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
     // kept quietly (09.11.2026): no line on the project's feed per change, the newest 20 kept, Versions names it
     await api.keepVersion?.(versionLabel(entry));
-    const before = docRef.current;
+    const before = asNewsletter(wholeRef.current);
+    const where = into ?? tabRef.current;
+    const had = languagesOf(before).includes(where) ? versionIn(before, where).changes : [];
     befores.current.set(entry.id, before);
-    await setDocSafely(api, before, { ...next, changes: addChange(before.changes, entry) });
+    await setDocSafely(api, before, withVersion(before, where, { ...next, changes: addChange(had, entry) }));
   };
   const undoMode = (c: StudioChange): "undo" | "back" | null => (befores.current.has(c.id) ? "undo" : versionOf(api.data.versions, c.id) ? "back" : null);
   /** Back to before a change: the e-mail as it was then (the later changes go too). */
   const undo = async (c: StudioChange) => {
     const before = befores.current.get(c.id);
-    if (before) { befores.current.delete(c.id); await setDocSafely(api, docRef.current, before); return; }
+    if (before) { befores.current.delete(c.id); await setDocSafely(api, asNewsletter(wholeRef.current), before); return; }
     const v = versionOf(api.data.versions, c.id);
     if (!v || !window.confirm("Go back to the e-mail as it was before this change? What was done after it goes too - the e-mail as it is now is kept in Versions.")) return;
     await api.saveVersion("Before going back");
@@ -207,24 +229,58 @@ export default function Studio({ api }: StudioProps) {
   // what the assistant knows of our e-mails: subject and figures - and, for the ones picked, their words
   const learnedText = (learned?.newsletters?.map((n) => `${n.subject} - ${n.opens} - ${n.clicks}${n.words ? `\n${n.words}` : ""}`).join("\n\n") ?? "").slice(0, 3000);
 
-  const draft = (request: string) => busyRun("Writing the newsletter from the brief…", null, async () => {
-    const r = await api.ai<DraftAnswer>("draft", { learned: learnedText, request });
+  const draft = (request: string, mode: WriteMode = "topic") => busyRun("Writing the newsletter from the brief…", null, async () => {
+    const r = await api.ai<DraftAnswer & { left?: string[] }>("draft", { learned: learnedText, request, mode, lang: tabRef.current });
     if (!r.ok) return r.error;
-    await apply(applyDraft(docRef.current, r.result), `The whole newsletter: subject, preview text, lead story and ${r.result.stories.length} stories - with an idea for each picture.`);
+    const extra = r.result.extra?.length ?? 0;
+    await apply(applyDraft(docRef.current, r.result), `The whole newsletter${mode === "better" ? ", written again better" : mode === "ask" ? ", as asked" : ""}: subject, preview text, lead story and ${r.result.stories.length} stories${extra ? ` and ${extra} block${extra === 1 ? "" : "s"} added here` : ""} - with an idea for each picture${leftLine(r.result.left)}.`);
     setSel(null);
     return null;
   });
+  /** "Write it all again" in its four ways (cv16, as the Page builder): from the topic, directly, as asked, or empty. */
+  const writeAgain = (mode: WriteMode, request?: string) => {
+    if (mode === "reset") {
+      const cur = docRef.current;
+      void apply({ ...cur, subject: "", preheader: "", blocks: TEMPLATES.find((t) => t.key === (cur.layout ?? "news"))?.blocks(cur.language) ?? TEMPLATES[1].blocks(cur.language) }, "Started again - the e-mail is empty (its layout's blocks).");
+      setSel(null);
+      return;
+    }
+    void draft(mode === "better" ? "Write it again better: clearer, more concrete, the same facts and links." : request ?? "", mode);
+  };
   /** Words changed by the assistant: in the picked block, or in the whole e-mail. */
   const edit = (request: string, o: { block?: string | null; language?: string; label: string }) => busyRun(
     o.language ? `Translating into ${LANGS.find((l) => l.key === o.language)?.label}…` : `${o.label}${o.block ? "" : " - the whole e-mail"}…`, o.block ?? null, async () => {
-      const r = await api.ai<EditAnswer>("edit", { request, ...(o.block ? { blockId: o.block } : {}), ...(o.language ? { language: o.language } : {}) });
+      const r = await api.ai<EditAnswer>("edit", { request, lang: tabRef.current, ...(o.block ? { blockId: o.block } : {}), ...(o.language ? { language: o.language } : {}) });
       if (!r.ok) return r.error;
-      if (!r.result.blocks.length && !r.result.subject && !r.result.preheader) return "Nothing came back to change - ask again, in other words.";
-      const next = applyEdits(docRef.current, r.result);
+      if (!r.result.blocks.length && !r.result.subject && !r.result.preheader) return `Nothing came back to change - ask again, in other words.${leftLine(r.result.left)}`;
       const b = o.block ? docRef.current.blocks.find((x) => x.id === o.block) : null;
-      await apply(o.language ? { ...next, language: o.language } : next, `${o.label}${b ? ` - ${BLOCK_LABEL[b.kind].toLowerCase()}` : ""}${r.result.note ? `: ${r.result.note}` : ""}`, o.language);
+      const said = `${o.label}${b ? ` - ${BLOCK_LABEL[b.kind].toLowerCase()}` : ""}${r.result.note ? `: ${r.result.note}` : ""}${leftLine(r.result.left)}`;
+      if (o.language) {
+        // a translation (cv16): the language's own e-mail - every part along, what follows the language set - and the
+        // e-mail it came from stays as it is
+        const source = docRef.current;
+        const { doc: next, moved } = followLanguage(source, applyEdits(translationBase(source, o.language), r.result), pageLinks.rows);
+        await apply(next, `${said}${moved ? ` - ${moved} link${moved === 1 ? "" : "s"} to the ${o.language} page` : ""}`, o.language, o.language);
+        setTab(o.language);
+        setSel(null);
+        return null;
+      }
+      await apply(applyEdits(docRef.current, r.result), said);
       return null;
     });
+  /** One element's words changed by its own Ask AI (cv16): applied at once; its Undo is that change's. */
+  const askElement = async (key: string, request: string): Promise<{ error?: string; undo?: () => void; note?: string }> => {
+    const [blockId, field] = key.split(":");
+    const r = await api.ai<EditAnswer>("edit", { request, lang: tabRef.current, blockId, field });
+    if (!r.ok) return { error: r.error };
+    const f = r.result.blocks.find((x) => x.id === blockId)?.fields.find((x) => x.name === field);
+    if (!f) return { error: `Nothing came back to change - ask again, in other words.${leftLine(r.result.left)}` };
+    const id = Date.now();
+    const before = asNewsletter(wholeRef.current);
+    await apply(setPart(docRef.current, key, f.value), `${nameOf(docRef.current, key) ?? "Its words"}: ${request.slice(0, 60)}${leftLine(r.result.left)}`);
+    const entry = [...befores.current.keys()].pop() ?? id;
+    return { note: r.result.left?.length ? `Written - the shop's rules left out ${r.result.left.length === 1 ? r.result.left[0] : `${r.result.left.length} sentences`}.` : "Written - it is in the e-mail.", undo: () => { befores.current.delete(entry); void setDocSafely(api, asNewsletter(wholeRef.current), before); } };
+  };
 
   const enabled = api.data.ai && canEdit;
   const kind = block ? BLOCK_LABEL[block.kind].toLowerCase() : "";
@@ -236,18 +292,13 @@ export default function Studio({ api }: StudioProps) {
         { label: "More personal", run: () => edit("Make it more personal: speak to the reader directly (the language's polite form for business), as one practical person to another, about their day at work; keep every fact.", { block: block.id, label: "More personal" }) },
       ] : []
     : [
-        {
-          // the same words as the start card and the map (the flow standard)
-          label: blank ? "Write the whole newsletter with AI" : "Write it all again",
-          run: async () => {
-            if (!isBlank(docRef.current) && !window.confirm("Write the whole newsletter again? Its words are replaced - Undo brings them back; pictures stay.")) return null;
-            return draft("");
-          },
-        },
+        // the same words as the start card and the map (the flow standard); written already, "Write it all again" has its
+        // four ways over these (cv16)
+        ...(blank ? [{ label: "Write the whole newsletter with AI", run: () => draft("") }] : []),
         {
           label: "Five subject lines",
           run: () => busyRun("Five subject lines…", null, async () => {
-            const r = await api.ai<{ subject: string; preheader: string; why: string }[]>("subjects");
+            const r = await api.ai<{ subject: string; preheader: string; why: string }[]>("subjects", { lang: tabRef.current });
             if (!r.ok) return r.error;
             setSubjects(r.result);
             return null;
@@ -263,71 +314,20 @@ export default function Studio({ api }: StudioProps) {
   /* ── blocks: added, moved, copied, removed - in the e-mail and in the outline ── */
   const insert = (at: number, k: BlockKind, layout?: "stacked" | "left" | "right") => {
     const b = made(docRef.current, k, layout);
-    api.setDoc((cur: unknown) => { const n = asNewsletter(cur); const blocks = [...n.blocks]; blocks.splice(at, 0, b); return { ...n, blocks }; });
+    setV((n) => { const blocks = [...n.blocks]; blocks.splice(at, 0, b); return { ...n, blocks }; });
     setSel(b.id);
     setFocus({ key: b.id, at: Date.now() });
   };
   const pickBlock = (id: string | null) => { setSel(id); if (id) setFocus({ key: id, at: Date.now() }); };
 
-  const getHtml = async () => {
-    const r = await api.act<{ html: string }>("html");
-    return r.ok ? r.result.html : null;
-  };
-  const hub = hubPictures(d).length;
   const frameW = device === "mobile" ? 390 : 680;
 
-  /* ── the way out (under the blocks) ── */
-  // the links too (11.11.2026): an ACC address, another language's store view, a Page builder page not on the shop yet
-  const before = [...issues.map((c) => ({ bad: c.level === "bad", text: c.text })), ...linkIssues(d, pageLinks.rows).map((x) => ({ bad: x.tone === "bad", text: x.text }))];
+  /* ── the way out: one HubSpot draft per language (cv16, ./Send.tsx) ── */
+  const [step, setStep] = useState<"blocks" | "out">("blocks");
+  /** the picked block's own AI (cv16, the Page builder's block popup) - from its tools beside the e-mail */
+  const [blockAsk, setBlockAsk] = useState<HTMLElement | null>(null);
   const out = (
-    <Box sx={{ display: "grid", gap: 1 }}>
-      {canEdit && <ReadPagesOnShow load={pageLinks.load} />}
-      {before.length > 0 ? (
-        <Box sx={{ p: 1.25, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f0d6a8" }}>
-          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#7f4f0b", mb: 0.5 }}>Before it goes out</Typography>
-          {before.map((c, i) => (
-            <Box key={i} sx={{ display: "flex", gap: 0.75, alignItems: "flex-start", fontSize: "0.8rem", color: c.bad ? "#8f1d1b" : "#7f4f0b", py: 0.25 }}>
-              <WarningAmberOutlinedIcon sx={{ fontSize: 16, mt: "1px" }} />{c.text}
-            </Box>
-          ))}
-        </Box>
-      ) : <Typography sx={{ fontSize: "0.8rem", color: "#1b7a55" }}>Nothing to fix before it goes out.</Typography>}
-      {hub > 0 && (
-        <Typography sx={{ fontSize: "0.78rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "6px" }}>
-          {hub === 1 ? "One picture is" : `${hub} pictures are`} kept in the hub. The HubSpot draft puts {hub === 1 ? "it" : "them"} into HubSpot&apos;s files; in the HTML {hub === 1 ? "it carries" : "they carry"} the hub&apos;s address.
-        </Typography>
-      )}
-      <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-        <Button variant="outlined" startIcon={<ContentCopyOutlinedIcon />} sx={{ ...toolBtn, height: 34 }}
-          onClick={async () => { const h = await getHtml(); if (h) { await navigator.clipboard.writeText(h); setNote("The HTML is copied."); } }}>Copy HTML</Button>
-        <Button variant="outlined" startIcon={<FileDownloadOutlinedIcon />} sx={{ ...toolBtn, height: 34 }}
-          onClick={async () => {
-            const h = await getHtml();
-            if (!h) return;
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([h], { type: "text/html" }));
-            a.download = `${(d.subject || p.title).replace(/[^\w-]+/g, "-").slice(0, 60) || "newsletter"}.html`;
-            a.click();
-          }}>Download</Button>
-      </Box>
-      {push && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, fontSize: "0.8rem", color: MUTED }}>
-          <Box component="span" sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: push.on ? "#1b7a55" : "#9aa5b8" }} />
-          <Box component="span" sx={{ flex: 1 }}>{push.on ? "Drafts go to HubSpot - a person schedules them there" : "Drafts to HubSpot are off"}</Box>
-          {push.admin && !push.byEnv && (
-            <Button size="small" sx={{ ...toolBtn, height: 26 }}
-              onClick={async () => { const r = await api.act<{ ok: boolean; on?: boolean; why?: string }>("pushSwitch", { on: !push.on }); if (r.ok && r.result.ok) setPush({ ...push, on: !!r.result.on }); else setNote(r.ok ? r.result.why ?? null : r.error); }}>
-              {push.on ? "Switch off" : "Switch on"}
-            </Button>
-          )}
-        </Box>
-      )}
-      <Tooltip title={push?.on ? "A draft in HubSpot - a person schedules it there" : "Drafts to HubSpot are switched off"}>
-        <span><Button fullWidth variant="contained" disableElevation startIcon={<SendOutlinedIcon />} disabled={!canEdit || !push?.on} onClick={() => setSending(true)} sx={mainBtn}>Send to HubSpot as a draft</Button></span>
-      </Tooltip>
-      {d.hubspot?.url && <Button size="small" href={d.hubspot.url} target="_blank" rel="noreferrer" sx={btn}>Open the draft in HubSpot</Button>}
-      {note && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{note}</Typography>}
-    </Box>
+    <Send api={api} pages={pageLinks} push={push} onPush={setPush} open={tab} onOpen={(l) => { setTab(l); setSel(null); }} />
   );
 
   /* ── a block dragged by its handle, in the e-mail ── */
@@ -367,8 +367,7 @@ export default function Studio({ api }: StudioProps) {
       const at = to;
       setDrag(null);
       if (at === null) return;
-      api.setDoc((cur: unknown) => {
-        const n = asNewsletter(cur);
+      setV((n) => {
         const i = n.blocks.findIndex((b) => b.id === id);
         if (i < 0) return n;
         const blocks = [...n.blocks];
@@ -430,15 +429,27 @@ export default function Studio({ api }: StudioProps) {
               <DragIndicatorIcon sx={{ fontSize: 18 }} />
             </Box>
           </Tooltip>
-          {tool("Move up", <ArrowUpwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, -1)), bi === 0)}
-          {tool("Move down", <ArrowDownwardIcon sx={{ fontSize: 16 }} />, () => api.setDoc((cur: unknown) => moveBlock(cur, block.id, 1)), bi === d.blocks.length - 1)}
+          {tool("Move up", <ArrowUpwardIcon sx={{ fontSize: 16 }} />, () => setV((n) => moveBlock(n, block.id, -1)), bi === 0)}
+          {tool("Move down", <ArrowDownwardIcon sx={{ fontSize: 16 }} />, () => setV((n) => moveBlock(n, block.id, 1)), bi === d.blocks.length - 1)}
+          {enabled && hasWords && (
+            <Tooltip title="Write it again with AI" placement="right">
+              <IconButton size="small" aria-label="Write this block again with AI" onClick={(e) => setBlockAsk(e.currentTarget)}
+                sx={{ pointerEvents: "auto", bgcolor: blockAsk ? "#fbeef4" : "#fff", color: PINK, borderRadius: "6px", width: 28, height: 28, "&:hover": { bgcolor: "#fbeef4" } }}><AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} /></IconButton>
+            </Tooltip>
+          )}
           {tool("Duplicate", <ContentCopyOutlinedIcon sx={{ fontSize: 15 }} />, () => {
             const c = copyBlock(block);
-            api.setDoc((cur: unknown) => { const n = asNewsletter(cur); const blocks = [...n.blocks]; const at = blocks.findIndex((x) => x.id === block.id); blocks.splice(at + 1, 0, c); return { ...n, blocks }; });
+            setV((n) => { const blocks = [...n.blocks]; const at = blocks.findIndex((x) => x.id === block.id); blocks.splice(at + 1, 0, c); return { ...n, blocks }; });
             setSel(c.id);
           })}
-          {tool("Remove", <DeleteOutlineIcon sx={{ fontSize: 16 }} />, () => { api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.filter((x) => x.id !== block.id) }; }); setSel(null); })}
+          {tool("Remove", <DeleteOutlineIcon sx={{ fontSize: 16 }} />, () => { setV((n) => ({ ...n, blocks: n.blocks.filter((x) => x.id !== block.id) })); setSel(null); })}
         </Box>
+        {/* the element picked: ITS card beside the e-mail - its words, its link, its own Ask AI, take it out (cv16) */}
+        {sel && sel.includes(":") && !work && (
+          <ElementPop d={d} k={sel} rect={rect} device={device} canEdit={canEdit} aiOn={!!enabled} pages={pageLinks} whole={api.doc} langs={langs}
+            where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
+            setV={setV} onAsk={(t) => askElement(sel, t)} onClose={() => setSel(blockOf(sel))} onKey={setSel} />
+        )}
       </>
     );
   };
@@ -449,13 +460,20 @@ export default function Studio({ api }: StudioProps) {
     }>
       <Box sx={{ p: 2.5 }}>
         {work && <Working label={work.label} since={work.since} />}
+        <LangTabs langs={langs} open={tab} names={LANG_NAME} all={LANG_KEYS} doc={api.doc} busy={tl} canEdit={canEdit && !!enabled && !work}
+          width={frameW + (device === "mobile" ? 16 : 2)}
+          onOpen={(l) => { setTab(l); setSel(null); }}
+          onAdd={(l) => { setTl(l); void edit("Translate every word of the newsletter faithfully.", { language: l, label: `Into ${LANG_NAME[l]}` }).then((e) => setNote(e)).finally(() => setTl(null)); }}
+          onDrop={canEdit ? (l) => { if (!window.confirm(`Take the ${LANG_NAME[l] ?? l} e-mail out of this newsletter? Its HubSpot draft stays in HubSpot. Versions keeps it.`)) return; void api.keepVersion?.(`Before the ${l} e-mail was taken out`); api.setDoc((cur: unknown) => withoutLanguage(cur, l)); if (tab === l) setTab(main); } : undefined} />
         <InboxLine api={api} d={d} set={set} width={frameW + (device === "mobile" ? 16 : 2)} />
         <EditFrame html={html} device={device} width={680} title="The e-mail" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
-          selected={sel} onSelect={setSel} onCommit={(k, t) => api.setDoc((cur: unknown) => setPart(cur, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : picBusy}
+          selected={sel} onSelect={setSel} onCommit={(k, t) => setV((n) => setPart(n, k, t))} readOnly={!canEdit} focus={focus} busy={work ? work.key ?? "*" : picBusy}
           overlay={overlay}
           rich={(k) => { const b = docRef.current.blocks.find((x) => x.id === k.split(":")[0]); return k.endsWith(":text") && b && (b.kind === "hero" || b.kind === "article" || b.kind === "text") ? "blocks" : null; }}
           linkSearch={linkSearch} linkBase="https://www.apsoparts.com"
-          label={drag ? undefined : (k) => nameOf(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined} />
+          label={drag ? undefined : (k) => nameOf(docRef.current, k)}
+          // the bar's Ask AI (cv16, as the Page builder's barAi): an element's own AI box; a whole block, the assistant's
+          onAskAi={enabled && onAsk ? () => { const own = document.querySelector<HTMLInputElement>("[data-ai-box]"); if (own) own.focus(); else askRef.current?.focus(); } : undefined} />
       </Box>
     </Pane>
   );
@@ -479,7 +497,7 @@ export default function Studio({ api }: StudioProps) {
   const fields = block ? (
     <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
       pages={pageLinks} language={d.language}
-      patch={(id, f) => api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }; })}
+      patch={(id, f) => setV((n) => ({ ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }))}
       set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />
   ) : null;
   // the start, at the top of the map while nothing is written (the flow standard)
@@ -487,7 +505,8 @@ export default function Studio({ api }: StudioProps) {
     <Box sx={{ p: 1.5, mb: 1.25, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, boxShadow: "0 6px 18px rgba(31,45,78,.08)" }}>
       <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A newsletter from the project&apos;s brief - in</Typography>
-      <SquareChoice value={d.language.toUpperCase()} onChange={(l: string) => set({ ...docRef.current, language: l })} options={LANGS.map((l) => ({ key: l.key, label: l.key }))} />
+      {langs.length === 1 ? <SquareChoice value={d.language.toUpperCase()} onChange={(l: string) => set({ ...docRef.current, language: l })} options={LANGS.map((l) => ({ key: l.key, label: l.key }))} />
+        : <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK }}>{LANG_NAME[tab] ?? tab}</Typography>}
       <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void draft("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the whole newsletter with AI</Button>
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75, mt: 1 }}>
         <Button size="small" startIcon={<MarkEmailReadOutlinedIcon sx={{ fontSize: 16 }} />} onClick={() => setOurs(true)} sx={{ ...toolBtn, height: 32 }}>Our e-mails</Button>
@@ -500,6 +519,10 @@ export default function Studio({ api }: StudioProps) {
     if (!window.confirm("Write the whole newsletter again? Its words are replaced - Undo brings them back; pictures stay.")) return;
     void draft("");
   } : undefined;
+  // "Write it all again" in four ways, at the top of the assistant while the whole e-mail is worked on (cv16)
+  const again = !blank && canEdit ? (
+    <Box sx={{ mt: 1 }}><WriteAgain disabled={!enabled} busy={!!work && !work.key} onRun={writeAgain} /></Box>
+  ) : null;
 
   const assist = (
     <AssistantPanel enabled={enabled} quick={quick} onAsk={onAsk} top={top} inputRef={askRef}
@@ -517,11 +540,16 @@ export default function Studio({ api }: StudioProps) {
           ))}
         </Box>
       )}
+      {!block && again}
       {!block && !blank && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <TranslateRow what="e-mail" langs={LANG_KEYS} names={LANG_NAME} current={d.language} made={madeLanguages(d.changes, d.language.toUpperCase())} busy={tl}
+          {/* cv16: a language made before is a tab of its own - a click here makes it again from this e-mail */}
+          <TranslateInto langs={LANG_KEYS} names={LANG_NAME} open={tab} made={langs.filter((l) => l !== tab)} busy={tl}
             disabled={!enabled || (!!work && !tl)}
-            onPick={async (l) => { setTl(l); try { setNote(await edit("Translate every word of the newsletter faithfully.", { language: l, label: `Into ${LANG_NAME[l]}` })); } finally { setTl(null); } }} />
+            onPick={async (l) => {
+              if (langs.includes(l) && !window.confirm(`Translate this ${LANG_NAME[tab] ?? tab} e-mail into ${LANG_NAME[l] ?? l} again? The ${l} e-mail's words are replaced - Undo brings them back.`)) return;
+              setTl(l); try { setNote(await edit("Translate every word of the newsletter faithfully.", { language: l, label: `Into ${LANG_NAME[l]}` })); } finally { setTl(null); }
+            }} />
         </Box>
       )}
       {!block && (
@@ -554,13 +582,17 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <>
-      <StudioPanes id="newsletter4" buildWidth={300} assistWidth={340}
+      <StudioPanes id="newsletter4" buildWidth={300} assistWidth={340} wide={step === "out"}
         build={<Outline d={d} set={set} sel={sel} onPick={pickBlock} canEdit={canEdit} onAdd={(el, at) => setAdder({ el, at })} onOurs={canEdit ? () => setOurs(true) : undefined}
+          step={step} onStep={setStep}
           fields={fields} startCard={start} onWrite={enabled ? () => (blank ? void draft("") : writeAll?.()) : undefined} busy={work ? work.key ?? "all" : null}
           onLayout={(key) => void apply(applyTemplate(docRef.current, key), `Layout: ${TEMPLATES.find((t) => t.key === key)?.name ?? key} - the words already written are kept.`)} out={out} />}
         preview={preview}
         assist={assist}
       />
+      <BlockAsk anchor={block ? blockAsk : null} title={block ? `${BLOCK_LABEL[block.kind]} · block ${bi + 1}` : ""} onClose={() => setBlockAsk(null)}
+        onRun={(ask) => (block ? edit(ask || "Write it again from the e-mail: clearer, more concrete, the same facts and links.", { block: block.id, label: ask ? "As asked" : "Written again" }) : Promise.resolve("Pick a block first."))}
+        onUndo={() => { const c = (docRef.current.changes ?? [])[0]; if (c) void undo(c); }} />
       <Popover open={!!adder} anchorEl={adder?.el} onClose={() => setAdder(null)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} transformOrigin={{ vertical: "top", horizontal: "center" }}
         slotProps={{ paper: { sx: { borderRadius: "8px" } } }}>
         <Gallery onPick={(k, layout) => { if (adder) insert(adder.at, k, layout); setAdder(null); }} />
@@ -570,31 +602,18 @@ export default function Studio({ api }: StudioProps) {
         <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".07em", textTransform: "uppercase", color: MUTED, mb: 1 }}>A layout - the words written stay</Typography>
         <Layouts current={d.layout} onPick={(k) => { setLayouts(null); void apply(applyTemplate(docRef.current, k), `Layout: ${TEMPLATES.find((t) => t.key === k)?.name ?? k}.`); }} />
       </Popover>
-      <Dialog open={sending} onClose={() => setSending(false)} fullWidth maxWidth="xs">
-        <DialogTitle sx={{ fontWeight: 700 }}>Send to HubSpot as a draft?</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: "0.9rem", color: INK }}>HubSpot gets a draft e-mail “{d.subject || p.title}”. Nothing is sent to anybody: a person checks it and schedules it in HubSpot.</Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setSending(false)} sx={btn}>Cancel</Button>
-          <Button variant="contained" disableElevation sx={mainBtn} onClick={async () => {
-            setSending(false);
-            const r = await api.act<{ done: boolean; why?: string; url?: string; emailId?: string; note?: string }>("hubspot", { confirm: true });
-            if (!r.ok) return setNote(r.error);
-            if (!r.result.done) return setNote(r.result.why ?? "Not sent.");
-            set({ ...docRef.current, hubspot: { emailId: r.result.emailId ?? undefined, url: r.result.url ?? undefined, state: "draft", at: new Date().toISOString() } });
-            setNote(r.result.note ?? "The draft is in HubSpot.");
-          }}>Send the draft</Button>
-        </DialogActions>
-      </Dialog>
       <OurEmails api={api} open={ours} onClose={() => setOurs(false)} language={d.language}
         onStart={(r) => {
           if (!isBlank(docRef.current) && !window.confirm(`Start from “${r.subject}”? Its stories, pictures and buttons replace this newsletter's - Undo brings them back.`)) return;
-          void apply({ ...docRef.current, subject: r.subject, preheader: r.preheader, language: r.language || docRef.current.language, blocks: r.blocks as NewsletterDoc["blocks"], startedFrom: r.startedFrom, layout: undefined },
-            `Started from our e-mail “${r.subject}” - its stories, pictures and buttons.`);
+          const own = tabRef.current === mainLanguage(wholeRef.current);
+          void apply({ ...docRef.current, subject: r.subject, preheader: r.preheader, language: own && langs.length === 1 ? r.language || docRef.current.language : docRef.current.language, blocks: r.blocks as NewsletterDoc["blocks"], startedFrom: r.startedFrom, layout: undefined },
+            `Started from our e-mail “${r.subject}” - its stories, pictures and buttons.`).then(() => {
+            // its look is the whole newsletter's: every language's draft copies it
+            if (!own) api.setDoc((cur: unknown) => ({ ...asNewsletter(cur), startedFrom: r.startedFrom }));
+          });
           setSel(null);
         }}
-        onLearn={(l, picked) => { setLearned(l); set({ ...docRef.current, learnFrom: picked }); }} />
+        onLearn={(l, picked) => { setLearned(l); api.setDoc((cur: unknown) => ({ ...asNewsletter(cur), learnFrom: picked })); }} />
     </>
   );
 }

@@ -289,6 +289,13 @@ export function picturesToUpload(doc: Pick<NewsletterDoc, "blocks">): string[] {
   return [...urls];
 }
 
+/** A picture's file name in HubSpot's files, readable from what it shows (cv16, as the Page builder names its pictures
+ *  from their alt text): "o-rings-on-a-workbench-1234.jpg" - "apsohub-1234.jpg" when it says nothing. */
+export function fileNameOf(alt: string, id: string, ext: string): string {
+  const words = alt.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "");
+  return `${words || "apsohub"}-${id}.${ext}`;
+}
+
 export type DraftBody = { body: Record<string, unknown>; changed: string[]; notes: string[] };
 
 /** The create-request for the draft: the source e-mail's content with the changed parts rewritten. */

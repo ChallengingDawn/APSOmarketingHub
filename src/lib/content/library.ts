@@ -229,13 +229,19 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
     own = str(d.subject, 200);
     line = str(d.preheader, 200);
     picture = pictureOf(row.first_pic);
-    languages = [upperLang(d.language) || upperLang(row.language)].filter(Boolean);
-    const hs = isObj(d.hubspot) ? d.hubspot : null;
-    const emailId = hs ? str(hs.emailId, 40) : "";
-    if (hs && emailId) {
+    // cv16: every language is an e-mail of its own (doc.langs), each with its own HubSpot draft
+    const others = isObj(d.langs) ? Object.entries(d.langs).filter(([k, v]) => upperLang(k) && isObj(v)) as [string, Record<string, unknown>][] : [];
+    const own1 = upperLang(d.language) || upperLang(row.language);
+    languages = [own1, ...others.map(([k]) => upperLang(k))].filter((l, i, a) => l && a.indexOf(l) === i);
+    const draftOf = (hsRaw: unknown, lang: string) => {
+      const hs = isObj(hsRaw) ? hsRaw : null;
+      const emailId = hs ? str(hs.emailId, 40) : "";
+      if (!hs || !emailId) return;
       const url = https(hs.url);
-      where.push({ kind: "hubspot", label: "HubSpot draft", at: iso(hs.at) || null, by: null, links: url ? [{ label: `E-mail ${emailId}`, url }] : [] });
-    }
+      where.push({ kind: "hubspot", label: others.length ? `HubSpot draft · ${lang}` : "HubSpot draft", at: iso(hs.at) || null, by: null, links: url ? [{ label: `E-mail ${emailId}`, url }] : [] });
+    };
+    draftOf(d.hubspot, own1);
+    for (const [k, v] of others) draftOf(v.hubspot, upperLang(k));
     official = status === "live";
     published = where.length > 0;
   } else if (kind === "social") {
@@ -397,7 +403,11 @@ export function libraryQuery(admin: boolean): string {
               WHEN 'blog' THEN jsonb_build_object('title', d.doc -> 'title', 'slug', d.doc -> 'slug', 'store', d.doc -> 'store', 'excerpt', d.doc -> 'excerpt',
                   'hero', d.doc #> '{hero,url}', 'language', d.doc -> 'language')
               WHEN 'newsletter' THEN jsonb_build_object('subject', d.doc -> 'subject', 'preheader', d.doc -> 'preheader', 'language', d.doc -> 'language',
-                  'hubspot', d.doc -> 'hubspot')
+                  'hubspot', d.doc -> 'hubspot',
+                  -- cv16: each other language's own HubSpot draft (its words are not read)
+                  'langs', COALESCE((SELECT jsonb_object_agg(l.key, jsonb_build_object('hubspot', l.value -> 'hubspot'))
+                    FROM jsonb_each(CASE WHEN jsonb_typeof(d.doc -> 'langs') = 'object' THEN d.doc -> 'langs' ELSE '{}'::jsonb END) l
+                    WHERE jsonb_typeof(l.value) = 'object'), '{}'::jsonb))
               WHEN 'social' THEN jsonb_build_object('text', LEFT(COALESCE(d.doc #>> '{networks,linkedin,text}', ''), 300),
                   'image', d.doc #> '{media,image,url}', 'published', d.doc -> 'published')
               WHEN 'video' THEN jsonb_build_object('scenes', jsonb_array_length(${arr("d.doc -> 'scenes'")}), 'length', d.doc -> 'length',
