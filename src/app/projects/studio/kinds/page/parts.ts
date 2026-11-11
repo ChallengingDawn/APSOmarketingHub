@@ -55,6 +55,9 @@ export function partIn(target: Element, root: Element, m: ModuleRef): { el: Elem
 export function findPart(root: Element, m: ModuleRef, part: string): Element | null {
   const ad = /^add\.([a-z0-9]+)$/.exec(part);
   if (ad) return root.querySelector(`.am-x-${ad[1]}`);
+  // Content v14: a card's photo - the picture in its card
+  const ip = /^items\.(\d+)\.img$/.exec(part);
+  if (ip) { const card = findPart(root, m, `items.${ip[1]}`); return card?.querySelector("img") ?? card; }
   let hit: Element | null = null;
   for (const el of Array.from(root.querySelectorAll("*"))) {
     if (el.tagName === "STYLE" || SVG.has(el.tagName.toLowerCase())) continue;

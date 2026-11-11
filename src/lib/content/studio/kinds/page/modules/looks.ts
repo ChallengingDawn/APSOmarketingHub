@@ -11,6 +11,9 @@
 //   open                                    its questions: "1" all open, "0" all closed (each opens on a click)
 //   split                                   its two columns: "<layout>:<the left one's share>" ("right:33") - desktop only,
 //                                           a phone stacks as before
+//   look-pt · look-px · look-q · look-a     Content v14: every point's title / line, every question / answer alike
+//   look-cell · look-x-<key> · look-dates   every cell of its table, a badge's words, its dates (from, until, to)
+//   look-dk                                 its dates' panel: one of the shop's grounds or "#rrggbb"
 //   bg · bgpic                              Content v13 (SARCLA 11.11.2026: "can not change the background of some block"):
 //                                           its ground - one of the shop's (petrol, light grey, red, white) or "#rrggbb" -
 //                                           and a picture of the hub's under it; its words and buttons switch for contrast
@@ -28,6 +31,13 @@ export const BUTTON_LOOK_KEY = { link: "btn-link", link2: "btn-link2" } as const
  * every tile's "View product" / "Alle anzeigen" alike (each still leads to its own tile's product or category) */
 export const TILES_LOOK_KEY = "btn-tiles";
 export type ButtonField = keyof typeof BUTTON_LOOK_KEY;
+/** Content v14 (SARCLA 11.11.2026: "some elements still don't have editable options"): the look of a module's other
+ * words - a list's alike (every point's title, every answer), a date, a badge, a cell. */
+export const PART_LOOK_KEY = { pointTitle: "look-pt", pointText: "look-px", question: "look-q", answer: "look-a", cell: "look-cell", dates: "look-dates" } as const;
+/** A campaign's dates: the start, the word between, the end - one look, one panel. */
+export const DATE_KEYS = ["from", "until", "to"] as const;
+/** Its dates' panel colour (a campaign's red block). */
+export const DATE_PANEL_KEY = "look-dk";
 
 /** The modules whose two columns can be dragged (point 5): the grid that holds them, the layouts where it is one. */
 export const SPLIT_GRID: Record<string, { sel: string; not?: string[]; needs?: "feature" }> = {
@@ -117,6 +127,18 @@ function tagTiles(html: string, words: string[], own: string[], cls: string, tab
   });
 }
 
+/** EVERY element whose whole content is one of these words (every point's title, a badge): class `cls` added (Content v14). */
+function tagEvery(html: string, words: string[], cls: string): string {
+  const alts = words.flatMap((w) => [marked(w), esc(w)]).filter(Boolean).map(looseRe);
+  if (!alts.length) return html;
+  const re = new RegExp(`<(h[1-6]|p|div|span|small|b|strong|em|i|li|dt|dd|figcaption|blockquote|a)((?:\\s[^>]*)?)>\\s*(${[...new Set(alts)].join("|")})\\s*</\\1>`, "g");
+  return html.replace(re, (_all, tag: string, attrs: string | undefined, said: string) => {
+    const at = attrs ?? "";
+    const a = /\sclass="/.test(at) ? at.replace(/\sclass="([^"]*)"/, (_x, c: string) => ` class="${c} ${cls}"`) : `${at} class="${cls}"`;
+    return `<${tag}${a}>${said}</${tag}>`;
+  });
+}
+
 /** The first link with these words: its class `cls` added, and a new tab when asked. */
 function tagAnchor(html: string, label: string, cls: string, tab: boolean): string {
   const re = new RegExp(`<a((?:\\s[^>]*)?)>(${looseRe(esc(label.trim()))})</a>`);
@@ -134,11 +156,20 @@ const TEXT_SIZE: Record<LookField, Record<string, string>> = {
   text: { s: "13.5px", l: "18px", xl: "21px" },
 };
 
-export function textRules(l: TextLook, f: LookField): string {
+/** The sizes of a module's other words (Content v14). */
+const PART_SIZE: Record<string, Record<string, string>> = {
+  "look-pt": { s: "15px", l: "22px", xl: "28px" },
+  "look-q": { s: "15px", l: "20px", xl: "24px" },
+  "look-dates": { s: "26px", l: "48px", xl: "60px" },
+  "": { s: "13.5px", l: "18px", xl: "21px" },
+};
+
+export function textRules(l: TextLook, f: LookField | string): string {
   const r: string[] = [];
   const hex = l.color ? hexOfColor(l.color) : null;
   if (hex) r.push(`color:${hex}!important`, `-webkit-text-fill-color:${hex}`);
-  if (l.size && TEXT_SIZE[f][l.size]) r.push(`font-size:${TEXT_SIZE[f][l.size]}!important`);
+  const sizes = (TEXT_SIZE as Record<string, Record<string, string>>)[f] ?? PART_SIZE[f] ?? PART_SIZE[""];
+  if (l.size && sizes[l.size]) r.push(`font-size:${sizes[l.size]}!important`);
   if (l.weight) r.push(`font-weight:${l.weight === "bold" ? 700 : 400}!important`);
   if (l.italic) r.push("font-style:italic!important");
   if (l.underline) r.push("text-decoration:underline!important", "text-underline-offset:.16em");
@@ -209,6 +240,48 @@ export function withLooks(m: ModuleRef, d: Drawn): Drawn {
     html = tagText(html, [marked(words), esc(words)], cls);
     const rules = textRules(l, f);
     if (rules) css.push(`@@ :is(h1,h2,h3,h4,p,div,span,small,b,strong,em).${cls}{${rules}}`);
+  }
+  // Content v14: its other words - a list's alike, its dates, a badge, its cells - each only where a look was set
+  const partLook = (k: string) => cleanTextLook(unpackLook(x[k]));
+  const wordsLook = (k: string, ws: string[]) => {
+    const l = partLook(k);
+    if (!Object.keys(l).length) return;
+    const list = [...new Set(ws.map((w) => w.trim()).filter(Boolean))];
+    if (!list.length) return;
+    const cls = `am-${k}`;
+    html = tagEvery(html, list, cls);
+    const rules = textRules(l, k);
+    if (rules) css.push(`@@ .${cls}.${cls}{${rules}}`);
+  };
+  wordsLook(PART_LOOK_KEY.pointTitle, s.points.map((p) => p.title));
+  wordsLook(PART_LOOK_KEY.pointText, s.points.map((p) => p.text));
+  for (const [k, v] of Object.entries(x)) {
+    const ek = /^look-x-([\w-]+)$/.exec(k);
+    if (ek && v && (s.extra[ek[1]] ?? "").trim()) wordsLook(k, [s.extra[ek[1]]]);
+  }
+  const selLook = (k: string, target: string) => {
+    const l = partLook(k);
+    if (!Object.keys(l).length) return;
+    const rules = textRules(l, k);
+    if (rules) css.push(`${target}{${rules}}`);
+  };
+  selLook(PART_LOOK_KEY.question, "@@ details > summary");
+  selLook(PART_LOOK_KEY.answer, "@@ details > :not(summary)");
+  selLook(PART_LOOK_KEY.cell, "@@ :is(td,th)");
+  if (/\.am-dk\{/.test(d.css)) {
+    const l = partLook(PART_LOOK_KEY.dates);
+    if (Object.keys(l).length) {
+      const { size, ...rest } = l;
+      const all = textRules(rest, PART_LOOK_KEY.dates);
+      if (all) css.push(`@@ .am-dk :is(b,small,b i){${all}}`);
+      const big = size ? textRules({ size }, PART_LOOK_KEY.dates) : "";
+      if (big) css.push(`@@ .am-dk b{${big}}`);
+    }
+    const panel = groundHex(x[DATE_PANEL_KEY]);
+    if (panel) {
+      const fg = labelOn(panel);
+      css.push(`@@ .am-dk{background:${panel}!important;color:${fg}}`, `@@ .am-dk :is(b,small,b i){color:${fg}}`, `@@ .am-dk small::after{background:${fg === "#ffffff" ? "rgba(255,255,255,.35)" : "rgba(29,35,38,.25)"}}`);
+    }
   }
   // its two columns (desktop; a phone stacks as before)
   const left = splitOf(m);
