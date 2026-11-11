@@ -68,6 +68,7 @@ import { PageShot } from "../PageShot";
 import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
 import { CONVERT } from "../base";
 import { AI_GRADIENT, AiButton } from "../AiButton";
+import { SendDialog, type SendChoice } from "./SendDialog";
 
 type StudioData = {
   env: Env; path: string;
@@ -521,7 +522,7 @@ function WhatChanges({ version, hit, onGo }: { version: Version; hit: number[] |
 // so approve is more sent to project"): a Content project with the page, its numbers, the optimization and every
 // version; the send approves them, and Content's page studio opens on the version sent (the marker's v:<id>)
 
-async function sendToProject(x: { data: StudioData; numbers: Numbers | null; idea: Idea; versions: Version[]; first: Version | null; block: ShopBlock | null }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+async function sendToProject(x: { data: StudioData; numbers: Numbers | null; idea: Idea; versions: Version[]; first: Version | null; block: ShopBlock | null; to: SendChoice }): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
   const ordered = x.first ? [x.first, ...x.versions.filter((v) => v.id !== x.first!.id)] : x.versions;
   // the brief carries the type of change (Content's type) and the block with the ADDRESS of its picture - agreed with
   // Content (3b, 09.11.2026): no change list and no picture in the brief, the studio loads the version by its marker
@@ -536,13 +537,40 @@ async function sendToProject(x: { data: StudioData; numbers: Numbers | null; ide
     contentType: typeOfIdea(x.idea),
     block: blk ? { name: blk.name, picture } : focus ? { name: "The part of the page it changes", picture } : null,
   });
+  // a to-do of the page added to a project (Content's piece-add-convert, 3b 11.11.2026): the project chosen, or the new
+  // one when a ticket is asked for it - with every version (Content decides which is tested), its ticket made or linked
+  const addTo = async (projectId: number): Promise<{ ok: true; url: string | null; note: string } | { ok: false; error: string }> => {
+    const r = await fetch(`/api/content/projects/${projectId}/work`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "piece-add-convert", env: x.data.env, path: x.data.path, versionId: ordered[0]?.id, ideaTitle: x.idea.title, brief: p.brief, contentType: p.contentType, ticket: x.to.ticket }),
+    });
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string; ticketError?: string | null } | null;
+    if (!j?.ok) return { ok: false, error: j?.error ?? `Content answered ${r.status}.` };
+    return { ok: true, url: j.url ?? null, note: j.ticketError ? ` The ticket was not made: ${j.ticketError}` : "" };
+  };
   try {
-    const r = await fetch("/api/content/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; project?: { id: number }; error?: string } | null;
-    if (!j?.ok || !j.project) return { ok: false, error: j?.error ?? `Content answered ${r.status}.` };
-    const m = await convertPost<unknown>(API, { action: "sent", ideaId: x.idea.id, projectId: j.project.id });
-    if (!m.ok) return { ok: false, error: `The project was made (#${j.project.id}), but marking the optimization sent failed: ${m.error}` };
-    return { ok: true, url: `/create?project=${j.project.id}&type=${p.contentType}` };
+    let projectId: number;
+    let url: string;
+    if (x.to.project) {
+      const a = await addTo(x.to.project);
+      if (!a.ok) return a;
+      projectId = x.to.project;
+      url = a.url ?? `/projects/${projectId}`;
+    } else {
+      const r = await fetch("/api/content/projects", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
+      const j = (await r.json().catch(() => null)) as { ok?: boolean; project?: { id: number }; error?: string } | null;
+      if (!j?.ok || !j.project) return { ok: false, error: j?.error ?? `Content answered ${r.status}.` };
+      projectId = j.project.id;
+      url = `/create?project=${projectId}&type=${p.contentType}`;
+      // its ticket, asked for with a new project: the page's to-do with it (Content gives the one it made already)
+      if (x.to.ticket) {
+        const a = await addTo(projectId);
+        if (!a.ok) return { ok: false, error: `The project was made (#${projectId}), but its ticket was not: ${a.error}` };
+      }
+    }
+    const m = await convertPost<unknown>(API, { action: "sent", ideaId: x.idea.id, projectId });
+    if (!m.ok) return { ok: false, error: `It is in Content (project #${projectId}), but marking the optimization sent failed: ${m.error}` };
+    return { ok: true, url };
   } catch {
     return { ok: false, error: "Content did not answer." };
   }
@@ -597,6 +625,9 @@ function ConvertPreview() {
   const [hit, setHit] = useState<number[] | null>(null);
   const [rev, setRev] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Send to Content asks where to (a new project, or one to add to) and the ticket (./SendDialog.tsx)
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [going, setGoing] = useState<string | null>(null);
   const [pick, setPick] = useState(false);
@@ -841,11 +872,12 @@ function ConvertPreview() {
       numbers.rate != null ? `cart rate ${pct(numbers.rate)}${numbers.typical ? ` - ${pct(numbers.typical)} is typical` : ""}` : null,
       numbers.companies ? `${full(numbers.lost ?? 0)} of ${full(numbers.companies)} signed-in customers did not order` : null,
     ].filter(Boolean).join(" · ") : "";
-    const send = async () => {
+    const send = async (to: SendChoice) => {
       if (!idea) return;
-      setBusy("send"); setErr(null);
-      const res = await sendToProject({ data, numbers, idea, versions, first: version, block });
-      if (!res.ok) { setBusy(null); setErr(res.error); return; }
+      setBusy("send"); setSendErr(null);
+      const res = await sendToProject({ data, numbers, idea, versions, first: version, block, to });
+      if (!res.ok) { setBusy(null); setSendErr(res.error); return; }
+      setSendOpen(false);
       router.push(res.url);
     };
 
@@ -900,13 +932,15 @@ function ConvertPreview() {
             {idea && data.canEdit && st !== "dropped" && (
               <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length && !landing ? "Its version comes first - the AI is making it" : landing ? "An SEO landing page project in Content with the brief to write the new page" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
                 <span>
-                  <Button size="small" variant="contained" disableElevation disabled={!data.canContent || (!versions.length && !landing) || busy === "send"} onClick={() => void send()}
+                  <Button size="small" variant="contained" disableElevation disabled={!data.canContent || (!versions.length && !landing) || busy === "send"} onClick={() => { setSendErr(null); setSendOpen(true); }}
                     startIcon={busy === "send" ? <CircularProgress size={13} sx={{ color: "inherit" }} /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />} sx={btn}>
                     {st === "sent" ? "Send to Content again" : "Send to Content"}
                   </Button>
                 </span>
               </Tooltip>
             )}
+            {idea && <SendDialog open={sendOpen} onClose={() => setSendOpen(false)} onSend={(c) => void send(c)} env={data.env} path={data.path}
+              versions={versions.length} busy={busy === "send"} error={sendErr} />}
           </Box>
           <OptimizationSlider items={idea && pos >= 0 ? live : []} at={pos} onGo={(k) => step(k - pos)}>
             <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>

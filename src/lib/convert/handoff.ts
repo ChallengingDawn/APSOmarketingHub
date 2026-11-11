@@ -106,3 +106,10 @@ export function projectForPage(x: HandoffInput): { title: string; brief: string;
   if (brief.length > 6000) brief = `${brief.slice(0, 5900 - marker.length)}…\n\n${marker}`;
   return { title: `${t ? "Winner" : TITLE[type]}: ${x.block && !t ? `${x.block.name} · ` : ""}${name}`.slice(0, 200), brief, contentType: t ? contentTypeForPage(x.path) : type };
 }
+
+/** A ticket's number from what a person pastes in Send to Content: the number itself or its HubSpot address (the last
+ * run of 5+ digits - a HubSpot address names the portal before the ticket). "" when there is none. */
+export function ticketNumber(raw: string): string {
+  const all = raw.match(/\d{5,}/g);
+  return all ? all[all.length - 1] : "";
+}
