@@ -39,7 +39,7 @@ const pct0 = (v: number | null) => (v == null ? "" : `${Math.round(v * 100)}%`);
 const onTime = (n: number, late: number) => (n ? (n - late) / n : null);
 const NONE = (what: string) => <Typography sx={{ fontSize: "0.85rem", color: MUTED, py: 2 }}>{what}</Typography>;
 
-function params(q: CustomerQuery, c?: string) {
+export function params(q: CustomerQuery, c?: string) {
   const p = new URLSearchParams({ from: q.from, to: q.to, axis: q.axis });
   for (const s of q.filter.src ?? []) p.append("src", s);
   for (const s of q.filter.company ?? []) p.append("mandant", s);
@@ -48,7 +48,7 @@ function params(q: CustomerQuery, c?: string) {
   if (c) p.set("c", c);
   return p.toString();
 }
-function useRead<T>(url: string) {
+export function useRead<T>(url: string) {
   const [got, setGot] = useState<{ url: string; data?: T; error?: string } | null>(null);
   useEffect(() => {
     let live = true;
@@ -74,7 +74,7 @@ function CustomerList({ q }: { q: CustomerQuery }) {
   if (!got) return <LoadingPanel label="Reading every customer's lines…" />;
   if (got.error) return <UpstreamPanel source="OTD Reports" error={got.error} status={null} onRetry={() => window.location.reload()} />;
   const rows = got.data?.customers ?? [];
-  if (!got.data?.at) return NONE("The customers come with the next morning run - it keeps every line one by one.");
+  if (!got.data?.at) return NONE("The customers come with the next ERP delivery's run - it keeps every line one by one.");
   if (!rows.length) return NONE("No customer in these months with these filters.");
   type R = CustomerRow & { label: string; rate: number | null };
   const table: R[] = rows.map((x) => ({ ...x, label: x.c, rate: onTime(x.n, x.late) }));
