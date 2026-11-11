@@ -26,7 +26,7 @@ import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import { GLC, LATE_CATS, lateCat, type OtdFilter } from "@/lib/reporting/otdRules";
 import type { CustomerRow, StoredLine } from "@/lib/reporting/otdLines";
-import { PagedBars } from "./OtdPaged";
+import { PagedBars, PosCell, RateCell } from "./OtdPaged";
 
 /** what the page's frame gives: the months, the month counted by, the filters */
 export type CustomerQuery = { from: string; to: string; axis: "promised" | "delivered"; filter: OtdFilter; yms: string[] };
@@ -77,43 +77,29 @@ function CustomerList({ q }: { q: CustomerQuery }) {
   const rows = got.data?.customers ?? [];
   if (!got.data?.at) return NONE("The customers come with the next ERP delivery's run - it keeps every line one by one.");
   if (!rows.length) return NONE("No customer in these months with these filters.");
-  type R = CustomerRow & { label: string; rate: number | null };
-  const table: R[] = rows.map((x) => ({ ...x, label: x.c, rate: onTime(x.n, x.late) }));
+  // one master table (SARCLA 11.11.2026: "OTD per customer should be only a massive table like in Back-Office reports - with
+  // the position colour, sortable, search"): the place by the most late lines, coloured by the share on time
+  type R = CustomerRow & { label: string; rate: number | null; pos: number };
+  const table: R[] = rows.map((x, i) => ({ ...x, label: x.c, rate: onTime(x.n, x.late), pos: i + 1 }));
   const all = rows.reduce((a, x) => [a[0] + x.n, a[1] + x.late], [0, 0]);
-  // how the customers spread by their share on time (those with 10 lines or more - a few lines say little)
-  const bands = [["100 %", 1, 1.01], ["95 – 99 %", 0.95, 1], ["90 – 95 %", 0.9, 0.95], ["80 – 90 %", 0.8, 0.9], ["Under 80 %", -1, 0.8]] as const;
-  const big = table.filter((x) => x.n >= 10);
-  const spread = bands.map(([label, lo, hi]) => ({ label, value: big.filter((x) => x.rate != null && x.rate >= lo && x.rate < hi).length, secondary: "customers" }));
-  const owners = new Map<string, [number, number]>();
-  for (const x of rows) { const k = x.owner || "No owner"; const t = owners.get(k) ?? [0, 0]; t[0] += x.n; t[1] += x.late; owners.set(k, t); }
-  const ownerRows = [...owners].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).slice(0, 12)
-    .map(([k, v]) => ({ label: k, value: v[1], secondary: `of ${int(v[0])} lines · ${pct(onTime(v[0], v[1]))} on time` }));
   const cols: Col<R>[] = [
-    { key: "name", head: "Company", cell: (r) => <Box component="span" sx={{ display: "inline-block", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }}>{r.name || "—"}</Box> },
+    { key: "pos", head: "#", tip: "The place by the most late lines - green 95 % on time and more, amber 80 to 95 %, red under 80 %", cell: (r) => <PosCell n={r.pos} rate={r.rate} />, sort: (r) => -r.pos },
+    { key: "name", head: "Company", cell: (r) => <Box component="span" sx={{ display: "inline-block", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom", textAlign: "left" }}>{r.name || "—"}</Box> },
     { key: "owner", head: "Owner", cell: (r) => r.owner || "—" },
     { key: "company", head: "Mandant", cell: (r) => r.company },
     { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },
     { key: "late", head: "Late", cell: (r) => int(r.late), sort: (r) => r.late },
-    { key: "rate", head: "On time", cell: (r) => pct(r.rate), sort: (r) => r.rate ?? 0 },
+    { key: "rate", head: "On time", cell: (r) => <RateCell rate={r.rate} />, sort: (r) => r.rate ?? 0 },
     { key: "avg", head: "Average late", cell: (r) => days1(r.late ? r.days / r.late : null), sort: (r) => (r.late ? r.days / r.late : 0) },
+    { key: "days", head: "Late days", cell: (r) => int(r.days), sort: (r) => r.days },
     { key: "over10", head: "Over 10 days", cell: (r) => int(r.over10), sort: (r) => r.over10 },
     { key: "orders", head: "Orders late", cell: (r) => `${int(r.lateOrders)} of ${int(r.orders)}`, sort: (r) => r.lateOrders },
   ];
   return (
-    <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
-      <Box sx={TWO}>
-        <ChartBox title="Customers by their share on time" hint={`the ${int(big.length)} customers with 10 lines or more in these months · all customers together ${pct(onTime(all[0], all[1]))} on time`}>
-          <BarList rows={spread} format={n0} labelWidth={110} />
-        </ChartBox>
-        <ChartBox title="Late lines per owner" hint="the customers' late lines, by their company's owner in HubSpot">
-          <BarList rows={ownerRows} format={n0} labelWidth={180} emptyMessage="No late line in these months." />
-        </ChartBox>
-      </Box>
-      <ChartBox title={`Every customer, ${int(rows.length)}`} hint="a click opens the customer: its figures, its orders line by line, its articles and suppliers · the most late lines first">
-        <FullTable first="Customer" find="a customer or company" initial="late" rows={table} cols={cols}
-          onPick={(label) => setQuery((p) => { p.set("c", label); })} />
-      </ChartBox>
-    </Box>
+    <ChartBox title={`Every customer, ${int(rows.length)}`} hint={`all of them together ${pct(onTime(all[0], all[1]))} on time · the most late lines first, a header sorts · search a customer number, company or owner · a click opens the customer: its figures, orders line by line, articles and suppliers`}>
+      <FullTable first="Customer" find="a customer, company or owner" findIn={(r) => `${r.c} ${r.name} ${r.owner}`} initial="late" rows={table} cols={cols}
+        onPick={(label) => setQuery((p) => { p.set("c", label); })} />
+    </ChartBox>
   );
 }
 
@@ -174,8 +160,8 @@ function CustomerDetail({ q, c }: { q: CustomerQuery; c: string }) {
         {sel && (
           <Box sx={{ mt: 1.5, p: 1.5, borderRadius: "12px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(21,34,58,.03)" }}>
             <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, mb: 1 }}>{sel.label} - its lines</Typography>
-            <FullTable first="Line" natural rows={sel.lines.map((l) => ({ ...l, label: `${l.line} · ${l.a}` }))} cols={[
-              { key: "text", head: "Article", cell: (l) => <Box component="span" sx={{ display: "inline-block", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }}>{d.info[l.a]?.[0] || "—"}</Box> },
+            <FullTable first="Line · article number" natural rows={sel.lines.map((l) => ({ ...l, label: `${l.line} · ${l.a}` }))} cols={[
+              { key: "text", head: "Article name", cell: (l) => <Box component="span" sx={{ display: "inline-block", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }}>{d.info[l.a]?.[0] || "—"}</Box> },
               { key: "group", head: "Product group", cell: (l) => l.group || "—" },
               { key: "sup", head: "Supplier", cell: (l) => l.sup || GLC },
               { key: "first", head: "First confirmed", cell: (l) => dayLabel(l.firstDay) },
@@ -188,8 +174,8 @@ function CustomerDetail({ q, c }: { q: CustomerQuery; c: string }) {
         )}
       </ChartBox>
       <ChartBox title={`Articles, ${int(v.articles.length)}`} hint="each article the customer received in these months · the most late lines first">
-        <FullTable first="Article" find="an article" initial="late" rows={v.articles} cols={[
-          { key: "text", head: "Text", cell: (r) => <Box component="span" sx={{ display: "inline-block", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }}>{r.text || "—"}</Box> },
+        <FullTable first="Article number" find="an article number or name" findIn={(r) => `${r.label} ${r.text}`} initial="late" rows={v.articles} cols={[
+          { key: "text", head: "Name", cell: (r) => <Box component="span" sx={{ display: "inline-block", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", verticalAlign: "bottom" }}>{r.text || "—"}</Box> },
           { key: "group", head: "Product group", cell: (r) => r.group || "—" },
           { key: "sup", head: "Supplier", cell: (r) => r.sup || GLC },
           { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },

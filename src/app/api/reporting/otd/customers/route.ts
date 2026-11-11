@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { accessAt } from "@/lib/auth/tree";
 import { otdLinesNow } from "@/lib/reporting/otdStore";
-import { customerLines, customerList, glcCustomers, supplierList, type LineFilter } from "@/lib/reporting/otdLines";
+import { articleList, customerLines, customerList, glcCustomers, supplierList, type LineFilter } from "@/lib/reporting/otdLines";
 import { OTD_PAGES } from "@/lib/reporting/otdPages";
 
 export const runtime = "nodejs";
@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
     // ?view=suppliers: every supplier's on time and lead times; ?view=glc: GLC's kinds and the customers who received them
     if (view === "suppliers") return NextResponse.json({ at: store.at, suppliers: supplierList(store, f) });
     if (view === "glc") return NextResponse.json({ at: store.at, ...glcCustomers(store, f) });
+    if (view === "articles") return NextResponse.json({ at: store.at, articles: articleList(store, f) });
     // the list draws no month: the month map stays home (about a third of the answer)
     return NextResponse.json({ at: store.at, customers: customerList(store, f).map(({ m: _m, ...x }) => x) });
   } catch (e) {

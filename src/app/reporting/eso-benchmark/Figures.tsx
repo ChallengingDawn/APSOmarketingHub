@@ -960,7 +960,7 @@ function MonthCards({ c: given, dim, actions }: { c: FigCtx; dim: Dim; actions?:
 /* ── the tables: wide, in words, any column sorts ──────────────────────── */
 
 export type Col<R> = { key: string; head: string; tip?: string; cell: (r: R) => React.ReactNode; sort?: (r: R) => number };
-export function FullTable<R extends { label: string }>({ first, cols, rows, total, selected, onPick, tint = "blue", natural = false, initial, find }: {
+export function FullTable<R extends { label: string }>({ first, cols, rows, total, selected, onPick, tint = "blue", natural = false, initial, find, findIn }: {
   first: string; cols: Col<R>[]; rows: R[]; total?: R | null; selected?: string[]; onPick?: (label: string) => void; tint?: Tint;
   /** the rows keep their own order until a header is clicked (months, priorities) */
   natural?: boolean;
@@ -968,13 +968,15 @@ export function FullTable<R extends { label: string }>({ first, cols, rows, tota
   initial?: string;
   /** "a country" - a search box when there are many rows */
   find?: string;
+  /** what the search box reads in a row - its label unless given (OTD's master tables: the number and the name) */
+  findIn?: (r: R) => string;
 }) {
   const [sort, setSort] = useState<{ key: string; desc: boolean } | null>(natural ? null : { key: initial ?? cols.find((x) => x.sort)?.key ?? "label", desc: true });
   const [q, setQ] = useState("");
   const col = sort ? cols.find((x) => x.key === sort.key) : null;
   const sorted = sort?.key === "label" ? [...rows].sort((a, b) => a.label.localeCompare(b.label) * (sort.desc ? -1 : 1))
     : col?.sort ? [...rows].sort((a, b) => (col.sort!(b) - col.sort!(a)) * (sort!.desc ? 1 : -1) || a.label.localeCompare(b.label)) : rows;
-  const found = q ? sorted.filter((r) => r.label.toLowerCase().includes(q.toLowerCase())) : sorted;
+  const found = q ? sorted.filter((r) => (findIn ? findIn(r) : r.label).toLowerCase().includes(q.toLowerCase())) : sorted;
   // in pages, the rows found too - back to the first page on a new search or sort
   const { page, pages, setPage, slice: shown } = usePages(found, LIST_PAGE);
   useEffect(() => { setPage(0); }, [q, sort]);

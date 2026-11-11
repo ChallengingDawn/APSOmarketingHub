@@ -15,9 +15,9 @@ import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { MUTED, type Tint } from "@/app/uc/report/ui";
 import { ChartBox, FullTable, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { FigureCards, int, pct, type Fig } from "@/app/reporting/products/views/kit";
-import { PagedBars } from "./OtdPaged";
+import { PagedBars, PosCell, RateCell } from "./OtdPaged";
 import { GLC_KINDS } from "@/lib/reporting/otdRules";
-import type { GlcCustomerRow, GlcKindRow, SupplierRow } from "@/lib/reporting/otdLines";
+import type { ArticleRow, GlcCustomerRow, GlcKindRow, SupplierRow } from "@/lib/reporting/otdLines";
 import { params, useRead, type CustomerQuery } from "./OtdCustomers";
 
 const days1 = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(1)} days`);
@@ -71,9 +71,9 @@ export function SupplierLeads({ q, fallback }: { q: CustomerQuery; fallback: Rea
 /* ── GLC: each kind with its own icon, and the companies ───────────────────────────── */
 
 const KIND_LOOK: { label: string; icon: React.ReactNode; tint: Tint }[] = [
-  { label: "Leftover off the shelf", icon: <Inventory2OutlinedIcon sx={{ fontSize: 14 }} />, tint: "green" },
-  { label: "Cut to size on the saw", icon: <ContentCutOutlinedIcon sx={{ fontSize: 14 }} />, tint: "purple" },
-  { label: "Other in-house", icon: <PrecisionManufacturingOutlinedIcon sx={{ fontSize: 14 }} />, tint: "slate" },
+  { label: "DirectCut: a whole leftover", icon: <Inventory2OutlinedIcon sx={{ fontSize: 14 }} />, tint: "green" },
+  { label: "DirectCut: cut on the saw", icon: <ContentCutOutlinedIcon sx={{ fontSize: 14 }} />, tint: "purple" },
+  { label: "Not a DirectCut order", icon: <PrecisionManufacturingOutlinedIcon sx={{ fontSize: 14 }} />, tint: "slate" },
 ];
 
 export function GlcCompanies({ q }: { q: CustomerQuery }) {
@@ -85,8 +85,10 @@ export function GlcCompanies({ q }: { q: CustomerQuery }) {
   if (!got.data?.at) return <ChartBox title="GLC: leftover, cut to size and the rest - and the companies" hint="DirectCut's orders by what it did">{NONE(LATER)}</ChartBox>;
   const kinds = got.data.kinds ?? [], list = got.data.customers ?? [];
   if (!list.length) return <ChartBox title="GLC: leftover, cut to size and the rest - and the companies" hint="DirectCut's orders by what it did">{NONE("No GLC line in these months with these filters.")}</ChartBox>;
+  // how much of GLC DirectCut can tell at all: it knows only its own orders (the shop's cut articles, since autumn 2026)
+  const glcAll = kinds.reduce((a, k) => a + k[0], 0), known = (kinds[0]?.[0] ?? 0) + (kinds[1]?.[0] ?? 0);
   const figs: Fig[] = kinds.map((k, i) => ({
-    label: KIND_LOOK[i].label, value: pct(onTime(k[0], k[1])), icon: KIND_LOOK[i].icon, tint: KIND_LOOK[i].tint,
+    label: KIND_LOOK[i].label, value: `${pct(onTime(k[0], k[1]))} on time`, icon: KIND_LOOK[i].icon, tint: KIND_LOOK[i].tint,
     sub: `${int(k[0])} lines · ${int(k[1])} late · ${int(k[4])} compan${k[4] === 1 ? "y" : "ies"} · ${days1(avg(k[3], k[0]))} to shipment`,
   }));
   type R = GlcCustomerRow & { label: string; rate: number | null };
@@ -112,12 +114,47 @@ export function GlcCompanies({ q }: { q: CustomerQuery }) {
   };
   return (
     <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
-      <ChartBox title="GLC: leftover, cut to size and the rest" hint="the share on time of each kind · DirectCut's orders (the shop, since autumn 2026) by what it did: a whole piece off the shelf or cut on the saw; the rest = the other lines without a supplier">
+      <ChartBox title="GLC lines: what DirectCut did with them"
+        hint={`GLC = the order lines whose article has no supplier: cut to size or made in house · DirectCut (the shop's cutting system, since autumn 2026) knows ${int(known)} of these ${int(glcAll)} GLC lines (${pct(glcAll ? known / glcAll : null)}): a whole leftover piece sent off the shelf, or a piece cut on the saw · "Not a DirectCut order" = every other GLC line - ordered before DirectCut, typed in by the Back Office or made in house - DirectCut cannot say what was done`}>
         <FigureCards items={figs} />
       </ChartBox>
       <ChartBox title={`The companies that received GLC lines, ${int(rows.length)}`} hint="each company's GLC lines per kind · a click opens the company on the Customers page: its figures, orders line by line and articles">
         <FullTable first="Customer" find="a customer or company" initial="n" rows={rows} cols={cols} onPick={open} />
       </ChartBox>
     </Box>
+  );
+}
+
+/* ── every article, one master table (SARCLA 11.11.2026: "misses also a tab article level", "product number next to name") ── */
+
+export function ArticleMaster({ q }: { q: CustomerQuery }) {
+  const got = useRead<{ at: string | null; articles?: ArticleRow[] }>(`/api/reporting/otd/customers?${params(q)}&view=articles`);
+  if (!got) return <LoadingPanel label="Reading every article's lines…" />;
+  if (got.error) return <UpstreamPanel source="OTD Reports" error={got.error} status={null} onRetry={() => window.location.reload()} />;
+  if (!got.data?.at) return <ChartBox title="Every article" hint="">{NONE(LATER)}</ChartBox>;
+  const list = got.data.articles ?? [];
+  if (!list.length) return <ChartBox title="Every article" hint="">{NONE("No line in these months with these filters.")}</ChartBox>;
+  type R = ArticleRow & { label: string; rate: number | null; pos: number };
+  const rows: R[] = list.map((x, i) => ({ ...x, label: x.a, rate: onTime(x.n, x.late), pos: i + 1 }));
+  const all = list.reduce((a, x) => [a[0] + x.n, a[1] + x.late], [0, 0]);
+  const cols: Col<R>[] = [
+    { key: "pos", head: "#", tip: "The place by the most late lines - green 95 % on time and more, amber 80 to 95 %, red under 80 %", cell: (r) => <PosCell n={r.pos} rate={r.rate} />, sort: (r) => -r.pos },
+    { key: "name", head: "Name", cell: (r) => cut(r.name, 300) },
+    { key: "group", head: "Product group", cell: (r) => r.group || "—" },
+    { key: "product", head: "Product", cell: (r) => cut(r.product, 180) },
+    { key: "pc", head: "Profit centre", cell: (r) => r.pc || "—" },
+    { key: "sup", head: "Supplier", cell: (r) => cut(supName(r.sup), 180) },
+    { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },
+    { key: "late", head: "Late", cell: (r) => int(r.late), sort: (r) => r.late },
+    { key: "rate", head: "On time", cell: (r) => <RateCell rate={r.rate} />, sort: (r) => r.rate ?? 0 },
+    { key: "avg", head: "Average late", cell: (r) => days1(avg(r.days, r.late)), sort: (r) => avg(r.days, r.late) ?? 0 },
+    { key: "over10", head: "Over 10 days", cell: (r) => int(r.over10), sort: (r) => r.over10 },
+    { key: "cust", head: "Customers", cell: (r) => int(r.customers), sort: (r) => r.customers },
+    { key: "orders", head: "Orders", cell: (r) => int(r.orders), sort: (r) => r.orders },
+  ];
+  return (
+    <ChartBox title={`Every article, ${int(rows.length)}`} hint={`all of them together ${pct(onTime(all[0], all[1]))} on time · the article number, its name beside it · the most late lines first, a header sorts · search a number, name, group, product or supplier`}>
+      <FullTable first="Article number" find="an article, name, group or supplier" findIn={(r) => `${r.a} ${r.name} ${r.group} ${r.product} ${r.sup}`} initial="late" rows={rows} cols={cols} />
+    </ChartBox>
   );
 }

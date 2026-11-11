@@ -54,7 +54,7 @@ import {
 } from "@/lib/reporting/otdRules";
 import { OTD_PAGES, type OtdSlug } from "@/lib/reporting/otdPages";
 import { CustomerExplorer } from "./OtdCustomers";
-import { GlcCompanies, SupplierLeads } from "./OtdLineViews";
+import { ArticleMaster, GlcCompanies, SupplierLeads } from "./OtdLineViews";
 import { PagedBars } from "./OtdPaged";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
@@ -177,6 +177,10 @@ const CHARTS: ChartDef[] = [
   {
     id: "glcCompanies", wide: true, bare: true, title: "", hint: () => "",
     body: (f) => <GlcCompanies q={SQ(f)} />,
+  },
+  {
+    id: "artMaster", wide: true, bare: true, title: "", hint: () => "",
+    body: (f) => <ArticleMaster q={SQ(f)} />,
   },
   /* ── Overview ─────────────────────────────────────────────── */
   {
@@ -423,30 +427,6 @@ const CHARTS: ChartDef[] = [
   },
 
   /* ── Products ─────────────────────────────────────────────── */
-  {
-    id: "articles", wide: true, title: "The articles late most often",
-    hint: (f) => `${periodOf(f)}, by the month of the first confirmed date · the 300 articles with the most late lines over all the months · the other filters do not apply here`,
-    body: (f) => {
-      type R = { label: string; group: string; pc: string; sup: string; n: number; late: number; days: number };
-      const rows: R[] = f.k.articles.map((a) => {
-        let n = 0, late = 0, days = 0;
-        for (const ym of f.yms) { const t = a.m[ym]; if (t) { n += t[0]; late += t[1]; days += t[2]; } }
-        return { label: a.a, group: a.group ?? "", pc: a.pc, sup: a.sup, n, late, days };
-      }).filter((r) => r.late > 0);
-      if (!rows.length) return NONE("No late line in these months.");
-      const cols: Col<R>[] = [
-        { key: "group", head: "Product group", cell: (r) => r.group || "—" },
-        { key: "pc", head: "Profit centre", cell: (r) => r.pc || "—" },
-        { key: "sup", head: "Supplier", cell: (r) => supName(r.sup) },
-        { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },
-        { key: "late", head: "Late", cell: (r) => int(r.late), sort: (r) => r.late },
-        { key: "rate", head: "On time", cell: (r) => pct(r.n ? (r.n - r.late) / r.n : null), sort: (r) => (r.n ? (r.n - r.late) / r.n : 0) },
-        { key: "avg", head: "Average late", cell: (r) => days1(r.late ? r.days / r.late : null), sort: (r) => (r.late ? r.days / r.late : 0) },
-        { key: "days", head: "Late days", cell: (r) => int(r.days), sort: (r) => r.days },
-      ];
-      return <FullTable first="Article" cols={cols} rows={rows} initial="late" find="an article" />;
-    },
-  },
   {
     id: "articleBars", title: "Late lines per article",
     hint: (f) => `${periodOf(f)} · the 15 articles with the most late lines`,
@@ -1091,6 +1071,7 @@ type TabDef = { id: string; label: string; title: string; note: string; icon: Re
 const TABS: Record<OtdSlug, TabDef[]> = {
   customers: [
     { id: "list", label: "Customers", title: "OTD per customer", note: "every customer's lines, late lines and orders late - a click opens one: its figures, orders line by line, articles and suppliers", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["custExplorer"] },
+    { id: "articles", label: "Articles", title: "OTD per article", note: "every article's lines, late lines, customers and orders - its number with its name, product group, product and supplier", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["artMaster"] },
   ],
   overview: [
     { id: "ontime", label: "On time", title: "On time", note: "the lines that reached the customer by their first confirmed date - per mandant and article type", icon: <LocalShippingOutlinedIcon />, tint: "green", charts: ["otd", "lines", "mandant", "type"] },
@@ -1105,7 +1086,7 @@ const TABS: Record<OtdSlug, TabDef[]> = {
     { id: "lead", label: "Lead time", title: "Lead time per supplier", note: "every supplier from the order to the customer - in figures, then the graph", icon: <HourglassEmptyOutlinedIcon />, tint: "green", charts: ["supLeadAll"] },
   ],
   products: [
-    { id: "articles", label: "Articles", title: "The articles late most often", note: "with their product group, profit centre and supplier", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["articleBars", "groups", "articles"] },
+    { id: "articles", label: "Articles", title: "Every article", note: "each article's number with its name, product group, product and supplier - its lines, late lines, customers and orders", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["articleBars", "groups", "artMaster"] },
     { id: "groups", label: "Product groups", title: "Per product group", note: "each article's main group in the ERP's article master - every month", icon: <CategoryOutlinedIcon />, tint: "blue", charts: ["groupLate", "groups", "groupTrend", "groupTable"] },
     { id: "planned", label: "Planned articles", title: "Planned articles and replenishment time", note: "the ERP's planning of each article: how they do against the others, per profit centre, the planned articles late most often, and the lines promised faster than the supplier replenishes", icon: <TimerOutlinedIcon />, tint: "green", charts: ["plannedFigures", "planned", "plannedLead", "plannedPc", "plannedArticles", "replen"] },
   ],
