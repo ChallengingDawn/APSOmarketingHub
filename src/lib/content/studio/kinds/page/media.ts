@@ -1,5 +1,8 @@
 // PAGE - ITS PICTURES IN MAGENTO'S MEDIA (10.11.2026). Pure: tests/studio-page-frame.test.ts.
 //
+// 11.11.2026 (SARCLA: "I can't copy-paste each new picture to Magento"): with the hub's picture storage on
+// (./contentMedia.ts) a hub picture carries its address there - the page names it, Publish stores it, nothing waits.
+//
 // SARCLA's Kalrez page on ACC showed Magento's grey "APSOparts - the Online Shop of Angst+Pfister" in its hero: the content
 // pointed to wysiwyg/content/apx-199.jpg, a picture the hub keeps and nobody had put into Magento's media. The last step
 // said so in one easy-to-miss line, and nothing checked it. Magento answers a missing media file with that placeholder -
@@ -38,17 +41,69 @@ export const mediaAddress = (base: string, file: string) => `${base.replace(/\/+
 /** The shop's own media, for the pictures that are the shop's (the kit's MEDIA_BASE). */
 export const SHOP_MEDIA = "https://www.apsoparts.com/media/";
 
-export type MediaFile = { file: string; url: string };
+/**
+ * A hub picture as the page names it on the shop: its file, its hub path - and, when the hub's picture storage is on
+ * (./contentMedia.ts, 11.11.2026), its public address there (<base>/content/<file>); without one it is the file in the
+ * target's Magento media.
+ */
+export type MediaFile = { file: string; url: string; address?: string };
+
+/** Where a hub picture is shown: its address in the hub's picture storage, else its file in the target's media. */
+export const shownAt = (f: MediaFile, base: string) => f.address || mediaAddress(base, f.file);
 
 /**
  * The page's HTML with every picture address absolute (the home page kit's absolute_media): a Magento media directive
- * ({{media url="..."}}) is the shop's own picture on www; a hub picture is its file in the target's media. `files`: each hub
- * picture's file (by its path) - one the hub could not name keeps its path, and the check says so.
+ * ({{media url="..."}}) is the shop's own picture on www; a hub picture is its address in the hub's picture storage when it
+ * has one, else its file in the target's media. `files`: each hub picture's file (by its path) - one the hub could not
+ * name keeps its path, and the check says so.
  */
 export function withMediaAddresses(html: string, files: ReadonlyMap<string, MediaFile>, base: string): string {
   return html
     .replace(/\{\{\s*media\s+url=(?:&quot;|["'])([^"'&{}]+)(?:&quot;|["'])\s*\}\}/g, (_all, path: string) => SHOP_MEDIA + path.replace(/^\/+/, ""))
-    .replace(HUB_PICTURE, (u) => { const f = files.get(u); return f ? mediaAddress(base, f.file) : u; });
+    .replace(HUB_PICTURE, (u) => { const f = files.get(u); return f ? shownAt(f, base) : u; });
+}
+
+/* ── a picture's words, for its file's name in the hub's picture storage (11.11.2026) ── */
+
+const attrOf = (tag: string, name: string) => new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, "i").exec(tag);
+const unescape = (s: string) => s.replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+/** Each hub picture's alt text in the page's HTML (its first <img> with one), by its path. */
+export function pictureAltsIn(html: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const src = attrOf(m[0], "src");
+    const path = src ? /\/api\/content\/picture\/\d{1,12}-[A-Za-z0-9_-]{4,40}/.exec(src[2] ?? src[3] ?? "")?.[0] : null;
+    if (!path || out.has(path)) continue;
+    const alt = attrOf(m[0], "alt");
+    const words = unescape(alt ? alt[2] ?? alt[3] ?? "" : "").trim();
+    if (words) out.set(path, words);
+  }
+  return out;
+}
+
+/**
+ * Each hub picture's words in a page's document (its fields, its modules): the object naming it - its alt text, else its
+ * idea, else its title or name (a module's tile) - by its path, the first that has words.
+ */
+export function pictureWordsOf(value: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  const seen = new Set<unknown>();
+  const walk = (v: unknown, depth: number) => {
+    if (!v || typeof v !== "object" || depth > 12 || seen.has(v)) return;
+    seen.add(v);
+    if (Array.isArray(v)) { for (const x of v) walk(x, depth + 1); return; }
+    const o = v as Record<string, unknown>;
+    const said = ["alt", "idea", "title", "name", "label"].map((k) => (typeof o[k] === "string" ? (o[k] as string).trim() : "")).find(Boolean) ?? "";
+    for (const x of Object.values(o)) {
+      if (typeof x === "string") {
+        const path = /\/api\/content\/picture\/\d{1,12}-[A-Za-z0-9_-]{4,40}/.exec(x)?.[0];
+        if (path && said && !out.has(path)) out.set(path, said);
+      } else walk(x, depth + 1);
+    }
+  };
+  walk(value, 0);
+  return out;
 }
 
 /** Every picture address the page carries (src, srcset, a CSS url()) - for the check that they are all absolute. */
