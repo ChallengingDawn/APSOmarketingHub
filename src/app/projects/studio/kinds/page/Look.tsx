@@ -26,6 +26,7 @@ import {
   BUTTON_ALIGNS, BUTTON_SIZES, BUTTON_STYLES, BUTTON_WIDTHS, PALETTE, SIZES, buttonCheck, colorLabel, hexOfColor, normHex, readCheck,
   type ButtonLook, type ReadCheck, type TextLook,
 } from "@/lib/content/studio/kinds/page/style";
+import { GROUNDS } from "@/lib/content/studio/kinds/page/modules/looks";
 import { PINK } from "../../parts";
 import { Choice } from "./ui";
 
@@ -272,5 +273,59 @@ export function MarkBtn({ on, tip, onClick, children }: { on: boolean; tip: stri
         {children}
       </IconButton>
     </Tooltip>
+  );
+}
+
+/* ── a block's ground (Content v13, SARCLA 11.11.2026: "can not change the background of some block") ── */
+
+/**
+ * A block's background: the shop's own (none), its grounds - petrol, light grey, red, white -, a colour of its own, and a
+ * picture of the hub's under it. The block's words and buttons switch for contrast on it (lib .../modules/looks.ts).
+ */
+export function GroundPick({ color, picture, disabled, onColor, onPicture, onPictureOut }: {
+  /** a ground's key ("petrol") or "#rrggbb" - "" the shop's own */
+  color: string; picture: string; disabled?: boolean;
+  onColor: (c: string | null) => void; onPicture: () => void; onPictureOut: () => void;
+}) {
+  const hex = GROUNDS.find((g) => g.key === color)?.hex ?? normHex(color);
+  const own = !!color && color.startsWith("#") && !GROUNDS.some((g) => g.hex === hex);
+  const [code, setCode] = useState(own ? color : "");
+  useEffect(() => { if (color.startsWith("#")) setCode(color); }, [color]);
+  const picker = useRef<HTMLInputElement | null>(null);
+  const live = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (live.current) clearTimeout(live.current); }, []);
+  const typed = normHex(code);
+  return (
+    <Box sx={{ opacity: disabled ? 0.6 : 1, pointerEvents: disabled ? "none" : "auto" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.9, flexWrap: "wrap" }}>
+        <Swatch hex={null} on={!color} label="The shop's own" onClick={() => onColor(null)} />
+        {GROUNDS.map((g) => <Swatch key={g.key} hex={g.hex} on={color === g.key || (!!hex && !own && hex === g.hex)} label={g.label} onClick={() => onColor(g.key)} />)}
+        <Box sx={{ width: "1px", height: 20, bgcolor: HAIRLINE, mx: 0.25 }} />
+        <Swatch hex={own ? hex : null} on={own} label="A colour of its own" onClick={() => picker.current?.click()}>
+          {!own && <Box component="span" sx={{ position: "absolute", inset: 3, borderRadius: "3px", background: "conic-gradient(#d80901,#f5b400,#1e9e5a,#1f7ae0,#8a3fd1,#d80901)" }} />}
+        </Swatch>
+        <input ref={picker} type="color" value={typed ?? hex ?? "#274e64"} aria-label="Pick a colour" style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+          onChange={(e) => { const v = e.target.value.toLowerCase(); setCode(v); if (live.current) clearTimeout(live.current); live.current = setTimeout(() => onColor(v), 220); }} />
+        <Box sx={{ display: "flex", alignItems: "center", border: `1px solid ${typed || !code ? HAIRLINE : "#e3a29b"}`, borderRadius: "6px", height: 28, pl: 0.75, pr: 0.25, bgcolor: "#fff", width: 112 }}>
+          <InputBase value={code} placeholder="#1b3a4b" onChange={(e) => setCode(e.target.value.slice(0, 7))} inputProps={{ "aria-label": "Colour code", spellCheck: false }}
+            onKeyDown={(e) => { if (e.key === "Enter" && typed) { e.preventDefault(); onColor(typed); } }}
+            sx={{ flex: 1, fontSize: "0.78rem", fontFamily: "ui-monospace, Consolas, monospace", "& input": { p: 0 } }} />
+          <Button size="small" disabled={!typed} onClick={() => typed && onColor(typed)} sx={{ minWidth: 0, px: 0.6, py: 0, fontSize: "0.72rem", fontWeight: 700, color: PINK, textTransform: "none" }}>Use</Button>
+        </Box>
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+        {picture && (
+          <Box sx={{ width: 54, height: 36, borderRadius: "5px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={picture} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          </Box>
+        )}
+        <Button size="small" onClick={onPicture} sx={{ textTransform: "none", fontSize: "0.78rem", fontWeight: 600, color: PINK, px: 0.75, minWidth: 0 }}>{picture ? "Another picture under it" : "A picture under it"}</Button>
+        {picture && <Button size="small" onClick={onPictureOut} sx={{ textTransform: "none", fontSize: "0.78rem", fontWeight: 600, color: MUTED, px: 0.75, minWidth: 0 }}>Remove</Button>}
+      </Box>
+      <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5, lineHeight: 1.4 }}>
+        {picture ? "The picture lies under a dark veil; the words show white." : color ? "Its words and buttons switch to read on it." : "As the shop draws it."}
+      </Typography>
+    </Box>
   );
 }

@@ -9,6 +9,7 @@
 // the picture by the studio itself (./Studio.tsx autoPictures); the slot shows it being made, then offers "Make another"
 // and "Upload" - and says plainly when the hub cannot make pictures.
 
+import { moveTarget } from "@/lib/content/studio/kinds/page/dropSlot";
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -279,8 +280,10 @@ function ItemRows({ list, f, set, openItem, onSelect, canEdit, children }: {
     if (!drag) return;
     const from = items.findIndex((x) => x.id === drag.id);
     setDrag(null);
-    if (from < 0 || to === from || to === from + 1) return;
-    set(moveItemTo(f, list, drag.id, to > from ? to - 1 : to), `Moved ${name.toLowerCase()} ${from + 1}`);
+    // Content v13: the same place rule as the list of blocks (lib .../dropSlot.ts)
+    const at = moveTarget(from, to, items.length);
+    if (at === null) return;
+    set(moveItemTo(f, list, drag.id, at), `Moved ${name.toLowerCase()} ${from + 1}`);
   };
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", overflow: "hidden", mb: 1 }} onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, over: null } : d)); }}>

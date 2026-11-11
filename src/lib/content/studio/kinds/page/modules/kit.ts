@@ -155,7 +155,7 @@ const CARD = `
 @@ .am-pc:is(:hover,:focus-visible){transform:translateY(-2px);box-shadow:0 18px 30px -18px rgba(27,58,75,.5),inset 0 0 0 1px #dfe4e8}
 @@ .am-pc>i{position:relative;display:block;flex:1 1 auto;min-height:96px;margin-bottom:6px;overflow:hidden}
 @@ .am-pc>i img{position:absolute;left:6%;top:5%;width:88%;height:95%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);
-  -webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);transition:transform .35s}
+  -webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);transition:transform .35s}
 @@ .am-pc:hover>i img{transform:scale(1.05)}
 %CAT%
 @@ .am-pc>small{display:block;margin:0 13px 2px;font:600 10px/1.2 var(--head);letter-spacing:.1em;text-transform:uppercase;color:var(--red)}

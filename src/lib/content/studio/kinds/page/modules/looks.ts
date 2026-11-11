@@ -11,10 +11,14 @@
 //   open                                    its questions: "1" all open, "0" all closed (each opens on a click)
 //   split                                   its two columns: "<layout>:<the left one's share>" ("right:33") - desktop only,
 //                                           a phone stacks as before
+//   bg · bgpic                              Content v13 (SARCLA 11.11.2026: "can not change the background of some block"):
+//                                           its ground - one of the shop's (petrol, light grey, red, white) or "#rrggbb" -
+//                                           and a picture of the hub's under it; its words and buttons switch for contrast
 
 import { esc } from "./kit";
-import { cleanButtonLook, cleanTextLook, hexOfColor, labelOn, unpackLook, type ButtonLook, type TextLook } from "../style";
-import type { Drawn, ModuleRef } from "./types";
+import { cleanButtonLook, cleanTextLook, hexOfColor, labelOn, normHex, readCheck, unpackLook, type ButtonLook, type TextLook } from "../style";
+import { pictureAddress } from "./address";
+import type { Drawn, ModuleRef, Opts } from "./types";
 
 export const TEXT_LOOK_KEY = { title: "look-title", eyebrow: "look-eyebrow", text: "look-text" } as const;
 export type LookField = keyof typeof TEXT_LOOK_KEY;
@@ -107,7 +111,7 @@ const TEXT_SIZE: Record<LookField, Record<string, string>> = {
   text: { s: "13.5px", l: "18px", xl: "21px" },
 };
 
-function textRules(l: TextLook, f: LookField): string {
+export function textRules(l: TextLook, f: LookField): string {
   const r: string[] = [];
   const hex = l.color ? hexOfColor(l.color) : null;
   if (hex) r.push(`color:${hex}!important`, `-webkit-text-fill-color:${hex}`);
@@ -119,7 +123,7 @@ function textRules(l: TextLook, f: LookField): string {
   return r.join(";");
 }
 
-function buttonRules(b: ButtonLook, cls: string): string {
+export function buttonRules(b: ButtonLook, cls: string): string {
   const out: string[] = [];
   const hex = b.color ? hexOfColor(b.color) : null;
   const sel = `@@ a.${cls}`;
@@ -179,4 +183,106 @@ export function withLooks(m: ModuleRef, d: Drawn): Drawn {
   const g = SPLIT_GRID[m.type];
   if (left !== null && g && canSplit(m)) css.push(`@media (min-width:901px){@@ ${g.sel}{grid-template-columns:minmax(0,${left}fr) minmax(0,${100 - left}fr)!important}}`);
   return css.length || html !== d.html ? { html, css: `${d.css}\n${css.join("\n")}` } : d;
+}
+
+/* ── what is a look, not words (Content v13) ──────────────────────────── */
+
+/** A key of a module's `extra` that holds a look or a setting of the studio - never words of the module (a click on the
+ * page never lands on it, the AI is never told it): looks, button looks, the tiles' words, questions open, the split,
+ * the ground and its picture, the "words speak of other products" mark. */
+export const isLookKey = (k: string) => /^(look-|btn-|w-|open$|split$|bg$|bgpic$|reword$)/.test(k);
+
+/* ── its ground (Content v13, SARCLA 11.11.2026: "can not change the background of some block") ── */
+
+export const BG_KEY = "bg";
+export const BG_PICTURE_KEY = "bgpic";
+/** The shop's grounds a block can take, in the order the popup shows them. */
+export const GROUNDS: { key: string; label: string; hex: string }[] = [
+  { key: "petrol", label: "Petrol", hex: "#274e64" },
+  { key: "grey", label: "Light grey", hex: "#f4f6f8" },
+  { key: "red", label: "Red", hex: "#d80901" },
+  { key: "white", label: "White", hex: "#ffffff" },
+];
+/** A ground as kept ("petrol", "#1b3a4b") as its colour - null when it is none of them. */
+export function groundHex(v: unknown): string | null {
+  const g = GROUNDS.find((x) => x.key === v);
+  return g ? g.hex : normHex(v);
+}
+/** Its ground as kept: the colour (a key of the shop's or "#rrggbb", "" = the shop's own) and the hub's picture under it. */
+export function groundOf(m: ModuleRef): { color: string; picture: string } {
+  const x = m.settings.extra ?? {};
+  const c = String(x[BG_KEY] ?? "");
+  return { color: groundHex(c) ? c : "", picture: pictureAddress(x[BG_PICTURE_KEY]) };
+}
+/** The module with its ground changed (undefined: kept as it is; "" or null: back to the shop's own). */
+export function withGroundOf(m: ModuleRef, patch: { color?: string | null; picture?: string | null }): ModuleRef {
+  const extra = { ...m.settings.extra };
+  if (patch.color !== undefined) { const c = patch.color && groundHex(patch.color) ? patch.color : ""; if (c) extra[BG_KEY] = c; else delete extra[BG_KEY]; }
+  if (patch.picture !== undefined) { const p = pictureAddress(patch.picture ?? ""); if (p) extra[BG_PICTURE_KEY] = p; else delete extra[BG_PICTURE_KEY]; }
+  return { ...m, settings: { ...m.settings, extra } };
+}
+/** The ground it stands on as the popups' readability check sees it ([] = a picture: not known). */
+export function groundsOfModule(m: ModuleRef): string[] | null {
+  const g = groundOf(m);
+  if (g.picture) return [];
+  const hex = groundHex(g.color);
+  return hex ? [hex] : null;
+}
+
+/** The module's panel: its first element, when the module gives it a ground of its own (a campaign's grey card, the kit's
+ * box) - the ground goes there; else the module itself takes it, as a rounded band. */
+function panelOf(d: Drawn): string | null {
+  const first = /^\s*<([a-z][a-z0-9]*)\b[^>]*?\sclass="([^"]+)"/i.exec(d.html);
+  const cls = first?.[2].split(/\s+/).find((c) => /^am-[\w-]+$/.test(c));
+  if (!cls) return null;
+  if (cls === "am-box") return cls;
+  return new RegExp(`@@ \\.${cls}\\{[^}]*\\bbackground(?:-color)?:`).test(d.css) ? cls : null;
+}
+
+/** The rules of the module that put a light ground under something (a white card, a grey tile) - their words keep the
+ * shop's dark colours on a dark ground. */
+function lightGrounds(css: string, skip: string | null): string[] {
+  const out = new Set<string>();
+  const LIGHT = /\bbackground(?:-color)?:\s*(?:#fff\b|#ffffff\b|white\b|#f[0-9a-f]{5}\b|#e[89a-f][0-9a-f]{4}\b|var\(--tile\)|linear-gradient\([^;]*?#f[0-9a-f]{2,5})/i;
+  for (const r of css.matchAll(/(@@[^{}]*)\{([^{}]*)\}/g)) {
+    if (!LIGHT.test(r[2])) continue;
+    for (const sel of r[1].split(",").map((x) => x.trim())) {
+      if (!sel.startsWith("@@") || sel === "@@" || (skip && sel === `@@ .${skip}`) || /:hover|:focus/.test(sel)) continue;
+      out.add(sel);
+    }
+  }
+  return [...out].slice(0, 40);
+}
+
+/** What the module drew on the ground a person gave it: the ground on its panel (or on it, as a rounded band), the words
+ * drawn in the shop's colours switched for contrast - white on a dark ground, ink on a light one - its white cards keeping
+ * their dark words, a red button on red turned white. A picture lies under a dark veil (white words). */
+export function withGround(m: ModuleRef, d: Drawn, o: Opts = {}): Drawn {
+  const g = groundOf(m);
+  const hex = groundHex(g.color);
+  if (!hex && !g.picture) return d;
+  const panel = panelOf(d);
+  const T = panel ? `@@ .${panel}` : "@@";
+  const src = g.picture ? (o.picture ? o.picture(g.picture) : g.picture) : "";
+  const fg = src ? "#ffffff" : labelOn(hex!);
+  const dark = fg === "#ffffff";
+  const ground = src ? `linear-gradient(rgba(21,34,58,.58),rgba(21,34,58,.58)),url("${src.replace(/["\()]/g, "")}") center/cover no-repeat${hex ? ` ${hex}` : ""}` : hex!;
+  const css: string[] = [
+    `${T}{background:${ground}!important;--ink:${dark ? "#ffffff" : "#1d2326"};--txt:${dark ? "rgba(255,255,255,.88)" : "#3d4448"};--mute:${dark ? "rgba(255,255,255,.78)" : "#5b6267"};color:var(--txt)}`,
+  ];
+  if (!panel) css.push(`@@{padding:clamp(22px,3vw,40px) clamp(16px,2.6vw,34px)!important;border-radius:24px}`, `@media (max-width:900px){@@{border-radius:18px}}`);
+  if (dark) {
+    css.push(`${T} :is(.am-btn2,.am-all){border-color:rgba(255,255,255,.75)!important;color:#fff!important}`);
+    // an outlined button (or a link) a person made without a colour of its own: white on the dark ground
+    const plain = (packed: string | undefined) => { const b = cleanButtonLook(unpackLook(packed)); return (b.style === "outline" || b.style === "link") && !b.color; };
+    if (plain(m.settings.extra[BUTTON_LOOK_KEY.link])) css.push(`@@ a.am-b1.am-b1{border-color:rgba(255,255,255,.8)!important;color:#fff!important}`);
+    if (plain(m.settings.extra[BUTTON_LOOK_KEY.link2])) css.push(`@@ a.am-b2.am-b2{border-color:rgba(255,255,255,.8)!important;color:#fff!important}`);
+    for (const a of m.settings.adds ?? []) if (a.kind === "button" && plain(a.look)) css.push(`@@ a.am-x-${a.id}.am-xb{border-color:rgba(255,255,255,.8)!important;color:#fff!important}`);
+    for (const sel of lightGrounds(d.css, panel)) css.push(`${sel}{--ink:#1d2326;--txt:#5e5e5e;--mute:#5b6267}`);
+  }
+  // the shop's red buttons and red words on a ground they cannot be read on: white buttons, white words
+  const red = hex ? readCheck("#d80901", [hex], true).ratio : 21;
+  if (red < 3) css.push(`${T} .am-red{color:${fg}!important;text-decoration:underline;text-underline-offset:.12em}`);
+  if (red < 1.6) css.push(`${T} :is(.am-btn,a.am-xb):not(.is-pet):not(.am-b1):not(.am-b2){background:#fff!important;color:#d80901!important}`, `${T} .am-ey::before{background:${fg}!important}`);
+  return { html: d.html, css: `${d.css}\n${css.join("\n")}` };
 }

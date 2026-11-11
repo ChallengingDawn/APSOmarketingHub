@@ -59,7 +59,17 @@ export type ModuleSettings = {
   extra: Record<string, string>;
   /** rows of cells (a comparison, a technical table): the first row is the head */
   table: string[][];
+  /** Content v13: the elements a person added inside it (a third button, a line of text...) - ./adds.ts draws them after
+   * the module's own words. None on a module nobody added to (old documents open unchanged). */
+  adds?: Added[];
 };
+
+/** Content v13 (SARCLA 11.11.2026: "I should be able to add another button, take out elements ... allow element create
+ * inside of the block"): what can be added inside any module of the library. */
+export type AddKind = "button" | "text" | "eyebrow" | "title" | "picture";
+/** One element added inside a module: its words (a picture's: its alt text), a button's page of the shop, a picture's
+ * address, its look (a text's or a button's, packed as ../style.ts packLook writes it). */
+export type Added = { id: string; kind: AddKind; text: string; url: string; img: string; look: string };
 
 /** The module a change carries: its registry id and its settings. */
 export type ModuleRef = { type: string; settings: ModuleSettings };

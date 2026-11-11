@@ -306,7 +306,7 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   /** a popup at the selection: a text's or a picture's editor, a block's settings (./pops.tsx) */
   popup?: { node: React.ReactNode; at: "below" | "side"; width?: number; id?: string } | null;
   /** the Build list's ways into the page: the blocks found, a row to find, the block around the selection, a double-click */
-  blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart" | "resize">;
+  blocks?: Pick<SelectOpts, "onBlocks" | "seekRow" | "selectedBlock" | "onEditStart" | "resize" | "inModule" | "seekPart">;
   /** Content v11: the whole page written again - the stage shows it from its top (a number that changes each time) */
   toTop?: number;
 }) {

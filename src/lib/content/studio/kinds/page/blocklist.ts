@@ -15,6 +15,8 @@ import { blocksOf, previewOf, type BlockInfo, type PartState } from "./outline";
 import { kindOf, moduleGap, moduleId, moduleOfChange, type ModuleRef } from "./modules/model";
 import type { PageChange } from "./model";
 import { TILE_KEY, TILE_WORDS, shopTileWord, tileWordsOf, type TileWord } from "./modules/tilewords";
+import { isLookKey } from "./modules/looks";
+import { ADD_MAX, ADD_NAME } from "./modules/adds";
 
 /** a block of the page itself, a module of the library, a page of the shop's own block, a block the hub put on it */
 export type RowKind = "block" | "module" | "page" | "ours";
@@ -374,7 +376,9 @@ export function moduleWordsAt(m: ModuleRef, was: string, href?: string | null): 
     if (sameWords(was, q.a)) return hit(`faq.${i}.a`, q.a);
   }
   // its short settings (a date, a badge's words) - never a look, a split or a tile's words kept there
-  for (const [k, v] of Object.entries(s.extra)) if (v && !/^(look-|btn-|w-|open$|split$)/.test(k) && sameWords(was, v)) return hit(`extra.${k}`, v);
+  for (const [k, v] of Object.entries(s.extra)) if (v && !isLookKey(k) && sameWords(was, v)) return hit(`extra.${k}`, v);
+  // what a person added inside it (Content v13)
+  for (const a of s.adds ?? []) if (a.kind !== "picture" && sameWords(was, a.text)) return hit(`add.${a.id}`, a.text);
   // a tile's button ("Alle anzeigen", "Zum Produkt") - the module's own words for it, or the shop's
   const tiles = tileWordsOf(s.store, s.extra);
   for (const k of TILE_WORDS) if (tiles[k] && sameWords(was, tiles[k])) return hit(`words.${k}`, tiles[k]);
@@ -406,6 +410,11 @@ export function moduleFieldEdit(m: ModuleRef, field: string, now: string): Modul
   if (fq) { const i = Number(fq[1]); if (!s.faq[i]) return null; return set({ ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, [fq[2]]: next.slice(0, fq[2] === "q" ? 300 : 1500) } : x)) }); }
   const ex = /^extra\.([\w-]+)$/.exec(field);
   if (ex) return set({ ...s, extra: { ...s.extra, [ex[1]]: next.slice(0, 600) } });
+  // Content v13: an element added inside it, a cell of its table
+  const ad = /^add\.([a-z0-9]+)$/.exec(field);
+  if (ad) { const a = (s.adds ?? []).find((x) => x.id === ad[1]); return a ? set({ ...s, adds: (s.adds ?? []).map((x) => (x === a ? { ...x, text: next.slice(0, ADD_MAX[a.kind]) } : x)) }) : null; }
+  const tc = /^table\.(\d+)\.(\d+)$/.exec(field);
+  if (tc) { const r = Number(tc[1]), c = Number(tc[2]); if (!s.table[r] || c >= s.table[r].length) return null; return set({ ...s, table: s.table.map((row, i) => (i === r ? row.map((x, j) => (j === c ? next.slice(0, 200) : x)) : row)) }); }
   return null;
 }
 
@@ -423,9 +432,13 @@ export function moduleFieldLabel(m: ModuleRef, field: string): string {
   const fq = /^faq\.(\d+)\.(q|a)$/.exec(field);
   if (fq) return `Question ${Number(fq[1]) + 1} · ${fq[2] === "q" ? "the question" : "the answer"}`;
   const ex = /^extra\.([\w-]+)$/.exec(field);
-  if (ex) return (d.fields.find((f) => f.kind === "extra" && f.key === ex[1]) as { label?: string } | undefined)?.label ?? "The module's words";
+  if (ex) return (d.fields.find((f) => f.kind === "extra" && f.key === ex[1]) as { label?: string } | undefined)?.label ?? (ex[1] === "until" ? "The word between the dates" : "The module's words");
   const tw = /^words\.(\w+)$/.exec(field);
   if (tw) return "The tiles' button";
+  const ad = /^add\.([a-z0-9]+)$/.exec(field);
+  if (ad) { const a = (m.settings.adds ?? []).find((x) => x.id === ad[1]); return a ? `${ADD_NAME[a.kind]} (added)` : "Added"; }
+  const tc = /^table\.(\d+)\.(\d+)$/.exec(field);
+  if (tc) return Number(tc[1]) === 0 ? `The table's head · column ${Number(tc[2]) + 1}` : `The table · row ${tc[1]}, column ${Number(tc[2]) + 1}`;
   return "The module's words";
 }
 

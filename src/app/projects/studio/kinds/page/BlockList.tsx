@@ -7,7 +7,7 @@
 // duplicates, moves, takes it out or asks the AI. Rows move by dragging; the "+" between two adds a block there. No
 // field forms here any more: the words are changed on the page itself (a click on them), the look in the settings.
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
@@ -26,6 +26,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import type { BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
+import { lineOf, moveTarget, slotAt } from "@/lib/content/studio/kinds/page/dropSlot";
 import { PINK } from "../../parts";
 import { SHEEN_BG, sheen } from "./Fields";
 
@@ -87,26 +88,41 @@ export function BlockList({ rows, selected, busy, canEdit, onSelect, onSettings,
 }) {
   const [drag, setDrag] = useState<{ key: string; over: number | null } | null>(null);
   const [open, setOpen] = useState<{ row: BlockRow; el: HTMLElement } | null>(null);
-  const drop = (to: number) => {
+  const listRef = useRef<HTMLDivElement | null>(null);
+  // Content v13 (SARCLA 11.11.2026: "sometimes drag and drop on modules don't put it up"): the WHOLE list answers a drag -
+  // the strip between two rows too, where a drop was refused and lost - and the place comes from the pointer and the rows'
+  // boxes (lib .../dropSlot.ts): the line shows it, the drop puts the block exactly there
+  const slotOf = (y: number, key: string): number => {
+    const els = Array.from(listRef.current?.querySelectorAll<HTMLElement>(":scope > [data-row]") ?? []);
+    const boxes = els.map((el) => { const b = el.getBoundingClientRect(); return { top: b.top, height: b.height }; });
+    const r = rows.find((x) => x.key === key);
+    // nothing goes above the page's own first block that stays first (the hero) - but a module may
+    const min = r && !r.module && rows[0] && !rows[0].movable ? 1 : 0;
+    return slotAt(boxes, y, min);
+  };
+  const drop = (y: number) => {
     if (!drag || !onMove) return;
     const from = rows.findIndex((r) => r.key === drag.key);
+    const to = moveTarget(from, slotOf(y, drag.key), rows.length);
     setDrag(null);
-    if (from < 0 || to === from || to === from + 1) return;
-    onMove(rows[from], to > from ? to - 1 : to);
+    if (to === null) return;
+    onMove(rows[from], to);
   };
+  // the line where the block would land - none where it would stay as it is
+  const line = drag && drag.over !== null && moveTarget(rows.findIndex((r) => r.key === drag.key), drag.over, rows.length) !== null ? lineOf(drag.over, rows.length) : null;
   if (!rows.length) return <Box sx={{ p: 1.5, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, color: MUTED, fontSize: "0.82rem", display: "flex", alignItems: "center", gap: 1 }}>{empty}</Box>;
   const acts = open ? menu(open.row) : [];
   return (
-    <Box role="list" aria-label="The page's blocks" sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", overflow: "visible", bgcolor: "#fff" }}
+    <Box ref={listRef} role="list" aria-label="The page's blocks" sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", overflow: "visible", bgcolor: "#fff" }}
+      onDragOver={drag ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; const o = slotOf(e.clientY, drag.key); if (o !== drag.over) setDrag({ ...drag, over: o }); } : undefined}
+      onDrop={drag ? (e) => { e.preventDefault(); drop(e.clientY); } : undefined}
       onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrag((d) => (d ? { ...d, over: null } : d)); }}>
       {rows.map((r, i) => {
         const on = selected === r.key;
         const working = busy[r.key];
-        const over = drag && drag.over !== null ? (drag.over === i ? "above" : drag.over === i + 1 && i === rows.length - 1 ? "below" : null) : null;
+        const over = line && line.row === i ? (line.edge === "top" ? "above" : "below") : null;
         const row = (
           <Box key={r.key} role="listitem" data-row={r.key}
-            onDragOver={drag ? (e) => { e.preventDefault(); const b = e.currentTarget.getBoundingClientRect(); const o = e.clientY < b.top + b.height / 2 ? i : i + 1; if (o !== drag.over) setDrag({ ...drag, over: o }); } : undefined}
-            onDrop={drag ? (e) => { e.preventDefault(); if (drag.over !== null) drop(drag.over); } : undefined}
             sx={{ position: "relative", borderTop: i ? `1px solid ${HAIRLINE}` : "none",
               ...(i === 0 ? { borderTopLeftRadius: "10px", borderTopRightRadius: "10px" } : {}), ...(i === rows.length - 1 ? { borderBottomLeftRadius: "10px", borderBottomRightRadius: "10px" } : {}),
               ...(over ? { boxShadow: over === "above" ? `inset 0 2px 0 ${PINK}` : `inset 0 -2px 0 ${PINK}` } : {}) }}>

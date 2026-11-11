@@ -12,7 +12,9 @@
 
 import { BASE, cssStr, drawing, minifyCss, wordsFor } from "./kit";
 import { LIBRARY } from "./library";
-import { withLooks } from "./looks";
+import { buttonRules, textRules, withGround, withLooks } from "./looks";
+import { withAdds } from "./adds";
+import { cleanButtonLook, cleanTextLook, unpackLook } from "../style";
 import { tileOverrides } from "./tilewords";
 import type { CategoryId, FieldSpec, ModuleDef, ModuleRef, ModuleSettings, Need, Opts } from "./types";
 
@@ -116,6 +118,12 @@ export function needsLine(d: ModuleDef): string {
 
 /* ── drawing ───────────────────────────────────────────────────────────── */
 
+/** An added element's look as rules (the same as the module's own words' and buttons'). */
+const ADD_RULES = {
+  text: (look: string, kind: string) => textRules(cleanTextLook(unpackLook(look)), kind === "title" ? "title" : kind === "eyebrow" ? "eyebrow" : "text"),
+  button: (look: string, cls: string) => buttonRules(cleanButtonLook(unpackLook(look)), cls),
+};
+
 /** The module's CSS and inner HTML, its rules under its own class. */
 export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: string; html: string } {
   const cls = `apx-${m.settings.id}`;
@@ -126,9 +134,15 @@ export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: stri
   // its links in the store view of the page it is drawn in (Content v10, point 9: "the link should lead to correct locale")
   drawing.store = o.store || m.settings.store;
   let r: { html: string; css: string };
-  try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; drawing.words = null; }
+  try {
+    r = d ? d.render(m, o) : { html: "", css: "" };
+    // what a person added inside it (Content v13: a third button, a line, a headline, a picture) - in the store view drawn
+    if (d) r = withAdds(m, r, o, ADD_RULES);
+  } finally { drawing.store = null; drawing.words = null; }
   // what a person changed on it (Content v10: its words' and buttons' looks, its questions open or closed, its split)
   if (d) r = withLooks(m, r);
+  // its ground (Content v13: "can not change the background of some block") - its words switched for contrast
+  if (d) r = withGround(m, r, o);
   // its headline as the page's H1 (Content v12: the page's own hero taken out) - its rules for h2 hold for the h1 too
   if (o.h1) {
     const h = /<h2(\s[^>]*)?>([\s\S]*?)<\/h2>/.exec(r.html);

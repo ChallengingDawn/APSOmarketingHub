@@ -17,6 +17,8 @@
 
 import { ICONS as KIT_ICONS, wordsFor as kitWords, type Words as KitWords } from "./kit";
 import { MODULES, gapOf, isModuleType as inLibrary, moduleDef } from "./registry";
+import { pictureAddress, shopAddress } from "./address";
+import { addsOf } from "./adds";
 import type { Card, FillHow, ModuleDef, ModuleRef, ModuleSettings, Point } from "./types";
 
 export type { Card, Fill, FillHow, ModuleRef, ModuleSettings, Point, Qa, Takes } from "./types";
@@ -54,21 +56,8 @@ export function newModule(type: ModuleType, store: string, id = moduleId()): Mod
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : "");
 
-/** An address a module may carry: the shop's own (www or acc), or a path on it - nothing else. */
-export function shopAddress(v: unknown): string {
-  const s = str(v, 600).trim();
-  if (!s) return "";
-  if (/^https:\/\/(www|acc)\.apsoparts\.com(\/[^\s"'<>]*)?$/i.test(s)) return s;
-  if (/^\/[^/\s"'<>][^\s"'<>]*$/.test(s)) return s;
-  return "";
-}
-/** A picture a module may show: the shop's media, or the hub's own picture store (it goes to Magento's media on publish). */
-export function pictureAddress(v: unknown): string {
-  const s = str(v, 600).trim();
-  if (/^https:\/\/(www|acc)\.apsoparts\.com\/media\/[^\s"'<>]+$/i.test(s)) return s;
-  if (/^\/api\/content\/picture\/[\w-]+$/.test(s)) return s;
-  return "";
-}
+/** An address a module may carry, a picture it may show (./address.ts - the added elements check theirs there too). */
+export { pictureAddress, shopAddress };
 
 function cardOf(v: unknown, depth = 0): Card | null {
   if (!isObj(v)) return null;
@@ -124,6 +113,8 @@ export function normalizeModule(raw: unknown): ModuleRef | null {
       points: Array.isArray(s.points) ? s.points.filter(isObj).slice(0, 12).map(pointOf) : [],
       faq: Array.isArray(s.faq) ? s.faq.filter(isObj).slice(0, 12).map((x) => ({ q: str(x.q, 300), a: str(x.a, 1500) })) : [],
       fill, extra, table,
+      // Content v13: what a person added inside it - only when there is something (an old document opens unchanged)
+      ...(() => { const adds = addsOf(s.adds); return adds.length ? { adds } : {}; })(),
     },
   };
 }

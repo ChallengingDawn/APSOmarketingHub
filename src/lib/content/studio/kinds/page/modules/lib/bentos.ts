@@ -28,7 +28,7 @@ const WIDE = `
   box-shadow:0 12px 30px -22px rgba(27,58,75,.55),inset 0 0 0 1px #edf0f2;color:var(--ink)!important;transition:transform .2s,box-shadow .2s}
 @@ .am-wd:hover{transform:translateY(-2px);box-shadow:0 18px 30px -18px rgba(27,58,75,.5),inset 0 0 0 1px #dfe4e8}
 @@ .am-wdp{position:relative;display:block;align-self:stretch;min-height:110px}
-@@ .am-wdp img{position:absolute;left:4%;top:4%;width:92%;height:92%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);transition:transform .35s}
+@@ .am-wdp img{position:absolute;left:4%;top:4%;width:92%;height:92%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);transition:transform .35s}
 @@ .am-wd:hover .am-wdp img{transform:scale(1.05)}
 @@ .am-wdt b{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font:600 17px/1.22 var(--head)}
 @@ .am-wdt em{display:block;margin-top:5px;font:500 12.5px/1.2 var(--head);font-style:normal;color:var(--mute)}
@@ -229,7 +229,7 @@ function columns(m: ModuleRef, o: Opts) {
 @@ .am-ck{display:flex;flex-direction:column;min-width:0;padding:8px 10px 11px;border-radius:14px;background:#f5f7f8;color:var(--ink)!important;transition:background .15s}
 @@ .am-ck:hover{background:#eef2f4}
 @@ .am-ck i{position:relative;display:block;aspect-ratio:1/.78;margin-bottom:6px;border-radius:10px;background:#fff}
-@@ .am-ck img{position:absolute;left:8%;top:8%;width:84%;height:84%;object-fit:contain;mix-blend-mode:multiply;-webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);transition:transform .35s}
+@@ .am-ck img{position:absolute;left:8%;top:8%;width:84%;height:84%;object-fit:contain;mix-blend-mode:multiply;-webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);transition:transform .35s}
 @@ .am-ck:hover img{transform:scale(1.06)}
 @@ .am-ck b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.5em;font:600 13.5px/1.25 var(--head);transition:color .15s}
 @@ .am-ck:hover b{color:var(--red)}
@@ -265,7 +265,7 @@ function glass(m: ModuleRef, o: Opts) {
   background:rgba(255,255,255,.72);-webkit-backdrop-filter:blur(16px) saturate(1.4);backdrop-filter:blur(16px) saturate(1.4);box-shadow:0 18px 36px -22px rgba(10,25,35,.6),inset 0 0 0 1px rgba(255,255,255,.75);transition:transform .25s,background .25s}
 @@ .am-gc:hover{transform:translateY(-3px);background:rgba(255,255,255,.88)}
 @@ .am-gc i{position:relative;display:block;aspect-ratio:1/.72;margin-bottom:9px;border-radius:14px;background:#fff;box-shadow:0 6px 16px -10px rgba(10,25,35,.35)}
-@@ .am-gc img{position:absolute;left:10%;top:8%;width:80%;height:84%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.06) contrast(1.06);-webkit-mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,#000 70%,transparent 100%);transition:transform .35s}
+@@ .am-gc img{position:absolute;left:10%;top:8%;width:80%;height:84%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.06) contrast(1.06);-webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);mask-image:radial-gradient(circle closest-side at 50% 50%,#000 76%,transparent 100%);transition:transform .35s}
 @@ .am-gc:hover img{transform:scale(1.06)}
 @@ .am-gc b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.5em;font:600 14.5px/1.25 var(--head)}
 @@ .am-gc em{display:block;margin-top:3px;font:500 12px/1.2 var(--head);font-style:normal;color:#3a4247}
