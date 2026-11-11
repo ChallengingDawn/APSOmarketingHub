@@ -163,7 +163,9 @@ export function LangSwitch({ d, lang, onLang, groups, presence }: { d: PageDoc; 
   const made = viewsOf(d);
   const all = made.includes(lang) ? made : [...made, lang];
   const covered = made.reduce((n, k) => n + storesOfView(d, k).length, 0);
-  const MAX = 4;
+  // Content v13 (SARCLA 11.11.2026, screenshot 32: "EN DE FR IT +2" - "the other two languages are impossible to access"):
+  // every page the page has is a tab of its own (seven languages at most, the row scrolls sideways when narrow)
+  const MAX = 12;
   const tabs = all.length <= MAX ? all : all.slice(0, MAX).includes(lang) ? all.slice(0, MAX) : [...all.slice(0, MAX - 1), lang];
   const more = all.length - tabs.length;
   const total = groups.reduce((n, g) => n + g.stores.length, 0);
