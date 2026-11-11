@@ -1,7 +1,7 @@
 "use client";
 
 // KALREZ 6221/6230 DISCONTINUED - the board of the one-shot call action (src/lib/oneshot/kalrez.ts).
-// 36 Swiss customers, one call each before 22.11.2026, moving them to evolast PB794 / PN794 before
+// 109 customers (36 Swiss > 1,000 CHF, 73 elsewhere > 500 EUR), one call each before 22.11.2026, moving them to evolast PB794 / PN794 before
 // the manufacturer's last order date (27.11.2026). Measured on what they order from the start on:
 // an evolast line = switched, a Kalrez line = a last order of the old compound.
 
@@ -37,7 +37,7 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, GREEN, HsLink, INK, KpiTile, MUTED, Notice, TINT, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import {
-  KZ, KZ_STATE_LABEL, REPLACEMENT, chf, compoundsOf, evolastChf, kzCallNext, kzContactDay, kzState, kzSummary,
+  KZ, KZ_STATE_LABEL, REPLACEMENT, amount, compoundsOf, evolastValue, kzCallNext, kzContactDay, kzState, kzSummary, ownerLabel, toEur,
   type KzCard, type KzData, type KzState,
 } from "@/lib/oneshot/kalrez";
 import type { KzPlanRow, KzRun } from "@/lib/integrations/kalrezSwitch";
@@ -53,11 +53,11 @@ function StateChip({ s }: { s: KzState }) {
   return <Chip size="small" label={KZ_STATE_LABEL[s]} sx={{ height: 20, fontSize: "0.68rem", fontWeight: 700, bgcolor: c.bg, color: c.fg }} />;
 }
 
-function Offer({ c }: { c: Pick<KzCard, "chf6221" | "chf6230"> }) {
+function Offer({ c }: { c: Pick<KzCard, "v6221" | "v6230" | "cur"> }) {
   return (
     <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
       {compoundsOf(c).map((k) => (
-        <Tooltip key={k} title={`Kalrez ${k}: ${chf(k === "6221" ? c.chf6221 : c.chf6230)} CHF since 2022`}>
+        <Tooltip key={k} title={`Kalrez ${k}: ${amount(k === "6221" ? c.v6221 : c.v6230)} ${c.cur} since 2022`}>
           <Chip size="small" label={`${k} → ${REPLACEMENT[k]}`} sx={{ height: 20, fontSize: "0.68rem", fontWeight: 600, bgcolor: TINT.purple.bg, color: TINT.purple.fg }} />
         </Tooltip>
       ))}
@@ -73,28 +73,28 @@ function CustomerTable({ rows, mode }: { rows: KzCard[]; mode: "next" | "all" })
           <TableRow>
             <TableCell sx={headCell}>Customer</TableCell>
             <TableCell sx={headCell}>Who calls</TableCell>
-            <TableCell sx={headCell} align="right">6221/6230 since 2022, CHF</TableCell>
+            <TableCell sx={headCell} align="right">6221/6230 since 2022</TableCell>
             <TableCell sx={headCell}>Offer</TableCell>
             <TableCell sx={headCell}>Last Kalrez order</TableCell>
             {mode === "all" && <TableCell sx={headCell}>Where it stands</TableCell>}
             <TableCell sx={headCell}>Ticket</TableCell>
             <TableCell sx={headCell}>Last contact</TableCell>
-            {mode === "all" && <TableCell sx={headCell} align="right">evolast ordered, CHF</TableCell>}
+            {mode === "all" && <TableCell sx={headCell} align="right">evolast ordered</TableCell>}
             <TableCell sx={headCell} />
           </TableRow>
         </TableHead>
         <TableBody>
           {rows.map((c) => {
             const last = kzContactDay(c);
-            const ev = evolastChf(c);
+            const ev = evolastValue(c);
             return (
               <TableRow key={c.un} hover>
                 <TableCell sx={bodyCell}>
                   <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, ...clip(260) }}>{c.name}</Typography>
                   <Typography sx={{ fontSize: "0.72rem", color: MUTED }}>{c.un}</Typography>
                 </TableCell>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{c.ownerName}</TableCell>
-                <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums", fontWeight: 600 }} align="right">{chf(c.chf)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{ownerLabel(c)}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums", fontWeight: 600 }} align="right">{amount(c.value)} {c.cur}</TableCell>
                 <TableCell sx={bodyCell}><Offer c={c} /></TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED }}>{dmy(c.lastKalrez)}</TableCell>
                 {mode === "all" && <TableCell sx={bodyCell}><StateChip s={kzState(c)} /></TableCell>}
@@ -104,7 +104,7 @@ function CustomerTable({ rows, mode }: { rows: KzCard[]; mode: "next" | "all" })
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: last ? INK : MUTED }}>{last ? dmy(last) : "not yet"}</TableCell>
                 {mode === "all" && (
                   <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums", fontWeight: ev > 0 ? 700 : 400, color: ev > 0 ? GREEN : INK }} align="right">
-                    {ev ? chf(ev) : ""}
+                    {ev ? `${amount(ev)} ${c.cur}` : ""}
                   </TableCell>
                 )}
                 <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }} align="right">
@@ -165,7 +165,7 @@ function TicketsPanel({ onDone }: { onDone: () => void }) {
     <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.75 } }}>
       <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1.25, mb: 1.5 }}>
         <CardTitle icon={<ConfirmationNumberOutlinedIcon />} tint="purple" title={`Tickets (${full(plan.rows.length - missing)} of ${full(plan.rows.length)} made)`}
-          note="One per customer: ESO pipeline for Jan Kalt and Jeremy Borey, TSA for the TSA people; company, up to 5 contacts and the Kalrez orders linked"
+          note="One per customer, owned by the company owner: ESO pipeline for ESO people, TSA for TSA people and the unassigned; company, up to 5 contacts and the Kalrez orders linked"
           right={plan.admin ? (
             <Box sx={{ display: "flex", gap: 1 }}>
               <Button size="small" variant="outlined" disabled={!!busy} onClick={() => act("preview")}>
@@ -235,9 +235,9 @@ export function KalrezBoard() {
     if (!data) return [];
     const needle = q.trim().toLowerCase();
     return data.cards
-      .filter((c) => (state === "all" || kzState(c) === state) && (owner === "all" || c.ownerName === owner)
+      .filter((c) => (state === "all" || kzState(c) === state) && (owner === "all" || ownerLabel(c) === owner)
         && (!needle || c.name.toLowerCase().includes(needle) || c.un.includes(needle)))
-      .sort((a, b) => evolastChf(b) - evolastChf(a) || b.chf - a.chf);
+      .sort((a, b) => toEur(evolastValue(b), b.cur) - toEur(evolastValue(a), a.cur) || toEur(b.value, b.cur) - toEur(a.value, a.cur));
   }, [data, state, owner, q]);
 
   const header = (
@@ -276,15 +276,15 @@ export function KalrezBoard() {
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<PhoneInTalkOutlinedIcon />} label="Called" value={`${full(s.contacted)} of ${full(s.customers)}`}
-            note={`${pctText(s.contacted, s.customers)} since ${dm(KZ.start)} · ${full(s.stillToCall)} still to call (${chf(s.stillToCallChf)} CHF of past 6221/6230)`} />
+            note={`${pctText(s.contacted, s.customers)} since ${dm(KZ.start)} · ${full(s.stillToCall)} still to call (${amount(s.stillToCallEur)} EUR of past 6221/6230)`} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<SwapHorizOutlinedIcon />} tint="green" label="Ordered evolast" value={full(s.switched)}
-            note={s.switched ? `${chf(s.evolastChf)} CHF of PB794/PN794 since ${dm(KZ.start)}` : "nobody on the list has ordered evolast yet"} />
+            note={s.switched ? `${amount(s.evolastEur)} EUR of PB794/PN794 since ${dm(KZ.start)}` : "nobody on the list has ordered evolast yet"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<HourglassBottomOutlinedIcon />} tint="amber" label="Last Kalrez orders" value={full(s.lastBuy)}
-            note={s.lastBuy ? `${chf(s.kalrezChf)} CHF of 6221/6230 ordered since ${dm(KZ.start)}` : "no 6221/6230 ordered since the start"} />
+            note={s.lastBuy ? `${amount(s.kalrezEur)} EUR of 6221/6230 ordered since ${dm(KZ.start)}` : "no 6221/6230 ordered since the start"} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiTile icon={<EventOutlinedIcon />} tint="pink" label="Days left" value={`${s.daysToCallBy} to call`}
@@ -308,7 +308,7 @@ export function KalrezBoard() {
             <Box sx={{ display: "grid", gap: 2 }}>
               <Meter label="Customers called" value={s.contacted} of={s.customers} text={`${full(s.contacted)} of ${full(s.customers)} · ${pctText(s.contacted, s.customers)}`} />
               <Meter label="Customers who ordered evolast" color={GREEN} value={s.switched} of={s.customers}
-                text={`${full(s.switched)} of ${full(s.customers)} · ${chf(s.evolastChf)} CHF`} />
+                text={`${full(s.switched)} of ${full(s.customers)} · ${amount(s.evolastEur)} EUR`} />
               <Box>
                 <Typography sx={{ fontSize: "0.84rem", fontWeight: 600, color: INK, mb: 0.75 }}>Where the {full(s.customers)} stand</Typography>
                 <ShareBar segments={s.byState.map((x) => ({ label: KZ_STATE_LABEL[x.state], value: x.customers }))} format={(v) => full(v)} keepOrder />
@@ -319,12 +319,12 @@ export function KalrezBoard() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12, lg: 7 }}>
               <GlassCard sx={{ height: "100%" }}>
-                <CardTitle icon={<PeopleOutlineIcon />} tint="purple" title="By person" note="Who calls (SARCLA: SAE Performis - the company owner for all 36)" />
+                <CardTitle icon={<PeopleOutlineIcon />} tint="purple" title="By person" note="The company owner - the SAE Performis person for nearly all; TSA Team (the helpline inbox) stays unassigned. EUR, CHF at 0.94" />
                 <Box sx={{ overflowX: "auto" }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        {["Person", "Customers", "6221/6230 since 2022, CHF", "Called", "Ordered evolast", "evolast CHF"].map((h, i) => (
+                        {["Person", "Customers", "6221/6230 since 2022, EUR", "Called", "Ordered evolast", "evolast EUR"].map((h, i) => (
                           <TableCell key={h} sx={headCell} align={i ? "right" : "left"}>{h}</TableCell>
                         ))}
                       </TableRow>
@@ -334,10 +334,10 @@ export function KalrezBoard() {
                         <TableRow key={o.owner} hover sx={{ cursor: "pointer" }} onClick={() => { setOwner(o.owner); selectTab("all"); }}>
                           <TableCell sx={{ ...bodyCell, fontWeight: 600, color: INK, whiteSpace: "nowrap" }}>{o.owner}</TableCell>
                           <TableCell sx={bodyCell} align="right">{full(o.customers)}</TableCell>
-                          <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }} align="right">{chf(o.listChf)}</TableCell>
+                          <TableCell sx={{ ...bodyCell, fontVariantNumeric: "tabular-nums" }} align="right">{amount(o.listEur)}</TableCell>
                           <TableCell sx={bodyCell} align="right">{full(o.contacted)} <Typography component="span" sx={{ color: MUTED, fontSize: "0.76rem" }}>{pctText(o.contacted, o.customers)}</Typography></TableCell>
                           <TableCell sx={bodyCell} align="right">{full(o.switched)}</TableCell>
-                          <TableCell sx={{ ...bodyCell, color: o.evolastChf > 0 ? GREEN : INK, fontWeight: 600 }} align="right">{chf(o.evolastChf)}</TableCell>
+                          <TableCell sx={{ ...bodyCell, color: o.evolastEur > 0 ? GREEN : INK, fontWeight: 600 }} align="right">{amount(o.evolastEur)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -391,8 +391,8 @@ export function KalrezBoard() {
       )}
 
       <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>
-        Read from HubSpot {data.generated.replace("T", " ").slice(0, 16)} UTC · the list: APSO CH customers with more than 1,000 CHF of Kalrez 6221/6230
-        since 2022, from our order lines (EUR lines × 0.94) · &quot;Called&quot; = activity on the ticket, or a call, e-mail or meeting logged on the
+        Read from HubSpot {data.generated.replace("T", " ").slice(0, 16)} UTC · the list: Kalrez 6221/6230 since 2022, APSO CH above 1,000 CHF and APSO DE above 500 EUR,
+        from our order lines (CHF = EUR × 0.94; totals in EUR) · &quot;Called&quot; = activity on the ticket, or a call, e-mail or meeting logged on the
         company since {dmy(KZ.start)}.
       </Typography>
     </>,

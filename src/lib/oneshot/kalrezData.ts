@@ -1,8 +1,8 @@
-// The frozen inputs of the Kalrez 6221/6230 action (see kalrez.ts): the 36 Swiss
-// customers, built once from our order lines on 11.11.2026, and the article lists
+// The frozen inputs of the Kalrez 6221/6230 action (see kalrez.ts): the 109
+// customers (36 Swiss > 1,000 CHF, 73 elsewhere > 500 EUR), built once from our order lines on 11.11.2026, and the article lists
 // from Products & Pricing. Kept apart from the pure model so tests need no JSON.
 
-import targetsJson from "./data/kalrez_ch_targets.json";
+import targetsJson from "./data/kalrez_targets.json";
 import articlesJson from "./data/kalrez_articles.json";
 import type { KzArticles, KzTarget } from "./kalrez";
 

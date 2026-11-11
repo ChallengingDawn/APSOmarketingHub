@@ -1,6 +1,6 @@
 // KALREZ 6221/6230 -> EVOLAST - the HubSpot side of the one-shot action (see src/lib/oneshot/kalrez.ts).
 //
-// Reads: the action's tickets (by kalrez_switch_key), the 36 companies' last contact and last
+// Reads: the action's tickets (by kalrez_switch_key), the 109 companies' last contact and last
 // logged call, and the customers' orders since the start - their Kalrez 6221/6230 and evolast
 // PB794/PN794 lines. Writes (admins only, from the page): the action's ticket properties once, then
 // one ticket per customer with its company, up to 5 contacts and up to 10 Kalrez orders.
@@ -106,7 +106,7 @@ async function actionTickets(): Promise<Map<string, KzTicket>> {
 async function load(): Promise<KzData> {
   const tickets = await actionTickets();
 
-  // the 36 companies: last call / e-mail / meeting, and last logged call
+  // the companies: last call / e-mail / meeting, and last logged call
   const signals = new Map<string, { lastContacted: string | null; lastCall: string | null }>();
   let contactSignal = true;
   try {
@@ -125,19 +125,31 @@ async function load(): Promise<KzData> {
     console.warn(`[oneshot] kalrez: company contact dates unavailable: ${(e as Error).message}`);
   }
 
-  // their orders since the start - only the Kalrez 6221/6230 and evolast PB794/PN794 lines matter
+  // their orders since the start - only the Kalrez 6221/6230 and evolast PB794/PN794 lines matter,
+  // one search per mandant (customer numbers are per mandant)
   const byUn = new Map<string, KzLine[]>();
-  const numbers = KZ_TARGETS.map((t) => t.un.split("-")[1]);
-  const rows = await searchAll("/crm/v3/objects/orders/search", [
-    { propertyName: "order_mandant", operator: "EQ", value: "100" },
-    { propertyName: "order_customer_number", operator: "IN", values: numbers },
-    { propertyName: "order_order_date", operator: "GTE", value: utcMs(KZ.start) },
-  ], ["order_order_number", "order_order_date", "order_mandant", "order_customer_number", "order_positions_json", "hs_currency_code"], 200);
-  for (const r of rows) {
-    const p = r.properties;
-    const un = `${p.order_mandant}-${p.order_customer_number}`;
-    const lines = kzLinesOf({ no: p.order_order_number ?? "", date: day(p.order_order_date) ?? "", currency: p.hs_currency_code, positionsJson: p.order_positions_json }, KZ_ARTICLES);
-    if (lines.length) byUn.set(un, [...(byUn.get(un) ?? []), ...lines]);
+  const target = new Map(KZ_TARGETS.map((t) => [t.un, t]));
+  const mandants = new Map<string, string[]>();
+  for (const t of KZ_TARGETS) {
+    const [m, n] = t.un.split("-");
+    if (m && n) mandants.set(m, [...(mandants.get(m) ?? []), n]);
+  }
+  for (const [mandant, numbers] of mandants) {
+    for (let i = 0; i < numbers.length; i += 90) {
+      const rows = await searchAll("/crm/v3/objects/orders/search", [
+        { propertyName: "order_mandant", operator: "EQ", value: mandant },
+        { propertyName: "order_customer_number", operator: "IN", values: numbers.slice(i, i + 90) },
+        { propertyName: "order_order_date", operator: "GTE", value: utcMs(KZ.start) },
+      ], ["order_order_number", "order_order_date", "order_mandant", "order_customer_number", "order_positions_json", "hs_currency_code"], 200);
+      for (const r of rows) {
+        const p = r.properties;
+        const un = `${p.order_mandant}-${p.order_customer_number}`;
+        const t = target.get(un);
+        if (!t) continue;
+        const lines = kzLinesOf({ no: p.order_order_number ?? "", date: day(p.order_order_date) ?? "", currency: p.hs_currency_code, positionsJson: p.order_positions_json }, KZ_ARTICLES, t.cur);
+        if (lines.length) byUn.set(un, [...(byUn.get(un) ?? []), ...lines]);
+      }
+    }
   }
 
   const cards: KzCard[] = KZ_TARGETS.map((t) => {
@@ -162,7 +174,7 @@ export function kalrezData(opts: { refresh?: boolean } = {}): Promise<KzData> {
 /* ── the tickets ───────────────────────────────────────────────────────── */
 
 export type KzPlanRow = {
-  un: string; name: string; subject: string; owner: string; team: string; chf: number; orders: number; ticketId: string | null;
+  un: string; name: string; subject: string; owner: string; team: string; value: number; cur: string; orders: number; ticketId: string | null;
 };
 export type KzRun = {
   at: string; by: string; mode: "dry" | "apply"; created: number; skipped: number; failed: { un: string; error: string }[];
@@ -175,8 +187,8 @@ type Done = Record<string, string>; // key -> ticket id
 export async function kalrezPlan(): Promise<{ rows: KzPlanRow[]; lastRun: KzRun | null }> {
   const [tickets, done, lastRun] = await Promise.all([actionTickets(), kvGet<Done>(KV_DONE), kvGet<KzRun>(KV_LAST_RUN)]);
   const rows = KZ_TARGETS.map((t) => ({
-    un: t.un, name: t.name, subject: kzSubject(t), owner: t.ownerId ? t.ownerName : `${t.ownerName} - left unassigned`,
-    team: t.team, chf: t.chf, orders: t.orderIds.length, ticketId: tickets.get(t.un)?.id ?? done?.[kzKey(t)] ?? null,
+    un: t.un, name: t.name, subject: kzSubject(t), owner: t.ownerId ? t.ownerName : "Unassigned (TSA Team = helpline inbox)",
+    team: t.team, value: t.value, cur: t.cur, orders: t.orderIds.length, ticketId: tickets.get(t.un)?.id ?? done?.[kzKey(t)] ?? null,
   }));
   return { rows, lastRun: lastRun ?? null };
 }
@@ -235,6 +247,7 @@ async function createOne(t: KzTarget, warn: (w: string) => void): Promise<string
     }
   };
   await link("company", `companies/${t.companyId}`);
+  for (const cid of t.alsoCompanyIds ?? []) await link(`company ${cid}`, `companies/${cid}`);
   for (const oid of t.orderIds.slice(0, 10)) await link(`order ${oid}`, `orders/${oid}`);
   const contacts = await contactsOf(t.companyId).catch((e) => { warn(`${t.un} contacts: ${(e as Error).message}`); return [] as string[]; });
   for (const cid of contacts) await link(`contact ${cid}`, `contacts/${cid}`);
