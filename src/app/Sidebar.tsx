@@ -233,6 +233,7 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/sept-push": { label: "September Push", icon: <CampaignOutlinedIcon fontSize="small" /> },
   "/uc/marc-push": { label: "Marc CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
   "/uc/nancy-push": { label: "Nancy CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+  "/uc/kalrez-switch": { label: "Kalrez 6221/6230", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
 };
 
 /**
