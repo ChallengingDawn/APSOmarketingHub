@@ -14,6 +14,11 @@
 //   BlockSettingsPop a new page's block: background, alignment, heading size, picture side, its button, its items
 //   ShopBlockPop     a page of the shop's own block (look, hide it, replace it with a module, the AI) or one the hub put
 // A module's settings are its own panel (./modules/Panel.tsx), in the same frame.
+//
+// Content v14 (SARCLA 11.11.2026 ~13:40: "review in depth the element options and popups, to make them more dynamic and
+// really well structured: link, product, photos, element text"): every element's popup has its sections in ONE order -
+// WORDS, then ITS PAGE (with the store views), then LOOK, then ASK AI - each under the same small header, and its actions
+// in the foot (Take it out on the left; Duplicate and Move up / down for a list's item; Done on the right).
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -116,6 +121,22 @@ const Sub = ({ children, mt = 1.5 }: { children: React.ReactNode; mt?: number })
 const quiet = { ...btn, color: INK, px: 1, borderRadius: "7px", fontSize: "0.8rem" } as const;
 const doneBtn = { ...mainBtn, borderRadius: "7px", px: 2, py: 0.5, fontSize: "0.82rem", minWidth: 0 } as const;
 
+/** Content v14: a list's item (a point, a tile, a question, a product, a row) - one more like it, or moved up / down. */
+export type ItemOrder = { word: string; dup?: (() => void) | null; up?: (() => void) | null; down?: (() => void) | null };
+
+/** Duplicate · Move up · Move down, in a popup's foot. */
+function OrderActs({ order }: { order: ItemOrder | null | undefined }) {
+  if (!order || (!order.dup && !order.up && !order.down)) return null;
+  const ib = { p: 0.45, color: MUTED, "&:hover": { color: INK, bgcolor: "rgba(21,34,58,.06)" }, "&.Mui-disabled": { color: "#c9d0d8" } } as const;
+  return (
+    <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.1 }} data-acts="order">
+      <Tooltip title={`Duplicate - one more ${order.word} next to it`}><span><IconButton size="small" disabled={!order.dup} onClick={() => order.dup?.()} aria-label={`Duplicate this ${order.word}`} sx={ib}><ContentCopyOutlinedIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
+      <Tooltip title={`Move this ${order.word} up`}><span><IconButton size="small" disabled={!order.up} onClick={() => order.up?.()} aria-label={`Move this ${order.word} up`} sx={ib}><ArrowUpwardIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
+      <Tooltip title={`Move this ${order.word} down`}><span><IconButton size="small" disabled={!order.down} onClick={() => order.down?.()} aria-label={`Move this ${order.word} down`} sx={ib}><ArrowDownwardIcon sx={{ fontSize: 16 }} /></IconButton></span></Tooltip>
+    </Box>
+  );
+}
+
 /* ── "Ask AI for this text" ───────────────────────────────────────────── */
 
 const ASKS: { label: string; ask: string }[] = [
@@ -214,7 +235,9 @@ const SIZE_OPTS = [{ key: "s", label: "Small" }, { key: "m", label: "Normal" }, 
 
 /** A text's look in the popup (Content v10): its value, what sets it, the ground it stands on (for the readability
  * guard: [] = a picture or not known) and whether it is large (a heading: 3:1 is enough). */
-export type TextLookCtl = { value: TextLook; set: (next: TextLook, label: string) => void; grounds: string[]; large: boolean };
+export type TextLookCtl = { value: TextLook; set: (next: TextLook, label: string) => void; grounds: string[]; large: boolean;
+  /** Content v14: said beside its header ("every tile's title alike") */
+  note?: string };
 
 export type TextPopProps = {
   kicker: string; title: string;
@@ -251,9 +274,13 @@ export type TextPopProps = {
   hint?: React.ReactNode;
   /** Content v13: an element just added - its words selected, so typing writes over them */
   selectAll?: boolean;
+  /** Content v14: a list's item - Duplicate, Move up / down */
+  order?: ItemOrder | null;
+  /** Content v14: every store view the page goes to - its link as each of them sends its visitor */
+  stores?: string[];
 };
 
-export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, onRemove, href, link, note, hint, selectAll }: TextPopProps) {
+export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, onRemove, href, link, note, hint, selectAll, order, stores }: TextPopProps) {
   const [hrefDraft, setHrefDraft] = useState(href ?? "");
   useEffect(() => { setHrefDraft(href ?? ""); }, [href]);
   const hrefOut = href !== null && href !== undefined && hrefDraft.trim() && hrefDraft.trim() !== href ? hrefDraft.trim() : undefined;
@@ -349,11 +376,13 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
         <>
           {onHide && <Tooltip title="Hide it on the page"><IconButton size="small" onClick={onHide} aria-label="Hide it on the page" sx={{ color: MUTED }}><VisibilityOffOutlinedIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>}
           {onRemove && canEdit && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
+          <OrderActs order={order} />
           <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>{live ? "Shows in the page as you type" : "Ctrl+Enter"}</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", md: "block" } }}>{live ? "Shows in the page as you type" : "Ctrl+Enter"}</Typography>
           <Button size="small" variant="contained" disableElevation onClick={done} sx={doneBtn}>Done</Button>
         </>
       ) : undefined}>
+      {(link || textLook || note) && <Sub mt={0}>Words</Sub>}
       {canEdit && (marks || rich || textLook) && (
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.25, mb: 0.75, mx: -0.5 }} onMouseDown={(e) => e.preventDefault()}>
           {(selMarks || textLook) && <>
@@ -390,8 +419,10 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
       )}
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.6, lineHeight: 1.4 }}>{hint}</Typography>}
       {link && (
-        <Box sx={{ mt: 1.25 }}>
+        <Box>
+          <Sub>Its page</Sub>
           <LinkInput api={link.api} store={link.store} value={link.value} disabled={!canEdit} label={link.label ?? "Where it goes"} onChange={link.onChange} />
+          {stores && stores.length > 1 && <StoreLinks url={link.value} stores={stores} />}
         </Box>
       )}
       {note && (
@@ -400,7 +431,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
       {href !== null && href !== undefined && (
         <TextField fullWidth size="small" label="Where the link goes" value={hrefDraft} disabled={!canEdit} onChange={(e) => setHrefDraft(e.target.value)} sx={{ ...field, mt: 1.25 }} />
       )}
-      {canEdit && textLook && <TextLookRow value={tl} onChange={(next, label) => textLook.set(next, label)} grounds={textLook.grounds} large={textLook.large} />}
+      {canEdit && textLook && <><Sub>Look{textLook.note ? <Box component="span" sx={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, ml: 0.75 }}>{textLook.note}</Box> : null}</Sub><TextLookRow value={tl} onChange={(next, label) => textLook.set(next, label)} grounds={textLook.grounds} large={textLook.large} /></>}
       {msg && <SaidLine tone={msg.tone} text={msg.text} undo={msg.undo ? () => { msg.undo?.(); setMsg({ tone: "ok", text: "Taken back." }); } : null} />}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} />}
     </PopCard>
@@ -430,10 +461,12 @@ export type ButtonPopProps = {
   stores?: string[];
   /** Content v12: the button taken out of the page - Undo brings it back */
   onRemove?: { label: string; run: () => void } | null;
+  /** Content v14: its page is fixed (a tile's product) - said, and "Pick another product" for the tile it stands on */
+  fixed?: { text: React.ReactNode; onPick?: (() => void) | null } | null;
 };
 
 /** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
-export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, leads, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores, onRemove }: ButtonPopProps) {
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, leads, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores, onRemove, fixed }: ButtonPopProps) {
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -465,22 +498,30 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         <>
           {onRemove && <Button size="small" onClick={() => { if (timer.current) clearTimeout(timer.current); onRemove.run(); }} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
           <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5 }}>Shows in the page as you change it</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", md: "block" } }}>Shows in the page as you change it</Typography>
           <Button size="small" variant="contained" disableElevation onClick={() => { flush(); onClose(); }} sx={doneBtn}>Done</Button>
         </>
       ) : undefined}>
+      <Sub mt={0}>Words</Sub>
       <TextField fullWidth size="small" label="Its words" value={draft} disabled={!canEdit} onChange={(e) => put(e.target.value)} autoFocus
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flush(); } }}
         helperText={<Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box>}
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
+      {(onUrl || leads || fixed) && <Sub>Its page</Sub>}
       {onUrl ? (
-        <Box sx={{ mt: 1.75 }}>
+        <Box>
           <LinkInput api={api} store={store} value={url ?? ""} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
           {stores && stores.length > 1 && <StoreLinks url={url ?? ""} stores={stores} />}
         </Box>
-      ) : leads ? <Typography component="div" sx={{ fontSize: "0.78rem", color: INK, mt: 1.25, mb: 1, lineHeight: 1.45 }}>{leads}</Typography> : null}
-      {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
-      {canEdit && look && onLook && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
+      ) : leads ? <Typography component="div" sx={{ fontSize: "0.78rem", color: INK, mb: 0.75, lineHeight: 1.45 }}>{leads}</Typography> : null}
+      {fixed && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", p: 0.9, borderRadius: "8px", bgcolor: "#f7f8fa", border: `1px solid ${HAIRLINE}`, mb: 0.75 }}>
+          <Typography component="div" sx={{ flex: 1, minWidth: 160, fontSize: "0.78rem", color: INK, lineHeight: 1.4 }}>{fixed.text}</Typography>
+          {canEdit && fixed.onPick && <Button size="small" variant="outlined" onClick={() => { flush(); fixed.onPick?.(); }} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)", flexShrink: 0 }}>Pick another product</Button>}
+        </Box>
+      )}
+      {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.25, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
+      {canEdit && look && onLook && <><Sub>Look</Sub><ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} /></>}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: AMBER, mt: 0.75 }}>{msg}</Typography>}
       {said && <SaidLine tone="ok" text={said.text} undo={said.undo ? () => { said.undo?.(); setSaid({ text: "Taken back.", undo: null }); } : null} />}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} placeholder="Ask AI for the button's words…" />}
@@ -492,6 +533,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
 
 type PicTab = "picture" | "gallery" | "products" | "tune";
 
+export type PicTabKey = PicTab;
 export type PicturePopProps = {
   kicker: string; title: string;
   api: StudioApi; store: string; aspect: PictureAspect;
@@ -515,10 +557,16 @@ export type PicturePopProps = {
   /** the same picture with one thing changed - its answer: what went wrong, or null */
   onRefine?: ((ask: string) => Promise<string | null>) | null;
   onClose: () => void;
+  /** Content v14: said under the picture (a card's photo: the card stays that product) */
+  hint?: React.ReactNode;
+  /** Content v14: a card's photo - another product on the card instead (its whole card) */
+  onProduct?: (() => void) | null;
+  /** Content v14: the tab it opens on */
+  start?: PicTab;
 };
 
-export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onHide, onRefine, onClose, noAlt }: PicturePopProps) {
-  const [tab, setTab] = useState<PicTab>("picture");
+export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onHide, onRefine, onClose, noAlt, hint, onProduct, start }: PicturePopProps) {
+  const [tab, setTab] = useState<PicTab>(start ?? "picture");
   const [ideaDraft, setIdeaDraft] = useState(idea ?? "");
   const [altDraft, setAltDraft] = useState(alt);
   const [ask, setAsk] = useState("");
@@ -577,8 +625,10 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
               )}
               <Button size="small" variant="outlined" disabled={isMaking} onClick={onUpload} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, borderColor: HAIRLINE }}>Upload</Button>
               {onRefine && url && <Button size="small" variant="outlined" disabled={isMaking} onClick={() => setTab("tune")} sx={{ ...quiet, borderColor: HAIRLINE }}>Fine-tune</Button>}
+              {onProduct && <Button size="small" variant="outlined" onClick={onProduct} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)" }}>Pick another product</Button>}
             </Box>
           )}
+          {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75, lineHeight: 1.4 }}>{hint}</Typography>}
           {onIdea && (
             <TextField fullWidth multiline minRows={2} maxRows={5} size="small" label="What should the picture show?" value={ideaDraft} disabled={!canEdit} onChange={(e) => setIdeaDraft(e.target.value)}
               helperText={!canMake ? "Pictures cannot be made on this hub - upload one, or choose one already made." : "Make it uses these words - a picture, not a text in it."} sx={{ ...field, mt: 2 }} />
@@ -1022,29 +1072,38 @@ function PartAi({ ai, placeholder }: { ai: (ask: string) => Promise<AiWords>; pl
  * A point, a tile, a teaser or a question of a module, on its own (Content v13): its words (each on the page as typed),
  * its page and its picture where it has them, "Ask AI" for this one alone, "Take it out".
  */
-export function PartPop({ kicker, title, fields, link, picture, ai, onRemove, onClose, canEdit, hint }: {
+export function PartPop({ kicker, title, fields, link, picture, ai, onRemove, onClose, canEdit, hint, order, textLook, extra }: {
   kicker: string; title: string;
   fields: { key: string; label: string; value: string; max: number; multiline?: boolean; onChange: (v: string) => void }[];
-  link?: { api: StudioApi; store: string; value: string; onChange: (v: string) => void } | null;
+  link?: { api: StudioApi; store: string; value: string; onChange: (v: string) => void; stores?: string[] } | null;
   picture?: { url: string; onChange: () => void; onRemove?: (() => void) | null } | null;
   ai?: ((ask: string) => Promise<AiWords>) | null;
   onRemove?: { label: string; run: () => void } | null;
   onClose: () => void; canEdit: boolean; hint?: React.ReactNode;
+  /** Content v14: a list's item - Duplicate, Move up / down */
+  order?: ItemOrder | null;
+  /** Content v14: the look of its words (a campaign's dates) */
+  textLook?: TextLookCtl | null;
+  /** Content v14: more under its look (a campaign's dates: its panel's colour) */
+  extra?: React.ReactNode;
 }) {
   return (
     <PopCard kicker={kicker} title={title} onClose={onClose} maxBody="min(64vh, 600px)"
       foot={canEdit ? (
         <>
           {onRemove && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
+          <OrderActs order={order} />
           <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>Shows in the page as you type</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", md: "block" } }}>Shows in the page as you type</Typography>
           <Button size="small" variant="contained" disableElevation onClick={onClose} sx={doneBtn}>Done</Button>
         </>
       ) : undefined}>
-      {fields.map((f, i) => <LiveField key={f.key} label={f.label} value={f.value} max={f.max} multiline={f.multiline} disabled={!canEdit} onChange={f.onChange} autoFocus={i === 0} />)}
-      {link && <Box sx={{ mt: 1.5 }}><LinkInput api={link.api} store={link.store} value={link.value} disabled={!canEdit} label="Its page of the shop" onChange={link.onChange} /></Box>}
+      <Sub mt={0}>Words</Sub>
+      <Box sx={{ mt: -1 }}>{fields.map((f, i) => <LiveField key={f.key} label={f.label} value={f.value} max={f.max} multiline={f.multiline} disabled={!canEdit} onChange={f.onChange} autoFocus={i === 0} />)}</Box>
+      {link && <Box><Sub>Its page</Sub><LinkInput api={link.api} store={link.store} value={link.value} disabled={!canEdit} label="Its page of the shop" onChange={link.onChange} />{link.stores && link.stores.length > 1 && <StoreLinks url={link.value} stores={link.stores} />}</Box>}
+      {picture && <Sub>Picture</Sub>}
       {picture && (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 1.5 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
           <Box sx={{ width: 72, height: 54, borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             {picture.url ? <img src={picture.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : null}
@@ -1053,6 +1112,8 @@ export function PartPop({ kicker, title, fields, link, picture, ai, onRemove, on
           {canEdit && picture.url && picture.onRemove && <Button size="small" onClick={picture.onRemove} sx={{ ...quiet, color: MUTED }}>Remove</Button>}
         </Box>
       )}
+      {canEdit && textLook && <><Sub>Look{textLook.note ? <Box component="span" sx={{ textTransform: "none", letterSpacing: 0, fontWeight: 500, ml: 0.75 }}>{textLook.note}</Box> : null}</Sub><TextLookRow value={textLook.value} onChange={(next, label) => textLook.set(next, label)} grounds={textLook.grounds} large={textLook.large} align={false} /></>}
+      {canEdit && extra}
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.4 }}>{hint}</Typography>}
       {canEdit && ai && <PartAi ai={ai} placeholder="Ask AI for this one…" />}
     </PopCard>
@@ -1067,7 +1128,7 @@ const pathOfShop = (u: string) => u.replace(/^https:\/\/(www|acc)\.apsoparts\.co
  * the shop's, never typed. Another product picked here replaces the WHOLE card (part 6: "links have not updated when I
  * select the specific product"); the module's products are changed in its settings; this card alone can go.
  */
-export function CardPop({ kicker, card, store, canEdit, onProducts, onPick, ai, onRemove, onClose, busy }: {
+export function CardPop({ kicker, card, store, canEdit, onProducts, onPick, ai, onRemove, onClose, busy, order, onPhoto, picking: pickFirst }: {
   kicker: string; card: Card; store: string; canEdit: boolean;
   /** the block's settings, at its products */
   onProducts: () => void;
@@ -1077,18 +1138,26 @@ export function CardPop({ kicker, card, store, canEdit, onProducts, onPick, ai, 
   onRemove?: { label: string; run: () => void } | null;
   onClose: () => void;
   busy?: string | null;
+  /** Content v14: Duplicate (another product next to it), Move */
+  order?: ItemOrder | null;
+  /** Content v14: "Use another photo for this card" - the card stays this product, the person's photo kept on it */
+  onPhoto?: (() => void) | null;
+  /** Content v14: opened on its product search (a card just duplicated, a tile's button's "Pick another product") */
+  picking?: boolean;
 }) {
-  const [picking, setPicking] = useState(false);
+  const [picking, setPicking] = useState(!!pickFirst);
   const product = card.kind === "product";
   return (
     <PopCard kicker={kicker} title={product ? "A product from the shop" : "A category from the shop"} onClose={onClose} maxBody="min(66vh, 640px)"
       foot={canEdit ? (
         <>
           {onRemove && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
+          <OrderActs order={order} />
           <Box sx={{ flex: 1 }} />
           <Button size="small" variant="contained" disableElevation onClick={onClose} sx={doneBtn}>Done</Button>
         </>
       ) : undefined}>
+      <Sub mt={0}>{product ? "The product" : "The category"}</Sub>
       <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
         <Box sx={{ width: 64, height: 64, borderRadius: "8px", overflow: "hidden", bgcolor: product ? "#fff" : "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1108,6 +1177,13 @@ export function CardPop({ kicker, card, store, canEdit, onProducts, onPick, ai, 
           {onPick && <Button size="small" variant="outlined" onClick={() => setPicking((x) => !x)} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)" }}>Pick another product</Button>}
           <Button size="small" variant="outlined" onClick={onProducts} startIcon={<TuneIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, borderColor: HAIRLINE }}>Change the {product ? "products" : "categories"}</Button>
         </Box>
+      )}
+      {canEdit && onPhoto && (
+        <>
+          <Sub>Its photo</Sub>
+          <Button size="small" variant="outlined" onClick={onPhoto} startIcon={<ImageOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, borderColor: HAIRLINE }}>Use another photo for this card</Button>
+          <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: 0.5, lineHeight: 1.4 }}>{card.from === "person" ? "A photo of your own is on this card - the card is still this product." : "The card stays this product - only its photo changes."}</Typography>
+        </>
       )}
       {busy && <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}><CircularProgress size={14} sx={{ color: PINK }} /><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{busy}</Typography></Box>}
       {picking && onPick && (

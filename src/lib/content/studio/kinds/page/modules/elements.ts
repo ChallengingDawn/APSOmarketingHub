@@ -14,6 +14,7 @@
 //   words.<key>                                the tiles' button ("Alle anzeigen")
 //   table.<row>.<col>                          a cell of its table
 //   items.<i>                                  a product or a category card - filled from the shop
+//   items.<i>.img · points.<i>.img             a card's photo, a point's picture (Content v14: the same picture popup)
 //   feature                                    its picture
 //   add.<id>                                   an element a person added (./adds.ts)
 // A click in the page is told here as a PROBE (what the element says, its link, its picture, its class) and becomes the
@@ -25,7 +26,7 @@ import { packLook } from "../style";
 import { ADDS_MAX, ADD_MAX, ADD_NAME, addId } from "./adds";
 import { pictureAddress, shopAddress } from "./address";
 import { wordsFor } from "./kit";
-import { BUTTON_LOOK_KEY, TEXT_LOOK_KEY, TILES_LOOK_KEY, isLookKey } from "./looks";
+import { BUTTON_LOOK_KEY, DATE_KEYS, PART_LOOK_KEY, TEXT_LOOK_KEY, TILES_LOOK_KEY, isLookKey } from "./looks";
 import { fieldOf, hasField, moduleDef } from "./registry";
 import { tileWordsOf } from "./tilewords";
 import type { AddKind, Added, Card, ModuleRef, ModuleSettings } from "./types";
@@ -70,9 +71,10 @@ export type PartInfo = {
   card?: Card;
 };
 
-const P = /^points\.(\d+)(?:\.(title|text))?$/;
+const P = /^points\.(\d+)(?:\.(title|text|img))?$/;
 const Q = /^faq\.(\d+)(?:\.(q|a))?$/;
 const IT = /^items\.(\d+)$/;
+const ITP = /^items\.(\d+)\.img$/;
 const AD = /^add\.([a-z0-9]+)$/;
 const TC = /^table\.(\d+)\.(\d+)$/;
 
@@ -111,7 +113,7 @@ export function partAt(m: ModuleRef, p: Probe): string | null {
   // a picture: its own, a point's, a product's
   if (p.src) {
     if (s.feature?.img && sameFile(p.src, s.feature.img)) return "feature";
-    for (let i = 0; i < s.points.length; i++) if (s.points[i].img && sameFile(p.src, s.points[i].img)) return `points.${i}`;
+    for (let i = 0; i < s.points.length; i++) if (s.points[i].img && sameFile(p.src, s.points[i].img)) return `points.${i}.img`;
     for (let i = 0; i < s.items.length; i++) if (s.items[i].img && sameFile(p.src, s.items[i].img)) return `items.${i}`;
     return null;
   }
@@ -158,6 +160,8 @@ export function partInfo(m: ModuleRef, part: string): PartInfo | null {
     const x = s.points[Number(pt[1])];
     if (!x) return null;
     if (!pt[2]) return { part, kind: "point", label: `${(d && fieldOf(d, "points")?.label) || "Point"} · ${Number(pt[1]) + 1}`, words: x.title, max: 80, multiline: false, tag: "li", ...(x.img ? { img: x.img } : {}), ...(x.url ? { url: x.url } : {}) };
+    // Content v14: a point's picture on its own - the same picture popup as every picture
+    if (pt[2] === "img") return { part, kind: "picture", label: `${(d && fieldOf(d, "points")?.label) || "Point"} ${Number(pt[1]) + 1} · picture`, words: x.title, max: 0, multiline: false, tag: "img", img: x.img ?? "" };
     return words("words", x[pt[2] as "title" | "text"], pt[2] === "title" ? 80 : 240, pt[2] === "text", pt[2] === "title" ? "h3" : "p");
   }
   const fq = Q.exec(part);
@@ -184,6 +188,12 @@ export function partInfo(m: ModuleRef, part: string): PartInfo | null {
   if (it) {
     const c = s.items[Number(it[1])];
     return c ? { part, kind: "item", label: c.kind === "category" ? "A category from the shop" : "A product from the shop", words: c.name, max: 0, multiline: false, tag: "a", card: c, url: c.url, img: c.img } : null;
+  }
+  // Content v14: a card's photo - another photo for this card, the card staying that product
+  const ip = ITP.exec(part);
+  if (ip) {
+    const c = s.items[Number(ip[1])];
+    return c ? { part, kind: "picture", label: `${c.name} · its photo`, words: c.name, max: 0, multiline: false, tag: "img", card: c, url: c.url, img: c.img } : null;
   }
   if (part === "feature") {
     const f = s.feature;
@@ -234,9 +244,16 @@ export function withPartPicture(m: ModuleRef, part: string, pic: { url: string; 
   const s = m.settings;
   const img = pictureAddress(pic.url);
   // a product's photo (the "Products" tab): the whole product on the card - its name, number and page with its photo
-  if (pic.product && (part === "feature" || IT.test(part))) {
+  const ip = ITP.exec(part);
+  if (pic.product && (part === "feature" || IT.test(part) || ip)) {
     const card = cardOfProduct({ name: pic.name || pic.alt, number: pic.product.number, url: pic.product.url, img: pic.url });
-    if (card) return withCard(m, part, card);
+    if (card) return withCard(m, ip ? `items.${ip[1]}` : part, card);
+  }
+  // a card's photo of the person's (an upload, the gallery, one made): the card stays that product, the photo is kept
+  if (ip) {
+    const i = Number(ip[1]);
+    if (!s.items[i] || !img) return null;
+    return { ...m, settings: { ...s, items: s.items.map((c, k) => (k === i ? { ...c, img, from: "person" as const } : c)) } };
   }
   if (part === "feature") {
     if (!img) return { ...m, settings: { ...s, feature: null } };
@@ -258,6 +275,15 @@ export function partLookKey(part: string): string | null {
   if (part in BUTTON_LOOK_KEY) return BUTTON_LOOK_KEY[part as keyof typeof BUTTON_LOOK_KEY];
   // the tiles' button: one look for every tile's (Content v13b)
   if (/^words\./.test(part)) return TILES_LOOK_KEY;
+  // Content v14: a list's words take one look for every one of them (every point's title alike, every answer alike), a
+  // date the dates' look, a badge's words their own, a cell every cell's
+  const pt = /^points\.\d+\.(title|text)$/.exec(part);
+  if (pt) return pt[1] === "title" ? PART_LOOK_KEY.pointTitle : PART_LOOK_KEY.pointText;
+  const fq = /^faq\.\d+\.(q|a)$/.exec(part);
+  if (fq) return fq[1] === "q" ? PART_LOOK_KEY.question : PART_LOOK_KEY.answer;
+  if (/^table\.\d+\.\d+$/.test(part)) return PART_LOOK_KEY.cell;
+  const ex = /^extra\.([\w-]+)$/.exec(part);
+  if (ex && !isLookKey(ex[1])) return (DATE_KEYS as readonly string[]).includes(ex[1]) ? PART_LOOK_KEY.dates : `look-x-${ex[1]}`;
   return null;
 }
 /** A part's look as kept (packed) - "" when it has none or cannot have one. */
@@ -279,6 +305,10 @@ export function withPartLook(m: ModuleRef, part: string, packed: string): Module
 /** Can this part take a look (colour, size... of its words; style, colour... of its button)? */
 export function lookKind(m: ModuleRef, part: string): "text" | "button" | null {
   if (part === "title" || part === "eyebrow" || part === "text") return "text";
+  // Content v14: every text of a module has a look - a point's title or line, a question, an answer, a date, a badge, a cell
+  if (/^(points\.\d+\.(title|text)|faq\.\d+\.(q|a)|table\.\d+\.\d+)$/.test(part)) return "text";
+  const ex = /^extra\.([\w-]+)$/.exec(part);
+  if (ex && !isLookKey(ex[1])) return "text";
   if (part === "link" || part === "link2" || /^words\./.test(part)) return "button";
   const ad = AD.exec(part);
   const a = ad ? (m.settings.adds ?? []).find((x) => x.id === ad[1]) : null;
@@ -305,6 +335,14 @@ export function takeOutPart(m: ModuleRef, part: string): { label: string; done: 
     return { label: `Take this ${c.kind === "category" ? "category" : "product"} out`, done: `Took ${c.name} out of the ${name}`, module: set({ ...s, items: s.items.filter((_, k) => k !== i), fill: s.fill ? { ...s.fill, how: "hand" } : null }) };
   }
   if (part === "feature") return s.feature ? { label: "Take the picture out", done: `Took the ${name}'s picture out`, module: set({ ...s, feature: null }) } : null;
+  // Content v14: a point's picture out, the point kept; a card's photo is the shop's (another one, never none)
+  const pi = /^points\.(\d+)\.img$/.exec(part);
+  if (pi) {
+    const i = Number(pi[1]);
+    if (!s.points[i]?.img) return null;
+    return { label: "Take the picture out", done: `Took a picture out of the ${name}`, module: set({ ...s, points: s.points.map((x, k) => { if (k !== i) return x; const { img: _i, ...rest } = x; return rest; }) }) };
+  }
+  if (ITP.test(part)) return null;
   const ad = AD.exec(part);
   if (ad) {
     const a = (s.adds ?? []).find((x) => x.id === ad[1]);
@@ -491,4 +529,88 @@ export function withCard(m: ModuleRef, part: string, card: Card): ModuleRef | nu
   }
   if (part === "feature") return { ...m, settings: { ...s, feature: { ...card, from: "person" } } };
   return null;
+}
+
+/* ── a list's item: duplicated, moved (Content v14) ───────────────────── */
+//
+// SARCLA 11.11.2026 ~13:40: "some elements still don't have editable options, or not much ... make them more dynamic and
+// really well structured". A point, a tile, a question, a product's card, a row of a table: Duplicate (one more like it,
+// right after it) and Move up / down - its popup follows it to its new place.
+
+type ListAt = { list: "points" | "faq" | "items" | "table"; i: number; rest: string };
+
+/** The list a part is an item of, its place in it and what of it the part is (".title", ".img", "" the whole item). */
+export function listOfPart(part: string): ListAt | null {
+  const pt = /^points\.(\d+)((?:\.(?:title|text|img))?)$/.exec(part);
+  if (pt) return { list: "points", i: Number(pt[1]), rest: pt[2] };
+  const fq = /^faq\.(\d+)((?:\.(?:q|a))?)$/.exec(part);
+  if (fq) return { list: "faq", i: Number(fq[1]), rest: fq[2] };
+  const it = /^items\.(\d+)((?:\.img)?)$/.exec(part);
+  if (it) return { list: "items", i: Number(it[1]), rest: it[2] };
+  const tc = /^table\.(\d+)\.(\d+)$/.exec(part);
+  if (tc) return { list: "table", i: Number(tc[1]), rest: `.${tc[2]}` };
+  return null;
+}
+
+const partAtPlace = (l: ListAt, i: number) => `${l.list}.${i}${l.rest}`;
+/** How many a list may hold in this module (the module's own limits). */
+function listMax(m: ModuleRef, list: ListAt["list"]): number {
+  const d = moduleDef(m.type);
+  if (!d) return 0;
+  if (list === "points") { const f = fieldOf(d, "points"); return f ? f.max ?? 12 : 0; }
+  if (list === "faq") { const f = fieldOf(d, "faq"); return f ? f.max ?? 12 : 0; }
+  if (list === "table") { const f = fieldOf(d, "table"); return f ? f.maxRows ?? 12 : 0; }
+  return d.max || 12;
+}
+const listLen = (s: ModuleSettings, list: ListAt["list"]) => (list === "points" ? s.points.length : list === "faq" ? s.faq.length : list === "items" ? s.items.length : s.table.length);
+/** A table's first row is its head: it stays first. */
+const firstMovable = (list: ListAt["list"]) => (list === "table" ? 1 : 0);
+
+function withList(m: ModuleRef, list: ListAt["list"], make: <T>(xs: T[]) => T[]): ModuleRef {
+  const s = m.settings;
+  if (list === "points") return { ...m, settings: { ...s, points: make(s.points) } };
+  if (list === "faq") return { ...m, settings: { ...s, faq: make(s.faq) } };
+  if (list === "table") return { ...m, settings: { ...s, table: make(s.table) } };
+  // the products put by hand from now on: a fill again never puts them back in its own order
+  return { ...m, settings: { ...s, items: make(s.items), fill: s.fill ? { ...s.fill, how: "hand" } : null } };
+}
+
+/** What a list's item can do in its popup: move up, move down, be duplicated - and what it is called ("tile", "product"). */
+export function partOrder(m: ModuleRef, part: string): { up: boolean; down: boolean; dup: boolean; word: string } | null {
+  const l = listOfPart(part);
+  if (!l) return null;
+  const n = listLen(m.settings, l.list);
+  if (l.i >= n || (l.list === "table" && l.i === 0)) return null;
+  const d = moduleDef(m.type);
+  const word = l.list === "faq" ? "question" : l.list === "table" ? "row" : l.list === "items" ? (m.settings.items[l.i]?.kind === "category" ? "category" : "product") : itemWord(d ? fieldOf(d, "points")?.label : "");
+  return { up: l.i > firstMovable(l.list), down: l.i < n - 1, dup: n < listMax(m, l.list), word };
+}
+
+/** The module with a list's item moved one place up (-1) or down (1) - and where the part is now. */
+export function movePart(m: ModuleRef, part: string, by: -1 | 1): { module: ModuleRef; part: string } | null {
+  const l = listOfPart(part);
+  if (!l) return null;
+  const n = listLen(m.settings, l.list);
+  const j = l.i + by;
+  if (l.i >= n || l.i < firstMovable(l.list) || j < firstMovable(l.list) || j >= n) return null;
+  const module = withList(m, l.list, <T,>(xs: T[]) => { const out = xs.slice(); [out[l.i], out[j]] = [out[j], out[l.i]]; return out; });
+  return { module, part: partAtPlace(l, j) };
+}
+
+/** The module with one more like this item right after it (a product's card: the same product, to be picked again) - and
+ * the new one's part. Null where the list is full. */
+export function duplicatePart(m: ModuleRef, part: string): { module: ModuleRef; part: string } | null {
+  const l = listOfPart(part);
+  if (!l) return null;
+  const n = listLen(m.settings, l.list);
+  if (l.i >= n || (l.list === "table" && l.i === 0) || n >= listMax(m, l.list)) return null;
+  const module = withList(m, l.list, <T,>(xs: T[]) => [...xs.slice(0, l.i + 1), JSON.parse(JSON.stringify(xs[l.i])) as T, ...xs.slice(l.i + 1)]);
+  return { module, part: partAtPlace(l, l.i + 1) };
+}
+
+/** The item of the shop a tile's button stands on (its link): its card's part - null when it is none of them. */
+export function itemOfLink(m: ModuleRef, href: string | null | undefined): string | null {
+  if (!href) return null;
+  const i = m.settings.items.findIndex((c) => samePage(href, c.url));
+  return i >= 0 ? `items.${i}` : null;
 }
