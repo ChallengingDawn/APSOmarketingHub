@@ -121,7 +121,7 @@ test("published again: the page this to-do made is updated, its other fields and
   assert.equal(w.action, "updated");
   assert.deepEqual(log, ["backup update", "PUT /cmsPage/42", "backup written"]);
   const put = f.writes()[0];
-  assert.equal(put.url, "/rest/all/V1/cmsPage/42", "updated by its id");
+  assert.equal(put.url, "/rest/switzerland_chf_de/V1/cmsPage/42", "updated by its id, through its store view's own address (production refuses PUT /rest/all)");
   const page = (put.body as { page: Record<string, unknown> }).page;
   assert.equal(page.page_layout, "1column", "what the studio does not set is kept");
   assert.equal(page.title, "Dichtungen für Lebensmittel");
@@ -229,4 +229,15 @@ test("banners in an existing page's content: top, after the first paragraph, end
   assert.equal(withInserts("<p>a</p><p>b</p>", { top: "T", afterIntro: "I", bottom: "B" }), "T<p>a</p>I<p>b</p>B");
   assert.equal(withInserts("<div>x</div>", { top: "", afterIntro: "I", bottom: "" }), "<div>x</div>I");
   assert.equal(withInserts("x"), "x");
+});
+
+// Content v14 (SARCLA 11.11.2026: production answered every PUT /rest/all/V1/cmsPage/<id> with a 403 and the shop's home
+// page - "updating, it's still not working"): an update goes through its store view's own address, like a create
+import { putStore } from "../src/lib/convert/cmsPage";
+test("an update is written through its store view's own code; 'all' only when none is known", () => {
+  assert.equal(putStore("de-CH"), "switzerland_chf_de");
+  assert.equal(putStore("de-CH/eur"), "switzerland_eur_de");
+  assert.equal(putStore("en-INT", { code: "international_eur_en" }), "international_eur_en");
+  assert.equal(putStore("xx-YY"), "all");
+  assert.equal(putStore(null), "all");
 });

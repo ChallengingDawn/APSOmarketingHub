@@ -218,7 +218,7 @@ test("written again: this to-do's pages updated, a store view newly ticked gets 
   assert.deepEqual(plan.storeIds, [26, 5, 9]);
   assert.deepEqual(plan.out, ["en-PL"], "en-PL is no longer ticked");
   const w = await writeShared(f.m, { env: "acc", view: "en-INT", targets: targets(["en-INT", "en-CH", "en-DE"]), want, language: EN, ours, by: "sarcla", backups: memBackups() });
-  assert.deepEqual(f.writes().map((c) => `${c.method} ${c.url}`), ["PUT /rest/all/V1/cmsPage/41", "PUT /rest/all/V1/cmsPage/42", "POST /rest/germany_eur_en/V1/cmsPage", "PUT /rest/all/V1/cmsPage/43"]);
+  assert.deepEqual(f.writes().map((c) => `${c.method} ${c.url}`), ["PUT /rest/international_eur_en/V1/cmsPage/41", "PUT /rest/switzerland_chf_en/V1/cmsPage/42", "POST /rest/germany_eur_en/V1/cmsPage", "PUT /rest/poland_eur_en/V1/cmsPage/43"]);
   assert.deepEqual(f.pages.map((p) => [p.id, p.stores.join(), p.content, p.active]), [[41, "26", "<p>x</p>", true], [42, "5", "<p>x</p>", true], [43, "33", "<p>old</p>", false], [700, "9", "<p>x</p>", true]]);
   assert.deepEqual(w.missing, []);
 });

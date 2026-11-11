@@ -27,6 +27,15 @@
 import type { Change } from "./versions";
 import { applyToCms } from "./ship";
 import { answerSaid } from "./magentoSaid";
+import { storeViewOf } from "../content/studio/kinds/page/storeViews";
+
+/** The address an UPDATE of a page is written through: its store view's own code, like a create (Content v14, SARCLA
+ * 11.11.2026: production refused every PUT /rest/all/V1/cmsPage/<id> with a 403 and the shop's home page - "updating,
+ * it's still not working" - while POST /rest/<code>/V1/cmsPage went through). A page of one store view stays in it; "all"
+ * only when no code is known. */
+export function putStore(view: string | null | undefined, ref?: { code?: string | null } | null): string {
+  return ref?.code || storeViewOf(view ?? "")?.code || "all";
+}
 
 export type MagentoEnv = "acc" | "prod";
 export type Answer = { status: number; text: string };
@@ -303,7 +312,7 @@ export async function writePage(m: MagentoRequest, x: {
     after: String(after.fields.content ?? ""), action: "update", by: x.by,
   });
   try {
-    await call(m, "PUT", "all", `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...after.fields } });
+    await call(m, "PUT", putStore(x.view, plan.store), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...after.fields } });
     await x.backups.written(backupId, pageId);
     return { action: "updated", pageId, backupId, plan: shown };
   } catch (e) {
@@ -426,7 +435,7 @@ export async function writeShared(m: MagentoRequest, x: {
     const { content: before, ...rest } = now;
     const backupId = await x.backups.add({ env: x.env, view, identifier: x.want.identifier, pageId, title: String(now.title ?? ""), page: rest, before: String(before ?? ""), after: String(over.content ?? before ?? ""), action: "update", by: x.by });
     keep(backupId);
-    try { await call(m, "PUT", "all", `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...over } }); await x.backups.written(backupId, pageId); }
+    try { await call(m, "PUT", putStore(view, refOf.get(view)), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...over } }); await x.backups.written(backupId, pageId); }
     catch (e) { await x.backups.failed(backupId, (e as Error).message.slice(0, 500)); throw e; }
     return backupId;
   };
@@ -498,7 +507,7 @@ export async function restorePage(m: MagentoRequest, b: Backup, x: { by: string;
     after: String(back.content ?? content ?? ""), action: "restore", by: x.by,
   });
   try {
-    await call(m, "PUT", "all", `/cmsPage/${encodeURIComponent(b.pageId)}`, { page: { ...now, ...back } });
+    await call(m, "PUT", putStore(b.view), `/cmsPage/${encodeURIComponent(b.pageId)}`, { page: { ...now, ...back } });
     await x.backups.written(backupId, b.pageId);
   } catch (e) {
     await x.backups.failed(backupId, (e as Error).message.slice(0, 500));

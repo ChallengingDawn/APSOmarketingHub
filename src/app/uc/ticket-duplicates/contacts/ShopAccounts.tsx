@@ -6,7 +6,8 @@
 // associations"). Its read and links stay where they were (/api/uc/ticket-associations/shop-accounts). People with a shop login
 // whose HubSpot contact has no company - their logins and orders count for no company. Each with the
 // companies its orders are booked on, the one its shop account's customer number names and those on its e-mail domain,
-// the likeliest first: pick, Link; the clear ones in one go with "Link all". Nothing is linked without a click.
+// the likeliest first: pick, Link; the clear ones in one go with "Link all" (admins only since 11.11.2026). Nothing is
+// linked without a click.
 // 10.11.2026 ("develop more the contacts by bringing more data to them"): the shop's own record (registered, store, last
 // login, order value, customer number, what they bought, industry), the web visits, and who each offered company is
 // (customer number, place, owner, last order, revenue) - one table across the page, filters, an order, a download.
@@ -38,7 +39,7 @@ import { Choice, usePaged } from "@/app/connectors/parts";
 import type { Candidate, Unlinked, UnlinkedRow } from "@/lib/ticketAssoc/shopAccountRules";
 import type { LinkDone } from "@/lib/ticketAssoc/shopAccounts";
 
-type Data = { value?: Unlinked; computing: boolean; progress?: string; error?: string; links: LinkDone[]; linkedCount: number };
+type Data = { value?: Unlinked; computing: boolean; progress?: string; error?: string; links: LinkDone[]; linkedCount: number; admin?: boolean };
 const HUBSPOT = "https://app-eu1.hubspot.com/contacts/26492587/record";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const day = (iso: string | null | undefined) => (iso ? `${Number(iso.slice(8, 10))} ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : "—");
@@ -213,13 +214,13 @@ export function ShopAccountsTab() {
         </Box>
         {match && (clear.length > 0 || allDone) && (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", mb: 1.5, px: 1.5, py: 1, borderRadius: "12px", bgcolor: "rgba(27,122,85,.07)" }}>
-            {clear.length > 0 && (
+            {clear.length > 0 && r.data.admin && (
               <Button size="small" variant="contained" color="success" disableElevation disabled={busy !== null} onClick={linkAll} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "8px" }}>
                 {busy === "all" ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : `Link all ${full(clear.length)} sure ones`}
               </Button>
             )}
             <Typography sx={{ fontSize: "0.8rem", color: allDone ? GREEN : MUTED, fontWeight: allDone ? 700 : 400 }}>
-              {allDone ?? `${full(clearOrders)} with every order booked on one company, ${full(clear.length - clearOrders)} whose shop account carries the customer number of one company - the surest links there are.`}
+              {allDone ?? `${full(clearOrders)} with every order booked on one company, ${full(clear.length - clearOrders)} whose shop account carries the customer number of one company - the surest links there are.${r.data.admin ? "" : " Linking them all at once is for admins; link each one below."}`}
             </Typography>
           </Box>
         )}
