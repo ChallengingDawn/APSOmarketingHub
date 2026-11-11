@@ -21,6 +21,7 @@ import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { planSummary, planViews, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
 import { copyView, joinStore, langName, langOfStore, leadOf, mainView, pageDoc, splitStore, storesInLanguage, tickStore, versionOfStore, viewState, viewsLine, viewsOf, withStores, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
 import type { Presence } from "@/lib/content/studio/kinds/page/shop";
+import { MAIN_STAYS, dropQuestion, untickStores } from "@/lib/content/studio/kinds/page/untick";
 import { PINK, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 
@@ -41,6 +42,9 @@ export type MakeViews = {
   /** Content v10 - a store view ticked on or off for its language's page (no AI), given its own words, or joined back;
    * each returns what to say when it could not be done */
   tick: (store: string, on: boolean) => string | null;
+  /** Content v13 - store views taken OFF the page (lib/content/studio/kinds/page/untick.ts): any but the page's own; a
+   * version's last one removes it - asked first. `moved`/`dropped`: the versions now kept elsewhere or gone */
+  untick: (stores: readonly string[]) => { said: string | null; moved: Record<string, string>; dropped: string[] };
   split: (store: string) => string | null;
   join: (store: string) => string | null;
 };
@@ -139,6 +143,19 @@ export function useMakeViews(o: {
       o.record(on ? `Ticked ${store} for the ${langName(store)} page` : `Took ${store} out of ${v ?? "the page"}`, cur);
       o.api.setDoc(next);
       return null;
+    },
+    untick: (stores) => {
+      const none = { moved: {}, dropped: [] };
+      if (!o.canEdit) return { said: "For the project's editors.", ...none };
+      const cur = latest();
+      const r = untickStores(cur, stores, (k) => o.presence()[k]?.path);
+      if (r.doc === cur) return { said: r.refused.length ? MAIN_STAYS : null, ...none };
+      // a language's last store view takes its page with it - asked first (the bar's changes can still undo it)
+      if (r.dropped.length && typeof window !== "undefined" && !window.confirm(dropQuestion(cur, r.dropped))) return { said: null, ...none };
+      const gone = r.dropped.length ? ` - ${r.dropped.join(", ")} removed` : "";
+      o.record(`Took ${r.off.join(", ")} off the page${gone}`, cur);
+      o.api.setDoc(r.doc);
+      return { said: null, moved: r.moved, dropped: r.dropped };
     },
     split: (store) => {
       if (!o.canEdit) return "For the project's editors.";

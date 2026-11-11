@@ -69,6 +69,7 @@ import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf
 import { picturesHold, type MediaFile, type PictureCheck } from "./media";
 import { sinceOf } from "./published";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
+import { modulesStrings, withModulesStrings } from "./modules/translate";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask, moduleWordsTask } from "./modules/server";
 import { planActions, planTask } from "./plan/server";
@@ -558,6 +559,9 @@ given its texts by id; answer every id with its translation.
   tags change (and alt / title texts).
 - Product names, brand names (APSOparts, Angst+Pfister, APSOvib, ...), article numbers, norms (DIN, ISO), units and
   material codes (NBR, EPDM, FKM) stay as they are.
+- Ids starting with "mod." are the words of the page's modules (banners, product rows, questions, campaign blocks...):
+  translate them the same way. A button's words (ids ending in "link.label", "link2.label" or with ".extra.w-") stay as
+  short as they are - two to four words.
 - Nothing added, nothing left out, no note of your own.
 
 ${RULES}`,
@@ -582,7 +586,9 @@ ${JSON.stringify(items)}`;
     const leftovers = leftoversIn(items.map((x) => x.text).join(" "));
     if (doc.source === "new") {
       // a translation runs longer (German, French): every field brought back within its limit
-      const fields: Fields = fitFields(withFieldStrings(doc.fields, items));
+      const fitted: Fields = fitFields(withFieldStrings(doc.fields, items));
+      // its modules' words too (Content v13, SARCLA 11.11.2026: "translation didn't translate the modules in any languages")
+      const fields: Fields = fitted.modules ? { ...fitted, modules: withModulesStrings(fitted.modules, items) } : fitted;
       const key = urlKeyOf(s(r.urlKey, 160)) || urlKeyOf(fields.hero.title);
       return { fields: { ...fields, seo: { ...fields.seo, urlKey: key } }, from, missing, leftovers, problems: [] as string[] };
     }
@@ -594,7 +600,7 @@ ${JSON.stringify(items)}`;
 
 /** What a translation starts from: the main language's words (a new page) or its changes, with any written texts in. */
 function translateSource(doc: PageDoc): { id: string; text: string }[] {
-  if (doc.source === "new") return fieldStrings(doc.fields);
+  if (doc.source === "new") return [...fieldStrings(doc.fields), ...modulesStrings(doc.fields.modules)];
   const filled = doc.changes.map((c) => (typeof (c as { html?: unknown }).html === "string" ? { ...c, html: fillTexts((c as { html: string }).html, doc.texts) } : c));
   return changeStrings(filled).map(({ id, text }) => ({ id, text }));
 }
