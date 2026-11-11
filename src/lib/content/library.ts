@@ -203,13 +203,18 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
     const c = isObj(d.content) ? d.content : {};
     own = str(c.headline, 200);
     line = str(c.line, 200) || str(c.eyebrow, 120);
-    picture = pictureOf(isObj(c.image) ? c.image.url : null) ?? pictureOf(row.first_pic);
+    // cv16: the banner as it was last drawn for the shop's pages (doc.shot), else its photo
+    const shot = isObj(d.shot) ? d.shot : {};
+    picture = pictureOf(shot.desktop) ?? pictureOf(isObj(c.image) ? c.image.url : null) ?? pictureOf(row.first_pic);
+    const shotAt = iso(shot.at);
     languages = [upperLang(d.language) || upperLang(row.language)].filter(Boolean);
     const pages = Array.isArray(row.on_pages) ? row.on_pages.filter(isObj) : [];
     for (const p of pages) {
       const pd = pageDoc({ magento: p.magento }, null);
       const name = str(p.title, 200) || "a page";
-      const at = pageWhere(pd.magento, `on ${name}`);
+      // cv16: the banner drawn again after the page last went out - the shop still shows the older look; said
+      const out = pd.magento.map((r) => iso(r.at)).filter(Boolean).sort().at(-1) ?? "";
+      const at = pageWhere(pd.magento, `on ${name}${shotAt && out && shotAt > out ? " · changed since - goes out with the page's next update" : ""}`);
       if (at.length) where.push(...at);
       else if (typeof p.pieceId === "number" && typeof p.projectId === "number") {
         where.push({ kind: "page", label: "On a page", sub: name, at: null, by: null, links: [{ label: "Open the page", url: studioHref(p.projectId, p.pieceId), internal: true }] });
@@ -407,7 +412,7 @@ export function libraryQuery(admin: boolean): string {
                 'magento', d.doc -> 'magento')
               WHEN 'banner' THEN jsonb_build_object('content', jsonb_build_object(
                   'headline', d.doc #> '{content,headline}', 'line', d.doc #> '{content,line}', 'eyebrow', d.doc #> '{content,eyebrow}',
-                  'image', jsonb_build_object('url', d.doc #> '{content,image,url}')), 'language', d.doc -> 'language')
+                  'image', jsonb_build_object('url', d.doc #> '{content,image,url}')), 'language', d.doc -> 'language', 'shot', d.doc -> 'shot')
               WHEN 'blog' THEN jsonb_build_object('title', d.doc -> 'title', 'slug', d.doc -> 'slug', 'store', d.doc -> 'store', 'excerpt', d.doc -> 'excerpt',
                   'hero', d.doc #> '{hero,url}', 'language', d.doc -> 'language', 'published', d.doc -> 'published')
               WHEN 'newsletter' THEN jsonb_build_object('subject', d.doc -> 'subject', 'preheader', d.doc -> 'preheader', 'language', d.doc -> 'language',

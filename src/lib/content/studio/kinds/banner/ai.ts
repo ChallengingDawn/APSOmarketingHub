@@ -34,7 +34,11 @@ export const COPY_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-export type CopyAnswer = { content: { eyebrow: string; headline: string; rotatingWords: string[]; line: string; button: string }; own: Partial<Record<PresetKey, OwnWords>> };
+export type CopyAnswer = {
+  content: { eyebrow: string; headline: string; rotatingWords: string[]; line: string; button: string }; own: Partial<Record<PresetKey, OwnWords>>;
+  /** cv16: what the shop's word rules left out of the answer (./guard.ts) - said in the studio */
+  said?: string[];
+};
 
 /** The answer as the banner can take it: the roomiest place's room, own words only for this banner's places and only where they differ. */
 export function cleanCopy(raw: unknown, docRaw: BannerDoc): CopyAnswer {

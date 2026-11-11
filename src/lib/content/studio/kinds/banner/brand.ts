@@ -97,6 +97,9 @@ export function linkOf(raw: unknown): Link {
 /** The address for a paste block: a shop path as the store's own link, else the address itself. */
 export function pasteHref(raw: unknown): string {
   const l = linkOf(raw);
+  // cv16: a page picked with "Find a page" carries its store view ("/de-CH/..."): that exact page, as a full address - a
+  // store's own link would put the store view in twice
+  if (l.shopPath && /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?\//.test(l.shopPath)) return l.href;
   return l.shopPath ? `{{store direct_url='${l.shopPath}'}}` : l.href;
 }
 
