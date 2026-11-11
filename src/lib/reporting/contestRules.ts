@@ -6,11 +6,15 @@
 // has none; the order intake counts for the company's Performis SAE, as ESO Reports > Figures credits it; a sales action
 // counts whenever it was logged - by someone in ESO ("the activity need to be logged by the ESO not backoffice for
 // example"); HubSpot's meetings count too ("cold visits also count and generally hubspot meetings count"); 09.11.2026: only
-// a sales action before the company's first order counts (orderBound). No HubSpot here - the read is ./contestReport.ts, tests/my-sales-contest.test.ts.
+// a sales action before the company's first order counts (orderBound); 11.11.2026: "every new customer who reaches at least
+// €250 OI during this period" - below it a customer does not count, and has its own list "so colleagues know whom to
+// push" (MIN_INTAKE). No HubSpot here - the read is ./contestReport.ts, tests/my-sales-contest.test.ts.
 
 import { MONTHS, monthTotal, parsePcMonthly } from "./esoRules";
 
 export const CONTEST = { year: 2026, start: "2026-10-05", end: "2026-12-31", label: "5 Oct – 31 Dec 2026" } as const;
+/** The order intake a customer must reach in the contest's months to count, in euros. */
+export const MIN_INTAKE = 250;
 /** The contest's months (0 = January): October from the 5th, November, December. */
 export const CONTEST_MONTHS = [9, 10, 11] as const;
 export const MONTH_HEADS = ["5–31 Oct", "Nov", "Dec"] as const;
@@ -154,8 +158,12 @@ export type ContestData = {
 };
 
 export const totalOf = (c: { intake: number[] }) => c.intake.reduce((a, b) => a + b, 0);
-/** In the contest: a sales action on record. */
+/** A sales action on record. */
 export const counts = (c: ContestCompany) => actionCount(c.actions) > 0;
+/** In the contest: a sales action and at least MIN_INTAKE of order intake in the contest's months. */
+export const qualifies = (c: ContestCompany) => counts(c) && totalOf(c) >= MIN_INTAKE;
+/** A sales action and some order intake, short of MIN_INTAKE: the customers to push. */
+export const belowMin = (c: ContestCompany) => counts(c) && totalOf(c) > 0 && totalOf(c) < MIN_INTAKE;
 /** Outside the contest, by what is missing (Diana Fehr 06.11.2026): only the sales action - it orders already - or the sales action and the order intake. */
 export const onlyActionMissing = (c: ContestCompany) => !counts(c) && totalOf(c) > 0;
 export const nothingYet = (c: ContestCompany) => !counts(c) && totalOf(c) <= 0;
@@ -171,10 +179,10 @@ function add(l: Line, c: ContestCompany) {
   if (t > 0) l.customers++;
 }
 
-/** The contest by ESO: each person's counted customers that brought order intake, and the intake month by month. */
+/** The contest by ESO: each person's qualifying customers, and their order intake month by month. */
 export function byPerson(d: ContestData): Line[] {
   const lines = d.people.map((p) => blank(p.name, p.eso ? p.team : NOT_ESO, p.eso));
-  for (const c of d.companies) if (counts(c)) add(lines[c.person], c);
+  for (const c of d.companies) if (qualifies(c)) add(lines[c.person], c);
   return lines.filter((l) => l.total || l.customers);
 }
 
@@ -183,17 +191,17 @@ export function byTeam(d: ContestData): Line[] {
   const order = [...d.teams, NO_TEAM, NOT_ESO];
   const lines = new Map(order.map((t) => [t, blank(t, t, t !== NOT_ESO)]));
   for (const c of d.companies) {
-    if (!counts(c)) continue;
+    if (!qualifies(c)) continue;
     const p = d.people[c.person];
     add(lines.get(p.eso ? (lines.has(p.team) ? p.team : NO_TEAM) : NOT_ESO)!, c);
   }
   return order.map((t) => lines.get(t)!).filter((l, i) => i < d.teams.length || l.total || l.customers);
 }
 
-/** The figures on top, a funnel: new customers, those with a sales action, those that brought order intake, the ESO people scoring. */
+/** The figures on top, a funnel: new customers, those with a sales action, those that qualify, the ESO people scoring. */
 export function headline(d: ContestData) {
   const counted = d.companies.filter(counts);
-  const bringing = counted.filter((c) => totalOf(c) > 0);
+  const bringing = counted.filter(qualifies);
   const esos = new Set(bringing.filter((c) => d.people[c.person].eso).map((c) => c.person));
-  return { fresh: d.companies.length, counted: counted.length, bringing: bringing.length, esos: esos.size, intake: counted.reduce((a, c) => a + totalOf(c), 0) };
+  return { fresh: d.companies.length, counted: counted.length, bringing: bringing.length, esos: esos.size, intake: bringing.reduce((a, c) => a + totalOf(c), 0) };
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  CONTEST, NOT_ESO, NO_TEAM, actionDay, addAction, beforeOrder, byPerson, byTeam, companyProps, headline, intakeOf, noActions, nothingYet, onlyActionMissing, orderBound, standingOf, started,
+  CONTEST, MIN_INTAKE, NOT_ESO, NO_TEAM, actionDay, addAction, beforeOrder, belowMin, byPerson, byTeam, companyProps, headline, intakeOf, noActions, nothingYet, onlyActionMissing, orderBound, qualifies, standingOf, started,
   type ContestCompany, type ContestData,
 } from "../src/lib/reporting/contestRules";
 
@@ -122,21 +122,38 @@ const data: ContestData = {
   ],
   teams: ["RABE TEAM", "SARCLA TEAM", "FALU TEAM"],
   companies: [
-    co("10", 0, [100, 50, 0], true),
-    co("11", 0, [30, 0, 0], true),
+    co("10", 0, [200, 100, 0], true),
+    co("11", 0, [30, 0, 0], true), // a sales action, under €250: not in the contest yet
     co("12", 0, [999, 0, 0], false), // no sales action: not in the contest
-    co("13", 1, [0, 200, 0], true),
-    co("14", 2, [10, 0, 0], true),
-    co("15", 3, [40, 0, 0], true),
+    co("13", 1, [0, 250, 0], true), // €250 exactly counts
+    co("14", 2, [300, 0, 0], true),
+    co("15", 3, [400, 0, 0], true),
     co("16", 1, [0, 0, 0], true), // a sales action, no order intake yet
   ],
   left: { "Revenue before October": 2 }, read: 9,
 };
 
-test("by ESO: only customers with a sales action, each person's customers that brought order intake", () => {
+// Diana Fehr 11.11.2026: "every new customer who reaches at least €250 OI during this period"
+test("a customer counts with a sales action and at least €250 order intake; with less, it is one to push", () => {
+  assert.equal(MIN_INTAKE, 250);
+  const at = (intake: number[], acted = true) => co("30", 0, intake, acted);
+  assert.equal(qualifies(at([100, 150, 0])), true);
+  assert.equal(qualifies(at([249.99, 0, 0])), false);
+  assert.equal(qualifies(at([999, 0, 0], false)), false);
+  assert.equal(belowMin(at([249.99, 0, 0])), true);
+  assert.equal(belowMin(at([1, 0, 0])), true);
+  assert.equal(belowMin(at([250, 0, 0])), false);
+  // no order intake, or a sales action missing: not one to push
+  assert.equal(belowMin(at([0, 0, 0])), false);
+  assert.equal(belowMin(at([80, -100, 0])), false);
+  assert.equal(belowMin(at([80, 0, 0], false)), false);
+  assert.deepEqual(data.companies.filter(belowMin).map((c) => c.id), ["11"]);
+});
+
+test("by ESO: only qualifying customers, each person's customers and their order intake", () => {
   const lines = byPerson(data);
   const ann = lines.find((l) => l.label === "Ann Example")!;
-  assert.deepEqual([ann.customers, ann.intake, ann.total, ann.team], [2, [130, 50, 0], 180, "SARCLA TEAM"]);
+  assert.deepEqual([ann.customers, ann.intake, ann.total, ann.team], [1, [200, 100, 0], 300, "SARCLA TEAM"]);
   assert.equal(lines.find((l) => l.label === "Ben Example")!.customers, 1);
   assert.equal(lines.find((l) => l.label === "TSA Team")!.team, NOT_ESO);
 });
@@ -144,7 +161,7 @@ test("by ESO: only customers with a sales action, each person's customers that b
 test("by team: every line manager's team (none left out for an empty one), then no team, then not ESO", () => {
   const t = byTeam(data);
   assert.deepEqual(t.map((l) => [l.label, l.total, l.customers]), [
-    ["RABE TEAM", 0, 0], ["SARCLA TEAM", 180, 2], ["FALU TEAM", 200, 1], [NO_TEAM, 10, 1], [NOT_ESO, 40, 1],
+    ["RABE TEAM", 0, 0], ["SARCLA TEAM", 300, 1], ["FALU TEAM", 250, 1], [NO_TEAM, 300, 1], [NOT_ESO, 400, 1],
   ]);
 });
 
@@ -156,7 +173,7 @@ test("outside the contest: those that order and miss only a sales action, those 
 
 test("the figures on top as a funnel, the order intake adding up to the boards'", () => {
   const h = headline(data);
-  assert.deepEqual(h, { fresh: 7, counted: 6, bringing: 5, esos: 3, intake: 430 });
+  assert.deepEqual(h, { fresh: 7, counted: 6, bringing: 4, esos: 3, intake: 1250 });
   assert.equal(byTeam(data).reduce((a, l) => a + l.total, 0), h.intake);
 });
 

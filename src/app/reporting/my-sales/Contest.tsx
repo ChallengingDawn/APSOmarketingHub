@@ -2,7 +2,9 @@
 // MY SALES REPORTS > NEW CUSTOMER CONTEST (Diana Fehr 06.11.2026: "we have a contest to see which ESOs can bring more
 // Order intake ... show me order intake for these customers per eso per team (sarcla, falu, rabe) per month"): the new
 // customers since 5 October with a sales action by someone in ESO up to their first order, their Compass order intake month by month - by ESO, by team,
-// and every customer; the new customers no one in ESO has called, written to, met or visited yet as their own list. The rules:
+// and every customer; the new customers no one in ESO has called, written to, met or visited yet as their own list. Diana
+// Fehr 11.11.2026: a customer counts from €250 order intake; those with a sales action short of it have their own tab "so
+// colleagues know whom to push". The rules:
 // src/lib/reporting/contestRules.ts; the read: src/lib/reporting/contestReport.ts.
 
 import { useEffect, useMemo, useState } from "react";
@@ -20,7 +22,7 @@ import { ChartBox, FullTable, H1, Leaderboard, NoLeadYet, TWO, Waiting, type Boa
 import { hsCompany } from "@/app/reporting/CompanyList";
 import type { SlowState } from "@/lib/integrations/slowReport";
 import {
-  CONTEST, MONTH_HEADS, NO_TEAM, NOT_ESO, actionCount, byPerson, byTeam, counts, headline, nothingYet, onlyActionMissing, started, totalOf,
+  CONTEST, MIN_INTAKE, MONTH_HEADS, NO_TEAM, NOT_ESO, actionCount, belowMin, byPerson, byTeam, headline, nothingYet, onlyActionMissing, qualifies, started, totalOf,
   type ContestCompany, type ContestData, type DayFrom, type Line,
 } from "@/lib/reporting/contestRules";
 import { Note, shell } from "./shared";
@@ -33,14 +35,16 @@ const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct
 const dayWords = (d: string | null) => (d ? `${Number(d.slice(8, 10))} ${MON[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : "—");
 const FROM: Record<DayFrom, string> = { compass: "Compass's first order date", shop: "The shop's first order - earlier than Compass's, or Compass has no date yet", created: "No first order date yet - the company was created after 5 October" };
 
-type View = "eso" | "team" | "customers" | Missing;
-/** The new customers outside the contest: those that order and miss only a sales action, those that miss both. */
+type View = "eso" | "team" | "customers" | Short;
+/** The new customers outside the contest: those with a sales action short of the minimum, those that order and miss only a sales action, those that miss both. */
+type Short = "push" | Missing;
 type Missing = "action" | "both";
+const MIN = `€${MIN_INTAKE}`;
 const VIEWS: { id: View; label: string }[] = [
-  { id: "eso", label: "By ESO" }, { id: "team", label: "By team" }, { id: "customers", label: "Customers" },
+  { id: "eso", label: "By ESO" }, { id: "team", label: "By team" }, { id: "customers", label: "Customers" }, { id: "push", label: `Under ${MIN}` },
   { id: "action", label: "Not qualified, sales action missing" }, { id: "both", label: "No sales action, no order intake" },
 ];
-const MISSING: Record<Missing, (c: ContestCompany) => boolean> = { action: onlyActionMissing, both: nothingYet };
+const SHORT: Record<Short, (c: ContestCompany) => boolean> = { push: belowMin, action: onlyActionMissing, both: nothingYet };
 
 /** The read: asked again every 5 seconds while it runs; a finished read is set once, not on every answer. */
 function useContest() {
@@ -71,7 +75,7 @@ export function ContestPage() {
     <Box sx={{ minWidth: 0, display: "grid", gap: 0.9 }}>
       <Typography component="h1" sx={H1}>New customer contest</Typography>
       <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
-        Order intake from customers with no order and no revenue before 5 October, with a call, e-mail, meeting or visit by someone in ESO up to their first order · <b>{CONTEST.label}</b>
+        Order intake from customers with no order and no revenue before 5 October, with a call, e-mail, meeting or visit by someone in ESO up to their first order and at least {MIN} order intake · <b>{CONTEST.label}</b>
         {d ? ` · Compass's order intake, read from HubSpot ${new Date(d.generatedAt).toLocaleString("en-GB")}` : ""}{computing && d ? " · reading HubSpot again" : ""}
       </Typography>
       {/* hubspot-orders-3a 10.11.2026: every other "New customers" page counts the first invoice (the BSC rule) - say so here,
@@ -87,19 +91,20 @@ export function ContestPage() {
       {head}
       <Figures d={d} />
       <Box sx={{ justifySelf: "start", minWidth: 0 }}>
-        <ReportTabs name="contest" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ ...v, count: v.id in MISSING ? String(d.companies.filter(MISSING[v.id as Missing]).length) : null }))} />
+        <ReportTabs name="contest" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ ...v, count: v.id in SHORT ? String(d.companies.filter(SHORT[v.id as Short]).length) : null }))} />
       </Box>
       {view === "eso" && <ByEso key="eso" d={d} />}
       {view === "team" && <ByTeam key="team" d={d} />}
-      {view === "customers" && <Customers key="customers" d={d} rows={d.companies.filter(counts)} />}
-      {(view === "action" || view === "both") && <Customers key={view} d={d} rows={d.companies.filter(MISSING[view])} missing={view} />}
+      {view === "customers" && <Customers key="customers" d={d} rows={d.companies.filter(qualifies)} />}
+      {view === "push" && <Customers key="push" d={d} rows={d.companies.filter(belowMin)} short="push" />}
+      {(view === "action" || view === "both") && <Customers key={view} d={d} rows={d.companies.filter(SHORT[view])} short={view} />}
     </Box>
   );
 }
 
 /**
- * The funnel on top: new customers, those with a sales action, those that qualify - a sales action and order intake -
- * and the order intake they bring (SARCLA 10.11.2026: four tiles in a row, the fourth the order intake).
+ * The funnel on top: new customers, those with a sales action, those that qualify - a sales action and at least
+ * MIN_INTAKE order intake - and the order intake they bring (SARCLA 10.11.2026: four tiles in a row, the fourth the order intake).
  */
 function Figures({ d }: { d: ContestData }) {
   const h = useMemo(() => headline(d), [d]);
@@ -109,7 +114,7 @@ function Figures({ d }: { d: ContestData }) {
       <KpiTile icon={<PhoneInTalkOutlinedIcon />} tint="purple" label="With a sales action" value={int(h.counted)}
         note={`${pct(h.counted, h.fresh)} of the new customers · with or without order intake`} />
       <KpiTile icon={<EmojiEventsOutlinedIcon />} tint="green" label="Qualifying" value={int(h.bringing)}
-        note={`${pct(h.bringing, h.counted)} of those with a sales action · new, a sales action and order intake`} />
+        note={`${pct(h.bringing, h.counted)} of those with a sales action · new, a sales action and at least ${MIN} order intake`} />
       <KpiTile icon={<EuroOutlinedIcon />} tint="amber" label="Order intake" value={eur(h.intake)}
         note={`From the new customers with a sales action, as on the boards below · ${CONTEST.label}`} />
     </Box>
@@ -137,7 +142,7 @@ function ByEso({ d }: { d: ContestData }) {
   const away = { why: "Not in ESO - customers outside the contest", rows: board(others, (r) => custWord(r.customers), (r) => r.total) };
   const cols: Col<Line>[] = [
     { key: "team", head: "Team", tip: "The line manager's team in Map assignment", cell: (r) => r.team || "" },
-    { key: "cust", head: "Customers", tip: "New customers with a sales action that brought order intake", cell: (r) => int(r.customers), sort: (r) => r.customers },
+    { key: "cust", head: "Customers", tip: `New customers with a sales action and at least ${MIN} order intake`, cell: (r) => int(r.customers), sort: (r) => r.customers },
     ...monthCols(d),
     { key: "total", head: "Total", tip: CONTEST.label, cell: (r) => <b>{eur(r.total)}</b>, sort: (r) => r.total },
   ];
@@ -169,7 +174,7 @@ function ByTeam({ d }: { d: ContestData }) {
   const away = rest.length ? { why: "Outside the teams", rows: board(rest, (r) => custWord(r.customers), (r) => r.total) } : undefined;
   const cols: Col<Line>[] = [
     { key: "people", head: "ESO people scoring", tip: "People with order intake from a new customer", cell: (r) => int(people.get(r.label) ?? 0), sort: (r) => people.get(r.label) ?? 0 },
-    { key: "cust", head: "Customers", tip: "New customers with a sales action that brought order intake", cell: (r) => int(r.customers), sort: (r) => r.customers },
+    { key: "cust", head: "Customers", tip: `New customers with a sales action and at least ${MIN} order intake`, cell: (r) => int(r.customers), sort: (r) => r.customers },
     ...monthCols(d),
     { key: "total", head: "Total", tip: CONTEST.label, cell: (r) => <b>{eur(r.total)}</b>, sort: (r) => r.total },
   ];
@@ -192,13 +197,18 @@ function ByTeam({ d }: { d: ContestData }) {
 /* ── the customers ─────────────────────────────────────────────────────── */
 
 type CRow = ContestCompany & { label: string; total: number };
-const EMPTY: Record<Missing, string> = { action: "Every new customer that orders had a sales action up to its first order", both: "Every new customer has a sales action up to its first order or order intake" };
-const TITLE: Record<Missing, string> = {
+const EMPTY: Record<Short, string> = {
+  push: `No new customer with a sales action is under ${MIN} order intake`,
+  action: "Every new customer that orders had a sales action up to its first order", both: "Every new customer has a sales action up to its first order or order intake",
+};
+const TITLE: Record<Short, string> = {
+  push: `New customers with a sales action and order intake under ${MIN} - the ones to push`,
   action: "New customers that order, with no call, e-mail, meeting or visit by ESO up to their first order",
   both: "New customers with no order intake yet and no call, e-mail, meeting or visit by ESO up to their first order",
 };
 
-function Customers({ d, rows, missing }: { d: ContestData; rows: ContestCompany[]; missing?: Missing }) {
+function Customers({ d, rows, short }: { d: ContestData; rows: ContestCompany[]; short?: Short }) {
+  const missing = short === "push" ? undefined : short;
   const open = !!missing;
   const list = useMemo(() => {
     const seen = new Set<string>();
@@ -210,7 +220,7 @@ function Customers({ d, rows, missing }: { d: ContestData; rows: ContestCompany[
       return { ...c, label, total: totalOf(c) };
     });
   }, [rows]);
-  if (!list.length) return <Note title={missing ? EMPTY[missing] : "No new customer with a sales action yet"} />;
+  if (!list.length) return <Note title={short ? EMPTY[short] : `No new customer with a sales action and ${MIN} order intake yet`} />;
   const person = (r: CRow) => d.people[r.person];
   const cols: Col<CRow>[] = [
     { key: "eso", head: "ESO", tip: "The company's Performis SAE", cell: (r) => person(r).name },
@@ -226,6 +236,9 @@ function Customers({ d, rows, missing }: { d: ContestData; rows: ContestCompany[
       ...MONTH_HEADS.map((m, i): Col<CRow> => ({ key: `m${i}`, head: m, cell: (r) => (started(d.today, i) ? eur(r.intake[i]) : <span style={{ color: FAINT }}>—</span>), sort: (r) => r.intake[i] })),
       { key: "total", head: "Total", tip: CONTEST.label, cell: (r: CRow) => <b>{eur(r.total)}</b>, sort: (r: CRow) => r.total },
     ]),
+    ...(short === "push" ? [
+      { key: "togo", head: "Still to go", tip: `The order intake the customer still needs to reach ${MIN} and count`, cell: (r: CRow) => eur(MIN_INTAKE - r.total), sort: (r: CRow) => MIN_INTAKE - r.total },
+    ] : []),
     { key: "hs", head: "HubSpot", cell: (r) => (
       <Box component="a" href={hsCompany(r.id)} target="_blank" rel="noreferrer" aria-label={`${r.label} in HubSpot`} onClick={(e) => e.stopPropagation()}
         sx={{ color: TINT.blue.fg, display: "inline-flex", alignItems: "center", gap: 0.4, fontWeight: 600, textDecoration: "none" }}>Open<OpenInNewIcon sx={{ fontSize: 14 }} /></Box>
@@ -236,10 +249,11 @@ function Customers({ d, rows, missing }: { d: ContestData; rows: ContestCompany[
     ...list[0], label: "Total", total: sum((r) => r.total), intake: MONTH_HEADS.map((_, i) => sum((r) => r.intake[i])), day: null,
     actions: { calls: sum((r) => r.actions.calls), emails: sum((r) => r.actions.emails), meetings: sum((r) => r.actions.meetings), visits: sum((r) => r.actions.visits), last: null },
   } as CRow;
-  const totalCols = cols.map((x) => (["eso", "first", "last", "hs"].includes(x.key) ? { ...x, cell: (r: CRow) => (r === total ? "" : x.cell(r)) } : x));
+  const totalCols = cols.map((x) => (["eso", "first", "last", "togo", "hs"].includes(x.key) ? { ...x, cell: (r: CRow) => (r === total ? "" : x.cell(r)) } : x));
   return (
-    <ChartBox title={missing ? TITLE[missing] : "Every new customer in the contest"}
-      hint={missing === "action" ? `${int(list.length)} new customers with order intake and no sales action by ESO up to their first order · ${eur(sum((r) => r.total))} order intake`
+    <ChartBox title={short ? TITLE[short] : "Every new customer in the contest"}
+      hint={short === "push" ? `${int(list.length)} new customers with a sales action by ESO up to their first order and ${eur(sum((r) => r.total))} order intake between them`
+        : missing === "action" ? `${int(list.length)} new customers with order intake and no sales action by ESO up to their first order · ${eur(sum((r) => r.total))} order intake`
         : missing === "both" ? `${int(list.length)} new customers with neither order intake nor a sales action by ESO up to their first order`
         : `${int(list.length)} customers · ${int(sum((r) => actionCount(r.actions)))} sales actions up to the first order`}>
       <FullTable<CRow> first="Customer" rows={list} cols={totalCols} total={missing === "both" ? undefined : total} initial={missing === "both" ? "first" : "total"} find="a customer" />
