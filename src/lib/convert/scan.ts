@@ -17,7 +17,7 @@ import { STEP_LABEL, sortProblems, type Step } from "./model";
 import { buildProblems } from "./problems";
 import { aiLeft, englishPass, pageWork, pagesToRedo, proposeIdeas, setAsideExtraNewPages, setAsidePageIdeas, type Numbers } from "./studio";
 import { proposeBlocks } from "./blockIdeas";
-import { blockPage } from "./blockRules";
+import { blockPage, spreadStores } from "./blockRules";
 import { classify } from "./model";
 import { SCAN, TOPUP, pagesTonight, swissNow, typesToTopUp, type TopUpType } from "./scanRules";
 import { blockByKey } from "./blocks";
@@ -78,6 +78,8 @@ async function topUpOne(t: TopUpType, by: string): Promise<string> {
   const made: string[] = [];
   for (const row of [...problems.filter((r) => r.queries.length > 0), ...problems.filter((r) => r.queries.length === 0)]) {
     if (made.length >= TOPUP.seoPages) break;
+    // no product page (SARCLA 11.11.2026: "SEO landing page has product pages") - their layout is the theme's code
+    if (classify(row.path).kind === "product") continue;
     const work = await pageWork("prod", row.path);
     if (work.ideas.some((i) => i.contentType === "landing-page" && i.status !== "dropped")) continue;
     const numbers: Numbers = { reasons: [...row.reasons, seoLine(row, from, to)].slice(0, 4), from, to };
@@ -188,10 +190,11 @@ async function fillUp(): Promise<string[]> {
   const data = await buildProblems(from, to);
   if (!data.ga4.ok) return [`no pages to read - Google Analytics did not answer (${data.ga4.error ?? "not connected"})`];
   const own = data.pages.filter((p) => blockPage(classify(p.path).kind));
-  const pages = [
+  // every store view's home page first, then the store views in turn (./blockRules.ts spreadStores)
+  const pages = spreadStores([
     ...(sortProblems(own.filter((p) => p.reasons.length > 0), "missed") as typeof own),
     ...own.filter((p) => p.reasons.length === 0).sort((a, b) => (b.views ?? 0) - (a.views ?? 0)),
-  ];
+  ], (path) => classify(path).store ?? "", (path) => classify(path).kind === "home");
   const day = swissNow().day;
   let done = 0;
   let made = 0;

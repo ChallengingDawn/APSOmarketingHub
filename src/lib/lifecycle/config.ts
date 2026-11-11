@@ -205,7 +205,7 @@ export const UCS: Uc[] = [
   },
   {
     key: "uc12", code: "UC12", title: "Revenue Drop", href: "/uc/lifecycle/revenue-drop",
-    does: "High- and medium-value customers whose revenue drops are flagged to their owner as a task. Being rebuilt (H2 2026).",
+    does: "APSOcore and APSOgrowth companies with Prio 1 or 2 and revenue plus order intake of €10,000 or more in the 12 months before (€5,000 outside Switzerland) get a ticket to their owner: step 1 when nothing came in the last 12 months, step 2 when it is 30% or more down. A company with an article-erosion ticket is left to Article erosion.",
     converted: "Converted = revenue in the 3 months after the flag at or above the same 3 months a year earlier.",
     tickets: [],
     tasks: [

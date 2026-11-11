@@ -151,3 +151,23 @@ export function shopPart(html: string, selector: string, name: string, id = "S1"
     holds: { products: 0, categories: 0, pictures: (inner.match(/<img\b/gi) ?? []).length, links: (inner.match(/<a\b/gi) ?? []).length + (inner.match(/<(form|button)\b/gi) ?? []).length },
   };
 }
+
+/**
+ * EVERY STORE VIEW, NOT ONLY de-CH (SARCLA 11.11.2026, on the Pages app's de-CH home page and its six optimizations: "you
+ * have a lot of optimizations in [this] locale, in the other locales you don't"): the start batch reads every store
+ * view's home page first, then the pages in turn by store view - each store view's next page in the list's own order
+ * (the problem pages first, then the most viewed) - so de-CH's views no longer take every place.
+ */
+export function spreadStores<T extends { path: string }>(pages: T[], storeOf: (path: string) => string, isHome: (path: string) => boolean): T[] {
+  const homes = pages.filter((p) => isHome(p.path));
+  const queues = new Map<string, T[]>();
+  for (const p of pages) {
+    if (isHome(p.path)) continue;
+    const s = storeOf(p.path);
+    queues.set(s, [...(queues.get(s) ?? []), p]);
+  }
+  const out = [...homes];
+  const lists = [...queues.values()];
+  for (let k = 0; lists.some((l) => k < l.length); k++) for (const l of lists) if (k < l.length) out.push(l[k]);
+  return out;
+}

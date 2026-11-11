@@ -1,0 +1,11 @@
+{
+  "uid": "revenue_drop_card",
+  "type": "card",
+  "config": {
+    "name": "Revenue drop",
+    "description": "UC12 Revenue drop tickets: the change when the ticket was written against today, what came in since, 24 months and revenue by profit center - from APSOhub.",
+    "location": "crm.record.tab",
+    "entrypoint": "/app/cards/RevenueDropCard.jsx",
+    "objectTypes": ["tickets"]
+  }
+}

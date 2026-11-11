@@ -139,12 +139,17 @@ function SeoCard({ r, name }: { r: SeoRow; name: string | null }) {
   );
 }
 
-export function SeoLens({ from, to, names, onlyProblems }: { from: string; to: string; names: Map<string, string>; onlyProblems: boolean }) {
+export function SeoLens({ from, to, names, onlyProblems, noProducts = false }: { from: string; to: string; names: Map<string, string>; onlyProblems: boolean; noProducts?: boolean }) {
   const url = `/api/website/ai-personalization/seo?from=${from}&to=${to}`;
   const held = useHeld<SeoData>(url, [url]);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
-  const rows = useMemo(() => (d ? (onlyProblems && d.rows.some((x) => x.reasons.length) ? d.rows.filter((x) => x.reasons.length) : d.rows) : []), [d, onlyProblems]);
+  // no product pages where new pages are proposed from (SARCLA 11.11.2026: "SEO landing page has product pages")
+  const rows = useMemo(() => {
+    if (!d) return [];
+    const own = noProducts ? d.rows.filter((x) => x.kind !== "product") : d.rows;
+    return onlyProblems && own.some((x) => x.reasons.length) ? own.filter((x) => x.reasons.length) : own;
+  }, [d, onlyProblems, noProducts]);
   if (r === null) return <LoadingPanel label="Reading Google Search Console…" />;
   if (r.state !== "ok") return <UpstreamPanel source="Search Console" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? (r.status ?? null) : null} onRetry={() => {}} />;
   const data = r.data;

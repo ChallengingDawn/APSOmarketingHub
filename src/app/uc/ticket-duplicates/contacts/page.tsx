@@ -8,13 +8,13 @@
 //   UNASSIGNED CONTACTS -> COMPANIES" brought in (DomainLinks.tsx, the same evening);
 // - Name letters: broken letters in names repaired - the workflow "SARCLA | CONTACT NAME | UTF-8 CORRECT BY CODE"
 //   brought in ("this is a small tab on contact duplicate", NameLetters.tsx).
-// The view is in the address (#domain, #names), so a link opens it.
+// The view is in the address (#shop-accounts, #domain, #names), so a link opens it. The views sit in the tab strip of
+// Tickets and Companies (ReportTabs) - SARCLA 11.11.2026: "these tags are different from the other apps".
 
-import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
-import { Choice } from "@/app/connectors/parts";
+import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
 import { DupToggle } from "../DupToggle";
 import { ShopAccountsTab } from "./ShopAccounts";
 import { DomainLinks } from "./DomainLinks";
@@ -26,27 +26,19 @@ const VIEWS: { key: View; label: string; subtitle: string }[] = [
   { key: "domain", label: "By e-mail domain", subtitle: "Contacts: every contact without a company is linked to the company of its e-mail domain, when the rule finds exactly one" },
   { key: "names", label: "Name letters", subtitle: "Contacts: names with broken letters (MÃ¼ller for Müller) repaired - by the hub when the repair is sure, by a person otherwise" },
 ];
-const fromHash = (): View => { const h = typeof window === "undefined" ? "" : window.location.hash.slice(1); return VIEWS.some((v) => v.key === h) ? (h as View) : "shop"; };
+const TAB_HASH: Record<View, string> = { shop: "#shop-accounts", domain: "#domain", names: "#names" };
 
 export default function ContactDuplicates() {
-  const [view, setView] = useState<View>("shop");
-  useEffect(() => {
-    setView(fromHash());
-    const on = () => setView(fromHash());
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
-  }, []);
-  const pick = (v: View) => {
-    setView(v);
-    window.history.replaceState(null, "", v === "shop" ? window.location.pathname + window.location.search : `#${v}`);
-  };
+  const [view, setView] = useHashTab<View>(TAB_HASH, "shop");
   const cur = VIEWS.find((v) => v.key === view)!;
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader title="Duplicates & merges" subtitle={cur.subtitle} />
       <DupToggle on="contacts" />
-      <Choice<View> value={view} onChange={pick} options={VIEWS.map((v) => ({ key: v.key, label: v.label }))} />
-      <Box sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
+      <Box>
+        <ReportTabs name="contactdup" tab={view} onSelect={setView} tabs={VIEWS.map((v) => ({ id: v.key, label: v.label, count: null }))} />
+      </Box>
+      <Box id={`contactdup-panel-${view}`} role="tabpanel" sx={{ display: "grid", gap: 2.5, minWidth: 0 }}>
         {view === "shop" && <ShopAccountsTab />}
         {view === "domain" && <DomainLinks />}
         {view === "names" && <NameLetters />}

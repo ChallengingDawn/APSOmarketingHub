@@ -41,6 +41,7 @@ import type { PageRow, PagesList, PagesSummary, ReadResult, Where } from "@/lib/
 import type { Idea } from "@/lib/convert/studio";
 import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
+import { HubPublished, HubPublishedLoading, type Published } from "./HubPublished";
 import { PageShot } from "../PageShot";
 import { AiButton } from "../AiButton";
 
@@ -184,6 +185,12 @@ export default function ConvertPages() {
   // the page opened in place - the home page at the start (SARCLA 10.11.2026: "the home page should be the start, open as before")
   const [open, setOpen] = useState<string | null>(null);
   const opened = useRef(false);
+  // every page, or only the ones the hub itself published (SARCLA 11.11.2026: "own pages should also be a tab, to
+  // measure only the pages that have been published via the hub")
+  const [tab, setTab] = useState<"all" | "hub">("all");
+  const pubUrl = `/api/website/ai-personalization/pages?published=1&n=${tick}`;
+  const pubHeld = useHeld<Published>(pubUrl, [pubUrl]);
+  const published = pubHeld.result?.state === "ok" ? pubHeld.result.data : null;
 
   // the search waits for a pause in typing
   useEffect(() => { const t = setTimeout(() => { setQ(qLive); setPage(0); }, 350); return () => clearTimeout(t); }, [qLive]);
@@ -354,7 +361,7 @@ export default function ConvertPages() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Pages"
-        subtitle="Every page of the shop with its optimizations - click a page to open it; the home page first"
+        subtitle={tab === "hub" ? "The pages the hub itself published, measured on the shop" : "Every page of the shop with its optimizations - click a page to open it; the home page first"}
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}
@@ -364,7 +371,15 @@ export default function ConvertPages() {
           </Box>
         }
       />
-      {body}
+      <SquareChoice<"all" | "hub"> value={tab} onChange={setTab} options={[
+        { key: "all", label: "All pages" },
+        { key: "hub", label: "Published by the hub", count: published ? published.pages.length : undefined },
+      ]} />
+      {tab === "hub"
+        ? published ? <HubPublished data={published} /> : pubHeld.result && pubHeld.result.state !== "ok"
+          ? <UpstreamPanel source="the hub's published pages" error={pubHeld.result.state === "error" ? pubHeld.result.error : "Not configured."} status={pubHeld.result.state === "error" ? pubHeld.result.status : null} onRetry={() => setTick((n) => n + 1)} />
+          : <HubPublishedLoading />
+        : body}
     </Box>
   );
 }

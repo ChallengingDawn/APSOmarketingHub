@@ -44,6 +44,7 @@ import { SquareChoice } from "../SquareChoice";
 import { convertPost, previewHref } from "../Flow";
 import { AiButton } from "../AiButton";
 import { BlocksLens, CardPages, SeoLens } from "../problems/Lenses";
+import { LandingPages } from "./LandingPages";
 import { Customers, PageCard, SHOP_FROM, WhatStops, workByKey, type Row } from "../problems/parts";
 
 type Priority = "high" | "medium" | "low";
@@ -246,10 +247,54 @@ function PagesToRead({ from, to, ideas, themes }: { from: string; to: string; id
   );
 }
 
+/**
+ * WHAT HAPPENS, STEP BY STEP (SARCLA 11.11.2026, on the line under the filters: "this message should be clear to the
+ * user, like a process - for new pages of course"): each type's way from the AI's proposal to the shop.
+ */
+const STEPS: Record<"blocks" | "landing" | "block", string[]> = {
+  blocks: [
+    "The AI reads the pages losing buyers - every store view, up to 10 pages an hour, 100 optimizations kept ready",
+    "On each page it picks a block that holds buyers back and makes 3 or 4 modules to replace it",
+    "You open it in the Preview - the block as it is beside its versions - and Drop it or Send it to Content",
+    "Content builds it and tests the versions against the page as it is (A/B test)",
+    "The winner goes live on the shop",
+  ],
+  landing: [
+    "Google shows a page of the shop for searches it answers badly",
+    "The AI proposes ONE new page for that page's biggest group of searches",
+    "You decide in the Preview, the page Google shows today beside the new page's brief",
+    "Content writes the new page in its SEO landing page studio and publishes it",
+    "It is measured in Pages > Published by the hub - and optimized like the shop's other landing pages",
+  ],
+  block: [
+    "Whenever fewer than 3 wait for a decision, the AI makes a new batch for the block (once a day)",
+    "Each optimization comes with 3 or 4 clearly different versions of the block",
+    "You compare them side by side in the Preview and Drop it or Send it to Content",
+    "Content builds it and tests the versions against the block as it is (A/B test)",
+    "The winner goes live on the shop",
+  ],
+};
+function HowItWorks({ type }: { type: TypeKey }) {
+  const steps = type === "landing-page" ? STEPS.landing : type === "banner" || type === "newsletter" ? STEPS.block : STEPS.blocks;
+  return (
+    <Box component="ol" aria-label="How it works" sx={{ listStyle: "none", m: 0, mt: 1.25, p: 0, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+      {steps.map((t, i) => (
+        <Box component="li" key={i} sx={{ flex: "1 1 180px", minWidth: 0, display: "flex", gap: 0.75, alignItems: "flex-start", p: 1, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)" }}>
+          <Box sx={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", bgcolor: "rgba(36,89,209,.1)", color: "#2459d1", fontSize: "0.72rem", fontWeight: 800, display: "grid", placeItems: "center" }}>{i + 1}</Box>
+          <Typography sx={{ fontSize: "0.74rem", color: INK, lineHeight: 1.35 }}>{t}</Typography>
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+/** Whole page or one block (SARCLA 11.11.2026: "allow the filter by full page or block only"; "I really need to see block / all pages"). */
+type Scope = "all" | "block" | "page";
+
 const READ_NEXT: Record<TypeKey, { title: string; note: string }> = {
   all: { title: "Pages losing buyers, not read yet", note: "The AI reads 5 a night by itself - or now, with Find optimizations" },
   "page-refresh": { title: "Pages losing buyers, not read yet", note: "And the home page's rows, each optimized as one block" },
-  "landing-page": { title: "Google's view of the shop's pages", note: "Shown on Google, clicked little: the searches the shop does not answer well" },
+  "landing-page": { title: "Where new pages come from: Google's view of the shop's pages", note: "Shown on Google, clicked little: the searches the shop does not answer well - no product pages" },
   banner: { title: "The home slider", note: "Its optimizations come as clearly different versions side by side" },
   newsletter: { title: "The newsletter band", note: "On every page; its sign-ups come from HubSpot's newsletter forms" },
   "blog-article": { title: "The blog", note: "To come" },
@@ -261,6 +306,7 @@ export default function ConvertInsights() {
   const [type, setType] = useState<TypeKey>("all");
   const [show, setShow] = useState<Show>("decide");
   const [prio, setPrio] = useState<Priority | "all">("all");
+  const [scope, setScope] = useState<Scope>("all");
   const [open, setOpen] = useState<string | null>(null);
   // a link may name the type (Problem pages' old address leads here with ?type=)
   useEffect(() => {
@@ -277,17 +323,21 @@ export default function ConvertInsights() {
   const view = useMemo(() => {
     const byShow = all.filter((x) => (show === "decide" ? x.status === "proposed" : show === "approved" ? x.status === "approved" : x.status !== "dropped"));
     const types = CHANGE_TYPES.map((t) => ({ key: t.key, n: byShow.filter((x) => typeOfIdea(x) === t.key).length }));
-    const inType = byShow.filter((x) => type === "all" || typeOfIdea(x) === type);
+    const typed = byShow.filter((x) => type === "all" || typeOfIdea(x) === type);
+    // per block or the whole page - where the Page builder's optimizations are both
+    const scoped = type === "all" || type === "page-refresh";
+    const scopes = { all: typed.length, block: typed.filter((x) => x.scope === "block").length, page: typed.filter((x) => x.scope !== "block").length };
+    const inType = scoped && scope !== "all" ? typed.filter((x) => (scope === "block" ? x.scope === "block" : x.scope !== "block")) : typed;
     const prios = (["high", "medium", "low"] as Priority[]).map((p) => ({ key: p, n: inType.filter((x) => priorityOf(x) === p).length }));
     const pr: Priority | "all" = prio !== "all" && prios.some((x) => x.key === prio && x.n > 0) ? prio : "all";
     const rows = inType.filter((x) => pr === "all" || priorityOf(x) === pr)
       .sort((a, b) => (iceScore(b) ?? 0) - (iceScore(a) ?? 0) || b.createdAt.localeCompare(a.createdAt));
     return {
-      rows, types, prios, pr, total: byShow.length,
+      rows, types, prios, pr, total: byShow.length, scoped, scopes,
       counts: { decide: all.filter((x) => x.status === "proposed").length, approved: all.filter((x) => x.status === "approved").length, all: all.filter((x) => x.status !== "dropped").length },
       pages: new Set(rows.map((x) => `${x.env}${x.path}`)).size,
     };
-  }, [all, show, type, prio]);
+  }, [all, show, type, prio, scope]);
   const openRow = open ? all.find((x) => x.id === open) ?? null : null;
   const next = READ_NEXT[type];
 
@@ -310,14 +360,18 @@ export default function ConvertInsights() {
               <SquareChoice<Priority | "all"> label="Priority" value={view.pr} onChange={setPrio} options={[
                 { key: "all", label: "All" }, ...view.prios.map((p) => ({ key: p.key, label: PRIO[p.key].label, count: p.n, disabled: p.n === 0 })),
               ]} />
+              {view.scoped && (
+                <SquareChoice<Scope> label="Optimizes" value={scope} onChange={setScope} options={[
+                  { key: "all", label: "All", count: view.scopes.all }, { key: "block", label: "A block", count: view.scopes.block }, { key: "page", label: "The whole page", count: view.scopes.page },
+                ]} />
+              )}
             </Box>
           </Box>
+          <HowItWorks type={type} />
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>
             {view.rows.length} {view.rows.length === 1 ? "optimization" : "optimizations"} on {view.pages} {view.pages === 1 ? "page" : "pages"}
             {type !== "all" && ` · ${CHANGE_TYPES.find((t) => t.key === type)?.about}`}
-            {type === "landing-page" || type === "banner" || type === "newsletter"
-              ? " · the AI makes a new batch of this type within the hour whenever fewer than 3 wait for a decision (once a day)"
-              : <>{" · "}the AI keeps 100 block optimizations ready - up to 10 pages an hour, the pages losing buyers first · {lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
+            {type !== "landing-page" && type !== "banner" && type !== "newsletter" && <>{" · "}{lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
           </Typography>
         </GlassCard>
 
@@ -327,7 +381,15 @@ export default function ConvertInsights() {
             <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>Find optimizations on one of the pages below - the AI reads it at once.</Typography>
           </GlassCard>
         )}
-        {view.rows.length > 0 && <IdeaGrid rows={view.rows} onOpen={setOpen} resetKey={`${type}:${show}:${view.pr}`} />}
+        {/* SEO landing page: the landing pages there are first - ours and the shop's - to optimize; then the new pages proposed */}
+        {type === "landing-page" && <LandingPages from={win.from} to={win.to} ideas={all} />}
+        {type === "landing-page" && view.rows.length > 0 && (
+          <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mt: 1 }}>
+            <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>New pages proposed</Typography>
+            <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>One per page of the shop, for its biggest group of Google searches</Typography>
+          </Box>
+        )}
+        {view.rows.length > 0 && <IdeaGrid rows={view.rows} onOpen={setOpen} resetKey={`${type}:${show}:${view.pr}:${scope}`} />}
 
         <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mt: 1 }}>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>{next.title}</Typography>
@@ -335,7 +397,7 @@ export default function ConvertInsights() {
         </Box>
         {(type === "all" || type === "page-refresh") && <PagesToRead from={win.from} to={win.to} ideas={all} themes={type === "all"} />}
         {type === "page-refresh" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={HOME_ROWS} compact />}
-        {type === "landing-page" && <SeoLens from={win.from} to={win.to} names={new Map()} onlyProblems />}
+        {type === "landing-page" && <SeoLens from={win.from} to={win.to} names={new Map()} onlyProblems noProducts />}
         {type === "banner" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["home-slider"]} compact />}
         {type === "newsletter" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["newsletter"]} compact />}
         {type === "blog-article" && <Notice tone="warn">The shop has no blog yet - its articles come here once it has one, as Content&apos;s Blog article.</Notice>}
