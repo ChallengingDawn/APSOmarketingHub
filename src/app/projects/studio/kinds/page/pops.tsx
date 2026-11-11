@@ -54,6 +54,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { linkInStores } from "@/lib/content/studio/kinds/page/links";
+import { AI_BOX_ATTR } from "@/lib/content/studio/kinds/page/barAi";
 import { madeFrom, makeButton } from "@/lib/content/studio/kinds/page/pictureJobs";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
@@ -152,7 +153,7 @@ function AskAi({ run, busy, placeholder = "Ask AI for this text…" }: { run: (a
     <Box sx={{ mt: 1.25, p: 1, borderRadius: "9px", bgcolor: "rgba(194,44,110,.045)", border: "1px solid rgba(194,44,110,.16)" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
         {busy ? <CircularProgress size={15} thickness={5} sx={{ color: PINK, flexShrink: 0 }} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 17, color: PINK, flexShrink: 0 }} />}
-        <InputBase fullWidth value={q} disabled={busy} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Writing…" : placeholder}
+        <InputBase fullWidth value={q} disabled={busy} onChange={(e) => setQ(e.target.value)} placeholder={busy ? "Writing…" : placeholder} inputProps={{ [AI_BOX_ATTR]: "1" }}
           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(q); } }} sx={{ fontSize: "0.84rem", "& input::placeholder": { color: "#8a95a3", opacity: 1 } }} />
         <IconButton size="small" disabled={busy || !q.trim()} onClick={() => go(q)} aria-label="Ask" sx={{ color: PINK }}><SendRoundedIcon sx={{ fontSize: 17 }} /></IconButton>
       </Box>
@@ -630,7 +631,7 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
           )}
           {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75, lineHeight: 1.4 }}>{hint}</Typography>}
           {onIdea && (
-            <TextField fullWidth multiline minRows={2} maxRows={5} size="small" label="What should the picture show?" value={ideaDraft} disabled={!canEdit} onChange={(e) => setIdeaDraft(e.target.value)}
+            <TextField fullWidth multiline minRows={2} maxRows={5} size="small" label="What should the picture show?" value={ideaDraft} disabled={!canEdit} onChange={(e) => setIdeaDraft(e.target.value)} inputProps={{ [AI_BOX_ATTR]: "1" }}
               helperText={!canMake ? "Pictures cannot be made on this hub - upload one, or choose one already made." : "Make it uses these words - a picture, not a text in it."} sx={{ ...field, mt: 2 }} />
           )}
           {!noAlt && <TextField fullWidth size="small" label="What it shows (alt text)" value={altDraft} disabled={!canEdit} onChange={(e) => setAltDraft(e.target.value.slice(0, 140))} sx={{ ...field, mt: 2 }}

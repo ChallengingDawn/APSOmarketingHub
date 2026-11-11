@@ -70,6 +70,7 @@ import { groundsOfModule } from "@/lib/content/studio/kinds/page/modules/looks";
 import { fieldOf as specOf, moduleDef as libDef } from "@/lib/content/studio/kinds/page/modules/registry";
 import type { Card, ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
 import { findPart, partIn } from "./parts";
+import { AI_BOX_ATTR, barAiTarget } from "@/lib/content/studio/kinds/page/barAi";
 import { Choice } from "./ui";
 import { useModuleAi } from "./modules/useModuleAi";
 import { SwitchList } from "./Switch";
@@ -475,6 +476,23 @@ export default function Studio({ api }: StudioProps) {
     openPop(null);
   };
   const askAi = () => { if (fold.assist) toggleFold("assist"); setTimeout(() => askRef.current?.focus(), 60); };
+  /** the selected element's own "Ask AI" box: its popup opened (if it is not), the cursor in that box, the box in view */
+  const [aiAsk, setAiAsk] = useState(0);
+  const askElement = (p: Pop) => { if (pop?.key !== p.key || pop?.kind !== p.kind) openPop(p); setAiAsk((n) => n + 1); };
+  useEffect(() => {
+    if (!aiAsk) return;
+    let tries = 0;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    // after the popup's own first focus (its words box, 40 ms after it opens)
+    const go = () => {
+      const boxes = Array.from(document.querySelectorAll<HTMLElement>(`[role="dialog"] [${AI_BOX_ATTR}]`)).filter((x) => !(x as HTMLInputElement).disabled);
+      const box = boxes[boxes.length - 1];
+      if (box) { box.scrollIntoView({ block: "nearest", behavior: "smooth" }); box.focus({ preventScroll: true }); return; }
+      if (++tries < 20) t = setTimeout(go, 60);
+    };
+    t = setTimeout(go, 120);
+    return () => { if (t) clearTimeout(t); };
+  }, [aiAsk]);
 
   /* ── an element's words edited in the page ───────────────────────────── */
 
@@ -1942,6 +1960,10 @@ export default function Studio({ api }: StudioProps) {
     : sel.key.startsWith("f:") && !sel.key.startsWith("f:seo.") ? (fieldKind(sel.key.slice(2)) === "picture" ? { kind: "picture", key: sel.key } : { kind: "text", key: sel.key }) : null;
   const lastPart = (label: string) => { const p = label.split(" · "); const t = p.length > 1 ? p.slice(1).join(" · ") : label; return t.charAt(0).toUpperCase() + t.slice(1); };
   const partSel = sel?.picked?.part?.part ? partNow(sel.picked.part.mod, sel.picked.part.part) : null;
+  // Content v14c (SARCLA 11.11.2026 ~17:15: "if I click Ask AI on the element it still sends me to block"): the bar's Ask AI
+  // is the SELECTED element's - its popup opened, the cursor in its own "Ask AI for this text…" box; the block's only when
+  // the whole block is selected (lib .../barAi.ts)
+  const barAi = barAiTarget({ selected: !!sel, wholeRow, popKind: popOfSel?.kind ?? null, inRow: !!selRow });
   const elLabel = !sel || wholeRow ? "" : partSel ? partSel.label : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? lastPart(fieldLabel(d.fields, sel.key.slice(2)))
     : sel.key.startsWith("i:") ? "Banner" : sel.picked ? (sel.picked.tag === "img" ? "Picture" : /^h[1-6]$/.test(sel.picked.tag) || /^h[1-6]$/.test(sel.picked.box?.tag ?? "") ? "Heading" : sel.picked.text ? `“${sel.picked.text.slice(0, 24)}${sel.picked.text.length > 24 ? "…" : ""}”` : `<${sel.picked.tag}>`) : "";
   const bar = sel ? (
@@ -1950,7 +1972,7 @@ export default function Studio({ api }: StudioProps) {
       edit={popOfSel && pop?.key !== popOfSel.key && canEdit && !(popOfSel.kind === "settings" && selRow) ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : popOfSel.kind === "part" ? "Edit" : "Edit text", run: () => openPop(popOfSel) } : null}
       onAdd={canEdit && selRow?.module ? (el) => setAddIn({ anchor: el, mod: selRow.key }) : null}
       onSettings={selRow && !(pop?.kind === "settings" && pop.key === selRow.key) ? () => openSettings(selRow) : undefined}
-      onAi={aiHere ? (partSel && popOfSel ? () => openPop(popOfSel) : selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
+      onAi={aiHere ? (barAi === "element" && popOfSel ? () => askElement(popOfSel) : barAi === "block" && selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
   ) : undefined;
 
   /* the popup at the selection */
