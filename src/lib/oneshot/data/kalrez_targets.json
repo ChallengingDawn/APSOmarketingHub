@@ -1,0 +1,6303 @@
+{
+ "meta": {
+  "built": "2026-11-11",
+  "source": "HubSpot orders (ERP lines) 2022-01-01 to 2026-11-11",
+  "rule": "APSO CH: Kalrez 6221+6230 > 1000 CHF; APSO DE (all other countries): > 500 EUR; other-currency lines at 0.94 EUR->CHF",
+  "lastOrderDate": "2026-11-27",
+  "replacement": {
+   "6221": "evolast PB794",
+   "6230": "evolast PN794"
+  }
+ },
+ "items": [
+  {
+   "un": "100-702725",
+   "companyId": "398215044327",
+   "name": "Büchi AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 163379,
+   "v6221": 0,
+   "v6230": 163379,
+   "lastKalrez": "2026-07-01",
+   "articles": [
+    {
+     "a": "1144300225",
+     "t": "FFKM O-ring KALREZ® 6230 ID 47.22 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 650.0,
+     "value": 63704,
+     "last": "2026-06-01"
+    },
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62",
+     "cpd": "6230",
+     "qty": 320.0,
+     "value": 21032,
+     "last": "2022-11-30"
+    },
+    {
+     "a": "1144300228",
+     "t": "FFKM O-ring KALREZ® 6230 ID 56.74 x 3.53",
+     "cpd": "6230",
+     "qty": 95.0,
+     "value": 13204,
+     "last": "2025-07-07"
+    },
+    {
+     "a": "1144300239",
+     "t": "FFKM O-ring KALREZ® 6230 ID 91.67 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 48.0,
+     "value": 10965,
+     "last": "2025-08-07"
+    },
+    {
+     "a": "1144300229",
+     "t": "FFKM O-ring KALREZ® 6230 ID 59.92 x 3.53",
+     "cpd": "6230",
+     "qty": 34.0,
+     "value": 7303,
+     "last": "2025-12-22"
+    },
+    {
+     "a": "1144300224",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.04 x 3.53",
+     "cpd": "6230",
+     "qty": 47.0,
+     "value": 7190,
+     "last": "2025-10-30"
+    },
+    {
+     "a": "1144300011",
+     "t": "FFKM O-ring KALREZ® 6230 ID 7.65 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 270.0,
+     "value": 5215,
+     "last": "2026-07-01"
+    },
+    {
+     "a": "1144300234",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.79 x 3.53",
+     "cpd": "6230",
+     "qty": 16.0,
+     "value": 4183,
+     "last": "2023-11-22"
+    }
+   ],
+   "moreArticles": 29,
+   "orderIds": [
+    "1275549735134",
+    "1281729664239",
+    "1281729665213",
+    "1281729664235",
+    "1281740315866",
+    "1275541943511",
+    "1275650603243",
+    "1275627958506",
+    "1275650219252",
+    "1275627764942"
+   ]
+  },
+  {
+   "un": "100-704456",
+   "companyId": "13581778148",
+   "name": "Esco-Labor AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 84973,
+   "v6221": 69842,
+   "v6230": 15132,
+   "lastKalrez": "2026-10-15",
+   "articles": [
+    {
+     "a": "1144210329",
+     "t": "FFKM O-ring KALREZ® 6221 ID 50.17 x 5.33 mm",
+     "cpd": "6221",
+     "qty": 68.0,
+     "value": 26010,
+     "last": "2026-10-15"
+    },
+    {
+     "a": "1144210325",
+     "t": "FFKM O-ring KALREZ® 6221 ID 37.47 x 5.33 mm",
+     "cpd": "6221",
+     "qty": 64.0,
+     "value": 18013,
+     "last": "2026-10-15"
+    },
+    {
+     "a": "1144300242",
+     "t": "FFKM O-ring KALREZ® 6230 ID 101.19 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 50.0,
+     "value": 14732,
+     "last": "2022-07-04"
+    },
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 44.0,
+     "value": 9739,
+     "last": "2026-10-15"
+    },
+    {
+     "a": "1144210120",
+     "t": "FFKM O-ring KALREZ® 6221 ID 25.07 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 49.0,
+     "value": 3368,
+     "last": "2025-09-17"
+    },
+    {
+     "a": "1144210122",
+     "t": "FFKM O-ring KALREZ® 6221 ID 28.24 x 2.62",
+     "cpd": "6221",
+     "qty": 37.0,
+     "value": 2607,
+     "last": "2025-11-14"
+    },
+    {
+     "a": "1144210116",
+     "t": "FFKM O-ring KALREZ® 6221 ID 18.72 x 2.62",
+     "cpd": "6221",
+     "qty": 41.0,
+     "value": 2296,
+     "last": "2025-11-14"
+    },
+    {
+     "a": "1144210138",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.64 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 12.0,
+     "value": 2020,
+     "last": "2025-11-26"
+    }
+   ],
+   "moreArticles": 10,
+   "orderIds": [
+    "1402572226776",
+    "1369298757849",
+    "1331573100731",
+    "1275545952498",
+    "1281740315865",
+    "1275624463553",
+    "1275624463590",
+    "1275624463608",
+    "1275624463587",
+    "1281720765687"
+   ]
+  },
+  {
+   "un": "100-714154",
+   "companyId": "402260165878",
+   "name": "Kinematica AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 42837,
+   "v6221": 1140,
+   "v6230": 41697,
+   "lastKalrez": "2026-08-31",
+   "articles": [
+    {
+     "a": "1144300139",
+     "t": "FFKM O-ring KALREZ® 6230 ID 55.25 x 2.62",
+     "cpd": "6230",
+     "qty": 44.0,
+     "value": 7625,
+     "last": "2026-02-02"
+    },
+    {
+     "a": "1144300151",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.87 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 13.0,
+     "value": 3667,
+     "last": "2026-06-10"
+    },
+    {
+     "a": "1144300137",
+     "t": "FFKM O-ring KALREZ® 6230 ID 52.07 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 22.0,
+     "value": 3297,
+     "last": "2022-10-10"
+    },
+    {
+     "a": "1144300134",
+     "t": "FFKM O-ring KALREZ® 6230 ID 47.29 x 2.62",
+     "cpd": "6230",
+     "qty": 17.0,
+     "value": 2815,
+     "last": "2025-02-04"
+    },
+    {
+     "a": "1144300128",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.77 x 2.62",
+     "cpd": "6230",
+     "qty": 18.0,
+     "value": 2357,
+     "last": "2024-12-10"
+    },
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 2353,
+     "last": "2025-10-29"
+    },
+    {
+     "a": "1144300123",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.82 x 2.62",
+     "cpd": "6230",
+     "qty": 19.0,
+     "value": 1791,
+     "last": "2025-06-24"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 1442,
+     "last": "2025-02-04"
+    }
+   ],
+   "moreArticles": 29,
+   "orderIds": [
+    "1342202500300",
+    "1275572493547",
+    "1275545827546",
+    "1275545957607",
+    "1275541640441",
+    "1275578185956",
+    "1275651978481",
+    "1275624464585",
+    "1275624121538",
+    "1275624120521"
+   ]
+  },
+  {
+   "un": "100-705212",
+   "companyId": "113896198376",
+   "name": "Aspag AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 38629,
+   "v6221": 2894,
+   "v6230": 35735,
+   "lastKalrez": "2026-10-14",
+   "articles": [
+    {
+     "a": "1144300216",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.17 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 64.0,
+     "value": 4933,
+     "last": "2025-04-02"
+    },
+    {
+     "a": "1144300227",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.57 x 3.53",
+     "cpd": "6230",
+     "qty": 18.0,
+     "value": 3852,
+     "last": "2024-12-11"
+    },
+    {
+     "a": "1144300128",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.77 x 2.62",
+     "cpd": "6230",
+     "qty": 50.0,
+     "value": 3704,
+     "last": "2025-06-26"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 41.0,
+     "value": 3391,
+     "last": "2025-09-26"
+    },
+    {
+     "a": "1144300122",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.24 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 60.0,
+     "value": 3157,
+     "last": "2025-04-02"
+    },
+    {
+     "a": "1144300117",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.29 x 2.62",
+     "cpd": "6230",
+     "qty": 75.0,
+     "value": 2379,
+     "last": "2025-01-31"
+    },
+    {
+     "a": "1144300125",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.99 x 2.62",
+     "cpd": "6230",
+     "qty": 40.0,
+     "value": 2065,
+     "last": "2023-08-17"
+    },
+    {
+     "a": "1144300332",
+     "t": "FFKM O-ring KALREZ® 6230 ID 59.69 x 5.33",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 1791,
+     "last": "2023-04-05"
+    }
+   ],
+   "moreArticles": 21,
+   "orderIds": [
+    "1403469702367",
+    "1275548827891",
+    "1275578184950",
+    "1275578184927",
+    "1275663213766",
+    "1275640705230",
+    "1275650071759",
+    "1275627970784",
+    "1281737097421",
+    "1275629967573"
+   ]
+  },
+  {
+   "un": "100-735793",
+   "companyId": "13581488856",
+   "name": "Swissfluid AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 33496,
+   "v6221": 0,
+   "v6230": 33496,
+   "lastKalrez": "2026-09-16",
+   "articles": [
+    {
+     "a": "8000635831",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 410.0,
+     "value": 30229,
+     "last": "2025-11-06"
+    },
+    {
+     "a": "1144300237",
+     "t": "FFKM O-ring KALREZ® 6230 ID 85.32 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 2291,
+     "last": "2026-09-16"
+    },
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 977,
+     "last": "2026-09-16"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1362136492271",
+    "1365972832488",
+    "1275547411648",
+    "1275579654372",
+    "1275627959511",
+    "1275663850728",
+    "1275649889520",
+    "1275650392311",
+    "1275650392260",
+    "1275639013607"
+   ]
+  },
+  {
+   "un": "100-861671",
+   "companyId": "110086422721",
+   "name": "KBF GmbH",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 11276,
+   "v6221": 0,
+   "v6230": 11276,
+   "lastKalrez": "2025-12-02",
+   "articles": [
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 28.0,
+     "value": 4238,
+     "last": "2025-11-21"
+    },
+    {
+     "a": "1144300129",
+     "t": "FFKM O-ring KALREZ® 6230 ID 39.34 x 2.62",
+     "cpd": "6230",
+     "qty": 26.0,
+     "value": 2771,
+     "last": "2025-11-21"
+    },
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 28.0,
+     "value": 2680,
+     "last": "2025-11-21"
+    },
+    {
+     "a": "1144300227",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.57 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 473,
+     "last": "2025-04-11"
+    },
+    {
+     "a": "1144300217",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.74 x 3.53",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 424,
+     "last": "2025-12-02"
+    },
+    {
+     "a": "1144300137",
+     "t": "FFKM O-ring KALREZ® 6230 ID 52.07 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 368,
+     "last": "2025-04-11"
+    },
+    {
+     "a": "1144300220",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.52 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 321,
+     "last": "2025-04-11"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275652166853",
+    "1275663430865",
+    "1275629821152",
+    "1275652185285",
+    "1275649847503",
+    "1275650408652"
+   ]
+  },
+  {
+   "un": "100-704400",
+   "companyId": "13581647836",
+   "name": "Widmann K. AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 10534,
+   "v6221": 0,
+   "v6230": 10534,
+   "lastKalrez": "2023-09-05",
+   "articles": [
+    {
+     "a": "1144300026",
+     "t": "FFKM O-ring KALREZ® 6230 ID 31.47 x 1.78",
+     "cpd": "6230",
+     "qty": 66.0,
+     "value": 3472,
+     "last": "2023-09-05"
+    },
+    {
+     "a": "1144300016",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.60 x 1.78",
+     "cpd": "6230",
+     "qty": 86.0,
+     "value": 2259,
+     "last": "2023-09-05"
+    },
+    {
+     "a": "1144300027",
+     "t": "FFKM O-ring KALREZ® 6230 ID 33.05 x 1.78",
+     "cpd": "6230",
+     "qty": 33.0,
+     "value": 2090,
+     "last": "2023-09-05"
+    },
+    {
+     "a": "1144300022",
+     "t": "FFKM O-ring KALREZ® 6230 ID 25.12 x 1.78",
+     "cpd": "6230",
+     "qty": 33.0,
+     "value": 1473,
+     "last": "2023-09-05"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 33.0,
+     "value": 1240,
+     "last": "2023-09-05"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275927699702",
+    "1276022754538",
+    "1276022754536",
+    "1281736527035",
+    "1276023561447"
+   ]
+  },
+  {
+   "un": "100-844687",
+   "companyId": "398839745773",
+   "name": "Zürcher Technik AG",
+   "sae": "Falk Luna",
+   "mandant": "CH",
+   "ownerId": "1229976031",
+   "ownerName": "Luna Falk",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 10337,
+   "v6221": 9926,
+   "v6230": 412,
+   "lastKalrez": "2026-03-27",
+   "articles": [
+    {
+     "a": "1144210006",
+     "t": "FFKM O-ring KALREZ® 6221 ID 2.90 x 1.78",
+     "cpd": "6221",
+     "qty": 125.0,
+     "value": 3410,
+     "last": "2023-02-27"
+    },
+    {
+     "a": "1144210013",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.82 x 1.78",
+     "cpd": "6221",
+     "qty": 100.0,
+     "value": 3300,
+     "last": "2023-02-27"
+    },
+    {
+     "a": "1144210124",
+     "t": "FFKM O-ring KALREZ® 6221 ID 31.42 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 508,
+     "last": "2026-03-27"
+    },
+    {
+     "a": "1144210122",
+     "t": "FFKM O-ring KALREZ® 6221 ID 28.24 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 466,
+     "last": "2023-02-27"
+    },
+    {
+     "a": "1144210123",
+     "t": "FFKM O-ring KALREZ® 6221 ID 29.82 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 461,
+     "last": "2024-07-05"
+    },
+    {
+     "a": "1144210121",
+     "t": "FFKM O-ring KALREZ® 6221 ID 26.64 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 453,
+     "last": "2023-02-27"
+    },
+    {
+     "a": "1144210118",
+     "t": "FFKM O-ring KALREZ® 6221 ID 21.89 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 379,
+     "last": "2024-07-05"
+    },
+    {
+     "a": "1144210015",
+     "t": "FFKM O-ring KALREZ® 6221 ID 14.00 x 1.78",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 356,
+     "last": "2024-04-16"
+    }
+   ],
+   "moreArticles": 5,
+   "orderIds": [
+    "1275547796713",
+    "1275945281736",
+    "1275945281731",
+    "1275946733762",
+    "1275944326351",
+    "1275944325310",
+    "1275927702763",
+    "1275923580114",
+    "1275929472235",
+    "1275929471205"
+   ]
+  },
+  {
+   "un": "100-705389",
+   "companyId": "449714994373",
+   "name": "Dottikon Exclusive Synthesis AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 8913,
+   "v6221": 110,
+   "v6230": 8804,
+   "lastKalrez": "2026-10-30",
+   "articles": [
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 21.0,
+     "value": 1791,
+     "last": "2026-10-30"
+    },
+    {
+     "a": "1144300220",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.52 x 3.53",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 1114,
+     "last": "2025-03-07"
+    },
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 1060,
+     "last": "2026-10-30"
+    },
+    {
+     "a": "1144300221",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.09 x 3.53",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 669,
+     "last": "2025-06-04"
+    },
+    {
+     "a": "1144300328",
+     "t": "FFKM O-ring KALREZ® 6230 ID 46.99 x 5.33",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 624,
+     "last": "2023-05-02"
+    },
+    {
+     "a": "1144300222",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.69 x 3.53",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 474,
+     "last": "2023-05-02"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 451,
+     "last": "2026-05-07"
+    },
+    {
+     "a": "1144300219",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.92 x 3.53",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 382,
+     "last": "2025-03-07"
+    }
+   ],
+   "moreArticles": 10,
+   "orderIds": [
+    "1426614248646",
+    "1425249153265",
+    "1360377994489",
+    "1275573725375",
+    "1275548254444",
+    "1281657580750",
+    "1275541634273",
+    "1275546781887",
+    "1275471470781",
+    "1275650603237"
+   ]
+  },
+  {
+   "un": "100-820900",
+   "companyId": "13581699812",
+   "name": "Solvias AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 8842,
+   "v6221": 7419,
+   "v6230": 1423,
+   "lastKalrez": "2026-02-02",
+   "articles": [
+    {
+     "a": "1144210013",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.82 x 1.78",
+     "cpd": "6221",
+     "qty": 200.0,
+     "value": 6044,
+     "last": "2025-01-08"
+    },
+    {
+     "a": "1144210010",
+     "t": "FFKM O-ring KALREZ® 6221 ID 6.07 x 1.78",
+     "cpd": "6221",
+     "qty": 50.0,
+     "value": 1375,
+     "last": "2025-01-08"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 818,
+     "last": "2026-02-02"
+    },
+    {
+     "a": "1144300011",
+     "t": "FFKM O-ring KALREZ® 6230 ID 7.65 x 1.78",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 605,
+     "last": "2026-02-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275546778849",
+    "1275627746493"
+   ]
+  },
+  {
+   "un": "100-719265",
+   "companyId": "289896607961",
+   "name": "Zürcher - Technik AG",
+   "sae": "Falk Luna",
+   "mandant": "CH",
+   "ownerId": "1229976031",
+   "ownerName": "Luna Falk",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 8768,
+   "v6221": 8768,
+   "v6230": 0,
+   "lastKalrez": "2026-01-19",
+   "articles": [
+    {
+     "a": "1144210013",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.82 x 1.78",
+     "cpd": "6221",
+     "qty": 110.0,
+     "value": 3977,
+     "last": "2024-08-21"
+    },
+    {
+     "a": "1144210014",
+     "t": "FFKM O-ring KALREZ® 6221 ID 12.42 x 1.78",
+     "cpd": "6221",
+     "qty": 30.0,
+     "value": 1324,
+     "last": "2025-07-17"
+    },
+    {
+     "a": "1144210124",
+     "t": "FFKM O-ring KALREZ® 6221 ID 31.42 x 2.62",
+     "cpd": "6221",
+     "qty": 7.0,
+     "value": 713,
+     "last": "2024-09-27"
+    },
+    {
+     "a": "1144210126",
+     "t": "FFKM O-ring KALREZ® 6221 ID 34.59 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 636,
+     "last": "2024-03-04"
+    },
+    {
+     "a": "1144210011",
+     "t": "FFKM O-ring KALREZ® 6221 ID 7.65 x 1.78",
+     "cpd": "6221",
+     "qty": 14.0,
+     "value": 477,
+     "last": "2026-01-19"
+    },
+    {
+     "a": "1144210118",
+     "t": "FFKM O-ring KALREZ® 6221 ID 21.89 x 2.62",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 455,
+     "last": "2024-08-06"
+    },
+    {
+     "a": "1144210234",
+     "t": "FFKM O-ring KALREZ® 6221 ID 75.79 x 3.53",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 417,
+     "last": "2024-08-21"
+    },
+    {
+     "a": "1144210016",
+     "t": "FFKM O-ring KALREZ® 6221 ID 15.60 x 1.78",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 387,
+     "last": "2024-08-06"
+    }
+   ],
+   "moreArticles": 2,
+   "orderIds": [
+    "1275548825794",
+    "1275638606030",
+    "1275660329157",
+    "1275944798434",
+    "1275942757621",
+    "1275904501954",
+    "1275942491349",
+    "1275909166295",
+    "1275945436391",
+    "1275946676427"
+   ]
+  },
+  {
+   "un": "100-711211",
+   "companyId": "13581568722",
+   "name": "De Dietrich Process Systems AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 7837,
+   "v6221": 4040,
+   "v6230": 3797,
+   "lastKalrez": "2026-03-13",
+   "articles": [
+    {
+     "a": "1144210231",
+     "t": "FFKM O-ring KALREZ® 6221 ID 66.27 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 8.0,
+     "value": 1944,
+     "last": "2026-03-13"
+    },
+    {
+     "a": "1144300220",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.52 x 3.53",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 1180,
+     "last": "2025-11-27"
+    },
+    {
+     "a": "1144300151",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.87 x 2.62",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 712,
+     "last": "2025-08-13"
+    },
+    {
+     "a": "1144210135",
+     "t": "FFKM O-ring KALREZ® 6221 ID 48.90 x 2.62",
+     "cpd": "6221",
+     "qty": 4.0,
+     "value": 706,
+     "last": "2026-03-06"
+    },
+    {
+     "a": "1144300138",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.64 x 2.62",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 635,
+     "last": "2025-08-13"
+    },
+    {
+     "a": "1144210242",
+     "t": "FFKM O-ring KALREZ® 6221 ID 101.19 x 3.5",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 489,
+     "last": "2025-08-13"
+    },
+    {
+     "a": "1144300122",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.24 x 2.62",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 378,
+     "last": "2024-12-21"
+    },
+    {
+     "a": "1144210325",
+     "t": "FFKM O-ring KALREZ® 6221 ID 37.47 x 5.33",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 333,
+     "last": "2025-02-14"
+    }
+   ],
+   "moreArticles": 6,
+   "orderIds": [
+    "1275575258333",
+    "1281730463959",
+    "1275541643504",
+    "1275649299664",
+    "1275651141846",
+    "1275639016660",
+    "1275935263948",
+    "1275910299883",
+    "1275909167294",
+    "1275923169480"
+   ]
+  },
+  {
+   "un": "100-710144",
+   "companyId": "92341698768",
+   "name": "Ramseyer Andre AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 7086,
+   "v6221": 0,
+   "v6230": 7086,
+   "lastKalrez": "2026-09-15",
+   "articles": [
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 22.0,
+     "value": 2419,
+     "last": "2026-03-05"
+    },
+    {
+     "a": "1144300334",
+     "t": "FFKM O-ring KALREZ® 6230 ID 66.04 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 2058,
+     "last": "2026-09-15"
+    },
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 1196,
+     "last": "2023-05-17"
+    },
+    {
+     "a": "1144300120",
+     "t": "FFKM O-ring KALREZ® 6230 ID 25.07 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 412,
+     "last": "2025-03-06"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 409,
+     "last": "2026-04-20"
+    },
+    {
+     "a": "1144300113",
+     "t": "FFKM O-ring KALREZ® 6230 ID 13.94 x 2.62",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 250,
+     "last": "2025-12-01"
+    },
+    {
+     "a": "1144300114",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.54 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 107,
+     "last": "2022-03-04"
+    },
+    {
+     "a": "1144300110",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.19 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 92,
+     "last": "2022-03-04"
+    }
+   ],
+   "moreArticles": 2,
+   "orderIds": [
+    "1361000832223",
+    "1275549205733",
+    "1275541644479",
+    "1275650059461",
+    "1275630403812",
+    "1275941473506",
+    "1275947552955",
+    "1275945268420",
+    "1275944168682",
+    "1275976513736"
+   ]
+  },
+  {
+   "un": "100-704959",
+   "companyId": "13581091290",
+   "name": "CP Pumpen AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 6198,
+   "v6221": 0,
+   "v6230": 6198,
+   "lastKalrez": "2023-05-08",
+   "articles": [
+    {
+     "a": "1144300222",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.69 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 2161,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 13.0,
+     "value": 1633,
+     "last": "2023-05-08"
+    },
+    {
+     "a": "1144300332",
+     "t": "FFKM O-ring KALREZ® 6230 ID 59.69 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 1193,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144300221",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.09 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 799,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144300216",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.17 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 412,
+     "last": "2022-02-15"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275976053963",
+    "1276022403276",
+    "1276022402243",
+    "1276022403274",
+    "1276022403288",
+    "1281729313983"
+   ]
+  },
+  {
+   "un": "100-732800",
+   "companyId": "13581848023",
+   "name": "Depac Anstalt",
+   "sae": "Jeremy Borey",
+   "mandant": "CH",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 5771,
+   "v6221": 0,
+   "v6230": 5771,
+   "lastKalrez": "2022-04-29",
+   "articles": [
+    {
+     "a": "1144300152",
+     "t": "FFKM O-ring KALREZ® 6230 ID 82.22 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 12.0,
+     "value": 2501,
+     "last": "2022-02-17"
+    },
+    {
+     "a": "1144300239",
+     "t": "FFKM O-ring KALREZ® 6230 ID 91.67 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 1767,
+     "last": "2022-02-17"
+    },
+    {
+     "a": "1144300137",
+     "t": "FFKM O-ring KALREZ® 6230 ID 52.07 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 1064,
+     "last": "2022-02-17"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 440,
+     "last": "2022-04-29"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276037584081",
+    "1276023568626",
+    "1276023568581",
+    "1276023727315",
+    "1281737673937",
+    "1276037440717"
+   ]
+  },
+  {
+   "un": "100-743337",
+   "companyId": "415719684313",
+   "name": "BA Coding Martin Baumann",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 5370,
+   "v6221": 0,
+   "v6230": 5370,
+   "lastKalrez": "2025-01-13",
+   "articles": [
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 7.0,
+     "value": 1370,
+     "last": "2025-01-13"
+    },
+    {
+     "a": "1144300145",
+     "t": "FFKM O-ring KALREZ® 6230 ID 64.77 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 946,
+     "last": "2022-10-12"
+    },
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 934,
+     "last": "2025-01-13"
+    },
+    {
+     "a": "1144300129",
+     "t": "FFKM O-ring KALREZ® 6230 ID 39.34 x 2.62",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 824,
+     "last": "2025-01-13"
+    },
+    {
+     "a": "1144300217",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.74 x 3.53",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 748,
+     "last": "2023-07-14"
+    },
+    {
+     "a": "1144300137",
+     "t": "FFKM O-ring KALREZ® 6230 ID 52.07 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 368,
+     "last": "2024-09-23"
+    },
+    {
+     "a": "1144300113",
+     "t": "FFKM O-ring KALREZ® 6230 ID 13.94 x 2.62",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 180,
+     "last": "2024-06-04"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275643147479",
+    "1275943606508",
+    "1275938263278",
+    "1275905415408",
+    "1275929925835",
+    "1275974833371",
+    "1276021280981",
+    "1276023562444",
+    "1276018509028"
+   ]
+  },
+  {
+   "un": "100-709051",
+   "companyId": "313182593263",
+   "name": "Sigma-Aldrich Production GmbH",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 4385,
+   "v6221": 4385,
+   "v6230": 0,
+   "lastKalrez": "2025-11-11",
+   "articles": [
+    {
+     "a": "1144210329",
+     "t": "FFKM O-ring KALREZ® 6221 ID 50.17 x 5.33",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 1336,
+     "last": "2025-11-11"
+    },
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 1306,
+     "last": "2025-11-11"
+    },
+    {
+     "a": "1144210325",
+     "t": "FFKM O-ring KALREZ® 6221 ID 37.47 x 5.33",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 1003,
+     "last": "2025-11-11"
+    },
+    {
+     "a": "1144210226",
+     "t": "FFKM O-ring KALREZ® 6221 ID 50.39 x 3.53",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 739,
+     "last": "2025-11-11"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275624286405"
+   ]
+  },
+  {
+   "un": "100-727818",
+   "companyId": "255765844185",
+   "name": "Avintos AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 4182,
+   "v6221": 0,
+   "v6230": 4182,
+   "lastKalrez": "2026-03-27",
+   "articles": [
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 126.0,
+     "value": 3923,
+     "last": "2026-03-27"
+    },
+    {
+     "a": "1144300011",
+     "t": "FFKM O-ring KALREZ® 6230 ID 7.65 x 1.78",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 258,
+     "last": "2024-11-29"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275545959668",
+    "1275649848569",
+    "1275634938104",
+    "1275941473502",
+    "1275929923805",
+    "1276037430494",
+    "1276037431500",
+    "1275928697034",
+    "1275928709318"
+   ]
+  },
+  {
+   "un": "100-858426",
+   "companyId": "215755134201",
+   "name": "Delta Precision Ltd",
+   "sae": "TSA Team",
+   "mandant": "CH",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 4010,
+   "v6221": 0,
+   "v6230": 4010,
+   "lastKalrez": "2025-10-14",
+   "articles": [
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 36.0,
+     "value": 2507,
+     "last": "2025-10-14"
+    },
+    {
+     "a": "1144300123",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.82 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 36.0,
+     "value": 1503,
+     "last": "2025-10-14"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275624132851",
+    "1281731546320"
+   ]
+  },
+  {
+   "un": "100-714513",
+   "companyId": "13581663438",
+   "name": "GEA Aseptomag AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 3693,
+   "v6221": 0,
+   "v6230": 3693,
+   "lastKalrez": "2025-03-31",
+   "articles": [
+    {
+     "a": "1144300213",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.39 x 3.53",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 1152,
+     "last": "2024-01-30"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 831,
+     "last": "2025-03-26"
+    },
+    {
+     "a": "1144300314",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.42 x 5.33",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 598,
+     "last": "2025-03-31"
+    },
+    {
+     "a": "1144300128",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.77 x 2.62",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 534,
+     "last": "2023-11-21"
+    },
+    {
+     "a": "1144300119",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.47 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 346,
+     "last": "2025-03-26"
+    },
+    {
+     "a": "1144300225",
+     "t": "FFKM O-ring KALREZ® 6230 ID 47.22 x 3.53",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 232,
+     "last": "2022-10-14"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275643136232",
+    "1275649089748",
+    "1275649089744",
+    "1275943967951",
+    "1275944151235",
+    "1275943966910",
+    "1275930964191",
+    "1276027047157"
+   ]
+  },
+  {
+   "un": "100-808125",
+   "companyId": "13581807556",
+   "name": "RegenHU SA",
+   "sae": "Jeremy Borey",
+   "mandant": "CH",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 3028,
+   "v6221": 0,
+   "v6230": 3028,
+   "lastKalrez": "2022-04-27",
+   "articles": [
+    {
+     "a": "1144300012",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.25 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 70.0,
+     "value": 3028,
+     "last": "2022-04-27"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276038055118",
+    "1281738976448",
+    "1276022405320",
+    "1276007080156"
+   ]
+  },
+  {
+   "un": "100-706830",
+   "companyId": "13581852661",
+   "name": "Burgener AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 2999,
+   "v6221": 0,
+   "v6230": 2999,
+   "lastKalrez": "2024-04-24",
+   "articles": [
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53",
+     "cpd": "6230",
+     "qty": 12.0,
+     "value": 1945,
+     "last": "2024-04-24"
+    },
+    {
+     "a": "1144300125",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.99 x 2.62",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 713,
+     "last": "2024-04-24"
+    },
+    {
+     "a": "1144300019",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.35 x 1.78",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 341,
+     "last": "2024-04-24"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275905043703"
+   ]
+  },
+  {
+   "un": "100-739464",
+   "companyId": "13581749977",
+   "name": "Chemspeed Technologies AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 2639,
+   "v6221": 0,
+   "v6230": 2639,
+   "lastKalrez": "2023-11-06",
+   "articles": [
+    {
+     "a": "1144300035",
+     "t": "FFKM O-ring KALREZ® 6230 ID 56.87 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 19.0,
+     "value": 2639,
+     "last": "2023-11-06"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275975373020",
+    "1281727477984"
+   ]
+  },
+  {
+   "un": "100-820927",
+   "companyId": "13581630408",
+   "name": "Aseptconn AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 2555,
+   "v6221": 0,
+   "v6230": 2555,
+   "lastKalrez": "2026-05-26",
+   "articles": [
+    {
+     "a": "1144300020",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.95 x 1.78",
+     "cpd": "6230",
+     "qty": 76.0,
+     "value": 2555,
+     "last": "2026-05-26"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275550002394",
+    "1275624491239",
+    "1275945774281"
+   ]
+  },
+  {
+   "un": "100-712064",
+   "companyId": "357039942851",
+   "name": "Biar SA",
+   "sae": "Jeremy Borey",
+   "mandant": "CH",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1880,
+   "v6221": 0,
+   "v6230": 1880,
+   "lastKalrez": "2026-06-30",
+   "articles": [
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 739,
+     "last": "2026-06-30"
+    },
+    {
+     "a": "1144300121",
+     "t": "FFKM O-ring KALREZ® 6230 ID 26.64 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 613,
+     "last": "2022-06-07"
+    },
+    {
+     "a": "1144300009",
+     "t": "FFKM O-ring KALREZ® 6230 ID 5.28 x 1.78",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 463,
+     "last": "2025-05-21"
+    },
+    {
+     "a": "1144300113",
+     "t": "FFKM O-ring KALREZ® 6230 ID 13.94 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 65,
+     "last": "2022-06-07"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275548015845",
+    "1275649860845",
+    "1276014432492",
+    "1276014431475"
+   ]
+  },
+  {
+   "un": "100-814597",
+   "companyId": "398619693253",
+   "name": "lean key solutions GmbH",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1790,
+   "v6221": 0,
+   "v6230": 1790,
+   "lastKalrez": "2025-12-15",
+   "articles": [
+    {
+     "a": "1144300018",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.77 x 1.78",
+     "cpd": "6230",
+     "qty": 28.0,
+     "value": 1357,
+     "last": "2025-12-15"
+    },
+    {
+     "a": "1144300014",
+     "t": "FFKM O-ring KALREZ® 6230 ID 12.42 x 1.78",
+     "cpd": "6230",
+     "qty": 0.0,
+     "value": 433,
+     "last": "2025-12-15"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275663999169",
+    "1275630602434",
+    "1281738978495"
+   ]
+  },
+  {
+   "un": "100-710847",
+   "companyId": "13581885395",
+   "name": "EBI & Co. AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1702,
+   "v6221": 1217,
+   "v6230": 484,
+   "lastKalrez": "2022-08-25",
+   "articles": [
+    {
+     "a": "1144210128",
+     "t": "FFKM O-ring KALREZ® 6221 ID 37.77 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 4.0,
+     "value": 562,
+     "last": "2022-07-05"
+    },
+    {
+     "a": "1144210127",
+     "t": "FFKM O-ring KALREZ® 6221 ID 36.17 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 4.0,
+     "value": 525,
+     "last": "2022-07-05"
+    },
+    {
+     "a": "1144300128",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.77 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 251,
+     "last": "2022-07-05"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 234,
+     "last": "2022-07-05"
+    },
+    {
+     "a": "1144210111",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.77 x 2.62",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 130,
+     "last": "2022-08-25"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276021056728",
+    "1276034308335",
+    "1276038442188",
+    "1276038442179",
+    "1281736521974"
+   ]
+  },
+  {
+   "un": "100-717962",
+   "companyId": "289802275046",
+   "name": "Carbogen Amcis AG",
+   "sae": "Pielock Nancy",
+   "mandant": "CH",
+   "ownerId": "1229976026",
+   "ownerName": "Nancy Pielock",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 1457,
+   "v6221": 1457,
+   "v6230": 0,
+   "lastKalrez": "2024-03-07",
+   "articles": [
+    {
+     "a": "1144210109",
+     "t": "FFKM O-ring KALREZ® 6221 ID 7.59 x 2.62",
+     "cpd": "6221",
+     "qty": 40.0,
+     "value": 1457,
+     "last": "2024-03-07"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275909057748"
+   ]
+  },
+  {
+   "un": "100-724862",
+   "companyId": "464305214699",
+   "name": "Aran AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1439,
+   "v6221": 199,
+   "v6230": 1240,
+   "lastKalrez": "2025-01-31",
+   "articles": [
+    {
+     "a": "1144300271",
+     "t": "FFKM O-ring KALREZ® 6230 ID 234.54 x 3.5",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 834,
+     "last": "2025-01-31"
+    },
+    {
+     "a": "1144300323",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.69 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 406,
+     "last": "2022-04-07"
+    },
+    {
+     "a": "1144210116",
+     "t": "FFKM O-ring KALREZ® 6221 ID 18.72 x 2.62",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 199,
+     "last": "2024-09-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275620121807",
+    "1275910600901",
+    "1276036724935",
+    "1281728452806"
+   ]
+  },
+  {
+   "un": "100-724195",
+   "companyId": "234043232469",
+   "name": "CBRE GWS GmbH",
+   "sae": "Pielock Nancy",
+   "mandant": "CH",
+   "ownerId": "1229976026",
+   "ownerName": "Nancy Pielock",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 1432,
+   "v6221": 1432,
+   "v6230": 0,
+   "lastKalrez": "2025-06-12",
+   "articles": [
+    {
+     "a": "1144210214",
+     "t": "FFKM O-ring KALREZ® 6221 ID 24.99 x 3.53",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 496,
+     "last": "2024-07-24"
+    },
+    {
+     "a": "1144210111",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.77 x 2.62",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 381,
+     "last": "2024-07-26"
+    },
+    {
+     "a": "1144210116",
+     "t": "FFKM O-ring KALREZ® 6221 ID 18.72 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 287,
+     "last": "2025-06-12"
+    },
+    {
+     "a": "1144210115",
+     "t": "FFKM O-ring KALREZ® 6221 ID 17.12 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 268,
+     "last": "2025-06-12"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275640090827",
+    "1275640091860",
+    "1275943021780",
+    "1275905440970"
+   ]
+  },
+  {
+   "un": "100-721850",
+   "companyId": "447035472081",
+   "name": "Sapa Prodotti Plastici SAGL",
+   "sae": "Gustak Marzena",
+   "mandant": "CH",
+   "ownerId": "1229976029",
+   "ownerName": "Marzena Gustak",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 1310,
+   "v6221": 0,
+   "v6230": 1310,
+   "lastKalrez": "2024-05-07",
+   "articles": [
+    {
+     "a": "1144300013",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.82 x 1.78",
+     "cpd": "6230",
+     "qty": 40.0,
+     "value": 1310,
+     "last": "2024-05-07"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275904515312",
+    "1275943619791",
+    "1275929907407",
+    "1275975385293",
+    "1276021257405"
+   ]
+  },
+  {
+   "un": "100-725113",
+   "companyId": "415780928707",
+   "name": "Mavag AG",
+   "sae": "Gustak Marzena",
+   "mandant": "CH",
+   "ownerId": "1229976029",
+   "ownerName": "Marzena Gustak",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 1279,
+   "v6221": 1279,
+   "v6230": 0,
+   "lastKalrez": "2026-05-26",
+   "articles": [
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 1179,
+     "last": "2022-07-20"
+    },
+    {
+     "a": "1144210012",
+     "t": "FFKM O-ring KALREZ® 6221 ID 9.25 x 1.78",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 100,
+     "last": "2026-05-26"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275573723345",
+    "1276038473939"
+   ]
+  },
+  {
+   "un": "100-709787",
+   "companyId": "429974047939",
+   "name": "Georg Fischer Rohrleitungssysteme AG",
+   "sae": "Gustak Marzena",
+   "mandant": "CH",
+   "ownerId": "1229976029",
+   "ownerName": "Marzena Gustak",
+   "team": "TSA",
+   "cur": "CHF",
+   "value": 1211,
+   "v6221": 1211,
+   "v6230": 0,
+   "lastKalrez": "2026-06-09",
+   "articles": [
+    {
+     "a": "1144210224",
+     "t": "FFKM O-ring KALREZ® 6221 ID 44.04 x 3.53",
+     "cpd": "6221",
+     "qty": 7.0,
+     "value": 1211,
+     "last": "2026-06-09"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275572493528"
+   ]
+  },
+  {
+   "un": "100-721547",
+   "companyId": "13581569247",
+   "name": "Arbor Fluidtec AG",
+   "sae": "Kalt Jan",
+   "mandant": "CH",
+   "ownerId": "37053854",
+   "ownerName": "Jan Kalt",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1163,
+   "v6221": 326,
+   "v6230": 837,
+   "lastKalrez": "2024-11-05",
+   "articles": [
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 837,
+     "last": "2023-08-16"
+    },
+    {
+     "a": "1144210010",
+     "t": "FFKM O-ring KALREZ® 6221 ID 6.07 x 1.78",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 326,
+     "last": "2024-11-05"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275944590557",
+    "1275931459819",
+    "1275923554553"
+   ]
+  },
+  {
+   "un": "100-721829",
+   "companyId": "145744080082",
+   "name": "DEC Dietrich Engineering Consultants SA",
+   "sae": "Jeremy Borey",
+   "mandant": "CH",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1099,
+   "v6221": 271,
+   "v6230": 828,
+   "lastKalrez": "2026-08-25",
+   "articles": [
+    {
+     "a": "1144300016",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.60 x 1.78",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 408,
+     "last": "2024-10-29"
+    },
+    {
+     "a": "1144300207",
+     "t": "FFKM O-ring KALREZ® 6230 ID 13.87 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 324,
+     "last": "2026-08-25"
+    },
+    {
+     "a": "1144210034",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.70 x 1.78",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 271,
+     "last": "2025-09-11"
+    },
+    {
+     "a": "1144300013",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.82 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 96,
+     "last": "2026-08-25"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1334381698272",
+    "1338412946641",
+    "1275627762886",
+    "1275943398611",
+    "1275911097548"
+   ]
+  },
+  {
+   "un": "100-720691",
+   "companyId": "464316495042",
+   "name": "Debiopharm Research & Manufacturing SA",
+   "sae": "Jeremy Borey",
+   "mandant": "CH",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "CHF",
+   "value": 1026,
+   "v6221": 0,
+   "v6230": 1026,
+   "lastKalrez": "2025-12-12",
+   "articles": [
+    {
+     "a": "1144300125",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.99 x 2.62",
+     "cpd": "6230",
+     "qty": 7.0,
+     "value": 587,
+     "last": "2025-12-12"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 369,
+     "last": "2024-06-28"
+    },
+    {
+     "a": "1144300014",
+     "t": "FFKM O-ring KALREZ® 6230 ID 12.42 x 1.78",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 70,
+     "last": "2024-06-21"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275620113595",
+    "1275650575547",
+    "1275943372996",
+    "1275944296642"
+   ]
+  },
+  {
+   "un": "110-745834",
+   "companyId": "13581278967",
+   "name": "GATHER Industrie GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 152511,
+   "v6221": 0,
+   "v6230": 152511,
+   "lastKalrez": "2026-11-05",
+   "articles": [
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 612.0,
+     "value": 25732,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "1144300118",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.89 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 742.0,
+     "value": 20721,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "1144300121",
+     "t": "FFKM O-ring KALREZ® 6230 ID 26.64 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 468.0,
+     "value": 14640,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "1144300123",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.82 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 485.0,
+     "value": 14408,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62",
+     "cpd": "6230",
+     "qty": 460.0,
+     "value": 11539,
+     "last": "2026-04-29"
+    },
+    {
+     "a": "1144300117",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.29 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 417.0,
+     "value": 10677,
+     "last": "2026-09-10"
+    },
+    {
+     "a": "1144300122",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.24 x 2.62",
+     "cpd": "6230",
+     "qty": 470.0,
+     "value": 9729,
+     "last": "2026-07-02"
+    },
+    {
+     "a": "1144300015",
+     "t": "FFKM O-ring KALREZ® 6230 ID 14.00 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 537.0,
+     "value": 6876,
+     "last": "2026-10-22"
+    }
+   ],
+   "moreArticles": 21,
+   "orderIds": [
+    "1434219148479",
+    "1429847129326",
+    "1435576374489",
+    "1411632177355",
+    "1383902670046",
+    "1356852366544",
+    "1356049146044",
+    "1341050649839",
+    "1341050649798",
+    "1338398614762"
+   ]
+  },
+  {
+   "un": "110-745429",
+   "companyId": "13581768128",
+   "name": "Chesterton International GmbH",
+   "sae": "Frech Marc",
+   "mandant": "DE",
+   "ownerId": "817497321",
+   "ownerName": "Marc Frech",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 83845,
+   "v6221": 904,
+   "v6230": 82941,
+   "lastKalrez": "2026-10-19",
+   "articles": [
+    {
+     "a": "1144300374",
+     "t": "FFKM O-ring KALREZ® 6230 ID 234.32 x 5.3",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 23420,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300373",
+     "t": "FFKM O-ring KALREZ® 6230 ID 227.97 x 5.3",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 22764,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300369",
+     "t": "FFKM O-ring KALREZ® 6230 ID 202.57 x 5.3",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 10635,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300269",
+     "t": "FFKM O-ring KALREZ® 6230 ID 221.84 x 3.5",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 6009,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300249",
+     "t": "FFKM O-ring KALREZ® 6230 ID 123.42 x 3.5",
+     "cpd": "6230",
+     "qty": 16.0,
+     "value": 3141,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300371",
+     "t": "FFKM O-ring KALREZ® 6230 ID 215.27 x 5.3",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 3062,
+     "last": "2022-10-20"
+    },
+    {
+     "a": "1144300248",
+     "t": "FFKM O-ring KALREZ® 6230 ID 120.24 x 3.5",
+     "cpd": "6230",
+     "qty": 16.0,
+     "value": 3024,
+     "last": "2023-12-20"
+    },
+    {
+     "a": "1144300366",
+     "t": "FFKM O-ring KALREZ® 6230 ID 183.52 x 5.3",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 1586,
+     "last": "2022-10-20"
+    }
+   ],
+   "moreArticles": 18,
+   "orderIds": [
+    "1408227272920",
+    "1399808786634",
+    "1341061214440",
+    "1275546771692",
+    "1275559532774",
+    "1275548256479",
+    "1275649096915",
+    "1275911110890",
+    "1275909178563",
+    "1275972889844"
+   ]
+  },
+  {
+   "un": "110-751430",
+   "companyId": "398205978846",
+   "name": "De Dietrich Germany Besigheim GmbH",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 80504,
+   "v6221": 80504,
+   "v6230": 0,
+   "lastKalrez": "2024-03-25",
+   "articles": [
+    {
+     "a": "8000600551",
+     "t": "KALREZ O-ring compound 6221 special si ID 745,00 x 6,99 mm, Splice&Join, FDA",
+     "cpd": "6221",
+     "qty": 31.0,
+     "value": 72194,
+     "last": "2024-03-25"
+    },
+    {
+     "a": "8000269007",
+     "t": "KALREZ O-ring compound 6221 special si K886208, inner Ø 770,00 x 6,99 mm, FDA",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 8310,
+     "last": "2022-08-12"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275946746050",
+    "1275946746099",
+    "1281728689398",
+    "1275927524554",
+    "1275927525586",
+    "1275927525569",
+    "1281762395324",
+    "1275974698208",
+    "1276021276906",
+    "1276033512640"
+   ]
+  },
+  {
+   "un": "110-804403",
+   "companyId": "289329671367",
+   "name": "AS Strömungstechnik GmbH",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 76358,
+   "v6221": 761,
+   "v6230": 75597,
+   "lastKalrez": "2026-11-05",
+   "articles": [
+    {
+     "a": "8000604943",
+     "t": "KALREZ O-ring compound 6230 special si K32024, inner Ø  34,20 x 3,00 mm, FDA",
+     "cpd": "6230",
+     "qty": 185.0,
+     "value": 11567,
+     "last": "2026-11-03"
+    },
+    {
+     "a": "8000682308",
+     "t": "Perfluor O-Ring FFKM 6230 ID 54.50 x 3.00 mm",
+     "cpd": "6230",
+     "qty": 120.0,
+     "value": 10364,
+     "last": "2026-09-14"
+    },
+    {
+     "a": "8000053972",
+     "t": "KALREZ O-ring compound 6230 special si K32028, DI 39,20 x 3,00 mm, FDA",
+     "cpd": "6230",
+     "qty": 125.0,
+     "value": 8875,
+     "last": "2026-11-03"
+    },
+    {
+     "a": "1144300216",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.17 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 153.0,
+     "value": 6678,
+     "last": "2026-08-28"
+    },
+    {
+     "a": "1144300117",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.29 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 315.0,
+     "value": 6622,
+     "last": "2026-08-20"
+    },
+    {
+     "a": "1144300023",
+     "t": "FFKM O-ring KALREZ® 6230 ID 26.70 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 274.0,
+     "value": 5559,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "8000064518",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 214.0,
+     "value": 4656,
+     "last": "2026-06-17"
+    },
+    {
+     "a": "1144300119",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.47 x 2.62",
+     "cpd": "6230",
+     "qty": 152.0,
+     "value": 3557,
+     "last": "2026-05-26"
+    }
+   ],
+   "moreArticles": 15,
+   "orderIds": [
+    "1434052528346",
+    "1431683389673",
+    "1430334298332",
+    "1435576375482",
+    "1359255808223",
+    "1341024876755",
+    "1329531863264",
+    "1329652747471",
+    "1331585452247",
+    "1331569889518"
+   ]
+  },
+  {
+   "un": "110-797332",
+   "companyId": "13581647820",
+   "name": "Koenigstein & Weber GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 70627,
+   "v6221": 17591,
+   "v6230": 53035,
+   "lastKalrez": "2025-11-10",
+   "articles": [
+    {
+     "a": "8000379403",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 26648,
+     "last": "2025-04-10"
+    },
+    {
+     "a": "1144210329",
+     "t": "FFKM O-ring KALREZ® 6221 ID 50.17 x 5.33",
+     "cpd": "6221",
+     "qty": 38.0,
+     "value": 8558,
+     "last": "2025-11-10"
+    },
+    {
+     "a": "1144300331",
+     "t": "FFKM O-ring KALREZ® 6230 ID 56.52 x 5.33",
+     "cpd": "6230",
+     "qty": 19.0,
+     "value": 4806,
+     "last": "2025-04-10"
+    },
+    {
+     "a": "8000379398",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 4325,
+     "last": "2025-04-10"
+    },
+    {
+     "a": "1144300337",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.57 x 5.33",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 3893,
+     "last": "2025-08-22"
+    },
+    {
+     "a": "1144300326",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.64 x 5.33",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 3044,
+     "last": "2025-04-10"
+    },
+    {
+     "a": "8000254064",
+     "t": "KALREZ O-ring compound 6221 special si K",
+     "cpd": "6221",
+     "qty": 16.0,
+     "value": 2290,
+     "last": "2025-04-10"
+    },
+    {
+     "a": "8000016909",
+     "t": "KALREZ O-ring compound 6221 special si K",
+     "cpd": "6221",
+     "qty": 85.0,
+     "value": 2038,
+     "last": "2025-04-10"
+    }
+   ],
+   "moreArticles": 23,
+   "orderIds": [
+    "1275651663089",
+    "1275639033071",
+    "1275624124649",
+    "1275650990272",
+    "1275660325094",
+    "1275660324076",
+    "1275660325067",
+    "1275660325087",
+    "1281739938000",
+    "1275630629078"
+   ]
+  },
+  {
+   "un": "110-746658",
+   "companyId": "13581232367",
+   "name": "optek-Danulat GmbH",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 63564,
+   "v6221": 0,
+   "v6230": 63564,
+   "lastKalrez": "2026-10-05",
+   "articles": [
+    {
+     "a": "1144300020",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.95 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 5364.0,
+     "value": 58613,
+     "last": "2026-10-05"
+    },
+    {
+     "a": "8000013494",
+     "t": "KALREZ O-ring compound 6230 special si K-23011, ID 11.00 x 3.00 mm, FDA",
+     "cpd": "6230",
+     "qty": 120.0,
+     "value": 4331,
+     "last": "2026-08-18"
+    },
+    {
+     "a": "1144300210",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.64 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 16.0,
+     "value": 620,
+     "last": "2022-04-29"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1392461377727",
+    "1326376605919",
+    "1275575679213",
+    "1275651828932",
+    "1275648722145",
+    "1275651654901",
+    "1275927521507",
+    "1275927521518",
+    "1275927522514",
+    "1275927521515"
+   ]
+  },
+  {
+   "un": "110-746640",
+   "companyId": "13581883114",
+   "name": "RS Rittel GmbH",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 38777,
+   "v6221": 10433,
+   "v6230": 28344,
+   "lastKalrez": "2026-11-05",
+   "articles": [
+    {
+     "a": "8000779946",
+     "t": "Perfluor O-Ring FFKM 6221 ID 109.20 x 5.70 mm",
+     "cpd": "6221",
+     "qty": 11.0,
+     "value": 6040,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "8000762997",
+     "t": "Perfluor O-Ring FFKM 6230 ID 64.00 x 4.5",
+     "cpd": "6230",
+     "qty": 26.0,
+     "value": 5118,
+     "last": "2024-05-15"
+    },
+    {
+     "a": "1144300138",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.64 x 2.62",
+     "cpd": "6230",
+     "qty": 57.0,
+     "value": 4855,
+     "last": "2024-05-15"
+    },
+    {
+     "a": "1144210343",
+     "t": "FFKM O-ring KALREZ® 6221 ID 94.62 x 5.33 mm",
+     "cpd": "6221",
+     "qty": 11.0,
+     "value": 4393,
+     "last": "2026-11-05"
+    },
+    {
+     "a": "8000049390",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 26.0,
+     "value": 4265,
+     "last": "2024-05-15"
+    },
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53",
+     "cpd": "6230",
+     "qty": 40.0,
+     "value": 4017,
+     "last": "2024-05-15"
+    },
+    {
+     "a": "8000361375",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 28.0,
+     "value": 3820,
+     "last": "2024-05-15"
+    },
+    {
+     "a": "1144300131",
+     "t": "FFKM O-ring KALREZ® 6230 ID 42.52 x 2.62",
+     "cpd": "6230",
+     "qty": 43.0,
+     "value": 2866,
+     "last": "2024-05-15"
+    }
+   ],
+   "moreArticles": 3,
+   "orderIds": [
+    "1433920178383",
+    "1328299652333",
+    "1275649305829",
+    "1275663248581",
+    "1275651316925",
+    "1275624154312",
+    "1275627768009",
+    "1275640096957",
+    "1275909755121",
+    "1275943116023"
+   ]
+  },
+  {
+   "un": "110-806534",
+   "companyId": "13581506747",
+   "name": "AGP GmbH",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 38122,
+   "v6221": 90,
+   "v6230": 38033,
+   "lastKalrez": "2026-04-27",
+   "articles": [
+    {
+     "a": "1144300241",
+     "t": "FFKM O-ring KALREZ® 6230 ID 98.02 x 3.53",
+     "cpd": "6230",
+     "qty": 33.0,
+     "value": 6017,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300363",
+     "t": "FFKM O-ring KALREZ® 6230 ID 164.47 x 5.3",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 5956,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300232",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.44 x 3.53",
+     "cpd": "6230",
+     "qty": 37.0,
+     "value": 4882,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300327",
+     "t": "FFKM O-ring KALREZ® 6230 ID 43.82 x 5.33",
+     "cpd": "6230",
+     "qty": 24.0,
+     "value": 4250,
+     "last": "2026-04-27"
+    },
+    {
+     "a": "1144300228",
+     "t": "FFKM O-ring KALREZ® 6230 ID 56.74 x 3.53",
+     "cpd": "6230",
+     "qty": 38.0,
+     "value": 4040,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300150",
+     "t": "FFKM O-ring KALREZ® 6230 ID 72.69 x 2.62",
+     "cpd": "6230",
+     "qty": 31.0,
+     "value": 3954,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300213",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.39 x 3.53",
+     "cpd": "6230",
+     "qty": 64.0,
+     "value": 3107,
+     "last": "2025-10-10"
+    },
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62",
+     "cpd": "6230",
+     "qty": 42.0,
+     "value": 2748,
+     "last": "2025-10-10"
+    }
+   ],
+   "moreArticles": 4,
+   "orderIds": [
+    "1275570910410",
+    "1275650264295",
+    "1275624261832",
+    "1275945432262",
+    "1275944570101",
+    "1275906548931",
+    "1275906547958",
+    "1275906548954",
+    "1275906547959",
+    "1281740901568"
+   ]
+  },
+  {
+   "un": "110-813179",
+   "companyId": "13581663174",
+   "name": "meweo GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 28371,
+   "v6221": 0,
+   "v6230": 28371,
+   "lastKalrez": "2026-04-13",
+   "articles": [
+    {
+     "a": "1144300219",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.92 x 3.53",
+     "cpd": "6230",
+     "qty": 326.0,
+     "value": 13403,
+     "last": "2025-03-06"
+    },
+    {
+     "a": "8000508372",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 165.0,
+     "value": 10372,
+     "last": "2026-03-16"
+    },
+    {
+     "a": "8001179382",
+     "t": "Perfluor O-Ring FFKM 6230 ID 19.00 x 1.0",
+     "cpd": "6230",
+     "qty": 52.0,
+     "value": 1766,
+     "last": "2026-04-13"
+    },
+    {
+     "a": "1144300119",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.47 x 2.62",
+     "cpd": "6230",
+     "qty": 35.0,
+     "value": 1193,
+     "last": "2026-03-16"
+    },
+    {
+     "a": "1144300218",
+     "t": "FFKM O-ring KALREZ® 6230 ID 31.34 x 3.53",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 628,
+     "last": "2023-06-29"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 447,
+     "last": "2023-05-15"
+    },
+    {
+     "a": "1144300124",
+     "t": "FFKM O-ring KALREZ® 6230 ID 31.42 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 436,
+     "last": "2023-06-29"
+    },
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 73,
+     "last": "2025-01-06"
+    }
+   ],
+   "moreArticles": 1,
+   "orderIds": [
+    "1275572784337",
+    "1275548257522",
+    "1275649881281",
+    "1275648485620",
+    "1275630629108",
+    "1275649705193",
+    "1275651654875",
+    "1275976206527",
+    "1275963017453",
+    "1276032732384"
+   ]
+  },
+  {
+   "un": "110-797365",
+   "companyId": "416210307284",
+   "name": "DTZ Ziegler GmbH & Co. KG",
+   "sae": "Wieneber Stefan",
+   "mandant": "DE",
+   "ownerId": "1229976035",
+   "ownerName": "Stefan Wieneber",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 24025,
+   "v6221": 0,
+   "v6230": 24025,
+   "lastKalrez": "2025-08-18",
+   "articles": [
+    {
+     "a": "1144300240",
+     "t": "FFKM O-ring KALREZ® 6230 ID 94.84 x 3.53",
+     "cpd": "6230",
+     "qty": 41.0,
+     "value": 7551,
+     "last": "2025-01-31"
+    },
+    {
+     "a": "1144300232",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.44 x 3.53",
+     "cpd": "6230",
+     "qty": 43.0,
+     "value": 6562,
+     "last": "2025-05-08"
+    },
+    {
+     "a": "1144300148",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.52 x 2.62",
+     "cpd": "6230",
+     "qty": 51.0,
+     "value": 5504,
+     "last": "2025-01-31"
+    },
+    {
+     "a": "1144300225",
+     "t": "FFKM O-ring KALREZ® 6230 ID 47.22 x 3.53",
+     "cpd": "6230",
+     "qty": 40.0,
+     "value": 3678,
+     "last": "2025-05-08"
+    },
+    {
+     "a": "1144300151",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.87 x 2.62",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 515,
+     "last": "2025-08-18"
+    },
+    {
+     "a": "1144300145",
+     "t": "FFKM O-ring KALREZ® 6230 ID 64.77 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 215,
+     "last": "2025-08-18"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275651459258",
+    "1275651657925",
+    "1275651657952",
+    "1275649096923",
+    "1275944570078",
+    "1275943628000",
+    "1281729665273",
+    "1275946309844",
+    "1275920275696",
+    "1275920277695"
+   ]
+  },
+  {
+   "un": "110-822442",
+   "companyId": "13581092283",
+   "name": "MannTek AB",
+   "sae": "Schawlochow Denis",
+   "mandant": "DE",
+   "ownerId": "1229999295",
+   "ownerName": "Denis Schawlochow",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 23304,
+   "v6221": 0,
+   "v6230": 23304,
+   "lastKalrez": "2026-09-08",
+   "articles": [
+    {
+     "a": "1144300120",
+     "t": "FFKM O-ring KALREZ® 6230 ID 25.07 x 2.62",
+     "cpd": "6230",
+     "qty": 270.0,
+     "value": 6959,
+     "last": "2026-04-20"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 48.0,
+     "value": 3521,
+     "last": "2026-05-19"
+    },
+    {
+     "a": "1144300125",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.99 x 2.62",
+     "cpd": "6230",
+     "qty": 60.0,
+     "value": 2283,
+     "last": "2026-04-20"
+    },
+    {
+     "a": "1144300139",
+     "t": "FFKM O-ring KALREZ® 6230 ID 55.25 x 2.62",
+     "cpd": "6230",
+     "qty": 29.0,
+     "value": 2149,
+     "last": "2026-05-19"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 85.0,
+     "value": 2041,
+     "last": "2026-09-04"
+    },
+    {
+     "a": "1144300218",
+     "t": "FFKM O-ring KALREZ® 6230 ID 31.34 x 3.53",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 1635,
+     "last": "2026-05-19"
+    },
+    {
+     "a": "1144300219",
+     "t": "FFKM O-ring KALREZ® 6230 ID 32.92 x 3.53",
+     "cpd": "6230",
+     "qty": 27.0,
+     "value": 1527,
+     "last": "2025-08-25"
+    },
+    {
+     "a": "1144300113",
+     "t": "FFKM O-ring KALREZ® 6230 ID 13.94 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 644,
+     "last": "2026-09-04"
+    }
+   ],
+   "moreArticles": 6,
+   "orderIds": [
+    "1356862761157",
+    "1349088832710",
+    "1275583070430",
+    "1275545277663",
+    "1275582210291",
+    "1275574799592",
+    "1275570471110",
+    "1275548815550",
+    "1275542434015",
+    "1275575251163"
+   ]
+  },
+  {
+   "un": "110-750412",
+   "companyId": "13581522890",
+   "name": "Fritz Althoff GmbH & Co. KG",
+   "sae": "Wieneber Stefan",
+   "mandant": "DE",
+   "ownerId": "1229976035",
+   "ownerName": "Stefan Wieneber",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 19568,
+   "v6221": 0,
+   "v6230": 19568,
+   "lastKalrez": "2026-05-13",
+   "articles": [
+    {
+     "a": "1144300337",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.57 x 5.33",
+     "cpd": "6230",
+     "qty": 40.0,
+     "value": 9646,
+     "last": "2025-05-21"
+    },
+    {
+     "a": "1144300329",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.17 x 5.33",
+     "cpd": "6230",
+     "qty": 27.0,
+     "value": 4969,
+     "last": "2025-05-21"
+    },
+    {
+     "a": "1144300204",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.12 x 3.53",
+     "cpd": "6230",
+     "qty": 79.0,
+     "value": 2423,
+     "last": "2025-05-21"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62",
+     "cpd": "6230",
+     "qty": 77.0,
+     "value": 1976,
+     "last": "2025-05-21"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 553,
+     "last": "2026-05-13"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275558555860",
+    "1275574546653",
+    "1275667599576",
+    "1275938447608",
+    "1275946459326",
+    "1275975025852",
+    "1276022251731"
+   ]
+  },
+  {
+   "un": "110-798268",
+   "companyId": "408952919263",
+   "name": "Maselli Misure S.p.A.",
+   "sae": "Vitale Simone",
+   "mandant": "DE",
+   "ownerId": "1255191254",
+   "ownerName": "Simone Vitale",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 19380,
+   "v6221": 0,
+   "v6230": 19380,
+   "lastKalrez": "2026-06-26",
+   "articles": [
+    {
+     "a": "1144300016",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.60 x 1.78",
+     "cpd": "6230",
+     "qty": 1250.0,
+     "value": 18690,
+     "last": "2026-06-26"
+    },
+    {
+     "a": "1144300021",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.52 x 1.78",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 349,
+     "last": "2022-10-10"
+    },
+    {
+     "a": "1144300121",
+     "t": "FFKM O-ring KALREZ® 6230 ID 26.64 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 341,
+     "last": "2026-06-26"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275548034277",
+    "1275572786377",
+    "1281761810647",
+    "1275548022995",
+    "1281736527047",
+    "1275663833293",
+    "1275909434599",
+    "1275945289929",
+    "1275975356623",
+    "1275975356604"
+   ]
+  },
+  {
+   "un": "110-846123",
+   "companyId": "316281731267",
+   "name": "Gruppo Gesa S.r.l.",
+   "sae": "Fantasia Luca Mirko",
+   "mandant": "DE",
+   "ownerId": "1229999587",
+   "ownerName": "Luca Fantasia",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 19354,
+   "v6221": 0,
+   "v6230": 19354,
+   "lastKalrez": "2026-03-26",
+   "articles": [
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53",
+     "cpd": "6230",
+     "qty": 90.0,
+     "value": 8753,
+     "last": "2026-03-26"
+    },
+    {
+     "a": "1144300325",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.47 x 5.33",
+     "cpd": "6230",
+     "qty": 50.0,
+     "value": 7899,
+     "last": "2026-03-26"
+    },
+    {
+     "a": "1144300211",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.22 x 3.53",
+     "cpd": "6230",
+     "qty": 50.0,
+     "value": 2702,
+     "last": "2026-01-23"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275542438115",
+    "1275542438123",
+    "1275471472847",
+    "1275667804376",
+    "1275667804397",
+    "1275650805977",
+    "1275664012488",
+    "1275943124171",
+    "1275907370203",
+    "1275909756126"
+   ]
+  },
+  {
+   "un": "110-780559",
+   "companyId": "402956255450",
+   "name": "Pantecnica SPA -Divisione Service-",
+   "sae": "Fantasia Luca Mirko",
+   "mandant": "DE",
+   "ownerId": "1229999587",
+   "ownerName": "Luca Fantasia",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 19256,
+   "v6221": 0,
+   "v6230": 19256,
+   "lastKalrez": "2025-11-21",
+   "articles": [
+    {
+     "a": "1144300225",
+     "t": "FFKM O-ring KALREZ® 6230 ID 47.22 x 3.53",
+     "cpd": "6230",
+     "qty": 57.0,
+     "value": 4108,
+     "last": "2025-11-21"
+    },
+    {
+     "a": "1144300337",
+     "t": "FFKM O-ring KALREZ® 6230 ID 75.57 x 5.33",
+     "cpd": "6230",
+     "qty": 16.0,
+     "value": 3685,
+     "last": "2024-01-18"
+    },
+    {
+     "a": "1144300144",
+     "t": "FFKM O-ring KALREZ® 6230 ID 63.17 x 2.62",
+     "cpd": "6230",
+     "qty": 25.0,
+     "value": 1957,
+     "last": "2022-12-12"
+    },
+    {
+     "a": "1144300136",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.47 x 2.62",
+     "cpd": "6230",
+     "qty": 25.0,
+     "value": 1560,
+     "last": "2025-11-21"
+    },
+    {
+     "a": "1144300237",
+     "t": "FFKM O-ring KALREZ® 6230 ID 85.32 x 3.53",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 1526,
+     "last": "2025-06-25"
+    },
+    {
+     "a": "8000064414",
+     "t": "KALREZ O-ring compound 6230 special si K11800, ID 39,69 x 3,53 mm, FDA",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 988,
+     "last": "2024-01-18"
+    },
+    {
+     "a": "1144300222",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.69 x 3.53",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 762,
+     "last": "2025-10-16"
+    },
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 704,
+     "last": "2025-06-25"
+    }
+   ],
+   "moreArticles": 11,
+   "orderIds": [
+    "1275651994824",
+    "1275651993847",
+    "1275663620307",
+    "1275620131002",
+    "1275620129996",
+    "1275650049263",
+    "1275663473857",
+    "1275639032006",
+    "1275663637727",
+    "1275650804958"
+   ]
+  },
+  {
+   "un": "110-749490",
+   "companyId": "408955795675",
+   "name": "PRG Präzisions-Rührer GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 18713,
+   "v6221": 7030,
+   "v6230": 11683,
+   "lastKalrez": "2025-11-14",
+   "articles": [
+    {
+     "a": "1144210315",
+     "t": "FFKM O-ring KALREZ® 6221 ID 19.99 x 5.33",
+     "cpd": "6221",
+     "qty": 110.0,
+     "value": 4678,
+     "last": "2022-03-23"
+    },
+    {
+     "a": "1144300315",
+     "t": "FFKM O-ring KALREZ® 6230 ID 19.99 x 5.33",
+     "cpd": "6230",
+     "qty": 48.0,
+     "value": 3604,
+     "last": "2024-06-28"
+    },
+    {
+     "a": "1144210238",
+     "t": "FFKM O-ring KALREZ® 6221 ID 88.49 x 3.53",
+     "cpd": "6221",
+     "qty": 15.0,
+     "value": 2352,
+     "last": "2022-03-23"
+    },
+    {
+     "a": "1144300362",
+     "t": "FFKM O-ring KALREZ® 6230 ID 158.12 x 5.3",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 1926,
+     "last": "2024-06-28"
+    },
+    {
+     "a": "1144300351",
+     "t": "FFKM O-ring KALREZ® 6230 ID 120.02 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 1552,
+     "last": "2022-03-08"
+    },
+    {
+     "a": "1144300238",
+     "t": "FFKM O-ring KALREZ® 6230 ID 88.49 x 3.53",
+     "cpd": "6230",
+     "qty": 7.0,
+     "value": 1212,
+     "last": "2024-06-28"
+    },
+    {
+     "a": "1144300367",
+     "t": "FFKM O-ring KALREZ® 6230 ID 189.87 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 813,
+     "last": "2022-03-08"
+    },
+    {
+     "a": "1144300369",
+     "t": "FFKM O-ring KALREZ® 6230 ID 202.57 x 5.3",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 785,
+     "last": "2025-11-14"
+    }
+   ],
+   "moreArticles": 5,
+   "orderIds": [
+    "1275624484054",
+    "1275910887642",
+    "1276037129402",
+    "1276037128425",
+    "1276022555887",
+    "1276022556863",
+    "1276022555873",
+    "1276038433000",
+    "1276037887180",
+    "1276019445957"
+   ]
+  },
+  {
+   "un": "110-749557",
+   "companyId": "200131769561",
+   "name": "Igeba Gerätebau GmbH",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 17447,
+   "v6221": 0,
+   "v6230": 17447,
+   "lastKalrez": "2026-03-19",
+   "articles": [
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 225.0,
+     "value": 5792,
+     "last": "2026-03-19"
+    },
+    {
+     "a": "1144300122",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.24 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 225.0,
+     "value": 3482,
+     "last": "2026-03-19"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 60.0,
+     "value": 2900,
+     "last": "2026-03-19"
+    },
+    {
+     "a": "1144300123",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.82 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 60.0,
+     "value": 1878,
+     "last": "2026-03-19"
+    },
+    {
+     "a": "1144300116",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.72 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 75.0,
+     "value": 1752,
+     "last": "2026-03-19"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 75.0,
+     "value": 1643,
+     "last": "2026-03-19"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1281738166479"
+   ]
+  },
+  {
+   "un": "110-746242",
+   "companyId": "415721142466",
+   "name": "Düsen-Schlick GmbH",
+   "sae": "Can Adem",
+   "mandant": "DE",
+   "ownerId": "1229998585",
+   "ownerName": "Adem Can",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 11290,
+   "v6221": 510,
+   "v6230": 10780,
+   "lastKalrez": "2026-06-16",
+   "articles": [
+    {
+     "a": "1144300010",
+     "t": "FFKM O-ring KALREZ® 6230 ID 6.07 x 1.78",
+     "cpd": "6230",
+     "qty": 210.0,
+     "value": 3103,
+     "last": "2026-01-09"
+    },
+    {
+     "a": "1144300025",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.87 x 1.78",
+     "cpd": "6230",
+     "qty": 46.0,
+     "value": 1741,
+     "last": "2026-01-09"
+    },
+    {
+     "a": "8000064514",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 61.0,
+     "value": 1488,
+     "last": "2026-03-10"
+    },
+    {
+     "a": "1144300012",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.25 x 1.78",
+     "cpd": "6230",
+     "qty": 70.0,
+     "value": 1262,
+     "last": "2026-01-09"
+    },
+    {
+     "a": "8000064518",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 44.0,
+     "value": 1105,
+     "last": "2026-02-03"
+    },
+    {
+     "a": "1144300017",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.17 x 1.78",
+     "cpd": "6230",
+     "qty": 56.0,
+     "value": 1007,
+     "last": "2026-06-12"
+    },
+    {
+     "a": "1144300011",
+     "t": "FFKM O-ring KALREZ® 6230 ID 7.65 x 1.78",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 563,
+     "last": "2026-01-09"
+    },
+    {
+     "a": "1144210008",
+     "t": "FFKM O-ring KALREZ® 6221 ID 4.47 x 1.78 mm",
+     "cpd": "6221",
+     "qty": 13.0,
+     "value": 246,
+     "last": "2022-07-18"
+    }
+   ],
+   "moreArticles": 6,
+   "orderIds": [
+    "1275541657815",
+    "1275547817163",
+    "1275548815603",
+    "1275572497648",
+    "1275582852337",
+    "1275574229200",
+    "1275905627339",
+    "1275943794899",
+    "1275943794912",
+    "1275974322369"
+   ]
+  },
+  {
+   "un": "110-746108",
+   "companyId": "13581831363",
+   "name": "Mafag GmbH",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 10094,
+   "v6221": 0,
+   "v6230": 10094,
+   "lastKalrez": "2026-09-24",
+   "articles": [
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 170.0,
+     "value": 10094,
+     "last": "2026-09-24"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1378941096176",
+    "1376607652068",
+    "1275541956798",
+    "1275575002339"
+   ]
+  },
+  {
+   "un": "110-797329",
+   "companyId": "398593766622",
+   "name": "Westring Dichtungstechnik GmbH",
+   "sae": "Nitschke Benjamin",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 9581,
+   "v6221": 4939,
+   "v6230": 4642,
+   "lastKalrez": "2022-08-18",
+   "articles": [
+    {
+     "a": "1144210259",
+     "t": "FFKM O-ring KALREZ® 6221 ID 158.34 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 20.0,
+     "value": 4939,
+     "last": "2022-03-04"
+    },
+    {
+     "a": "8000508372",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 100.0,
+     "value": 2828,
+     "last": "2022-08-18"
+    },
+    {
+     "a": "8000675285",
+     "t": "Perfluor O-Ring FFKM 6230 ID 19.00 x 1.00 mm",
+     "cpd": "6230",
+     "qty": 70.0,
+     "value": 1363,
+     "last": "2022-08-18"
+    },
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 451,
+     "last": "2022-05-03"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276024586482",
+    "1276024588474",
+    "1276024587457",
+    "1276036715715",
+    "1276022555859",
+    "1276020098256",
+    "1276020098272"
+   ]
+  },
+  {
+   "un": "110-746897",
+   "companyId": "287531844815",
+   "name": "Stelzer Rührtechnik International GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 8119,
+   "v6221": 161,
+   "v6230": 7959,
+   "lastKalrez": "2026-09-30",
+   "articles": [
+    {
+     "a": "1144300326",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.64 x 5.33",
+     "cpd": "6230",
+     "qty": 7.0,
+     "value": 1337,
+     "last": "2026-03-18"
+    },
+    {
+     "a": "1144300360",
+     "t": "FFKM O-ring KALREZ® 6230 ID 148.59 x 5.3",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 1264,
+     "last": "2025-09-12"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 1058,
+     "last": "2026-03-06"
+    },
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 741,
+     "last": "2026-03-06"
+    },
+    {
+     "a": "1144300338",
+     "t": "FFKM O-ring KALREZ® 6230 ID 78.74 x 5.33",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 650,
+     "last": "2025-09-12"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 22.0,
+     "value": 642,
+     "last": "2026-09-30"
+    },
+    {
+     "a": "1144300242",
+     "t": "FFKM O-ring KALREZ® 6230 ID 101.19 x 3.5",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 500,
+     "last": "2025-08-07"
+    },
+    {
+     "a": "1144300239",
+     "t": "FFKM O-ring KALREZ® 6230 ID 91.67 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 439,
+     "last": "2025-09-12"
+    }
+   ],
+   "moreArticles": 8,
+   "orderIds": [
+    "1384356286650",
+    "1275574234349",
+    "1275542452420",
+    "1275578192120",
+    "1275575683263",
+    "1275575683314",
+    "1275652363505",
+    "1275627742447",
+    "1275649500397",
+    "1275649499366"
+   ]
+  },
+  {
+   "un": "110-798316",
+   "companyId": "13581921212",
+   "name": "JB TEC sas",
+   "sae": "Borey Jeremy",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 7192,
+   "v6221": 4702,
+   "v6230": 2490,
+   "lastKalrez": "2026-02-18",
+   "articles": [
+    {
+     "a": "1144210354",
+     "t": "FFKM O-ring KALREZ® 6221 ID 129.54 x 5.3",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 1372,
+     "last": "2024-09-18"
+    },
+    {
+     "a": "1144210248",
+     "t": "FFKM O-ring KALREZ® 6221 ID 120.24 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 704,
+     "last": "2024-09-18"
+    },
+    {
+     "a": "1144300230",
+     "t": "FFKM O-ring KALREZ® 6230 ID 63.09 x 3.53",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 641,
+     "last": "2026-02-18"
+    },
+    {
+     "a": "1144210345",
+     "t": "FFKM O-ring KALREZ® 6221 ID 100.97 x 5.3",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 576,
+     "last": "2023-10-30"
+    },
+    {
+     "a": "1144210220",
+     "t": "FFKM O-ring KALREZ® 6221 ID 34.52 x 3.53",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 549,
+     "last": "2024-08-06"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 520,
+     "last": "2024-09-30"
+    },
+    {
+     "a": "1144300260",
+     "t": "FFKM O-ring KALREZ® 6230 ID 164.69 x 3.5",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 435,
+     "last": "2024-09-30"
+    },
+    {
+     "a": "1144210120",
+     "t": "FFKM O-ring KALREZ® 6221 ID 25.07 x 2.62",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 404,
+     "last": "2024-08-06"
+    }
+   ],
+   "moreArticles": 9,
+   "orderIds": [
+    "1275541655773",
+    "1275650265310",
+    "1275638615274",
+    "1275627755709",
+    "1275664164067",
+    "1275947346150",
+    "1275906884844",
+    "1275910128888",
+    "1275945067748",
+    "1275946919126"
+   ]
+  },
+  {
+   "un": "110-750391",
+   "companyId": "398591881463",
+   "name": "Schöning GmbH",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 6806,
+   "v6221": 0,
+   "v6230": 6806,
+   "lastKalrez": "2025-12-08",
+   "articles": [
+    {
+     "a": "1144300138",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.64 x 2.62",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 1530,
+     "last": "2025-12-08"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 1506,
+     "last": "2025-12-08"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 1296,
+     "last": "2025-12-08"
+    },
+    {
+     "a": "1144300025",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.87 x 1.78",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 790,
+     "last": "2025-12-08"
+    },
+    {
+     "a": "1144300128",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.77 x 2.62",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 595,
+     "last": "2024-06-24"
+    },
+    {
+     "a": "1144300022",
+     "t": "FFKM O-ring KALREZ® 6230 ID 25.12 x 1.78",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 358,
+     "last": "2024-09-10"
+    },
+    {
+     "a": "1144300020",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.95 x 1.78",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 249,
+     "last": "2024-06-24"
+    },
+    {
+     "a": "1144300129",
+     "t": "FFKM O-ring KALREZ® 6230 ID 39.34 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 158,
+     "last": "2024-09-10"
+    }
+   ],
+   "moreArticles": 3,
+   "orderIds": [
+    "1275652534510",
+    "1275911342320",
+    "1275909035225",
+    "1275942528239",
+    "1275941465317",
+    "1275931145444",
+    "1275926716610",
+    "1275923738845",
+    "1276019485932"
+   ]
+  },
+  {
+   "un": "110-783055",
+   "companyId": "13581110495",
+   "name": "Max Müller GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 6282,
+   "v6221": 0,
+   "v6230": 6282,
+   "lastKalrez": "2025-08-04",
+   "articles": [
+    {
+     "a": "8000616063",
+     "t": "KALREZ O-ring compound 6230 special si K",
+     "cpd": "6230",
+     "qty": 108.0,
+     "value": 2087,
+     "last": "2025-08-04"
+    },
+    {
+     "a": "8000152521",
+     "t": "KALREZ O-ring compound 6230 special si K11857, inner Ø  4,00 x 1,00 mm, FDA",
+     "cpd": "6230",
+     "qty": 100.0,
+     "value": 1815,
+     "last": "2025-08-04"
+    },
+    {
+     "a": "8000593853",
+     "t": "KALREZ O-ring compound 6230 special si K11857, ID 4.00 x 1.00 mm, FDA",
+     "cpd": "6230",
+     "qty": 100.0,
+     "value": 1702,
+     "last": "2022-03-09"
+    },
+    {
+     "a": "1144300112",
+     "t": "FFKM O-ring KALREZ® 6230 ID 12.37 x 2.62",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 678,
+     "last": "2022-06-09"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275649684727",
+    "1275923944694",
+    "1276027235576",
+    "1276038295757"
+   ]
+  },
+  {
+   "un": "110-746338",
+   "companyId": "13581232593",
+   "name": "Westring Dichtungstechnik GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 5043,
+   "v6221": 5043,
+   "v6230": 0,
+   "lastKalrez": "2026-07-02",
+   "articles": [
+    {
+     "a": "1144210259",
+     "t": "FFKM O-ring KALREZ® 6221 ID 158.34 x 3.5",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 2938,
+     "last": "2026-07-02"
+    },
+    {
+     "a": "1144210267",
+     "t": "FFKM O-ring KALREZ® 6221 ID 209.14 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 544,
+     "last": "2022-02-04"
+    },
+    {
+     "a": "1144210170",
+     "t": "FFKM O-ring KALREZ® 6221 ID 196.52 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 514,
+     "last": "2022-02-04"
+    },
+    {
+     "a": "1144210238",
+     "t": "FFKM O-ring KALREZ® 6221 ID 88.49 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 480,
+     "last": "2022-02-04"
+    },
+    {
+     "a": "1144210253",
+     "t": "FFKM O-ring KALREZ® 6221 ID 136.12 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 411,
+     "last": "2022-02-04"
+    },
+    {
+     "a": "1144210014",
+     "t": "FFKM O-ring KALREZ® 6221 ID 12.42 x 1.78 mm",
+     "cpd": "6221",
+     "qty": 7.0,
+     "value": 156,
+     "last": "2022-02-04"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275573230804",
+    "1276038435013",
+    "1276038435005"
+   ]
+  },
+  {
+   "un": "110-843120",
+   "companyId": "13581886696",
+   "name": "Kieselmann GmbH",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 4757,
+   "v6221": 0,
+   "v6230": 4757,
+   "lastKalrez": "2025-12-22",
+   "articles": [
+    {
+     "a": "1144300341",
+     "t": "FFKM O-ring KALREZ® 6230 ID 88.27 x 5.33",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 1967,
+     "last": "2025-12-22"
+    },
+    {
+     "a": "1144300335",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.22 x 5.33",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 1793,
+     "last": "2025-12-22"
+    },
+    {
+     "a": "1144300330",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.34 x 5.33",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 768,
+     "last": "2025-12-22"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 230,
+     "last": "2025-10-20"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275651637472",
+    "1275648488657",
+    "1275648488655",
+    "1275667017962",
+    "1275667017918"
+   ]
+  },
+  {
+   "un": "110-748055",
+   "companyId": "415721149683",
+   "name": "Neumo GmbH + Co. KG",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 4575,
+   "v6221": 4575,
+   "v6230": 0,
+   "lastKalrez": "2024-03-13",
+   "articles": [
+    {
+     "a": "1144210246",
+     "t": "FFKM O-ring KALREZ® 6221 ID 113.89 x 3.5",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 2320,
+     "last": "2024-03-13"
+    },
+    {
+     "a": "8000369396",
+     "t": "KALREZ O-ring compound 6221 special si K",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 1781,
+     "last": "2023-04-24"
+    },
+    {
+     "a": "8000254064",
+     "t": "KALREZ O-ring compound 6221 special si K",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 474,
+     "last": "2023-04-05"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275905425605",
+    "1275918613752",
+    "1275930677478",
+    "1276036864246"
+   ]
+  },
+  {
+   "un": "110-804455",
+   "companyId": "13581767912",
+   "name": "Pfaudler interseal GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 4397,
+   "v6221": 0,
+   "v6230": 4397,
+   "lastKalrez": "2026-06-25",
+   "articles": [
+    {
+     "a": "1144300350",
+     "t": "FFKM O-ring KALREZ® 6230 ID 116.84 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 1702,
+     "last": "2026-06-25"
+    },
+    {
+     "a": "8000561598",
+     "t": "KALREZ O-ring compound 6230 special si K923815, ID 80,00 x 3,53 mm, FDA",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 967,
+     "last": "2026-06-25"
+    },
+    {
+     "a": "1144300343",
+     "t": "FFKM O-ring KALREZ® 6230 ID 94.62 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 927,
+     "last": "2022-09-22"
+    },
+    {
+     "a": "1144300229",
+     "t": "FFKM O-ring KALREZ® 6230 ID 59.92 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 593,
+     "last": "2022-09-22"
+    },
+    {
+     "a": "1144300235",
+     "t": "FFKM O-ring KALREZ® 6230 ID 78.97 x 3.53",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 207,
+     "last": "2026-04-14"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275573977328",
+    "1275541955787",
+    "1275541955833",
+    "1276024595696",
+    "1276024595653",
+    "1276038972607"
+   ]
+  },
+  {
+   "un": "110-797518",
+   "companyId": "194195925232",
+   "name": "ZETA GmbH",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 4309,
+   "v6221": 1412,
+   "v6230": 2897,
+   "lastKalrez": "2026-08-24",
+   "articles": [
+    {
+     "a": "1144210234",
+     "t": "FFKM O-ring KALREZ® 6221 ID 75.79 x 3.53",
+     "cpd": "6221",
+     "qty": 9.0,
+     "value": 1412,
+     "last": "2025-05-27"
+    },
+    {
+     "a": "1144300347",
+     "t": "FFKM O-ring KALREZ® 6230 ID 107.32 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 1319,
+     "last": "2026-08-24"
+    },
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 605,
+     "last": "2025-06-02"
+    },
+    {
+     "a": "1144300118",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.89 x 2.62",
+     "cpd": "6230",
+     "qty": 11.0,
+     "value": 405,
+     "last": "2024-01-04"
+    },
+    {
+     "a": "1144300018",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.77 x 1.78",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 189,
+     "last": "2025-11-07"
+    },
+    {
+     "a": "1144300222",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.69 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 178,
+     "last": "2022-05-10"
+    },
+    {
+     "a": "1144300226",
+     "t": "FFKM O-ring KALREZ® 6230 ID 50.39 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 131,
+     "last": "2022-06-07"
+    },
+    {
+     "a": "1144300013",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.82 x 1.78",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 40,
+     "last": "2025-03-06"
+    }
+   ],
+   "moreArticles": 2,
+   "orderIds": [
+    "1332074356982",
+    "1275652378865",
+    "1275624152301",
+    "1275648707800",
+    "1275663829220",
+    "1275945941231",
+    "1275906696417",
+    "1275931135214",
+    "1275963019457",
+    "1276037436657"
+   ]
+  },
+  {
+   "un": "110-797642",
+   "companyId": "194195926237",
+   "name": "Eaton Technologies GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 4144,
+   "v6221": 0,
+   "v6230": 4144,
+   "lastKalrez": "2026-10-29",
+   "articles": [
+    {
+     "a": "1144300333",
+     "t": "FFKM O-ring KALREZ® 6230 ID 62.87 x 5.33 mm",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 2662,
+     "last": "2026-10-29"
+    },
+    {
+     "a": "1144300210",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.64 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 14.0,
+     "value": 837,
+     "last": "2026-10-29"
+    },
+    {
+     "a": "1144300213",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.39 x 3.53 mm",
+     "cpd": "6230",
+     "qty": 9.0,
+     "value": 645,
+     "last": "2026-10-29"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1426633815242",
+    "1423126439102",
+    "1275558555870",
+    "1275583067362",
+    "1275649685735",
+    "1275649664195",
+    "1275648487610",
+    "1275639899330",
+    "1275941502196",
+    "1275909180652"
+   ]
+  },
+  {
+   "un": "110-749633",
+   "companyId": "13581647559",
+   "name": "STB GmbH",
+   "sae": "Nitschke Benjamin",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 3642,
+   "v6221": 2440,
+   "v6230": 1202,
+   "lastKalrez": "2026-04-16",
+   "articles": [
+    {
+     "a": "1144210260",
+     "t": "FFKM O-ring KALREZ® 6221 ID 164.69 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 529,
+     "last": "2023-12-15"
+    },
+    {
+     "a": "1144210258",
+     "t": "FFKM O-ring KALREZ® 6221 ID 151.99 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 510,
+     "last": "2023-08-30"
+    },
+    {
+     "a": "1144210255",
+     "t": "FFKM O-ring KALREZ® 6221 ID 142.47 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 481,
+     "last": "2023-12-15"
+    },
+    {
+     "a": "1144210242",
+     "t": "FFKM O-ring KALREZ® 6221 ID 101.19 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 354,
+     "last": "2023-12-15"
+    },
+    {
+     "a": "1144210264",
+     "t": "FFKM O-ring KALREZ® 6221 ID 190.09 x 3.5",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 300,
+     "last": "2023-09-29"
+    },
+    {
+     "a": "1144210251",
+     "t": "FFKM O-ring KALREZ® 6221 ID 129.77 x 3.5",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 226,
+     "last": "2023-08-30"
+    },
+    {
+     "a": "1144300255",
+     "t": "FFKM O-ring KALREZ® 6230 ID 142.47 x 3.5",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 208,
+     "last": "2023-11-28"
+    },
+    {
+     "a": "1144300243",
+     "t": "FFKM O-ring KALREZ® 6230 ID 104.37 x 3.5",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 159,
+     "last": "2023-11-28"
+    }
+   ],
+   "moreArticles": 8,
+   "orderIds": [
+    "1275579667699",
+    "1275579667659",
+    "1275579666670",
+    "1275972889790",
+    "1275972888802",
+    "1275972889831",
+    "1275972888804",
+    "1275963031746",
+    "1275930952892",
+    "1275930952907"
+   ]
+  },
+  {
+   "un": "110-745758",
+   "companyId": "398471137490",
+   "name": "Mühlberger GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 3623,
+   "v6221": 399,
+   "v6230": 3224,
+   "lastKalrez": "2025-05-28",
+   "articles": [
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62",
+     "cpd": "6230",
+     "qty": 45.0,
+     "value": 2265,
+     "last": "2025-03-27"
+    },
+    {
+     "a": "1144300150",
+     "t": "FFKM O-ring KALREZ® 6230 ID 72.69 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 648,
+     "last": "2025-04-11"
+    },
+    {
+     "a": "1144210218",
+     "t": "FFKM O-ring KALREZ® 6221 ID 31.34 x 3.53",
+     "cpd": "6221",
+     "qty": 3.0,
+     "value": 281,
+     "last": "2025-05-28"
+    },
+    {
+     "a": "1144300117",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.29 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 180,
+     "last": "2024-03-01"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 131,
+     "last": "2025-04-11"
+    },
+    {
+     "a": "1144210012",
+     "t": "FFKM O-ring KALREZ® 6221 ID 9.25 x 1.78",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 118,
+     "last": "2023-10-11"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275648707772",
+    "1275650989282",
+    "1275650988267",
+    "1275620153569",
+    "1275910880469",
+    "1275974850779",
+    "1275975704762"
+   ]
+  },
+  {
+   "un": "110-797482",
+   "companyId": "13581630171",
+   "name": "ENCO Energie Componenten GesmbH",
+   "sae": "Mandl Tamara",
+   "mandant": "DE",
+   "ownerId": "1229976036",
+   "ownerName": "Tamara Mandl",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 2958,
+   "v6221": 2958,
+   "v6230": 0,
+   "lastKalrez": "2022-02-15",
+   "articles": [
+    {
+     "a": "1144210121",
+     "t": "FFKM O-ring KALREZ® 6221 ID 26.64 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 24.0,
+     "value": 928,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144210132",
+     "t": "FFKM O-ring KALREZ® 6221 ID 44.12 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 12.0,
+     "value": 834,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144210126",
+     "t": "FFKM O-ring KALREZ® 6221 ID 34.59 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 12.0,
+     "value": 627,
+     "last": "2022-02-15"
+    },
+    {
+     "a": "1144210210",
+     "t": "FFKM O-ring KALREZ® 6221 ID 18.64 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 12.0,
+     "value": 568,
+     "last": "2022-02-15"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276023251190",
+    "1276023251159",
+    "1281722728697"
+   ]
+  },
+  {
+   "un": "110-797361",
+   "companyId": "421713533135",
+   "name": "Rubix GmbH",
+   "sae": "Frech Marc",
+   "mandant": "DE",
+   "ownerId": "817497321",
+   "ownerName": "Marc Frech",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2955,
+   "v6221": 2955,
+   "v6230": 0,
+   "lastKalrez": "2025-01-02",
+   "articles": [
+    {
+     "a": "1144210242",
+     "t": "FFKM O-ring KALREZ® 6221 ID 101.19 x 3.5",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 1240,
+     "last": "2025-01-02"
+    },
+    {
+     "a": "1144210150",
+     "t": "FFKM O-ring KALREZ® 6221 ID 72.69 x 2.62",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 713,
+     "last": "2025-01-02"
+    },
+    {
+     "a": "1144210226",
+     "t": "FFKM O-ring KALREZ® 6221 ID 50.39 x 3.53",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 620,
+     "last": "2025-01-02"
+    },
+    {
+     "a": "1144210218",
+     "t": "FFKM O-ring KALREZ® 6221 ID 31.34 x 3.53",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 383,
+     "last": "2025-01-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275649083605"
+   ]
+  },
+  {
+   "un": "110-749268",
+   "companyId": "398839658694",
+   "name": "Breitner Abfüllanlagen GmbH",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2559,
+   "v6221": 2559,
+   "v6230": 0,
+   "lastKalrez": "2026-03-06",
+   "articles": [
+    {
+     "a": "8000114588",
+     "t": "KALREZ O-ring compound 6221 special si K",
+     "cpd": "6221",
+     "qty": 87.0,
+     "value": 2559,
+     "last": "2026-03-06"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275548017900",
+    "1275627947214",
+    "1275945780433"
+   ]
+  },
+  {
+   "un": "110-749561",
+   "companyId": "13582102721",
+   "name": "Ruberg-Mischtechnik GmbH & Co. KG",
+   "sae": "Wieneber Stefan",
+   "mandant": "DE",
+   "ownerId": "1229976035",
+   "ownerName": "Stefan Wieneber",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 2519,
+   "v6221": 0,
+   "v6230": 2519,
+   "lastKalrez": "2024-04-11",
+   "articles": [
+    {
+     "a": "8000303081",
+     "t": "KALREZ O-ring compound 6230 special si S",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 2519,
+     "last": "2024-04-11"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275909449925"
+   ]
+  },
+  {
+   "un": "110-797447",
+   "companyId": "13581884915",
+   "name": "Kubo Tech Gesellschaft m.b.H.",
+   "sae": "Mandl Tamara",
+   "mandant": "DE",
+   "ownerId": "1229976036",
+   "ownerName": "Tamara Mandl",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 2500,
+   "v6221": 0,
+   "v6230": 2500,
+   "lastKalrez": "2026-05-22",
+   "articles": [
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 115.0,
+     "value": 2500,
+     "last": "2026-05-22"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275578449117",
+    "1275548250322",
+    "1275652375798",
+    "1275639900372",
+    "1275909170424",
+    "1275907363006",
+    "1275906697407",
+    "1275927521483"
+   ]
+  },
+  {
+   "un": "110-845097",
+   "companyId": "13581663444",
+   "name": "Seal Ring Kft.",
+   "sae": "Schawlochow Denis",
+   "mandant": "DE",
+   "ownerId": "1229999295",
+   "ownerName": "Denis Schawlochow",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2302,
+   "v6221": 2302,
+   "v6230": 0,
+   "lastKalrez": "2022-09-22",
+   "articles": [
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53",
+     "cpd": "6221",
+     "qty": 20.0,
+     "value": 2302,
+     "last": "2022-09-22"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276038448366"
+   ]
+  },
+  {
+   "un": "110-849579",
+   "companyId": "449835243738",
+   "name": "SCM - Systèmes et Connectique du Mans",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 2247,
+   "v6221": 0,
+   "v6230": 2247,
+   "lastKalrez": "2026-09-23",
+   "articles": [
+    {
+     "a": "1144300010",
+     "t": "FFKM O-ring KALREZ® 6230 ID 6.07 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 136.0,
+     "value": 2247,
+     "last": "2026-09-23"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1365707355370",
+    "1375396967653"
+   ],
+   "alsoCompanyIds": [
+    "445214867656"
+   ]
+  },
+  {
+   "un": "110-754007",
+   "companyId": "13581910210",
+   "name": "Haberkorn GmbH",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2186,
+   "v6221": 0,
+   "v6230": 2186,
+   "lastKalrez": "2024-11-14",
+   "articles": [
+    {
+     "a": "1144300339",
+     "t": "FFKM O-ring KALREZ® 6230 ID 81.92 x 5.33",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 1470,
+     "last": "2024-11-14"
+    },
+    {
+     "a": "1144300232",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.44 x 3.53",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 716,
+     "last": "2024-11-14"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275911111895",
+    "1275909435578"
+   ]
+  },
+  {
+   "un": "110-759673",
+   "companyId": "452635752685",
+   "name": "SOJEP SARL",
+   "sae": "Köremez James",
+   "mandant": "DE",
+   "ownerId": "38431796",
+   "ownerName": "James Koeremez",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2120,
+   "v6221": 0,
+   "v6230": 2120,
+   "lastKalrez": "2026-04-01",
+   "articles": [
+    {
+     "a": "1144300333",
+     "t": "FFKM O-ring KALREZ® 6230 ID 62.87 x 5.33",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 1577,
+     "last": "2025-07-29"
+    },
+    {
+     "a": "1144300213",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.39 x 3.53",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 382,
+     "last": "2025-07-29"
+    },
+    {
+     "a": "1144300017",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.17 x 1.78",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 122,
+     "last": "2022-02-24"
+    },
+    {
+     "a": "1144300114",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.54 x 2.62",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 39,
+     "last": "2026-04-01"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275578170604",
+    "1275651307718",
+    "1275944302795",
+    "1275944303815",
+    "1276022228210"
+   ]
+  },
+  {
+   "un": "110-749537",
+   "companyId": "408954358978",
+   "name": "Haberkorn Deutschland GmbH & Co KG",
+   "sae": "Frech Marc",
+   "mandant": "DE",
+   "ownerId": "817497321",
+   "ownerName": "Marc Frech",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 2089,
+   "v6221": 2089,
+   "v6230": 0,
+   "lastKalrez": "2026-06-02",
+   "articles": [
+    {
+     "a": "1144210144",
+     "t": "FFKM O-ring KALREZ® 6221 ID 63.17 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 8.0,
+     "value": 1150,
+     "last": "2026-06-02"
+    },
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 940,
+     "last": "2026-06-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275547813091",
+    "1281737097427",
+    "1275570473148",
+    "1281740321009",
+    "1275542445243"
+   ]
+  },
+  {
+   "un": "110-752062",
+   "companyId": "13581647345",
+   "name": "Rentschler Biopharma SE",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 2035,
+   "v6221": 2035,
+   "v6230": 0,
+   "lastKalrez": "2026-01-23",
+   "articles": [
+    {
+     "a": "1144210012",
+     "t": "FFKM O-ring KALREZ® 6221 ID 9.25 x 1.78",
+     "cpd": "6221",
+     "qty": 82.0,
+     "value": 1590,
+     "last": "2024-12-09"
+    },
+    {
+     "a": "1144210114",
+     "t": "FFKM O-ring KALREZ® 6221 ID 15.54 x 2.62",
+     "cpd": "6221",
+     "qty": 15.0,
+     "value": 445,
+     "last": "2026-01-23"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275541653702",
+    "1275640085705",
+    "1275910857948",
+    "1275935303903",
+    "1276023574761"
+   ]
+  },
+  {
+   "un": "110-776802",
+   "companyId": "13581742303",
+   "name": "Steroglass S.r.l.",
+   "sae": "Di Martino Vincenzo",
+   "mandant": "DE",
+   "ownerId": "37659386",
+   "ownerName": "Vincenzo Di Martino",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1929,
+   "v6221": 1929,
+   "v6230": 0,
+   "lastKalrez": "2026-06-25",
+   "articles": [
+    {
+     "a": "1144210119",
+     "t": "FFKM O-ring KALREZ® 6221 ID 23.47 x 2.62",
+     "cpd": "6221",
+     "qty": 50.0,
+     "value": 1929,
+     "last": "2026-06-25"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275550007532",
+    "1275904102591",
+    "1275911368928",
+    "1275931604160",
+    "1276021240051"
+   ]
+  },
+  {
+   "un": "110-850394",
+   "companyId": "398471224553",
+   "name": "Altuglas International",
+   "sae": "Borey Jeremy",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1698,
+   "v6221": 0,
+   "v6230": 1698,
+   "lastKalrez": "2024-12-02",
+   "articles": [
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 1698,
+     "last": "2024-12-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275944571068",
+    "1275909603557",
+    "1275975894222"
+   ]
+  },
+  {
+   "un": "110-788577",
+   "companyId": "13581807035",
+   "name": "F.I.R. S.r.l.",
+   "sae": "Fantasia Luca Mirko",
+   "mandant": "DE",
+   "ownerId": "1229999587",
+   "ownerName": "Luca Fantasia",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1611,
+   "v6221": 0,
+   "v6230": 1611,
+   "lastKalrez": "2024-01-04",
+   "articles": [
+    {
+     "a": "1144300330",
+     "t": "FFKM O-ring KALREZ® 6230 ID 53.34 x 5.33",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 1611,
+     "last": "2024-01-04"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275909422313"
+   ]
+  },
+  {
+   "un": "110-748025",
+   "companyId": "398630570192",
+   "name": "Hilger u. Kern GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1507,
+   "v6221": 0,
+   "v6230": 1507,
+   "lastKalrez": "2026-01-08",
+   "articles": [
+    {
+     "a": "1144300015",
+     "t": "FFKM O-ring KALREZ® 6230 ID 14.00 x 1.78",
+     "cpd": "6230",
+     "qty": 65.0,
+     "value": 790,
+     "last": "2025-08-28"
+    },
+    {
+     "a": "1144300013",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.82 x 1.78",
+     "cpd": "6230",
+     "qty": 18.0,
+     "value": 347,
+     "last": "2026-01-08"
+    },
+    {
+     "a": "1144300017",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.17 x 1.78",
+     "cpd": "6230",
+     "qty": 8.0,
+     "value": 204,
+     "last": "2026-01-08"
+    },
+    {
+     "a": "1144300012",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.25 x 1.78",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 166,
+     "last": "2024-04-24"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275545720035",
+    "1275545721033",
+    "1275663247594",
+    "1275663248593",
+    "1275910125817",
+    "1275910127826",
+    "1275910125814",
+    "1281728686308"
+   ]
+  },
+  {
+   "un": "110-760133",
+   "companyId": "398633773264",
+   "name": "Rousselet Centrifugation SA",
+   "sae": "Borey Jeremy",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1474,
+   "v6221": 0,
+   "v6230": 1474,
+   "lastKalrez": "2025-12-12",
+   "articles": [
+    {
+     "a": "1144300231",
+     "t": "FFKM O-ring KALREZ® 6230 ID 66.27 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 345,
+     "last": "2025-11-17"
+    },
+    {
+     "a": "1144300148",
+     "t": "FFKM O-ring KALREZ® 6230 ID 69.52 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 284,
+     "last": "2025-11-17"
+    },
+    {
+     "a": "1144300115",
+     "t": "FFKM O-ring KALREZ® 6230 ID 17.12 x 2.62",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 274,
+     "last": "2025-10-27"
+    },
+    {
+     "a": "1144300235",
+     "t": "FFKM O-ring KALREZ® 6230 ID 78.97 x 3.53",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 218,
+     "last": "2025-11-24"
+    },
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 186,
+     "last": "2023-04-13"
+    },
+    {
+     "a": "1144300010",
+     "t": "FFKM O-ring KALREZ® 6230 ID 6.07 x 1.78",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 133,
+     "last": "2025-12-12"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 34,
+     "last": "2025-10-27"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275629986007",
+    "1275651811516",
+    "1275623818468",
+    "1275666835678",
+    "1275959392447"
+   ]
+  },
+  {
+   "un": "110-749232",
+   "companyId": "13581109220",
+   "name": "TEDIMA technische Dichtungen,",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1410,
+   "v6221": 1342,
+   "v6230": 67,
+   "lastKalrez": "2025-11-28",
+   "articles": [
+    {
+     "a": "1144210141",
+     "t": "FFKM O-ring KALREZ® 6221 ID 58.42 x 2.62",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 652,
+     "last": "2025-11-28"
+    },
+    {
+     "a": "1144210246",
+     "t": "FFKM O-ring KALREZ® 6221 ID 113.89 x 3.5",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 543,
+     "last": "2025-11-28"
+    },
+    {
+     "a": "1144210129",
+     "t": "FFKM O-ring KALREZ® 6221 ID 39.34 x 2.62",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 148,
+     "last": "2025-11-28"
+    },
+    {
+     "a": "1144300015",
+     "t": "FFKM O-ring KALREZ® 6230 ID 14.00 x 1.78",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 67,
+     "last": "2022-02-04"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275640717500",
+    "1276023571661"
+   ]
+  },
+  {
+   "un": "110-865393",
+   "companyId": "421317353675",
+   "name": "BW Converting Spa",
+   "sae": "Vitale Simone",
+   "mandant": "DE",
+   "ownerId": "1255191254",
+   "ownerName": "Simone Vitale",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1256,
+   "v6221": 1256,
+   "v6230": 0,
+   "lastKalrez": "2026-04-13",
+   "articles": [
+    {
+     "a": "1144210234",
+     "t": "FFKM O-ring KALREZ® 6221 ID 75.79 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 8.0,
+     "value": 1256,
+     "last": "2026-04-13"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1281738166490"
+   ]
+  },
+  {
+   "un": "110-797986",
+   "companyId": "398619701481",
+   "name": "Klinger  B.V.",
+   "sae": "Van der Loo Nigel",
+   "mandant": "DE",
+   "ownerId": "1230006208",
+   "ownerName": "Nigel van der Loo",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1161,
+   "v6221": 0,
+   "v6230": 1161,
+   "lastKalrez": "2024-10-30",
+   "articles": [
+    {
+     "a": "1144300222",
+     "t": "FFKM O-ring KALREZ® 6230 ID 37.69 x 3.53",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 315,
+     "last": "2024-10-30"
+    },
+    {
+     "a": "1144300127",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.17 x 2.62",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 219,
+     "last": "2024-10-30"
+    },
+    {
+     "a": "1144300221",
+     "t": "FFKM O-ring KALREZ® 6230 ID 36.09 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 191,
+     "last": "2024-09-24"
+    },
+    {
+     "a": "1144300025",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.87 x 1.78",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 134,
+     "last": "2024-10-30"
+    },
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 133,
+     "last": "2024-09-24"
+    },
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 90,
+     "last": "2024-05-14"
+    },
+    {
+     "a": "1144300024",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.30 x 1.78",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 79,
+     "last": "2024-09-24"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275905809644",
+    "1275941499127",
+    "1275943794921",
+    "1275945635042"
+   ]
+  },
+  {
+   "un": "110-745531",
+   "companyId": "13581108963",
+   "name": "Niemann Dichtungen GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1118,
+   "v6221": 1118,
+   "v6230": 0,
+   "lastKalrez": "2025-09-26",
+   "articles": [
+    {
+     "a": "1144210380",
+     "t": "FFKM O-ring KALREZ® 6221 ID 291.47 x 5.3",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 1118,
+     "last": "2025-09-26"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275640100032"
+   ]
+  },
+  {
+   "un": "110-797768",
+   "companyId": "204083152058",
+   "name": "Rubix France SAS",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1102,
+   "v6221": 0,
+   "v6230": 1102,
+   "lastKalrez": "2025-04-08",
+   "articles": [
+    {
+     "a": "1144300012",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.25 x 1.78",
+     "cpd": "6230",
+     "qty": 44.0,
+     "value": 745,
+     "last": "2025-04-08"
+    },
+    {
+     "a": "8000064518",
+     "t": "KALREZ O-ring compound 6230 special si K-31022 ID 15.30 x 2.40 mm, FDA",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 357,
+     "last": "2022-03-08"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275660325051",
+    "1276036887796",
+    "1276020474101",
+    "1276021284086"
+   ]
+  },
+  {
+   "un": "110-775305",
+   "companyId": "381209177274",
+   "name": "A.T.P. S.p.A.",
+   "sae": "Fantasia Luca Mirko",
+   "mandant": "DE",
+   "ownerId": "1229999587",
+   "ownerName": "Luca Fantasia",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1094,
+   "v6221": 1094,
+   "v6230": 0,
+   "lastKalrez": "2022-02-04",
+   "articles": [
+    {
+     "a": "1144210107",
+     "t": "FFKM O-ring KALREZ® 6221 ID 5.23 x 2.62 mm",
+     "cpd": "6221",
+     "qty": 50.0,
+     "value": 1094,
+     "last": "2022-02-04"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276023571651"
+   ]
+  },
+  {
+   "un": "110-797567",
+   "companyId": "398588307678",
+   "name": "K&A Labs GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1076,
+   "v6221": 652,
+   "v6230": 424,
+   "lastKalrez": "2023-07-25",
+   "articles": [
+    {
+     "a": "1144210111",
+     "t": "FFKM O-ring KALREZ® 6221 ID 10.77 x 2.62",
+     "cpd": "6221",
+     "qty": 25.0,
+     "value": 652,
+     "last": "2022-06-23"
+    },
+    {
+     "a": "1144300111",
+     "t": "FFKM O-ring KALREZ® 6230 ID 10.77 x 2.62",
+     "cpd": "6230",
+     "qty": 20.0,
+     "value": 424,
+     "last": "2023-07-25"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275975378147",
+    "1276037155057",
+    "1275960309974"
+   ]
+  },
+  {
+   "un": "110-800537",
+   "companyId": "13581823947",
+   "name": "EVER Neuro Pharma GmbH",
+   "sae": "Mandl Tamara",
+   "mandant": "DE",
+   "ownerId": "1229976036",
+   "ownerName": "Tamara Mandl",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 1061,
+   "v6221": 0,
+   "v6230": 1061,
+   "lastKalrez": "2025-04-30",
+   "articles": [
+    {
+     "a": "1144300020",
+     "t": "FFKM O-ring KALREZ® 6230 ID 21.95 x 1.78",
+     "cpd": "6230",
+     "qty": 35.0,
+     "value": 810,
+     "last": "2025-04-30"
+    },
+    {
+     "a": "1144300117",
+     "t": "FFKM O-ring KALREZ® 6230 ID 20.29 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 179,
+     "last": "2022-11-14"
+    },
+    {
+     "a": "1144300014",
+     "t": "FFKM O-ring KALREZ® 6230 ID 12.42 x 1.78",
+     "cpd": "6230",
+     "qty": 3.0,
+     "value": 72,
+     "last": "2025-04-30"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275651657963",
+    "1275651657968",
+    "1275905492191",
+    "1275960292558",
+    "1275960293572"
+   ]
+  },
+  {
+   "un": "110-813496",
+   "companyId": "13581885412",
+   "name": "Roto Inox d.o.o.",
+   "sae": "Schawlochow Denis",
+   "mandant": "DE",
+   "ownerId": "1229999295",
+   "ownerName": "Denis Schawlochow",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 1050,
+   "v6221": 0,
+   "v6230": 1050,
+   "lastKalrez": "2025-01-27",
+   "articles": [
+    {
+     "a": "1144300132",
+     "t": "FFKM O-ring KALREZ® 6230 ID 44.12 x 2.62",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 455,
+     "last": "2025-01-27"
+    },
+    {
+     "a": "1144300126",
+     "t": "FFKM O-ring KALREZ® 6230 ID 34.59 x 2.62",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 342,
+     "last": "2025-01-27"
+    },
+    {
+     "a": "1144300121",
+     "t": "FFKM O-ring KALREZ® 6230 ID 26.64 x 2.62",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 252,
+     "last": "2025-01-27"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275651837154"
+   ]
+  },
+  {
+   "un": "110-807145",
+   "companyId": "431124421859",
+   "name": "Renova S.r.l.",
+   "sae": "Vitale Simone",
+   "mandant": "DE",
+   "ownerId": "1255191254",
+   "ownerName": "Simone Vitale",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 984,
+   "v6221": 0,
+   "v6230": 984,
+   "lastKalrez": "2026-04-01",
+   "articles": [
+    {
+     "a": "1144300116",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.72 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 30.0,
+     "value": 516,
+     "last": "2026-04-01"
+    },
+    {
+     "a": "1144300122",
+     "t": "FFKM O-ring KALREZ® 6230 ID 28.24 x 2.62 mm",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 468,
+     "last": "2026-04-01"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1281738166507"
+   ]
+  },
+  {
+   "un": "110-746717",
+   "companyId": "450000424181",
+   "name": "CU Chemie Uetikon GmbH",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 980,
+   "v6221": 980,
+   "v6230": 0,
+   "lastKalrez": "2026-09-21",
+   "articles": [
+    {
+     "a": "1144210223",
+     "t": "FFKM O-ring KALREZ® 6221 ID 40.87 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 546,
+     "last": "2026-09-21"
+    },
+    {
+     "a": "1144210219",
+     "t": "FFKM O-ring KALREZ® 6221 ID 32.92 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 5.0,
+     "value": 435,
+     "last": "2026-09-21"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1368797231296"
+   ]
+  },
+  {
+   "un": "110-822446",
+   "companyId": "398900448495",
+   "name": "Lune Prozesstechnik GmbH",
+   "sae": "Storm Katja",
+   "mandant": "DE",
+   "ownerId": "1229998779",
+   "ownerName": "Katja Storm",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 887,
+   "v6221": 887,
+   "v6230": 0,
+   "lastKalrez": "2022-10-06",
+   "articles": [
+    {
+     "a": "1144210227",
+     "t": "FFKM O-ring KALREZ® 6221 ID 53.57 x 3.53",
+     "cpd": "6221",
+     "qty": 4.0,
+     "value": 623,
+     "last": "2022-10-06"
+    },
+    {
+     "a": "1144210225",
+     "t": "FFKM O-ring KALREZ® 6221 ID 47.22 x 3.53 mm",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 264,
+     "last": "2022-02-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276023077081",
+    "1276021263572"
+   ]
+  },
+  {
+   "un": "110-759670",
+   "companyId": "447909860543",
+   "name": "Rubix 759670 ",
+   "sae": "Borey Jeremy",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 776,
+   "v6221": 0,
+   "v6230": 776,
+   "lastKalrez": "2026-09-29",
+   "articles": [
+    {
+     "a": "8000064518",
+     "t": "KALREZ O-ring compound 6230 special si K-31022 ID 15.30 x 2.40 mm, FDA",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 609,
+     "last": "2026-09-29"
+    },
+    {
+     "a": "1144300011",
+     "t": "FFKM O-ring KALREZ® 6230 ID 7.65 x 1.78",
+     "cpd": "6230",
+     "qty": 10.0,
+     "value": 167,
+     "last": "2026-04-09"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1382959231183",
+    "1275565774031"
+   ]
+  },
+  {
+   "un": "110-862707",
+   "companyId": "227306768594",
+   "name": "RIERA NADEU,S.A.",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 736,
+   "v6221": 736,
+   "v6230": 0,
+   "lastKalrez": "2025-09-02",
+   "articles": [
+    {
+     "a": "1144210336",
+     "t": "FFKM O-ring KALREZ® 6221 ID 72.39 x 5.33",
+     "cpd": "6221",
+     "qty": 2.0,
+     "value": 736,
+     "last": "2025-09-02"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275649115367"
+   ]
+  },
+  {
+   "un": "110-836803",
+   "companyId": "398599071977",
+   "name": "Thermomess S.r.l.",
+   "sae": "Vitale Simone",
+   "mandant": "DE",
+   "ownerId": "1255191254",
+   "ownerName": "Simone Vitale",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 703,
+   "v6221": 0,
+   "v6230": 703,
+   "lastKalrez": "2024-10-21",
+   "articles": [
+    {
+     "a": "1144300130",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.94 x 2.62",
+     "cpd": "6230",
+     "qty": 15.0,
+     "value": 703,
+     "last": "2024-10-21"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275904100554",
+    "1275904099568",
+    "1275944145122"
+   ]
+  },
+  {
+   "un": "110-752874",
+   "companyId": "464516761807",
+   "name": "Zellaerosol GmbH",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 688,
+   "v6221": 0,
+   "v6230": 688,
+   "lastKalrez": "2022-05-24",
+   "articles": [
+    {
+     "a": "1144300007",
+     "t": "FFKM O-ring KALREZ® 6230 ID 3.68 x 1.78 mm",
+     "cpd": "6230",
+     "qty": 50.0,
+     "value": 688,
+     "last": "2022-05-24"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276037456094"
+   ]
+  },
+  {
+   "un": "110-748884",
+   "companyId": "415780919529",
+   "name": "ULMAN Dichtungstechnik GmbH",
+   "sae": "Stahl Christopher",
+   "mandant": "DE",
+   "ownerId": null,
+   "ownerName": "TSA Team",
+   "team": "TSA",
+   "cur": "EUR",
+   "value": 682,
+   "v6221": 0,
+   "v6230": 682,
+   "lastKalrez": "2025-03-13",
+   "articles": [
+    {
+     "a": "1144300256",
+     "t": "FFKM O-ring KALREZ® 6230 ID 145.64 x 3.5",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 682,
+     "last": "2025-03-13"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275630629075",
+    "1275909035203"
+   ]
+  },
+  {
+   "un": "110-800109",
+   "companyId": "398770774222",
+   "name": "Visco Jet Rührsysteme GmbH",
+   "sae": "Lange Christoph",
+   "mandant": "DE",
+   "ownerId": "1229998780",
+   "ownerName": "Christoph Lange",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 681,
+   "v6221": 0,
+   "v6230": 681,
+   "lastKalrez": "2025-12-11",
+   "articles": [
+    {
+     "a": "1144300217",
+     "t": "FFKM O-ring KALREZ® 6230 ID 29.74 x 3.53",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 311,
+     "last": "2024-10-25"
+    },
+    {
+     "a": "1144300110",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.19 x 2.62",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 154,
+     "last": "2025-12-08"
+    },
+    {
+     "a": "1144300114",
+     "t": "FFKM O-ring KALREZ® 6230 ID 15.54 x 2.62",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 141,
+     "last": "2024-10-25"
+    },
+    {
+     "a": "1144300213",
+     "t": "FFKM O-ring KALREZ® 6230 ID 23.39 x 3.53",
+     "cpd": "6230",
+     "qty": 1.0,
+     "value": 74,
+     "last": "2025-12-11"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275664185559",
+    "1275650593996",
+    "1275944807651",
+    "1275909621956"
+   ]
+  },
+  {
+   "un": "110-788471",
+   "companyId": "13581853132",
+   "name": "Vogelbusch Biopharma GmbH",
+   "sae": "Mandl Tamara",
+   "mandant": "DE",
+   "ownerId": "1229976036",
+   "ownerName": "Tamara Mandl",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 652,
+   "v6221": 652,
+   "v6230": 0,
+   "lastKalrez": "2024-04-08",
+   "articles": [
+    {
+     "a": "1144210117",
+     "t": "FFKM O-ring KALREZ® 6221 ID 20.29 x 2.62",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 360,
+     "last": "2024-04-08"
+    },
+    {
+     "a": "1144210113",
+     "t": "FFKM O-ring KALREZ® 6221 ID 13.94 x 2.62",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 293,
+     "last": "2024-04-08"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275905488091"
+   ]
+  },
+  {
+   "un": "110-797408",
+   "companyId": "13581449457",
+   "name": "DFV Dichtungs-, Fertigungs-",
+   "sae": "Wieneber Stefan",
+   "mandant": "DE",
+   "ownerId": "1229976035",
+   "ownerName": "Stefan Wieneber",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 620,
+   "v6221": 0,
+   "v6230": 620,
+   "lastKalrez": "2022-12-06",
+   "articles": [
+    {
+     "a": "1144300253",
+     "t": "FFKM O-ring KALREZ® 6230 ID 136.12 x 3.5",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 620,
+     "last": "2022-12-06"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1276019743940"
+   ]
+  },
+  {
+   "un": "110-751847",
+   "companyId": "13581092062",
+   "name": "CKD Dichtungstechnik GmbH",
+   "sae": "Höhn Hans-Peter",
+   "mandant": "DE",
+   "ownerId": "1229976027",
+   "ownerName": "Hans Peter Höhn",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 587,
+   "v6221": 151,
+   "v6230": 435,
+   "lastKalrez": "2023-03-06",
+   "articles": [
+    {
+     "a": "1144300223",
+     "t": "FFKM O-ring KALREZ® 6230 ID 40.87 x 3.53",
+     "cpd": "6230",
+     "qty": 4.0,
+     "value": 435,
+     "last": "2022-08-11"
+    },
+    {
+     "a": "1144210014",
+     "t": "FFKM O-ring KALREZ® 6221 ID 12.42 x 1.78",
+     "cpd": "6221",
+     "qty": 6.0,
+     "value": 151,
+     "last": "2023-03-06"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275972012225",
+    "1276007095498"
+   ]
+  },
+  {
+   "un": "110-762222",
+   "companyId": "289961403584",
+   "name": "3C France SAS",
+   "sae": "TSA Team",
+   "mandant": "DE",
+   "ownerId": "29117550",
+   "ownerName": "Jeremy Borey",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 584,
+   "v6221": 0,
+   "v6230": 584,
+   "lastKalrez": "2023-01-30",
+   "articles": [
+    {
+     "a": "1144300214",
+     "t": "FFKM O-ring KALREZ® 6230 ID 24.99 x 3.53",
+     "cpd": "6230",
+     "qty": 6.0,
+     "value": 314,
+     "last": "2022-01-25"
+    },
+    {
+     "a": "1144300210",
+     "t": "FFKM O-ring KALREZ® 6230 ID 18.64 x 3.53",
+     "cpd": "6230",
+     "qty": 5.0,
+     "value": 270,
+     "last": "2023-01-30"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275927179498",
+    "1276033225929"
+   ]
+  },
+  {
+   "un": "110-747942",
+   "companyId": "100945434846",
+   "name": "Technico GmbH & Co.KG",
+   "sae": "Rausmann Bernd",
+   "mandant": "DE",
+   "ownerId": "817647087",
+   "ownerName": "Bernd Rausmann",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 525,
+   "v6221": 525,
+   "v6230": 0,
+   "lastKalrez": "2023-12-01",
+   "articles": [
+    {
+     "a": "1144210235",
+     "t": "FFKM O-ring KALREZ® 6221 ID 78.97 x 3.53",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 212,
+     "last": "2023-12-01"
+    },
+    {
+     "a": "1144210151",
+     "t": "FFKM O-ring KALREZ® 6221 ID 75.87 x 2.62",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 170,
+     "last": "2023-12-01"
+    },
+    {
+     "a": "1144210145",
+     "t": "FFKM O-ring KALREZ® 6221 ID 64.77 x 2.62",
+     "cpd": "6221",
+     "qty": 1.0,
+     "value": 142,
+     "last": "2023-12-01"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275930957019"
+   ]
+  },
+  {
+   "un": "110-773427",
+   "companyId": "171086442740",
+   "name": "Maag Italy Srl",
+   "sae": "Vitale Simone",
+   "mandant": "DE",
+   "ownerId": "1255191254",
+   "ownerName": "Simone Vitale",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 519,
+   "v6221": 519,
+   "v6230": 0,
+   "lastKalrez": "2026-01-26",
+   "articles": [
+    {
+     "a": "1144210031",
+     "t": "FFKM O-ring KALREZ® 6221 ID 44.17 x 1.78",
+     "cpd": "6221",
+     "qty": 10.0,
+     "value": 519,
+     "last": "2026-01-26"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275471472862"
+   ]
+  },
+  {
+   "un": "110-852774",
+   "companyId": "13581300722",
+   "name": "Automa Srl",
+   "sae": "Lonardi Raffaello",
+   "mandant": "DE",
+   "ownerId": "33688321",
+   "ownerName": "Raffaello Lonardi",
+   "team": "ESO",
+   "cur": "EUR",
+   "value": 511,
+   "v6221": 0,
+   "v6230": 511,
+   "lastKalrez": "2023-12-05",
+   "articles": [
+    {
+     "a": "1144300239",
+     "t": "FFKM O-ring KALREZ® 6230 ID 91.67 x 3.53",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 464,
+     "last": "2023-12-05"
+    },
+    {
+     "a": "1144300012",
+     "t": "FFKM O-ring KALREZ® 6230 ID 9.25 x 1.78",
+     "cpd": "6230",
+     "qty": 2.0,
+     "value": 47,
+     "last": "2023-12-05"
+    }
+   ],
+   "moreArticles": 0,
+   "orderIds": [
+    "1275959347418"
+   ]
+  }
+ ]
+}

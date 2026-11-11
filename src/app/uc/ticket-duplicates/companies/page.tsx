@@ -50,7 +50,7 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import type { LogEntry, Mode, RunInfo, Settings, Snapshot } from "@/lib/companyDuplicates/engine";
 import { MERGE_PER_HOUR, type Company, type Group, type MergeEvent, type Rules } from "@/lib/companyDuplicates/rules";
 import { DupToggle } from "../DupToggle";
-import { CountryTab } from "./CountryTab";
+import { CountryTab, CountrySettings } from "./CountryTab";
 import { GroupTable } from "./GroupTable";
 import { Decide, Decisions, useDecisionState } from "./decide";
 import Link from "next/link";
@@ -449,7 +449,7 @@ export default function CompanyDuplicates() {
   if (tab === "country") body = <CountryTab />;
   else if (r === null) body = <LoadingPanel label="Reading the companies…" />;
   else if (r.state !== "ok" || !d) body = <UpstreamPanel source="Duplicates & merges" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={again} />;
-  else if (tab === "settings") body = <SettingsTab d={d} onChanged={again} />;
+  else if (tab === "settings") body = <><SettingsTab d={d} onChanged={again} /><CountrySettings /></>;
   else if (tab === "decisions") body = <DecisionsTab d={d} />;
   else if (tab === "erp") body = <NumberTab d={d} onSaved={again} />;
   else if (tab === "possible") body = <PossibleTab d={d} onSaved={again} />;

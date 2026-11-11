@@ -79,8 +79,6 @@ export function NameLetters() {
   const d = r?.state === "ok" ? r.data : null;
   const [q, setQ] = useState("");
   const [handled, setHandled] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase();
     return (d?.person ?? []).filter((x) => !handled[x.id] && (!t || `${x.first} ${x.last} ${x.email}`.toLowerCase().includes(t)));
@@ -91,15 +89,6 @@ export function NameLetters() {
   if (r === null) return <LoadingPanel label="Reading the names with broken letters…" />;
   if (!d) return <UpstreamPanel source="Name letters" error={r.state === "error" ? r.error : "not there yet - this tab fills in once the hub is deployed"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
 
-  const call = async (what: string, method: "PUT" | "POST", body: unknown) => {
-    setBusy(what); setMsg(null);
-    try {
-      const res = await fetch(API, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = (await res.json()) as { ok: boolean; error?: string };
-      setMsg(j.ok ? "Done." : j.error ?? `HTTP ${res.status}`);
-      setN((x) => x + 1);
-    } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); }
-  };
   const mode = d.settings.mode;
   const byHub = d.done.filter((x) => !x.by).length, byHand = d.done.filter((x) => x.by).length;
 
@@ -167,16 +156,6 @@ export function NameLetters() {
         ) : <Typography sx={{ fontSize: "0.85rem", color: MUTED }}>Nothing repaired yet.</Typography>}
         {doneList.pager}
       </GlassCard>
-
-      {d.admin && (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Admin:</Typography>
-          <Button size="small" variant="text" disabled={!!busy} onClick={() => void call("mode", "PUT", { mode: mode === "live" ? "shadow" : "live" })} sx={{ textTransform: "none" }}>{mode === "live" ? "Pause" : "Switch on"}</Button>
-          <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
-          {busy && <CircularProgress size={14} />}
-          {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{msg}</Typography>}
-        </Box>
-      )}
     </>
   );
 }
