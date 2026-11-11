@@ -112,6 +112,10 @@ export async function register() {
     startContactNames();
     const { startCompanyMaps } = await import("./lib/companyMaps/engine");
     startCompanyMaps();
+    // Company data > Country - country_custom from the country (src/lib/companyCountry; COMPANY_COUNTRY=off), the workflow
+    // SARCLA | REGION TO COUNTRY CUSTOM brought in (11.11.2026).
+    const { startCompanyCountry } = await import("./lib/companyCountry/engine");
+    startCompanyCountry();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
     // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
     const { startTicketValue } = await import("./lib/ticketValue/engine");
