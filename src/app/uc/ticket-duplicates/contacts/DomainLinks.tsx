@@ -7,7 +7,6 @@
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
@@ -16,7 +15,6 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
-import CircularProgress from "@mui/material/CircularProgress";
 import LinkOffIcon from "@mui/icons-material/LinkOff";
 import AddLinkIcon from "@mui/icons-material/AddLink";
 import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
@@ -53,8 +51,6 @@ export function DomainLinks() {
   const d = r?.state === "ok" ? r.data : null;
   const [view, setView] = useState<View>("next");
   const [q, setQ] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const { next, several, linked } = useMemo(() => {
     const t = q.trim().toLowerCase();
     const match = (s: string) => !t || s.toLowerCase().includes(t);
@@ -69,15 +65,6 @@ export function DomainLinks() {
   if (r === null) return <LoadingPanel label="Reading the contacts without a company…" />;
   if (!d) return <UpstreamPanel source="By e-mail domain" error={r.state === "error" ? r.error : "not there yet - this tab fills in once the hub is deployed"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
 
-  const call = async (what: string, method: "PUT" | "POST", body: unknown) => {
-    setBusy(what); setMsg(null);
-    try {
-      const res = await fetch(API, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = (await res.json()) as { ok: boolean; error?: string };
-      setMsg(j.ok ? (what === "run" ? "Reading every contact without a company - the lists are new within two minutes." : "Done.") : j.error ?? `HTTP ${res.status}`);
-      setN((x) => x + 1);
-    } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); }
-  };
   const mode = d.settings.mode;
   const c = d.counts;
   const free = c ? c.free + c.internal + c.noemail : 0;
@@ -165,17 +152,6 @@ export function DomainLinks() {
         {view === "several" && <Typography sx={{ fontSize: "0.78rem", color: FAINT, mt: 1 }}>These are linked by a person in HubSpot - a shop account among them is also on Shop accounts, with its orders and customer number.</Typography>}
         {d.last?.error && <Typography sx={{ fontSize: "0.78rem", color: "#b4232f", mt: 1 }}>Last run {when(d.last.at)}: {d.last.error}</Typography>}
       </GlassCard>
-
-      {d.admin && (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Admin:</Typography>
-          {mode !== "live" && <Button size="small" variant="text" disabled={!!busy} onClick={() => void call("mode", "PUT", { mode: "live" })} sx={{ textTransform: "none" }}>Switch on (link)</Button>}
-          {mode !== "shadow" && <Button size="small" variant="text" disabled={!!busy} onClick={() => void call("mode", "PUT", { mode: "shadow" })} sx={{ textTransform: "none" }}>{mode === "live" ? "Back to shadow" : "Shadow"}</Button>}
-          <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
-          {busy && <CircularProgress size={14} />}
-          {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{msg}</Typography>}
-        </Box>
-      )}
     </>
   );
 }
