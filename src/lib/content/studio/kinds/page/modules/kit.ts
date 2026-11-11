@@ -144,7 +144,7 @@ export const BASE = `
 @@ :is(.am-all,.am-go)::after{content:"";flex:none;width:7px;height:7px;border:solid currentColor;border-width:1.8px 1.8px 0 0;transform:rotate(45deg);transition:transform .2s}
 @@ .am-all:hover::after,@@ a:hover .am-go::after{transform:translateX(3px) rotate(45deg)}
 @@ .am-box{padding:22px 26px 26px;border-radius:28px;background:linear-gradient(#f6f8f9,#edf1f3)}
-@media (max-width:900px){@@{margin:20px auto}@@ .am-box{padding:16px 12px 14px;border-radius:20px}@@ .am-hd{margin-bottom:12px}}
+@media (max-width:900px){@@{margin:20px auto}@@ .am-box{padding:16px 12px 14px;border-radius:20px}@@ .am-hd{margin-bottom:12px;display:block}}
 `;
 
 // the card's markup is kept small (a finder carries 20 of them inside a version's 20 KB per element):

@@ -427,13 +427,29 @@ export function position(f: Facts, now: number, t: Timing = DEFAULT_TIMING): { p
   return { phase: p.phase, at: past.length ? past[past.length - 1].name : null, next: p.steps.find((x) => x.at > now) ?? null };
 }
 
+/** The next of a rotation, leaving out the people in `avoid`. */
+export type PickFn = (who: "backOffice" | "experts", avoid?: string[]) => string | null;
+
+/**
+ * The conformity expert a request gets. The expert a person already put on the ticket (one of the experts) stays: the hub
+ * never writes over a person's pick (446049398992, 06.11.2026: Maida, picked by hand, replaced by the rotation 29 s
+ * later). Otherwise the next of the rotation. Never the requester and never the issuer of the declaration (avoid): the
+ * expert is the second pair of eyes (SARCLA 11.11.2026).
+ */
+export function expertFor(f: Facts, people: People, pick: PickFn, avoid: string[] = []): string | null {
+  const no = [f.requester, ...avoid].filter((x): x is string => !!x);
+  if (f.expert && people.experts.includes(f.expert) && !no.includes(f.expert)) return f.expert;
+  return pick("experts", no);
+}
+
 /**
  * The steps' writes as one PATCH, in order (a later subject wins), and the one mail to send (the last step's). Rotations
  * and the escalation are resolved by the caller. Mails only from the Remind switch-over (mailFrom; null = none - the
- * Remind workflow still mails).
+ * Remind workflow still mails). avoid: who may not be the conformity expert besides the requester (the declaration's
+ * issuer).
  */
 export function merge(
-  f: Facts, steps: Step[], pick: (who: "backOffice" | "experts") => string | null, people: People, mailFrom: number | null = null,
+  f: Facts, steps: Step[], pick: PickFn, people: People, mailFrom: number | null = null, avoid: string[] = [],
 ): { props: Record<string, string>; note: boolean; mail: MailName | null } {
   const props: Record<string, string> = {};
   let note = false;
@@ -442,7 +458,7 @@ export function merge(
     if (a.kind === "set") props[a.prop] = a.value;
     else if (a.kind === "subject") props.subject = subjectOf(a.head, f);
     else if (a.kind === "rotate") {
-      const id = pick(a.who);
+      const id = a.who === "experts" && a.prop === "conformity_expert" ? expertFor(f, people, pick, avoid) : pick(a.who);
       if (id) { props[a.prop] = id; if (a.prop === "hubspot_owner_id" || a.alsoOwner) props.hubspot_owner_id = id; }
     } else if (a.kind === "ownerFrom") {
       const id = f.requester ?? f.owner;

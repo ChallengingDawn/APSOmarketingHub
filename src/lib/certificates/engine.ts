@@ -550,13 +550,16 @@ async function run(): Promise<RunInfo> {
       const used = { backOffice: 0, experts: 0 };
       // a DEMO request: every person the hub would pick is the demo user, and the rotation does not move on
       const demo = demoOf(f.demo);
-      const pick = (who: "backOffice" | "experts") => {
+      const pick = (who: "backOffice" | "experts", avoid: string[] = []) => {
         if (demo) return demo.owner;
-        const people = active(settings.people[who]);
+        const people = active(settings.people[who]).filter((id) => !avoid.includes(id));
         if (!people.length) return null;
         return people[(rot[who] + used[who]++) % people.length];
       };
-      const { props, note, mail: mailed } = merge(f, due, pick, settings.people, remindOffAt);
+      // the issuer of the declaration made on the card is never its conformity expert (nor the requester - rules.expertFor)
+      const issuerMail = (() => { const m = parseMaker(f.maker); return (m?.signers.issuer?.email || m?.decl.issuer.email || "").trim().toLowerCase(); })();
+      const issuer = issuerMail ? list.find((o) => (o.email || "").toLowerCase() === issuerMail)?.id ?? null : null;
+      const { props, note, mail: mailed } = merge(f, due, pick, settings.people, remindOffAt, issuer ? [issuer] : []);
       if (demo) for (const k of ["hubspot_owner_id", "conformity_expert", "back_office_ticket_requester"]) if (props[k]) props[k] = demo.owner;
       // the owners' reminder mails, switched on the console
       const mail = settings.mails.owner ? mailed : null;
