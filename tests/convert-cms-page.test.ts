@@ -241,3 +241,15 @@ test("an update is written through its store view's own code; 'all' only when no
   assert.equal(putStore("xx-YY"), "all");
   assert.equal(putStore(null), "all");
 });
+
+// 3a's review (11.11.2026): the update's address from Magento's own record of the page - never narrow a broadened page
+import { updateStoreOf } from "../src/lib/convert/cmsPage";
+test("an update goes through the page's own single store view; 0 or several stay on 'all'; no record - the hub's store view", () => {
+  assert.equal(updateStoreOf({ store_id: [6] }, "de-CH/eur"), "switzerland_chf_de", "Magento's record wins over the hub's view");
+  assert.equal(updateStoreOf({ store_id: 6 }, null), "switzerland_chf_de");
+  assert.equal(updateStoreOf({ store_id: [0] }, "de-CH"), "all", "All Store Views is never narrowed");
+  assert.equal(updateStoreOf({ store_id: [6, 1] }, "de-CH"), "all", "several store views are never narrowed");
+  assert.equal(updateStoreOf({}, "de-CH"), "switzerland_chf_de", "no store_id in the record: the hub's store view");
+  assert.equal(updateStoreOf({ store_id: [999] }, "de-CH"), "switzerland_chf_de", "an id the shop's list doesn't know: the hub's store view");
+  assert.equal(updateStoreOf(null, "xx-YY"), "all");
+});
