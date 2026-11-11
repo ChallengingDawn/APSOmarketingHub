@@ -13,7 +13,11 @@
 
 import { LANGUAGE_BY_CODE } from "../../../languages";
 import { photoByKey } from "../banner/brand";
-import { cleanVideo, COPY_KEYS, forbidden, KIND_INFO, SCENE_KINDS, SHAPES, END_FIELDS, videoText, type CopyKey, type Scene, type SceneKind, type VideoDoc } from "./model";
+import {
+  cleanVideo, COPY_KEYS, filmFacts, forbidden, inLanguage, KIND_INFO, SCENE_KINDS, setLangLine, SHAPES, END_FIELDS, untranslated, versionFrom, videoText, wordsToTranslate,
+  type CopyKey, type Scene, type SceneKind, type VideoDoc,
+} from "./model";
+import { notInFacts } from "./guard";
 import { plain } from "./engine/text";
 import { FEATURE, FEATURES, ICONS, featuresBrief, isFeature, isIcon, numberAllowed, type FeatureKey } from "./features";
 import { PARTS, isPart } from "./parts";
@@ -46,6 +50,7 @@ export const FILM_RULES = [
   `- Few words: every line is read in under two seconds. Keep to each field's word limit; fewer is better. One idea per scene.`,
   `- Mark ONE key word per scene (at most) with *stars*, e.g. "Cut to *your* size". It shows in red. Never a whole line.`,
   `- NEVER a discount value: no percentages, no "up to 20%", no amounts off. No prices, no currency amounts.`,
+  `- NEVER a stock promise ("in stock", "ab Lager"), never Chemours. A delivery time ("in 24 h", "next day") only as a feature listed below states it; a certificate or approval (FDA, KTW, ISO ...) only when the brief names it.`,
   `- Nothing invented: no numbers, delivery times, stock levels, certifications, customer names or claims that are not in the brief, the to-do or the brand facts above. If you have no verified fact, say the benefit without a number.`,
   `- A "quote" scene ONLY with words a customer said that are given word for word in the brief; otherwise never use the quote kind.`,
   `- Sentence case, no all-caps words, no exclamation marks except at most one on the end card, no emoji.`,
@@ -181,8 +186,10 @@ export const reviseUser = (ctx: VideoCtx, doc: unknown, input: Record<string, un
   context(ctx, doc),
   pickedFeatures(doc, input).length ? `\nThe film's APSOparts features (only these, only their facts):\n${featuresBrief(pickedFeatures(doc, input))}` : "",
   ``,
-  `Change the storyboard the way the person asks; keep every scene they did not ask about exactly as it is (same kind, bars and words). Give back the whole storyboard.`,
-  `What the person asks: ${str(input.ask, 800) || "(nothing - make it stronger)"}`,
+  input.how === "better"
+    // "Write it all again" > Directly (cv16): the film as it stands, every line written again better - nothing asked
+    ? `Write every scene of this storyboard again, better: the same scenes in the same order, the same kinds, bars, parts and features - sharper, fewer and stronger words in every line, one idea a scene, the end card's line too. Give back the whole storyboard.`
+    : `Change the storyboard the way the person asks; keep every scene they did not ask about exactly as it is (same kind, bars and words). Give back the whole storyboard.\nWhat the person asks: ${str(input.ask, 800) || "(nothing - make it stronger)"}`,
 ].join("\n");
 
 export const tightenUser = (ctx: VideoCtx, doc: unknown) => {
@@ -257,14 +264,19 @@ const sourcesOf = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) 
     ...d.scenes.filter((s) => s.kind === "quote").map((s) => s.copy.line1 ?? "")].filter(Boolean);
 };
 
-/** A line kept, or "" when it carries what the film never shows (and why, into `dropped`). */
-function keep(v: unknown, max: number, dropped: string[]): string {
+/** A line kept, or "" when it carries what the film never shows (and why, into `dropped`). With `facts` (the brief, the
+ * features' own words - cv16), a delivery time or a certificate they do not state is left out too. */
+function keep(v: unknown, max: number, dropped: string[], facts?: string): string {
   const s = str(v, max);
   if (!s) return "";
-  const bad = forbidden(s);
+  const bad = forbidden(s) ?? (facts !== undefined ? notInFacts(s, facts) : null);
   if (bad) { dropped.push(`"${plain(s)}" (${bad.replace(/\.$/, "").replace(/^\w/, (c) => c.toLowerCase())})`); return ""; }
   return s;
 }
+
+/** What an answer's lines may state: the team's words (the brief, the ask, its quotes) and the features' own facts. */
+const factsFor = (sources: string[], allowed: FeatureKey[], doc?: VideoDoc) =>
+  [...sources, filmFacts({ features: allowed, scenes: doc?.scenes ?? [] })].join("\n");
 
 /** One scene of an answer, as a scene of the film (null when nothing of it can be kept). `allowed` = the film's features. */
 export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: string[], allowed: FeatureKey[] = []): Scene | null {
@@ -273,8 +285,10 @@ export function sceneFrom(raw: unknown, id: string, sources: string[], dropped: 
   if (!kind) return null;
   const info = KIND_INFO[kind];
   const copy: Partial<Record<CopyKey, string>> = {};
+  // a delivery time or a certificate only as the brief or the scene's features state it (cv16)
+  const facts = factsFor(sources, isFeature(raw.feature) ? [...allowed, raw.feature] : allowed);
   for (const f of info.fields) {
-    const v = keep(raw[f.key], Math.max(f.chars * 2, 60), dropped);
+    const v = keep(raw[f.key], Math.max(f.chars * 2, 60), dropped, facts);
     if (v) copy[f.key] = v;
   }
   // lines that follow one another close up when one was dropped (words, steps)
@@ -323,12 +337,17 @@ export function cleanStoryboard(raw: unknown, doc: unknown, ctx: VideoCtx, input
   // a scene the person did not ask to change keeps its id, so its place in the studio stays put
   const scenes = (Array.isArray(r.scenes) ? r.scenes : []).slice(0, 10)
     .map((x, i) => {
-      const same = cur.scenes.find((s) => !matched.has(s.id) && isObj(x) && s.kind === x.kind && plain(s.copy.line1 ?? "") === plain(str(x.line1)));
+      // "Directly" (cv16) writes the same scenes again: the one in the same place, of the same kind, keeps its id and picture
+      const inPlace = input.how === "better" && isObj(x) && cur.scenes[i] && !matched.has(cur.scenes[i].id) && cur.scenes[i].kind === x.kind ? cur.scenes[i] : undefined;
+      const same = inPlace ?? cur.scenes.find((s) => !matched.has(s.id) && isObj(x) && s.kind === x.kind && plain(s.copy.line1 ?? "") === plain(str(x.line1)));
       const id = same ? (matched.add(same.id), same.id) : fresh(i + 1, all);
-      return sceneFrom(x, id, sources, dropped, allowed);
+      const sc = sceneFrom(x, id, sources, dropped, allowed);
+      if (!sc || !inPlace) return sc;
+      return { ...sc, ...(inPlace.image && KIND_INFO[sc.kind].image ? { image: inPlace.image } : {}), ...(inPlace.part && KIND_INFO[sc.kind].shape ? { part: inPlace.part, shape: inPlace.shape } : {}), ...(inPlace.cut ? { cut: inPlace.cut } : {}) };
     })
     .filter((s): s is Scene => !!s);
-  const next = cleanVideo({ ...cur, features: allowed, scenes, endCard: { line: keep(r.endLine, 120, dropped), cta: keep(r.cta, 60, dropped) || cur.endCard.cta || "apsoparts.com", bars: cur.endCard.bars } }, { language: cur.language });
+  const facts = factsFor(sources, allowed);
+  const next = cleanVideo({ ...cur, features: allowed, scenes, endCard: { ...cur.endCard, line: keep(r.endLine, 120, dropped, facts), cta: keep(r.cta, 60, dropped, facts) || cur.endCard.cta || "apsoparts.com" } }, { language: cur.language });
   return { doc: next, note: str(r.note, 300), dropped };
 }
 
@@ -442,4 +461,126 @@ export function cleanEnd(raw: unknown, doc: unknown, input: Record<string, unkno
   if (!line) return { doc: cur, note: str(r.note, 300) || "No closing line came back that the film can use - try again.", dropped };
   if (String(input.how) === "shorter" && wordCount(line) > wordCount(cur.endCard.line)) return { doc: cur, note: "The answer was not shorter - the end card stays as it was.", dropped };
   return { doc: { ...cur, endCard: { ...cur.endCard, line, cta: cta || cur.endCard.cta } }, note: str(r.note, 300), dropped };
+}
+
+// ───────────────────────── one line alone (cv16, 11.11.2026) ─────────────────────────
+// The Page builder's element popup has its own "Ask AI" box: what is asked there changes THAT text only, at once, with
+// Undo. In the film: one line of one scene (its headline, its proof, a step), or the end card's line or button - in the
+// film's own language or in one of its versions (`lang`: the line is written in that language, into that version).
+
+export const LINE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    text: { type: "string", description: "The line, as it goes on screen - may carry one *key* word where the line shows one red." },
+    note: { type: "string", description: "One short sentence to the person, in English whatever the film's language: what changed." },
+  },
+  required: ["text", "note"],
+  additionalProperties: false,
+};
+
+/** The line asked about: its scene (-1 = the end card), its field, its label, its word limit, its words now. */
+export function lineOf(doc: VideoDoc, index: number, key: string, lang?: string | null): { label: string; words: number; text: string; kind: SceneKind | "end"; sceneId: string } | null {
+  const d = lang ? inLanguage(doc, lang) : doc;
+  if (index === -1) {
+    const f = END_FIELDS.find((x) => x.key === key);
+    return f ? { label: `the end card's ${f.label.toLowerCase()}`, words: f.words, text: d.endCard[f.key], kind: "end", sceneId: "end" } : null;
+  }
+  const s = d.scenes[index];
+  const f = s ? KIND_INFO[s.kind].fields.find((x) => x.key === key) : undefined;
+  return s && f ? { label: f.label.toLowerCase(), words: f.words, text: s.copy[f.key] ?? "", kind: s.kind, sceneId: s.id } : null;
+}
+
+export const lineUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
+  const d = cleanVideo(doc, { language: ctx.piece.language });
+  const lang = typeof input.lang === "string" && input.lang ? input.lang.toUpperCase() : null;
+  const i = Math.round(Number(input.index));
+  const ln = lineOf(d, i, String(input.key ?? ""), lang);
+  const sc = i >= 0 ? inLanguage(d, lang).scenes[i] : null;
+  const others = sc ? KIND_INFO[sc.kind].fields.filter((f) => f.key !== input.key).map((f) => `${f.label.toLowerCase()}="${sc.copy[f.key] ?? ""}"`).join(", ") : "";
+  return [
+    context(ctx, doc),
+    pickedFeatures(doc).length ? `\nThe film's APSOparts features (only these, only their facts):\n${featuresBrief(pickedFeatures(doc))}` : "",
+    ``,
+    ln ? `Change ONLY ${ln.label} of ${i === -1 ? "the end card" : `scene ${i + 1} (${ln.kind})`} - max ${ln.words} words. It says now: "${ln.text}".` : "(no such line)",
+    others ? `The other lines of that scene, for context only (they stay): ${others}` : "",
+    lang ? `Write it in: ${languageOf(lang)} (a language version of the film).` : "",
+    `What the person asks for this line: ${str(input.ask, 600) || "(nothing - make it stronger)"}`,
+  ].filter(Boolean).join("\n");
+};
+
+/** One line's answer laid on its place: in the film, or in the language version asked; guarded like every AI line. */
+export function cleanLine(raw: unknown, doc: unknown, ctx: VideoCtx, input: Record<string, unknown> = {}): AiAnswer {
+  const cur = cleanVideo(doc, { language: ctx.piece.language });
+  const r = isObj(raw) ? raw : {};
+  const dropped: string[] = [];
+  const lang = typeof input.lang === "string" && input.lang && input.lang.toUpperCase() !== cur.language ? input.lang.toUpperCase() : null;
+  const i = Math.round(Number(input.index));
+  const key = String(input.key ?? "");
+  const ln = lineOf(cur, i, key, lang);
+  if (!ln) return { doc: cur, note: "That line is not in the film any more.", dropped };
+  // a customer's words are theirs (the quote kind's own rule)
+  if (ln.kind === "quote" && key === "line1") return { doc: cur, note: "A customer's words are never rewritten - only words someone gave us.", dropped };
+  const sc = i >= 0 ? cur.scenes[i] : undefined;
+  const allowed = [...pickedFeatures(doc), ...(sc?.feature ? [sc.feature] : [])];
+  const text = keep(r.text, 160, dropped, factsFor(sourcesOf(ctx, doc, input), allowed));
+  if (!text) return { doc: cur, note: str(r.note, 300) || "No line came back that the film can use - try again.", dropped };
+  if (sc?.kind === "number" && key === "line1" && !numberAllowed(plain(text), allowed)) {
+    dropped.push(`a figure no feature of ours states ("${plain(text)}")`);
+    return { doc: cur, note: "The figure that came back is not one our features state - the line stays as it was.", dropped };
+  }
+  if (lang) return { doc: setLangLine(cur, lang, ln.sceneId, key as CopyKey, text), note: str(r.note, 300), dropped };
+  const next = i === -1
+    ? { ...cur, endCard: { ...cur.endCard, [key === "cta" ? "cta" : "line"]: text } }
+    : { ...cur, scenes: cur.scenes.map((x, k) => (k === i ? { ...x, copy: { ...x.copy, [key]: text } } : x)) };
+  return { doc: next, note: str(r.note, 300), dropped };
+}
+
+// ───────────────────────── a language version (cv16) ─────────────────────────
+// As the Page builder's translation (page/modules/translate.ts): EVERY line of the film goes along - each scene's words,
+// the end card's line and button - by id; the scenes, their pictures, parts and timing are the film's own, shared.
+
+export const TRANSLATE_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    items: { type: "array", items: { type: "object", properties: { id: { type: "string" }, text: { type: "string" } }, required: ["id", "text"], additionalProperties: false } },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+export const TRANSLATE_SYSTEM = `You translate the on-screen words of a short APSOparts motion-graphics film into another language. You are given its
+lines by id; answer EVERY id with its translation.
+- Natural words for engineers and buyers in that country, the shop's own terms (Dichtung = joint d'étanchéité = guarnizione
+  = seal). As SHORT as the original or shorter: each line is read in under two seconds - never longer.
+- Keep ONE *key* word marked with stars where the original has one (the word that carries the same meaning).
+- Product names, brand names (APSOparts, DirectCUT, Quickorder ...), material codes (NBR, EPDM, FKM), norms and figures stay
+  as they are. The button "apsoparts.com" stays as it is.
+- A customer's quote (ids ending in ".line1" of a quote scene) is translated faithfully, word for word in meaning.
+- Nothing added, nothing left out, no note of your own.`;
+
+export const translateUser = (ctx: VideoCtx, doc: unknown, input: Record<string, unknown>) => {
+  const d = cleanVideo(doc, { language: ctx.piece.language });
+  const to = str(input.to, 4).toUpperCase();
+  return [
+    `TRANSLATE FROM ${languageOf(d.language)} INTO ${languageOf(to)}.`,
+    `The film: ${ctx.piece.title} (${d.scenes.length} scenes, then the end card).`,
+    ``,
+    `THE LINES (JSON):`,
+    JSON.stringify(wordsToTranslate(d)),
+  ].join("\n");
+};
+
+/** A translation laid on the film as its version in `to` (guarded like every AI line); how many lines it misses. */
+export function cleanTranslate(raw: unknown, doc: unknown, ctx: VideoCtx, input: Record<string, unknown> = {}): AiAnswer & { lang: string; missing: number } {
+  const cur = cleanVideo(doc, { language: ctx.piece.language });
+  const to = str(input.to, 4).toUpperCase();
+  const r = isObj(raw) ? raw : {};
+  const dropped: string[] = [];
+  if (!/^[A-Z]{2}$/.test(to) || to === cur.language) return { doc: cur, note: "Pick another language than the film's own.", dropped, lang: to, missing: 0 };
+  const facts = factsFor(sourcesOf(ctx, doc, input), pickedFeatures(doc), cur);
+  const items = (Array.isArray(r.items) ? r.items : []).filter(isObj).map((x) => ({ id: str(x.id, 80), text: keep(x.text, 160, dropped, facts) })).filter((x) => x.id && x.text);
+  const version = versionFrom(cur, items);
+  const next: VideoDoc = { ...cur, langs: { ...cur.langs, [to]: version } };
+  const missing = untranslated(next, to).length;
+  return { doc: next, note: missing ? `${missing} line${missing === 1 ? "" : "s"} did not come back - they show the film's own words until typed or translated again.` : "", dropped, lang: to, missing };
 }

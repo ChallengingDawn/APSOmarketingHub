@@ -247,10 +247,12 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
     official = !!pub || status === "live";
   } else {
     const scenes = typeof d.scenes === "number" ? d.scenes : 0;
-    const length = typeof d.length === "number" ? d.length : 0;
-    line = [scenes ? `${scenes} scene${scenes === 1 ? "" : "s"}` : "", length ? `${length} s` : "", str(d.format, 20)].filter(Boolean).join(" · ");
+    // the film's real length (cv16): its bars of 2 s, scenes and end card - else the length it was asked to be
+    const secs = typeof d.secs === "number" && d.secs > 0 ? d.secs : typeof d.length === "number" ? d.length : 0;
+    line = [scenes ? `${scenes} scene${scenes === 1 ? "" : "s"}` : "", secs ? `${secs} s` : "", str(d.format, 20)].filter(Boolean).join(" · ");
     picture = pictureOf(row.first_pic);
-    languages = [upperLang(d.language) || upperLang(row.language)].filter(Boolean);
+    // its language versions too (cv16: every language a tab of its own, exported a file each)
+    languages = uniq([upperLang(d.language) || upperLang(row.language), ...(Array.isArray(d.langs) ? d.langs.map(upperLang) : [])].filter(Boolean));
     official = status === "live";
   }
   // the board's mark, when nothing else says where it went
@@ -401,7 +403,12 @@ export function libraryQuery(admin: boolean): string {
               WHEN 'social' THEN jsonb_build_object('text', LEFT(COALESCE(d.doc #>> '{networks,linkedin,text}', ''), 300),
                   'image', d.doc #> '{media,image,url}', 'published', d.doc -> 'published')
               WHEN 'video' THEN jsonb_build_object('scenes', jsonb_array_length(${arr("d.doc -> 'scenes'")}), 'length', d.doc -> 'length',
-                  'format', d.doc -> 'format', 'language', d.doc -> 'language')
+                  'format', d.doc -> 'format', 'language', d.doc -> 'language',
+                  'secs', 2 * ((SELECT COALESCE(SUM(LEAST(4, GREATEST(1, CASE WHEN x ->> 'bars' ~ '^[0-9]{1,2}$' THEN (x ->> 'bars')::int ELSE 1 END))), 0)
+                                 FROM jsonb_array_elements(${arr("d.doc -> 'scenes'")}) x)
+                             + CASE WHEN jsonb_array_length(${arr("d.doc -> 'scenes'")}) = 0 THEN 0
+                                    WHEN d.doc #>> '{endCard,bars}' = '3' THEN 3 ELSE 2 END),
+                  'langs', CASE WHEN jsonb_typeof(d.doc -> 'langs') = 'object' THEN (SELECT jsonb_agg(k) FROM jsonb_object_keys(d.doc -> 'langs') k) END)
               ELSE '{}'::jsonb END AS doc,
             substring((CASE d.kind
               WHEN 'page' THEN COALESCE(d.doc -> 'fields', '{}'::jsonb)::text || ' ' || COALESCE(d.doc -> 'changes', '[]'::jsonb)::text

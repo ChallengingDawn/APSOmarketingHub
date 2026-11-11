@@ -26,13 +26,17 @@ import { DEFAULT_PART, partOf, type PartKey } from "@/lib/content/studio/kinds/v
 import { btn } from "../../parts";
 import { PicturePanel } from "../../pictures";
 import { PhotoPicker } from "../banner/ui";
-import { PictureSlot } from "./map";
+import { AiBox, type Done } from "./AiBox";
+import { PictureAsk } from "./PictureAsk";
 import { Head, LineIcon, PartPicker, WordField } from "./ui";
 
 export type PicWhere = { projectId: number; pieceId: number; me: string };
 export type Edit = (fn: (d: VideoDoc) => VideoDoc) => void;
+/** A scene's (or the end card's) AI box: the words asked ("" = written again from the film) - what it did, with its Undo. */
+export type AskScene = (ask: string) => Promise<Done | string | null>;
 
 const secs = (bars: number) => `${(bars * BAR) / FPS} s`;
+const plainOf = (v: string | undefined) => (v ?? "").replace(/\*/g, "");
 
 /** How long a scene lasts, in seconds, within what its kind allows. */
 function Length({ bars, min, max, onChange, disabled }: { bars: number; min: number; max: number; onChange: (b: number) => void; disabled: boolean }) {
@@ -79,7 +83,7 @@ function LookMenu({ kind, onPick, disabled }: { kind: SceneKind; onPick: (k: Sce
  * parts or a photo; a feature, its photo - the one picked, else the shop's own photo for the feature (never an icon in a
  * disc). A photo is made, uploaded or picked from the gallery (the shop's photos, ours) right here.
  */
-function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Partial<Scene>) => void; disabled: boolean; where: PicWhere; lang: string }) {
+export function Shows({ s, patch, disabled, where, lang, bare }: { s: Scene; patch: (p: Partial<Scene>) => void; disabled: boolean; where: PicWhere; lang: string; bare?: boolean }) {
   const info = KIND_INFO[s.kind];
   const canPart = !!info.shape;
   const canPhoto = !!info.image;
@@ -97,8 +101,9 @@ function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Parti
       <PicturePanel onPick={(p) => !disabled && patch({ image: p.url })} projectId={where.projectId} pieceId={where.pieceId} me={where.me} aspect={s.kind === "feature" ? "4:5" : "1:1"} tabs={["mine", "project"]} start="project" columns={3} />
     </Box>
   );
+  // cv16: the Page builder's picture popup - This picture / Gallery / Fine-tune, made from your own words, the newest ask wins
   const slot = (
-    <PictureSlot url={s.image || fallback || null} idea={idea} aspect={s.kind === "feature" ? "4:5" : "1:1"} where={where} disabled={disabled} gallery={gallery}
+    <PictureAsk slot={s.id} url={s.image || fallback || null} idea={idea} aspect={s.kind === "feature" ? "4:5" : "1:1"} where={where} disabled={disabled} gallery={gallery}
       onSet={(url) => patch({ image: url })}
       onRemove={s.image && s.image !== fallback ? () => patch({ image: undefined }) : undefined} removeLabel={s.kind === "feature" ? "Back to the shop's photo" : "Remove"}
       note={(!s.image || s.image === fallback) && s.feature ? <>The shop&apos;s own photo for <b>{FEATURE[s.feature].name}</b>.</> : undefined} />
@@ -106,7 +111,7 @@ function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Parti
   const tab = canPart && canPhoto ? from : canPart ? "part" : "photo";
   return (
     <>
-      <Head>{canPart && !canPhoto ? "The part" : "What it shows"}</Head>
+      {!bare && <Head>{canPart && !canPhoto ? "The part" : "What it shows"}</Head>}
       {canPart && canPhoto && <Box sx={{ mb: 1 }}><SquareChoice value={tab} onChange={setFrom} options={[{ key: "part", label: "One of our parts" }, { key: "photo", label: "A photo" }]} /></Box>}
       {tab === "part" && <PartPicker value={s.image ? null : partOf(s)} onChange={setPart} disabled={disabled} none={s.kind !== "product"} />}
       {tab === "photo" && slot}
@@ -117,14 +122,19 @@ function Shows({ s, patch, disabled, where, lang }: { s: Scene; patch: (p: Parti
 /** The lines the film draws with their red word (a kicker, a proof, a quote and a figure are drawn plain). */
 const redLine = (kind: SceneKind, key: string) => (key === "line1" || key === "line2" || key === "line3") && kind !== "quote" && !(kind === "number" && key === "line1");
 
-export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRemove }: {
+export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRemove, words, setWord, lang, onAsk }: {
   doc: VideoDoc; i: number; issues: Issue[]; edit: Edit; disabled: boolean; where: PicWhere; onShow: () => void; onRemove: () => void;
+  /** cv16: the words shown and typed - the film's own, or a language version's (`lang`) */
+  words?: (key: CopyKey) => string; setWord?: (key: CopyKey, v: string) => void; lang?: string | null;
+  /** cv16: the scene's own "Write it again with AI" (the Page builder's block popup) */
+  onAsk?: AskScene;
 }) {
   const s = doc.scenes[i];
   if (!s) return null;
   const info = KIND_INFO[s.kind];
   const patch = (p: Partial<Scene>) => { edit((d) => ({ ...d, scenes: d.scenes.map((x, k) => (k === i ? { ...x, ...p } : x)) })); onShow(); };
-  const setCopy = (key: CopyKey, v: string) => edit((d) => ({ ...d, scenes: d.scenes.map((x, k) => (k === i ? { ...x, copy: { ...x.copy, [key]: v } } : x)) }));
+  const setCopy = setWord ?? ((key: CopyKey, v: string) => edit((d) => ({ ...d, scenes: d.scenes.map((x, k) => (k === i ? { ...x, copy: { ...x.copy, [key]: v } } : x)) })));
+  const wordOf = words ?? ((key: CopyKey) => s.copy[key] ?? "");
   const setKind = (k: SceneKind) => {
     const ki = KIND_INFO[k];
     patch({
@@ -148,8 +158,8 @@ export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRe
         </Box>
       )}
       {info.fields.map((f, k) => (
-        <WordField key={`${s.id}-${f.key}`} label={f.required ? f.label : `${f.label} (optional)`} value={s.copy[f.key] ?? ""} words={f.words} placeholder={f.placeholder}
-          onChange={(v) => setCopy(f.key, v)} onFocus={onShow} disabled={disabled} multiline={s.kind === "quote" && f.key === "line1"} autoFocus={k === 0 && !s.copy[f.key]} red={redLine(s.kind, f.key)} />
+        <WordField key={`${s.id}-${f.key}-${lang ?? ""}`} label={`${f.required ? f.label : `${f.label} (optional)`}${lang ? ` · ${lang}` : ""}`} value={wordOf(f.key)} words={f.words} placeholder={lang ? plainOf(s.copy[f.key]) || f.placeholder : f.placeholder}
+          onChange={(v) => setCopy(f.key, v)} onFocus={onShow} disabled={disabled} multiline={s.kind === "quote" && f.key === "line1"} autoFocus={k === 0 && !wordOf(f.key)} red={redLine(s.kind, f.key)} />
       ))}
       {info.fields.some((f) => redLine(s.kind, f.key)) && <Typography sx={{ fontSize: "0.72rem", color: MUTED, mt: -0.5 }}>One word a scene can be red: select it, then Red.</Typography>}
 
@@ -160,28 +170,38 @@ export function ScenePanel({ doc, i, issues, edit, disabled, where, onShow, onRe
 
       <Issues items={issues} />
 
+      {onAsk && !lang && (
+        <AiBox title="Write it again with AI" placeholder="What should change? Empty: write it again from the film" button="Write it again" disabled={disabled} onRun={onAsk} />
+      )}
+      {onAsk && lang && <Typography sx={{ mt: 2, fontSize: "0.74rem", color: MUTED, lineHeight: 1.45 }}>Write it again in the film&apos;s own language tab - this one follows with Translate again. A line alone: click it on the film.</Typography>}
+
       <Button size="small" disabled={disabled} onClick={onRemove} startIcon={<DeleteOutlineRoundedIcon sx={{ fontSize: 17 }} />} sx={{ ...btn, mt: 2.5, color: MUTED }}>Take this scene out</Button>
     </Box>
   );
 }
 
 /** The end card: APSOparts big, the line, the button - and the part that hops beside them. */
-export function EndPanel({ doc, issues, edit, disabled, onShow }: { doc: VideoDoc; issues: Issue[]; edit: Edit; disabled: boolean; onShow: () => void }) {
+export function EndPanel({ doc, issues, edit, disabled, onShow, words, setWord, lang, onAsk }: {
+  doc: VideoDoc; issues: Issue[]; edit: Edit; disabled: boolean; onShow: () => void;
+  words?: (key: "line" | "cta") => string; setWord?: (key: "line" | "cta", v: string) => void; lang?: string | null; onAsk?: AskScene;
+}) {
   const e = doc.endCard;
   const setEnd = (p: Partial<VideoDoc["endCard"]>) => edit((d) => ({ ...d, endCard: { ...d.endCard, ...p } }));
+  const wordOf = words ?? ((k: "line" | "cta") => e[k]);
   return (
     <Box>
       <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK, mb: 0.5 }}>End card</Typography>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 1.5 }}>APSOparts big, your line, the button - it keeps moving while it holds.</Typography>
       {END_FIELDS.map((f) => (
-        <WordField key={f.key} label={f.label} value={e[f.key]} words={f.words} placeholder={f.placeholder} disabled={disabled}
-          onChange={(v) => setEnd({ [f.key]: v } as Partial<VideoDoc["endCard"]>)} onFocus={onShow} red={f.key === "line"} />
+        <WordField key={`${f.key}-${lang ?? ""}`} label={lang ? `${f.label} · ${lang}` : f.label} value={wordOf(f.key)} words={f.words} placeholder={lang ? plainOf(e[f.key]) || f.placeholder : f.placeholder} disabled={disabled}
+          onChange={(v) => (setWord ? setWord(f.key, v) : setEnd({ [f.key]: v } as Partial<VideoDoc["endCard"]>))} onFocus={onShow} red={f.key === "line"} />
       ))}
       <Head>The part beside it</Head>
       <PartPicker value={partOf(e) ?? DEFAULT_PART} onChange={(k) => { setEnd({ part: k ?? DEFAULT_PART }); onShow(); }} disabled={disabled} />
       <Head>How long</Head>
       <Length bars={e.bars} min={2} max={3} onChange={(b) => { setEnd({ bars: b }); onShow(); }} disabled={disabled} />
       <Issues items={issues} />
+      {onAsk && !lang && <AiBox title="Write it again with AI" placeholder="What should change? Empty: write it again from the film" button="Write it again" disabled={disabled} onRun={onAsk} />}
     </Box>
   );
 }

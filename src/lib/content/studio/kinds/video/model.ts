@@ -16,6 +16,7 @@ import { BAR, BPM, FPS, seconds, timecode } from "./engine/timeline";
 import { plain, wordCount } from "./engine/text";
 import { FEATURE, isFeature, isIcon, numberAllowed, type FeatureKey, type IconKey } from "./features";
 import { DEFAULT_PART, PART, isPart, partOf, type PartKey } from "./parts";
+import { neverOnScreen, notInFacts } from "./guard";
 
 export const FORMATS = ["16:9", "9:16", "1:1"] as const;
 export type Format = (typeof FORMATS)[number];
@@ -70,6 +71,17 @@ export type VideoDoc = {
   features?: FeatureKey[];
   /** How long the film should be, in seconds, when it is made (SARCLA 08.11.2026: "the controls are really hard"). */
   length?: FilmLength;
+  /** Its language versions (cv16, 11.11.2026 - as the Page builder's: every language a tab of its own): the same scenes,
+   *  pictures and timing, their own words. Keyed by the language's code (DE, FR ...), never the film's own. */
+  langs?: Record<string, LangCopy>;
+};
+
+/** A language version's words: each scene's by its id, the end card's; `from` = the film's own words it was made from. */
+export type LangCopy = {
+  scenes: Record<string, Partial<Record<CopyKey, string>>>;
+  end: { line: string; cta: string };
+  /** wordsPrint() of the film's own words when it was translated - another print now: they changed since */
+  from?: string;
 };
 
 /** The lengths a film is made in, as the studio offers them. */
@@ -267,7 +279,113 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
   if (notes) doc.notes = notes;
   const features = Array.isArray(d.features) ? [...new Set(d.features.filter(isFeature))].slice(0, 6) : [];
   if (features.length) doc.features = features;
+  const langs = cleanLangs(d.langs, scenes, doc.language);
+  if (langs) doc.langs = langs;
   return doc;
+}
+
+/** The language versions kept: a code of two letters that is not the film's own, each scene's words by an id the film has. */
+function cleanLangs(raw: unknown, scenes: Scene[], main: string): Record<string, LangCopy> | undefined {
+  if (!isObj(raw)) return undefined;
+  const out: Record<string, LangCopy> = {};
+  for (const [k, v] of Object.entries(raw).slice(0, 8)) {
+    const code = k.toUpperCase();
+    if (!/^[A-Z]{2}$/.test(code) || code === main.toUpperCase().slice(0, 2) || !isObj(v)) continue;
+    const vs = isObj(v.scenes) ? v.scenes : {};
+    const sc: LangCopy["scenes"] = {};
+    for (const s of scenes) {
+      const c = isObj(vs[s.id]) ? (vs[s.id] as Record<string, unknown>) : {};
+      const copy: Partial<Record<CopyKey, string>> = {};
+      for (const f of KIND_INFO[s.kind].fields) { const t = str(c[f.key], Math.max(f.chars * 2, 60)); if (t) copy[f.key] = t; }
+      if (Object.keys(copy).length) sc[s.id] = copy;
+    }
+    const e = isObj(v.end) ? v.end : {};
+    out[code] = { scenes: sc, end: { line: str(e.line, 120), cta: str(e.cta, 60) }, ...(typeof v.from === "string" && v.from ? { from: v.from.slice(0, 40) } : {}) };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+// ───────────────────────── its languages (cv16) ─────────────────────────
+
+/** The film's languages: its own first, then its versions, in the order they were added. */
+export const languagesOf = (doc: Pick<VideoDoc, "language" | "langs">): string[] => [doc.language, ...Object.keys(doc.langs ?? {})];
+
+/**
+ * The film in one of its languages: the same scenes, pictures and timing with that version's words - a line it has no
+ * words for yet shows the film's own (untranslated() names them). The film's own language, or one it has no version of:
+ * the film as it is. Never carries the versions (what plays and what is exported is one language).
+ */
+export function inLanguage(doc: VideoDoc, lang: string | null | undefined): VideoDoc {
+  const { langs, ...rest } = doc;
+  const code = String(lang ?? "").toUpperCase();
+  const v = code && code !== doc.language ? langs?.[code] : undefined;
+  if (!v) return rest;
+  const words = (c: Partial<Record<CopyKey, string>> | undefined) => Object.fromEntries(Object.entries(c ?? {}).filter(([, t]) => !!t && !!plain(t)));
+  return {
+    ...rest, language: code,
+    scenes: doc.scenes.map((s) => ({ ...s, copy: { ...s.copy, ...words(v.scenes[s.id]) } })),
+    endCard: { ...doc.endCard, line: plain(v.end.line) ? v.end.line : doc.endCard.line, cta: plain(v.end.cta) ? v.end.cta : doc.endCard.cta },
+  };
+}
+
+/** The film's own words, by id ("s.<scene id>.<field>", "end.line", "end.cta") - what a translation is made from. */
+export function wordsToTranslate(doc: Pick<VideoDoc, "scenes" | "endCard">): { id: string; text: string }[] {
+  const out: { id: string; text: string }[] = [];
+  for (const s of doc.scenes) for (const f of KIND_INFO[s.kind].fields) { const t = s.copy[f.key] ?? ""; if (plain(t)) out.push({ id: `s.${s.id}.${f.key}`, text: t }); }
+  if (plain(doc.endCard.line)) out.push({ id: "end.line", text: doc.endCard.line });
+  if (plain(doc.endCard.cta)) out.push({ id: "end.cta", text: doc.endCard.cta });
+  return out;
+}
+
+/** A short fingerprint of the film's own words - a version made from other words is out of date. */
+export function wordsPrint(doc: Pick<VideoDoc, "scenes" | "endCard">): string {
+  const t = JSON.stringify(wordsToTranslate(doc));
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return `${t.length}:${h >>> 0}`;
+}
+
+/** The film's own lines a version has no words for yet (their ids). */
+export function untranslated(doc: VideoDoc, lang: string): string[] {
+  const v = doc.langs?.[lang.toUpperCase()];
+  return wordsToTranslate(doc).filter((x) => {
+    if (!v) return true;
+    if (x.id === "end.line") return !plain(v.end.line);
+    if (x.id === "end.cta") return !plain(v.end.cta);
+    const [, id, key] = x.id.split(".");
+    return !plain(v.scenes[id]?.[key as CopyKey] ?? "");
+  }).map((x) => x.id);
+}
+
+/** A version's words laid from translated lines by id (an id the film has not is left out). */
+export function versionFrom(doc: VideoDoc, items: readonly { id: string; text: string }[], from = wordsPrint(doc)): LangCopy {
+  const scenes: LangCopy["scenes"] = {};
+  const end = { line: "", cta: "" };
+  const ids = new Set(wordsToTranslate(doc).map((x) => x.id));
+  for (const it of items) {
+    if (!ids.has(it.id) || !plain(it.text)) continue;
+    if (it.id === "end.line") end.line = it.text;
+    else if (it.id === "end.cta") end.cta = it.text;
+    else { const [, id, key] = it.id.split("."); (scenes[id] ??= {})[key as CopyKey] = it.text; }
+  }
+  return { scenes, end, from };
+}
+
+/** One line typed in a language's tab: the version's words (made when the language has none yet). */
+export function setLangLine(doc: VideoDoc, lang: string, sceneId: string, key: CopyKey | "line" | "cta", text: string): VideoDoc {
+  const code = lang.toUpperCase();
+  const cur: LangCopy = doc.langs?.[code] ?? { scenes: {}, end: { line: "", cta: "" } };
+  const next: LangCopy = sceneId === "end"
+    ? { ...cur, end: { ...cur.end, [key === "cta" ? "cta" : "line"]: text } }
+    : { ...cur, scenes: { ...cur.scenes, [sceneId]: { ...cur.scenes[sceneId], [key]: text } } };
+  return { ...doc, langs: { ...doc.langs, [code]: next } };
+}
+
+/** A language taken out of the film. */
+export function dropLanguage(doc: VideoDoc, lang: string): VideoDoc {
+  const { [lang.toUpperCase()]: _gone, ...rest } = doc.langs ?? {};
+  const { langs: _l, ...d } = doc;
+  return Object.keys(rest).length ? { ...d, langs: rest } : d;
 }
 
 // ───────────────────────── timing ─────────────────────────
@@ -323,7 +441,13 @@ export function forbidden(text: string): string | null {
   const t = plain(text);
   if (DISCOUNT.test(t)) return "Never a discount value in the film.";
   if (PRICE.test(t)) return "No prices on screen - a price is only ever shown blurred.";
-  return null;
+  return neverOnScreen(t);
+}
+
+/** What the film may state (a delivery time, a certificate): the words of the features it tells - ./features.ts. */
+export function filmFacts(doc: Pick<VideoDoc, "features" | "scenes">): string {
+  const keys = [...new Set([...(doc.features ?? []), ...doc.scenes.map((s) => s.feature).filter((k): k is FeatureKey => !!k)])];
+  return keys.map((k) => { const f = FEATURE[k]; return [f.name, f.claim, f.proof, f.figure ?? "", ...f.facts, ...f.numbers].join(" · "); }).join("\n");
 }
 
 /** Seconds a scene needs to be read: its words at our pace, plus its entrance. */
@@ -336,12 +460,15 @@ export function readSeconds(s: Pick<Scene, "kind" | "copy">): number {
 export function validate(doc: VideoDoc): Issue[] {
   const out: Issue[] = [];
   if (!doc.scenes.length) out.push({ scene: "film", level: "warn", text: "No scenes yet - add one, or let the assistant write the storyboard." });
+  const facts = filmFacts(doc);
   doc.scenes.forEach((s, i) => {
     const info = KIND_INFO[s.kind];
     for (const f of info.fields) {
       const v = s.copy[f.key] ?? "";
       const bad = v && forbidden(v);
       if (bad) out.push({ scene: i, field: f.key, level: "stop", text: bad });
+      const unsaid = !bad && v ? notInFacts(v, facts) : null;
+      if (unsaid) out.push({ scene: i, field: f.key, level: "warn", text: `${unsaid} Say it only when it is so - tie the scene to the feature that states it.` });
       if (f.required && !plain(v)) out.push({ scene: i, field: f.key, level: "warn", text: `${f.label} is empty.` });
       const n = wordCount(v);
       if (n > f.words) out.push({ scene: i, field: f.key, level: "warn", text: `${f.label}: ${n} words - keep it to ${f.words}, it is read in under two seconds.` });
@@ -361,6 +488,8 @@ export function validate(doc: VideoDoc): Issue[] {
   for (const k of ["line", "cta"] as const) {
     const bad = e[k] && forbidden(e[k]);
     if (bad) out.push({ scene: "end", field: k, level: "stop", text: bad });
+    const unsaid = !bad && e[k] ? notInFacts(e[k], facts) : null;
+    if (unsaid) out.push({ scene: "end", field: k, level: "warn", text: unsaid });
   }
   if (!plain(e.cta)) out.push({ scene: "end", field: "cta", level: "warn", text: "The end card has no button." });
   if (wordCount(e.line) > END_FIELDS[0].words) out.push({ scene: "end", field: "line", level: "warn", text: `The line: ${wordCount(e.line)} words - keep it to ${END_FIELDS[0].words}.` });
@@ -375,7 +504,7 @@ export function validate(doc: VideoDoc): Issue[] {
 export function videoText(raw: unknown): string {
   const doc = cleanVideo(raw);
   const segs = segments(doc);
-  const head = `Video · ${doc.format} · ${doc.language} · ${seconds(totalFrames(doc))} s (${totalBars(doc)} bars)${doc.features?.length ? ` · about ${doc.features.map((k) => FEATURE[k].name).join(", ")}` : ""}`;
+  const head = `Video · ${doc.format} · ${languagesOf(doc).join(", ")} · ${seconds(totalFrames(doc))} s (${totalBars(doc)} bars)${doc.features?.length ? ` · about ${doc.features.map((k) => FEATURE[k].name).join(", ")}` : ""}`;
   const lines = doc.scenes.map((s, i) => {
     const words = KIND_INFO[s.kind].fields.map((f) => plain(s.copy[f.key] ?? "")).filter(Boolean).join(" / ");
     const part = partOf(s);
@@ -407,8 +536,9 @@ export type VideoSpec = {
 };
 
 /** What "Export for rendering" hands the render machine: the story, cleaned, with its size and length. */
-export function toSpec(raw: unknown, meta: { title: string; pieceId: number | null; at: string; format?: Format }): VideoSpec {
-  const doc = cleanVideo(raw);
+export function toSpec(raw: unknown, meta: { title: string; pieceId: number | null; at: string; format?: Format; lang?: string | null }): VideoSpec {
+  // one language a file (cv16): that version's words on the film's scenes - the render machine reads it as before
+  const doc = inLanguage(cleanVideo(raw), meta.lang);
   if (meta.format) doc.format = meta.format;
   const size = FORMAT_INFO[doc.format];
   return { kind: SPEC_KIND, v: SPEC_VERSION, title: meta.title, pieceId: meta.pieceId, exportedAt: meta.at, fps: FPS, frames: totalFrames(doc), width: size.w, height: size.h, doc };
