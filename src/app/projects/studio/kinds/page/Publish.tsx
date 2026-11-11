@@ -919,7 +919,10 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial, abPart
             retry={run.done ? retryOf(run.env, run.results) : null} /></Box>}
         </Box>
       )}
-      {multi && <Typography sx={{ mt: 1, fontSize: "0.78rem", color: INK }}>Version <b>{d.letter || "A"}</b> of the page goes to Magento - the one open above the page. Open another there to send it instead.</Typography>}
+      {multi && ((d.letter || "A") === "A"
+        ? <Typography sx={{ mt: 1, fontSize: "0.78rem", color: INK }}>Version <b>A</b> of the page goes to Magento - the page itself; its other versions are for its A/B test.</Typography>
+        // Content v15: B open for its A/B test - an update now would write B to the shop, said before anyone presses it
+        : <Typography sx={{ mt: 1, fontSize: "0.78rem", color: AMBER, fontWeight: 700 }}>Version {d.letter} is open - Update writes {d.letter} to the shop. Open A again (A/B test, step 1) to update the page itself.</Typography>)}
 
       <Kick>{doc.source === "new" ? "Pages" : "Languages"} · {rows.length} · {rows.reduce((n, r) => n + r.stores.length, 0)} store views</Kick>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden" }}>
@@ -997,8 +1000,8 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial, abPart
       {section === "pages" && pagesPart}
       {section === "pictures" && picturesPart}
       {section === "ab" && (
-        <AbSection doc={doc} d={d} pieceId={api.data.piece.id} title={api.data.piece.title} abPart={abPart} prefer={prefer}
-          stores={status.views.find((v) => v.view === lang)?.stores?.map((x) => x.view) ?? viewsOf(doc)} />
+        <AbSection api={api} doc={doc} d={d} setView={setView} lang={lang} pieceId={api.data.piece.id} title={api.data.piece.title} abPart={abPart} prefer={prefer}
+          stores={status.views.find((v) => v.view === lang)?.stores?.map((x) => x.view) ?? viewsOf(doc)} canEditPage={canEdit} onPromoted={() => setSection("pages")} />
       )}
     </Box>
   );

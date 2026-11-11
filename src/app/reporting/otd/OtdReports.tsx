@@ -1071,7 +1071,6 @@ type TabDef = { id: string; label: string; title: string; note: string; icon: Re
 const TABS: Record<OtdSlug, TabDef[]> = {
   customers: [
     { id: "list", label: "Customers", title: "OTD per customer", note: "every customer's lines, late lines and orders late - a click opens one: its figures, orders line by line, articles and suppliers", icon: <GroupsOutlinedIcon />, tint: "purple", charts: ["custExplorer"] },
-    { id: "articles", label: "Articles", title: "OTD per article", note: "every article's lines, late lines, customers and orders - its number with its name, product group, product and supplier", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["artMaster"] },
   ],
   overview: [
     { id: "ontime", label: "On time", title: "On time", note: "the lines that reached the customer by their first confirmed date - per mandant and article type", icon: <LocalShippingOutlinedIcon />, tint: "green", charts: ["otd", "lines", "mandant", "type"] },
@@ -1086,7 +1085,7 @@ const TABS: Record<OtdSlug, TabDef[]> = {
     { id: "lead", label: "Lead time", title: "Lead time per supplier", note: "every supplier from the order to the customer - in figures, then the graph", icon: <HourglassEmptyOutlinedIcon />, tint: "green", charts: ["supLeadAll"] },
   ],
   products: [
-    { id: "articles", label: "Articles", title: "Every article", note: "each article's number with its name, product group, product and supplier - its lines, late lines, customers and orders", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["articleBars", "groups", "artMaster"] },
+    { id: "articles", label: "Articles", title: "Every article", note: "each article's number with its name, product group, product and supplier - its lines, late lines, customers and orders", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["artMaster", "articleBars", "groups"] },
     { id: "groups", label: "Product groups", title: "Per product group", note: "each article's main group in the ERP's article master - every month", icon: <CategoryOutlinedIcon />, tint: "blue", charts: ["groupLate", "groups", "groupTrend", "groupTable"] },
     { id: "planned", label: "Planned articles", title: "Planned articles and replenishment time", note: "the ERP's planning of each article: how they do against the others, per profit centre, the planned articles late most often, and the lines promised faster than the supplier replenishes", icon: <TimerOutlinedIcon />, tint: "green", charts: ["plannedFigures", "planned", "plannedLead", "plannedPc", "plannedArticles", "replen"] },
   ],

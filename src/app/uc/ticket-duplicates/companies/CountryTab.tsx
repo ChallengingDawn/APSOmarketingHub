@@ -31,6 +31,7 @@ import { full } from "@/app/charts/format";
 import { CardTitle, FAINT, GlassCard, INK, KpiTile, MUTED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { Choice, Info, usePaged, when } from "@/app/connectors/parts";
 import type { Row, RunInfo, Settings } from "@/lib/companyCountry/engine";
+import { EngineCard } from "../EngineCard";
 
 const API = "/api/uc/company-country";
 const RED = "#b4232f";
@@ -81,8 +82,6 @@ export function CountryTab() {
   const [view, setView] = useState<View>("waiting");
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase();
     return ((view === "waiting" ? d?.waiting : d?.done) ?? []).filter((x) => !t || `${x.name} ${x.country} ${x.city} ${x.value ?? ""}`.toLowerCase().includes(t));
@@ -92,15 +91,6 @@ export function CountryTab() {
   if (r === null) return <LoadingPanel label="Reading the companies without a country value…" />;
   if (!d) return <UpstreamPanel source="Country" error={r.state === "error" ? r.error : "not there yet - this page fills in once the hub is deployed"} status={r.state === "error" ? r.status : null} onRetry={() => setN((x) => x + 1)} />;
 
-  const call = async (what: string, method: "PUT" | "POST", body: unknown) => {
-    setBusy(what); setMsg(null);
-    try {
-      const res = await fetch(API, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = (await res.json()) as { ok: boolean; error?: string };
-      setMsg(j.ok ? (what === "run" ? "Looking now - the lists are new within a minute." : "Done.") : j.error ?? `HTTP ${res.status}`);
-      setN((x) => x + 1);
-    } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); }
-  };
   const mode = d.settings.mode;
   const sure = d.waitingCount - d.forPerson;
   const share = d.withCountry && d.withValue !== null ? Math.round((Math.min(d.withValue, d.withCountry) / d.withCountry) * 1000) / 10 : null;
@@ -162,16 +152,18 @@ export function CountryTab() {
         {!rows.length && <Typography sx={{ fontSize: "0.85rem", color: MUTED, mt: 1 }}>{q ? "Nothing matches." : view === "waiting" ? (d.at ? "Every company with a country has its value." : "The companies are read within minutes of the deploy.") : "Nothing written yet."}</Typography>}
         {d.last?.error && <Typography sx={{ fontSize: "0.78rem", color: RED, mt: 1 }}>Last run {when(d.last.at)}: {d.last.error}</Typography>}
       </GlassCard>
-
-      {d.admin && (
-        <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
-          <Typography sx={{ fontSize: "0.78rem", color: FAINT }}>Admin:</Typography>
-          <Button size="small" variant="text" disabled={!!busy} onClick={() => void call("mode", "PUT", { mode: mode === "live" ? "shadow" : "live" })} sx={{ textTransform: "none" }}>{mode === "live" ? "Pause" : "Switch on"}</Button>
-          <Button size="small" variant="text" disabled={!!busy || mode === "off"} onClick={() => void call("run", "POST", { action: "run" })} sx={{ textTransform: "none" }}>Run now</Button>
-          {busy && <CircularProgress size={14} />}
-          {msg && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{msg}</Typography>}
-        </Box>
-      )}
     </>
+  );
+}
+
+/** Companies > Settings: how Country runs (the engine's switches, never on the Country tab itself). */
+export function CountrySettings() {
+  const n = (v: unknown) => full(Number(v ?? 0));
+  return (
+    <EngineCard api={API} title="Country" tint="green" workflow="SARCLA | REGION TO COUNTRY CUSTOM" every="Every 15 minutes, up to 1,000 companies a run"
+      look={{ title: "Look for companies without a country value", on: "Every company with a country and nothing in HubSpot's country list is read and its country matched.", off: "Off: nothing is looked at." }}
+      live={{ title: "Live - write by itself", on: "A country the hub is sure of is written into HubSpot's country list, read again first - never over a value already there.", shadow: "Shadow: found and listed on the Country tab, nothing written.",
+        ask: "Switch Country LIVE?\n\nEvery 15 minutes the hub writes the country list value of each company whose country it is sure of, read again first. A value already there is never changed." }}
+      lastLine={(l) => `${n(l.without)} without a value, ${n(l.sure)} sure, ${n(l.written)} written`} />
   );
 }
