@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { markerOf, pageMarker, projectForPage } from "../src/lib/convert/handoff";
 import {
-  TODO_BRIEF_MAX, checkAddConvert, markerFor, notesFor, pagesOf, shopPathOf, studioPath, todoBrief, todoLanguage, todoTitle,
+  TODO_BRIEF_MAX, checkAddConvert, markerFor, notesFor, pagesOf, sameTodo, shopPathOf, studioPath, todoBrief, todoLanguage, todoTitle,
 } from "../src/lib/content/convertTodo";
 
 // A page from AI testing & personalization added to a project that is there already (SARCLA 10.11.2026: "upon sending to
@@ -124,4 +124,18 @@ test("the pages a project holds, for the picker: its own marker, then each to-do
     { pieceId: 11, env: "acc", path: "/de-CH/b.html", versionId: "9", testId: null },
   ]);
   assert.deepEqual(pagesOf(null, []), []);
+});
+
+test("the same page and version sent again finds the to-do it made - nothing made twice", () => {
+  const pieces = [
+    { id: 20, brief: todoBrief({ env: "prod", path: "/de-CH/b.html", versionId: "9", brief: "first" }) },
+    { id: 21, brief: todoBrief({ env: "prod", path: "/de-CH/b.html", versionId: null, brief: "" }) },
+  ];
+  assert.equal(sameTodo(pieces, { env: "prod", path: "/de-CH/b.html", versionId: "9" }), 20);
+  assert.equal(sameTodo(pieces, { env: "prod", path: "/de-CH/b.html", versionId: null }), 21);
+  // another version, the other shop, another page: a new to-do
+  assert.equal(sameTodo(pieces, { env: "prod", path: "/de-CH/b.html", versionId: "10" }), null);
+  assert.equal(sameTodo(pieces, { env: "acc", path: "/de-CH/b.html", versionId: "9" }), null);
+  assert.equal(sameTodo(pieces, { env: "prod", path: "/de-CH/c.html", versionId: "9" }), null);
+  assert.equal(sameTodo([], { env: "prod", path: "/de-CH/b.html", versionId: "9" }), null);
 });

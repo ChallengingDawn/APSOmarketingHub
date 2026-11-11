@@ -24,8 +24,8 @@ import { accessFor, membersOf, share, shareCandidates } from "@/lib/content/shar
 import { defaultReviewerOf, newTodoPeople } from "@/lib/content/people";
 import { addComment } from "@/lib/content/projects";
 import {
-  addEvent, addPiece, cleanBrief, followSoleTodo, getPiece, listEvents, projectBrief, projectHead, removePiece, setBrief, setPlanItem,
-  updatePiece, type Piece,
+  addEvent, addPiece, cleanBrief, followSoleTodo, getPiece, listEvents, pieceBriefs, projectBrief, projectHead, removePiece, setBrief,
+  setPlanItem, updatePiece, type Piece,
 } from "@/lib/content/workflow";
 import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, taskMoveError, type MailTo } from "@/lib/content/pieceRules";
 import { sendContentMails, type MailContext } from "@/lib/content/workflowMail";
@@ -33,7 +33,7 @@ import {
   createTodoTicket, findTickets, giveTodoTicket, linkTodoTicket, movePlace, moveTodoTicket, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
   syncPieceTasks, ticketDraft, todoTicketCheck, unlinkTodoTicket, whyNoTicket, type TicketMoved,
 } from "@/lib/content/todos";
-import { checkAddConvert, studioPath, todoBrief, todoLanguage, todoTitle } from "@/lib/content/convertTodo";
+import { checkAddConvert, sameTodo, studioPath, todoBrief, todoLanguage, todoTitle } from "@/lib/content/convertTodo";
 import { fillTicket, placesFor, ticketsFor, type ProjectSketch } from "@/lib/content/assist";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
@@ -271,6 +271,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const asked = checkAddConvert(b);
     if (!asked.ok) return fail(asked.error);
     const a = asked.value;
+    // the same page and version sent again (a second click): the to-do it has already, nothing made twice
+    const held = sameTodo(await pieceBriefs(id), a);
+    if (held !== null) {
+      const p = await getPiece(held);
+      if (p) return NextResponse.json({ ok: true, already: true, piece: { id: p.id, title: p.title, contentType: p.contentType, taskId: p.taskId }, url: studioPath(id, p.id), ticket: null, ticketError: null, mailed: [] });
+    }
     // its people as every new to-do's: the owner is who adds it, the reviewer the default one (lib/content/people.ts)
     const people = newTodoPeople({ kind: a.kind, me: me.username, defaultReviewer: defaultReviewerOf(await shareCandidates()), task: TASK_KIND });
     const title = todoTitle(a.ideaTitle, a.path, a.kind);
@@ -308,7 +314,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         await addEvent(id, piece.id, me.username, "ticket", { piece: piece.title, ticket: r.id, made: r.made });
       } else ticketError = r.error;
     }
-    return NextResponse.json({ ok: true, piece: { id: piece.id, title: piece.title, contentType: piece.contentType, taskId: piece.taskId }, url, ticket, ticketError, mailed });
+    return NextResponse.json({ ok: true, already: false, piece: { id: piece.id, title: piece.title, contentType: piece.contentType, taskId: piece.taskId }, url, ticket, ticketError, mailed });
   }
 
   if (action === "piece-remove") {

@@ -267,6 +267,14 @@ export async function pieceBrief(pieceId: number): Promise<string | null> {
   return r.rows[0]?.brief ?? null;
 }
 
+/** The to-dos of a project that have notes of their own (a page added from AI testing & personalization), with them. */
+export async function pieceBriefs(projectId: number): Promise<{ id: number; brief: string | null }[]> {
+  await ensureWorkflow();
+  const r = await query<{ id: number; brief: string | null }>(
+    `SELECT id, brief FROM apsomh_content_pieces WHERE project_id = $1 AND brief IS NOT NULL ORDER BY sort, id`, [projectId]);
+  return r.rows;
+}
+
 export async function updatePiece(pieceId: number, patch: Partial<{
   title: string; contentType: string | null; language: string | null; writer: string | null; reviewer: string | null;
   dueDate: string | null; status: PieceStatus;

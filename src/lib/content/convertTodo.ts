@@ -128,3 +128,9 @@ export function pagesOf(projectNotes: string | null, pieces: { id: number; brief
   for (const p of pieces) add(p.id, p.brief);
   return out;
 }
+
+/** The to-do that holds this page and version already (a second "Add to a project" of the same, a double click), or null -
+ *  the project's own marker is left out: the picker sees it in `pages`. */
+export function sameTodo(pieces: { id: number; brief: string | null }[], a: { env: Env; path: string; versionId: string | null }): number | null {
+  return pagesOf(null, pieces).find((p) => p.pieceId !== null && p.env === a.env && p.path === a.path && p.versionId === a.versionId)?.pieceId ?? null;
+}
