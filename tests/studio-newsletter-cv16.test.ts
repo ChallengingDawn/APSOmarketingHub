@@ -160,7 +160,7 @@ test("the last step: one draft per language - none, up to date, changed since - 
   const blocked = withVersion(doc, "FR", { ...versionIn(doc, "FR"), subject: "" });
   const all = makeAllOf(draftRows(blocked, ROWS));
   assert.deepEqual(all.langs, ["DE"]);
-  assert.equal(all.label, "Make the DE draft again");
+  assert.equal(all.label, "Update the DE draft");
   assert.equal(draftProgress("FR", 2, 3), "Making the FR draft in HubSpot · 2 of 3…");
   assert.deepEqual(retryLangs([{ lang: "DE", ok: true }, { lang: "FR", ok: false }]), ["FR"]);
   // the links of every language, each where it leads

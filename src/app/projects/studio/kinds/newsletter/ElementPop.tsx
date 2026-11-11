@@ -9,8 +9,10 @@
 //                  while it is made the card says "From: ..." and new words give "Make it from these words instead" -
 //                  the newest ask wins, ../page/pictureJobs.ts), Upload, Gallery, the words for an inbox without pictures
 //   ASK AI         its own box (the bar's "Ask AI" puts the cursor there - data-ai-box): applied at once, with its Undo
+//   THE LOGO       our logo, back to it, or another one from the hub's Logos (or uploaded) - cv17: here, no more on the left
 //   foot           Take it out; a product: Duplicate, Move left / right
-// No Look section: an e-mail's look is our template's.
+// No Look section: an e-mail's look is our template's. cv17 (11.11.2026, "continue"): the card is the one place an element is
+// edited - the picked block's row on the left points here (./Blocks.tsx BlockTools); an upload shows how far it is.
 
 import { useEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -35,7 +37,7 @@ import SendRoundedIcon from "@mui/icons-material/SendRounded";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { AI_BOX_ATTR } from "@/lib/content/studio/kinds/page/barAi";
 import { isNewest, madeFrom, makeButton, startJob, type SlotJobs } from "@/lib/content/studio/kinds/page/pictureJobs";
-import { pictureIdea, partText, type NewsletterDoc } from "@/lib/content/studio/kinds/newsletter/model";
+import { isOurLogo, pictureIdea, partText, type NewsletterDoc } from "@/lib/content/studio/kinds/newsletter/model";
 import { elementOf, itemOrder, linkInLanguages, orderItem, takeOut, withLink } from "@/lib/content/studio/kinds/newsletter/elements";
 import { linkNote } from "@/lib/content/studio/kinds/newsletter/pageLinks";
 import { PicturePanel, makePicture, uploadPicture } from "../../pictures";
@@ -81,11 +83,13 @@ export function ElementPop({ d, k, rect, device, canEdit, aiOn, pages, whole, la
   const [making, setMaking] = useState<string | null>(null);
   const [gallery, setGallery] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** an upload under way: how far (0-1) */
+  const [up, setUp] = useState<number | null>(null);
   const jobs = useRef<SlotJobs>({});
   const file = useRef<HTMLInputElement | null>(null);
   const b = el?.block;
   const item = el?.item ?? null;
-  useEffect(() => { setSaid(null); setQ(""); setGallery(false); setErr(null); setIdea(b ? (b.kind === "products" && item !== null ? [b.items[item]?.name, b.items[item]?.text].filter(Boolean).join(" - ") : pictureIdea(b)) : ""); }, [k]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSaid(null); setQ(""); setGallery(false); setErr(null); setUp(null); setIdea(b ? (b.kind === "products" && item !== null ? [b.items[item]?.name, b.items[item]?.text].filter(Boolean).join(" - ") : pictureIdea(b)) : ""); }, [k]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!el || !b) return null;
 
   // its place: under the element, inside the e-mail's column (on a phone the column is the phone)
@@ -124,6 +128,8 @@ export function ElementPop({ d, k, rect, device, canEdit, aiOn, pages, whole, la
       return x;
     }),
   }));
+  /** the header's logo: ours (""), or another one */
+  const putLogo = (url: string) => setV((cur) => ({ ...cur, blocks: cur.blocks.map((x) => (x.id === b.id && x.kind === "header" ? { ...x, logoUrl: url } : x)) }));
   const aspect = b.kind === "article" && (b.layout === "left" || b.layout === "right") ? "1:1" as const : b.kind === "products" ? "1:1" as const : "16:9" as const;
   const make = async () => {
     const words = idea.trim();
@@ -146,7 +152,7 @@ export function ElementPop({ d, k, rect, device, canEdit, aiOn, pages, whole, la
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>{el.label}</Typography>
           <Typography sx={{ fontSize: "0.88rem", fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {el.kind === "picture" ? (hasPic ? "This picture" : "A picture to add") : el.kind === "logo" ? "Our logo" : words.trim() || "No words yet"}
+            {el.kind === "picture" ? (hasPic ? "This picture" : "A picture to add") : el.kind === "logo" ? (b.kind === "header" && !isOurLogo(b.logoUrl) ? "Another logo" : "Our logo") : words.trim() || "No words yet"}
           </Typography>
         </Box>
         <Tooltip title="Close (Esc)"><IconButton size="small" onClick={onClose} aria-label="Close" sx={{ color: MUTED }}><CloseIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
@@ -158,7 +164,24 @@ export function ElementPop({ d, k, rect, device, canEdit, aiOn, pages, whole, la
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.4 }}>Edited in the e-mail, as they read - click them there{el.kind === "words" && /:(text|footer)$/.test(k) ? "; B in the bar over them makes words bold" : ""}.</Typography>
           </>
         )}
-        {el.kind === "logo" && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>Our logo, as our e-mails carry it - another one is picked on the left, under the header&apos;s row.</Typography>}
+        {el.kind === "logo" && b.kind === "header" && (
+          <>
+            <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.4 }}>{isOurLogo(b.logoUrl) ? "Our logo, as the e-mails we send from HubSpot carry it." : "Another logo, from the hub's Logos."}</Typography>
+            {canEdit && (
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.75 }}>
+                {!isOurLogo(b.logoUrl) && <Button size="small" onClick={() => putLogo("")} sx={{ ...quiet, border: `1px solid ${HAIRLINE}` }}>Back to our logo</Button>}
+                <Button size="small" onClick={() => setGallery((v) => !v)} startIcon={<CollectionsOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...quiet, border: `1px solid ${gallery ? "#2459d1" : HAIRLINE}` }}>{gallery ? "Keep this one" : "Another logo…"}</Button>
+              </Box>
+            )}
+            <Collapse in={gallery && canEdit} timeout={200} unmountOnExit>
+              <Box sx={{ mt: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: 1, bgcolor: "#fbfcfd" }}>
+                <PicturePanel tabs={["logos", "upload"]} start="logos" aspect="3:2" columns={3} projectId={where.projectId} pieceId={where.pieceId} me={where.me}
+                  onPick={(pic) => { putLogo(pic.url); setGallery(false); }} />
+                <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.5 }}>A PNG or JPG: Outlook and Gmail do not show SVG.</Typography>
+              </Box>
+            </Collapse>
+          </>
+        )}
 
         {el.kind === "picture" && (
           <>
@@ -176,17 +199,19 @@ export function ElementPop({ d, k, rect, device, canEdit, aiOn, pages, whole, la
               <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 0.75 }}>
                 <Button size="small" disabled={mb.disabled} onClick={() => void make()} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
                   sx={{ ...quiet, bgcolor: mb.disabled ? undefined : PINK, color: mb.disabled ? undefined : "#fff", "&:hover": { bgcolor: "#a3245c" } }}>{mb.label}</Button>
-                <Button size="small" onClick={() => file.current?.click()} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...quiet, border: `1px solid ${HAIRLINE}` }}>Upload</Button>
+                <Button size="small" disabled={up !== null} onClick={() => file.current?.click()} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...quiet, border: `1px solid ${HAIRLINE}` }}>Upload</Button>
                 <Button size="small" onClick={() => setGallery((v) => !v)} startIcon={<CollectionsOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...quiet, border: `1px solid ${gallery ? "#2459d1" : HAIRLINE}` }}>Gallery</Button>
               </Box>
             )}
             <input ref={file} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
               const f = e.target.files?.[0]; e.target.value = "";
               if (!f) return;
-              setErr(null);
-              const r = await uploadPicture(f, { projectId: where.projectId, pieceId: where.pieceId });
+              setErr(null); setUp(0);
+              const r = await uploadPicture(f, { projectId: where.projectId, pieceId: where.pieceId }, setUp);
+              setUp(null);
               if (!r.ok) setErr(r.error); else putPicture(r.picture.url, r.picture.alt ?? "", null);
             }} />
+            {up !== null && <LinearProgress variant="determinate" value={up * 100} aria-label="Uploading the picture" sx={{ mt: 0.75, height: 3, borderRadius: 2 }} />}
             <Collapse in={gallery} timeout={200} unmountOnExit>
               <Box sx={{ mt: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: 1, bgcolor: "#fbfcfd" }}>
                 <PicturePanel onPick={(pic) => { putPicture(pic.url, pic.alt ?? "", null); setGallery(false); }} projectId={where.projectId} pieceId={where.pieceId} me={where.me} aspect={aspect}

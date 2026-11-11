@@ -9,7 +9,8 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { hubspotToken } from "@/lib/integrations/status";
 import { assetBytes } from "@/lib/content/assets";
 import type { NewsletterDoc } from "./model";
-import { draftFrom, fileNameOf, groupEmails, picturesToUpload, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail, type SourceEmail } from "./ourEmails";
+import { fileNameOf, groupEmails, readEmail, type EmailGroup, type RawEmail, type RawEmailFull, type ReadEmail } from "./ourEmails";
+import { makeDraft, type DraftMade } from "./drafts";
 
 export { blocksFrom, digestOf } from "./ourEmails";
 export type { EmailGroup, EmailPart, EmailVariant } from "./ourEmails";
@@ -60,20 +61,9 @@ async function toHubspotFiles(url: string, alt = ""): Promise<string | null> {
   return ((await r.json()) as { url?: string }).url ?? null;
 }
 
-/** The newsletter as a DRAFT in HubSpot, made from the e-mail it was started from: that e-mail's look, footer and
- *  subscription settings, the changed words, buttons and pictures. Nothing is sent - a person schedules it in HubSpot. */
-export async function draftInHubspot(doc: NewsletterDoc, name: string): Promise<{ id: string; url: string; changed: string[]; notes: string[] }> {
-  if (!doc.startedFrom?.emailId) throw new Error("Start the newsletter from one of our e-mails first - the draft copies its look.");
-  const source = await hubspotFetchJson<SourceEmail>({ path: `/marketing/v3/emails/${encodeURIComponent(doc.startedFrom.emailId)}` });
-  const uploaded: Record<string, string> = {};
-  // each picture named from what it shows (its block's alt text)
-  const altOf = (u: string) => { for (const b of doc.blocks) if ("imageUrl" in b && b.imageUrl === u && "imageAlt" in b) return b.imageAlt; return ""; };
-  for (const u of picturesToUpload(doc)) {
-    const at = await toHubspotFiles(u, altOf(u)).catch(() => null);
-    if (at) uploaded[u] = at;
-  }
-  const plan = draftFrom(source, doc, { name, uploaded });
-  const made = await hubspotFetchJson<{ id?: string }>({ path: "/marketing/v3/emails", method: "POST", body: plan.body });
-  if (!made.id) throw new Error("HubSpot made no draft.");
-  return { id: String(made.id), url: draftUrl(String(made.id)), changed: plan.changed, notes: plan.notes };
+/** The newsletter's language as a DRAFT in HubSpot (./drafts.ts makeDraft, cv17): made from that language's own e-mail of
+ *  the campaign when HubSpot has it (else the one it was started from), its draft made before updated in place while it
+ *  still is a draft there. Nothing is sent - a person schedules it in HubSpot. */
+export async function draftInHubspot(doc: NewsletterDoc, name: string): Promise<DraftMade> {
+  return makeDraft(hubspotFetchJson, doc, name, { groups: ourEmails, upload: toHubspotFiles, urlOf: draftUrl });
 }

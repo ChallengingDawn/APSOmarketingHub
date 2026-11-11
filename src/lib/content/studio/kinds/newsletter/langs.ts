@@ -11,7 +11,8 @@
 //                             new language, the default button words, a Page builder page's address in the language's
 //                             store view (another address of the shop is never guessed - "Before it goes out" says it)
 //   draftRows / makeAll       the last step: per language its draft in HubSpot (none / up to date / changed since), what
-//                             "Make the drafts" makes, and the refusals in plain words with the ones to try again
+//                             "Make the drafts" makes or updates (cv17: a draft made before is updated in place -
+//                             ./drafts.ts), and the refusals in plain words with the ones to try again
 
 import { SHOP_FACTS, asNewsletter, checks, wordsOf, type Block, type Check, type LangVersion, type NewsletterDoc } from "./model";
 import { linkFor, linksOf, linkIssues, newsletterStore, type PageLinkRow, type Tone } from "./pageLinks";
@@ -50,9 +51,12 @@ export function withVersion(doc: unknown, lang: string, view: NewsletterDoc): Ne
   const d = asNewsletter(doc);
   const L = lang.toUpperCase();
   if (L === d.language.toUpperCase()) {
-    // the top level: the e-mail as edited - its language and its other languages as the newsletter has them
+    // the top level: the e-mail as edited - its other languages as the newsletter has them; its language changes only
+    // while it has no other (cv17: the start card's language picker, one of our e-mails started from)
     const { langs: _l, ...rest } = view;
-    return { ...rest, language: d.language, ...(d.langs ? { langs: d.langs } : {}) };
+    const alone = !d.langs || !Object.keys(d.langs).length;
+    const language = alone && /^[a-z]{2}$/i.test(view.language || "") && view.language.toUpperCase() !== d.language.toUpperCase() ? view.language : d.language;
+    return { ...rest, language, ...(d.langs ? { langs: d.langs } : {}) };
   }
   return { ...d, langs: { ...(d.langs ?? {}), [L]: fieldsOf(view) } };
 }
@@ -116,10 +120,18 @@ export function followLanguage(source: NewsletterDoc, translated: NewsletterDoc,
 }
 
 /** A language's e-mail ready to be translated into `to`: the same blocks (their ids, so the words come back to them),
- * no HubSpot draft of its own yet, no changes of its own. */
-export function translationBase(source: NewsletterDoc, to: string): NewsletterDoc {
+ * no changes of its own, and its own HubSpot draft - the one that language had (`keep`, cv17: translated again, its draft
+ * is updated, never one more), else none yet. */
+export function translationBase(source: NewsletterDoc, to: string, keep?: NewsletterDoc["hubspot"]): NewsletterDoc {
   const copy = JSON.parse(JSON.stringify(source)) as NewsletterDoc;
-  return { ...copy, language: to.toUpperCase(), hubspot: undefined, changes: [] };
+  return { ...copy, language: to.toUpperCase(), hubspot: keep?.emailId ? { ...keep } : undefined, changes: [] };
+}
+
+/** A language's own HubSpot draft - none when the newsletter has no such language (cv17; versionIn would give the
+ * newsletter's own). */
+export function draftOf(doc: unknown, lang: string): NewsletterDoc["hubspot"] {
+  const L = lang.toUpperCase();
+  return languagesOf(doc).includes(L) ? versionIn(doc, L).hubspot : undefined;
 }
 
 /* ── the last step: one HubSpot draft per language ─────────────────────────────────────────────────────────────── */
@@ -162,16 +174,18 @@ export function draftRows(doc: unknown, rows: readonly PageLinkRow[] | null): Dr
   });
 }
 
-/** What "Make the drafts" makes: every language with no draft yet or changed since its draft (and nothing in its way). */
+/** What "Make the drafts" makes or updates: every language with no draft yet or changed since its draft (and nothing in
+ * its way). */
 export function makeAllOf(rows: readonly DraftRow[]): { langs: string[]; label: string; why: string | null } {
   const todo = rows.filter((r) => r.state !== "same" && !r.blocked).map((r) => r.lang);
   const blocked = rows.filter((r) => r.state !== "same" && r.blocked);
   if (!todo.length) {
     return { langs: [], label: "Every draft is up to date", why: blocked.length ? `${blocked.map((r) => r.lang).join(", ")}: ${blocked[0].blocked}` : rows.length ? null : "Nothing to make yet." };
   }
+  // a draft made before is updated in place (cv17) - "Make" only for the ones HubSpot has none of
   const again = todo.filter((l) => rows.find((r) => r.lang === l)?.state === "changed").length;
   const what = todo.length === 1 ? `the ${todo[0]} draft` : `${todo.length} drafts (${todo.join(", ")})`;
-  return { langs: todo, label: again === todo.length ? `Make ${what} again` : `Make ${what}`, why: null };
+  return { langs: todo, label: `${again === todo.length ? "Update" : again ? "Make or update" : "Make"} ${what}`, why: null };
 }
 
 /** "Making the FR draft in HubSpot · 2 of 3…" */

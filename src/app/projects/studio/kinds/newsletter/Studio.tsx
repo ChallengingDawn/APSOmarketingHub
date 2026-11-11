@@ -24,6 +24,10 @@
 // its words, its link, its own Ask AI applied at once with Undo, take it out); "Write it all again" in four ways
 // (./WriteAgain.tsx); the last step is a publishing view - one HubSpot draft per language (./Send.tsx), the assistant
 // folded away while it is open.
+//
+// cv17 (11.11.2026, "continue"): one place to edit - the picked block's row on the left says what it has (its picture,
+// where its buttons go, the logo) and each opens THAT element's card on the e-mail (./ElementPop.tsx), never a second
+// editor; a language translated again keeps its HubSpot draft, so the last step updates it (./Send.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -50,7 +54,7 @@ import {
   BLOCK_LABEL, PREHEADER_MAX, SUBJECT_MAX, TEMPLATES, applyDraft, applyEdits, applyTemplate, asNewsletter, blockOf, copyBlock,
   isBlank, moveBlock, oneLine, partText, renderEmail, sendDay, setPart, type BlockKind, type DraftAnswer, type Edits, type NewsletterDoc,
 } from "@/lib/content/studio/kinds/newsletter/model";
-import { followLanguage, languagesOf, mainLanguage, translationBase, versionIn, withVersion, withoutLanguage } from "@/lib/content/studio/kinds/newsletter/langs";
+import { draftOf, followLanguage, languagesOf, mainLanguage, translationBase, versionIn, withVersion, withoutLanguage } from "@/lib/content/studio/kinds/newsletter/langs";
 import { AssistantPanel, Label, PINK, Pane, StudioPanes, btn, mainBtn, type QuickAsk } from "../../parts";
 import type { StudioProps } from "../../registry";
 import type { StudioApi } from "../../useStudio";
@@ -259,7 +263,8 @@ export default function Studio({ api }: StudioProps) {
         // a translation (cv16): the language's own e-mail - every part along, what follows the language set - and the
         // e-mail it came from stays as it is
         const source = docRef.current;
-        const { doc: next, moved } = followLanguage(source, applyEdits(translationBase(source, o.language), r.result), pageLinks.rows);
+        // translated again: the language keeps its HubSpot draft - the next one updates it, never one more (cv17)
+        const { doc: next, moved } = followLanguage(source, applyEdits(translationBase(source, o.language, draftOf(wholeRef.current, o.language)), r.result), pageLinks.rows);
         await apply(next, `${said}${moved ? ` - ${moved} link${moved === 1 ? "" : "s"} to the ${o.language} page` : ""}`, o.language, o.language);
         setTab(o.language);
         setSel(null);
@@ -489,15 +494,15 @@ export default function Studio({ api }: StudioProps) {
         {block && <Tooltip title="Back to the whole e-mail"><IconButton size="small" onClick={() => setSel(null)} aria-label="Back to the whole e-mail"><CloseIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>}
       </Box>
       <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.45 }}>
-        {block ? (hasWords ? "Its words are edited in the e-mail, as they look - click them. Its picture and links are open on the left, under its row." : "What it needs is open on the left, under its row.") : "Click a block in the e-mail to work on it; click its words to edit them there."}
+        {block ? (hasWords ? "Its words are edited in the e-mail, as they look - click them. A click on its picture or its button opens that one's card there." : "A click on its picture opens its card in the e-mail - the left says what it has.") : "Click a block in the e-mail to work on it; click its words to edit them there."}
       </Typography>
     </Box>
   );
-  // the picked block's own fields: under its row in the map (the flow standard)
+  // the picked block under its row in the map (the flow standard): what it has - its picture, where its buttons go - each
+  // a pointer to that element's card on the e-mail (cv17: one place to edit), and a story's picture side
   const fields = block ? (
-    <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
-      pages={pageLinks} language={d.language}
-      patch={(id, f) => setV((n) => ({ ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }))}
+    <BlockTools b={block} picked={sel} disabled={!canEdit} pages={pageLinks} language={d.language}
+      onOpen={(key) => { setSel(key); setFocus({ key, at: Date.now() }); }}
       set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />
   ) : null;
   // the start, at the top of the map while nothing is written (the flow standard)

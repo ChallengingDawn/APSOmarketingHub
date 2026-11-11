@@ -13,6 +13,9 @@
 // again" writes the blocks the person added too (`extra`); an element's own "Ask AI" changes that one field (`field`);
 // a HubSpot refusal comes back in plain words (`done: false`, never a thrown error), a draft with the words it was made
 // from (`sig`), named with its language.
+// cv17 (11.11.2026, "continue"): a language's draft made before is updated in place while it still is a draft in HubSpot,
+// else a new one with why; a translated language's draft is made from the campaign's own e-mail in that language when
+// HubSpot proves it has one (./drafts.ts) - the result says which (`made`, `base`).
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { readBrain } from "@/lib/brain";
@@ -22,6 +25,7 @@ import { guardDraft, guardEdits } from "./guard";
 import { languagesOf, refusalSaid, versionIn, versionSig } from "./langs";
 import { blocksFrom, digestOf, draftInHubspot, emailParts, ourEmails } from "./hubspotEmails";
 import { pageLinksFor } from "./pageLinksRead";
+import { madeNote, statusOf } from "./drafts";
 
 /** Drafts to HubSpot: an admin switches them on in the studio (kv), or the hub's CONTENT_HUBSPOT_PUSH=on - no server change. */
 const PUSH_KEY = "content:hubspot_push";
@@ -253,9 +257,7 @@ a fact's figure (keep the figure, translate only its unit words).`,
     /** The e-mail as HTML, built here - the browser never sends it (the 8 KB limit). Pictures kept in the hub carry the
      *  hub's full address: HubSpot can only show them once that address is public (or the pictures are in HubSpot's files). */
     html: async (_ctx, doc, input) => ({ html: renderEmail(viewOf(doc, input), { origin: (process.env.HUB_PUBLIC_URL ?? "https://apsomarketinghub-dev.awssandbox.angst-pfister.com").replace(/\/+$/, "") }) }),
-    /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from (its look, footer,
-     *  subscription settings) with what was changed here; a person checks it and schedules it in HubSpot.
-     *  Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
+
     /** The Page builder's new pages this person may see, for "A page from the Page builder" beside each link (SARCLA
      *  11.11.2026: "how do we generate the link for the correct page in the newsletter?") - one read, nothing written. */
     pageLinks: async (ctx) => ({ pages: await pageLinksFor(ctx.me) }),
@@ -266,6 +268,10 @@ a fact's figure (keep the figure, translate only its unit words).`,
       await kvSet(PUSH_KEY, { on: input.on === true, by: ctx.me.username, at: new Date().toISOString() });
       return { ok: true, on: await pushOn() };
     },
+    /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from - or, cv17, the
+     *  campaign's e-mail in this language when HubSpot has it (its look, footer, subscription settings) - with what was
+     *  changed here; the language's draft made before is updated in place while it still is a draft in HubSpot. A person
+     *  checks it and schedules it there. Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
     hubspot: async (ctx, doc, input) => {
       if (!(await pushOn())) {
         return { done: false, why: "Sending drafts to HubSpot is not switched on yet. Download the HTML and paste it into a HubSpot e-mail (custom HTML), or ask an admin to switch it on (here, under Send it out)." };
@@ -278,15 +284,16 @@ a fact's figure (keep the figure, translate only its unit words).`,
       // its language in the draft's name when the newsletter has more than one (cv16): one draft per language
       const several = languagesOf(doc).length > 1;
       try {
+        // cv17: its draft made before updated in place while it still is a draft in HubSpot (else a new one, said why);
+        // made from this language's own e-mail of the campaign when HubSpot proves it has one
         const r = await draftInHubspot(d, `${ctx.projectTitle} - ${ctx.piece.title}${several ? ` (${d.language.toUpperCase()})` : ""}`.slice(0, 200));
         return {
           done: true, emailId: r.id, url: r.url, lang: d.language.toUpperCase(), sig: versionSig(d), at: new Date().toISOString(),
-          note: [r.changed.length ? `In the draft: ${r.changed.length} change${r.changed.length === 1 ? "" : "s"} from here.` : "The draft is the original with this subject and preheader.", ...r.notes].join(" "),
+          made: r.made, base: r.base.id, note: madeNote(r),
         };
       } catch (e) {
         // a refusal said in plain words, for the last step's "Try again" (never a thrown error)
-        const status = e && typeof e === "object" && "status" in e && typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : null;
-        return { done: false, why: refusalSaid(e instanceof Error ? e.message : String(e), status) };
+        return { done: false, why: refusalSaid(e instanceof Error ? e.message : String(e), statusOf(e)) };
       }
     },
   },
