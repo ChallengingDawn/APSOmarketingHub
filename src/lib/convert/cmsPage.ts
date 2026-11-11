@@ -27,7 +27,7 @@
 import type { Change } from "./versions";
 import { applyToCms } from "./ship";
 import { answerSaid } from "./magentoSaid";
-import { storeViewOf } from "../content/studio/kinds/page/storeViews";
+import { STORE_VIEWS, storeViewOf } from "../content/studio/kinds/page/storeViews";
 
 /** The address an UPDATE of a page is written through: its store view's own code, like a create (Content v14, SARCLA
  * 11.11.2026: production refused every PUT /rest/all/V1/cmsPage/<id> with a 403 and the shop's home page - "updating,
@@ -35,6 +35,22 @@ import { storeViewOf } from "../content/studio/kinds/page/storeViews";
  * only when no code is known. */
 export function putStore(view: string | null | undefined, ref?: { code?: string | null } | null): string {
   return ref?.code || storeViewOf(view ?? "")?.code || "all";
+}
+
+/**
+ * The address an update goes through, from Magento's OWN record of the page (3a's review, 11.11.2026; the same rule as
+ * AI testing & personalization's cmsStore.ts updateStore): exactly one store view - its code; "All Store Views" (0) or
+ * several - "all", never narrowed to one of them (on production that write is refused on purpose rather than taking the
+ * page out of its other store views - somebody broadened it in Magento's admin). A page record without store_id, or
+ * with one id the shop's list doesn't know: the store view the hub wrote it for (putStore).
+ */
+export function updateStoreOf(now: unknown, view: string | null | undefined, ref?: { code?: string | null } | null): string {
+  const raw = now && typeof now === "object" ? (now as { store_id?: unknown }).store_id : undefined;
+  if (raw === undefined || raw === null) return putStore(view, ref);
+  const ids = (Array.isArray(raw) ? raw : [raw]).map((x) => Number(x)).filter((n) => Number.isInteger(n) && n >= 0);
+  if (!ids.length) return putStore(view, ref);
+  if (ids.length !== 1 || ids[0] === 0) return "all";
+  return STORE_VIEWS.find((v) => v.id === ids[0])?.code ?? putStore(view, ref);
 }
 
 export type MagentoEnv = "acc" | "prod";
@@ -312,7 +328,7 @@ export async function writePage(m: MagentoRequest, x: {
     after: String(after.fields.content ?? ""), action: "update", by: x.by,
   });
   try {
-    await call(m, "PUT", putStore(x.view, plan.store), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...after.fields } });
+    await call(m, "PUT", updateStoreOf(now, x.view, plan.store), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...after.fields } });
     await x.backups.written(backupId, pageId);
     return { action: "updated", pageId, backupId, plan: shown };
   } catch (e) {
@@ -435,7 +451,7 @@ export async function writeShared(m: MagentoRequest, x: {
     const { content: before, ...rest } = now;
     const backupId = await x.backups.add({ env: x.env, view, identifier: x.want.identifier, pageId, title: String(now.title ?? ""), page: rest, before: String(before ?? ""), after: String(over.content ?? before ?? ""), action: "update", by: x.by });
     keep(backupId);
-    try { await call(m, "PUT", putStore(view, refOf.get(view)), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...over } }); await x.backups.written(backupId, pageId); }
+    try { await call(m, "PUT", updateStoreOf(now, view, refOf.get(view)), `/cmsPage/${encodeURIComponent(pageId)}`, { page: { ...now, ...over } }); await x.backups.written(backupId, pageId); }
     catch (e) { await x.backups.failed(backupId, (e as Error).message.slice(0, 500)); throw e; }
     return backupId;
   };
@@ -507,7 +523,7 @@ export async function restorePage(m: MagentoRequest, b: Backup, x: { by: string;
     after: String(back.content ?? content ?? ""), action: "restore", by: x.by,
   });
   try {
-    await call(m, "PUT", putStore(b.view), `/cmsPage/${encodeURIComponent(b.pageId)}`, { page: { ...now, ...back } });
+    await call(m, "PUT", updateStoreOf(now, b.view), `/cmsPage/${encodeURIComponent(b.pageId)}`, { page: { ...now, ...back } });
     await x.backups.written(backupId, b.pageId);
   } catch (e) {
     await x.backups.failed(backupId, (e as Error).message.slice(0, 500));
