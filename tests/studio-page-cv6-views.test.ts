@@ -222,7 +222,7 @@ test("a page of the shop written with its search engine fields - in its own stor
   assert.equal(plan.pageId, "41");
   await writePage(f.m, { env: "acc", view: "de-CH/eur", store: EUR, want, ours: () => false, by: "test", backups: noBackups });
   const put = f.calls.find((c) => c.method === "PUT")!;
-  assert.equal(put.path, "/rest/all/V1/cmsPage/41");
+  assert.equal(put.path, "/rest/switzerland_eur_de/V1/cmsPage/41");
   const sent = (put.body as { page: Record<string, unknown> }).page;
   assert.equal(sent.meta_title, "Über Angst+Pfister | APSOparts");
   assert.equal(sent.meta_description, "Wer wir sind.");
