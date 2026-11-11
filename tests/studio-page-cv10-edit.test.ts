@@ -170,7 +170,8 @@ test("switching keeps the content - questions, products, words and picture - and
 test("a new page's own blocks become a module of their family, their words carried in", () => {
   const f = page();
   assert.ok(compatibleWithBlock(f, "faq", "de-CH").some((o) => o.def.id === "faq"));
-  assert.deepEqual(compatibleWithBlock(f, "hero", "de-CH"), [], "the hero holds the page's title: it stays");
+  // Content v12 (SARCLA 10.11.2026: "replace by another hero"): the hero becomes a hero module - its title the H1 then
+  assert.ok(compatibleWithBlock(f, "hero", "de-CH").every((o) => o.def.category === "heroes"));
   const q = moduleFromBlock(f, "faq", "help-faq-side", "de-CH")!;
   assert.equal(q.settings.title, "Fragen");
   assert.deepEqual(q.settings.faq, [{ q: "Wie wähle ich?", a: "Nach Medium und Temperatur." }, { q: "Ab wann?", a: "Ab Stückzahl 1." }]);

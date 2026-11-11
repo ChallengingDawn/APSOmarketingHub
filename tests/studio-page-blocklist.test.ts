@@ -80,7 +80,11 @@ test("taken out: a block's modules stay where they stood, a module goes alone", 
   assert.equal(g.modules?.[0].after, "hero");
   assert.ok(!blockOrder(g).includes("intro"));
   assert.equal(removeRow(f, "np:m1").modules?.length, 0);
-  assert.equal(removeRow(f, "hero"), f);
+  // Content v12 (SARCLA 10.11.2026: "also you should delete here if you want to replace by another hero"): the hero goes too
+  const noHero = removeRow(f, "hero");
+  assert.equal(noHero.noHero, true);
+  assert.ok(!blockOrder(noHero).includes("hero"));
+  assert.equal(noHero.modules?.[0].after, "intro", "its module stays where it stood");
 });
 
 test("duplicated: a text-and-picture block right after itself, its look with it; a module with new ids; the hero not", () => {

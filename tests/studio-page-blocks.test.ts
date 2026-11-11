@@ -73,7 +73,9 @@ test("blocks move and go; the hero stays", () => {
   assert.ok(!renderNewPage(noFaq, { marks: true }).html.includes('data-apx-b="faq"'), "gone from the page, its empty slot too");
   const noSec = removeBlock(f, `sections.${s1}`);
   assert.deepEqual(noSec.sections.map((s) => s.id), [s2]);
-  assert.equal(removeBlock(f, "hero"), f);
+  // Content v12: the hero may go - its words kept for when it comes back (tests/studio-page-cv12-hero.test.ts)
+  assert.ok(!blockOrder(removeBlock(f, "hero")).includes("hero"));
+  assert.equal(removeBlock(f, "hero").hero.title, f.hero.title);
   const bare = removeBlock(removeBlock(f, `sections.${s1}`), `sections.${s2}`);
   assert.ok(!blockOrder(bare).some((k) => k.startsWith("sections")), "the last section gone: no empty slot comes back");
 });

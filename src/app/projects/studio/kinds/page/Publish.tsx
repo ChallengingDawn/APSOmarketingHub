@@ -148,7 +148,7 @@ function StoreChips({ v, plan }: { v: StatusView; plan: PlanOut | undefined }) {
             {k.split("/")[0].toUpperCase()}{k.includes("/") && <Box component="span" sx={{ fontSize: "0.58rem", color: BLUE }}>{k.split("/")[1].toUpperCase()}</Box>}
             {look && <Box component="span" sx={{ fontWeight: 700, color: look.c }}>{look.w}</Box>}
             {/* the Magento page it updates (Content v12: "each store view row says updated, its page #") */}
-            {t?.pageId && (st === "has" || st === "other") && <Box component="span" sx={{ fontWeight: 500, color: MUTED, fontVariantNumeric: "tabular-nums" }}>#{t.pageId}</Box>}
+            {t?.pageId && st === "has" && <Box component="span" sx={{ fontWeight: 500, color: MUTED, fontVariantNumeric: "tabular-nums" }}>#{t.pageId}</Box>}
           </Box>
         );
       })}

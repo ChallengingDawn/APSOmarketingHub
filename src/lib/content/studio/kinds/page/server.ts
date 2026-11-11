@@ -136,8 +136,8 @@ export const WRITE_MODE_TELL: Record<WriteMode, string> = {
 };
 
 /** The page as the AI sees it - "From the topic" (Content v12): its blocks only, never its present words. */
-function pageBlock(d: PageDoc, o: { words?: boolean } = {}): string {
-  if (d.source === "new" && o.words === false) {
+function pageBlock(d: PageDoc, how: { words?: boolean } = {}): string {
+  if (d.source === "new" && how.words === false) {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
 THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
 (Its present words are left out on purpose - the page is written fresh from its topic.)`;
