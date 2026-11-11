@@ -79,9 +79,10 @@ export default function ActionPlanCard({ glass, focusRing }: { glass: object; fo
   );
 }
 
-/** The card greyed, for the people of Angst+Pfister - a cross-admin too: the action plan is APSOparts' own and closed
- *  to them, shown so nobody wonders where it went, never a link and never its figures (SARCLA 10.11.2026: "action plan
- *  should be grey for AP employees and not be accessible not even as viewer"; access.ts crossClosed). */
+/** The card greyed, for a cross-user of Angst+Pfister: the action plan is APSOparts' own and closed to them, shown so
+ *  nobody wonders where it went, never a link and never its figures (SARCLA 10.11.2026: "action plan should be grey for
+ *  AP employees and not be accessible not even as viewer"). A cross-admin is an admin and gets the real card (SARCLA
+ *  11.11.2026; page.tsx picks it by access.ts planClosedTo). */
 export function LockedPlanCard({ glass }: { glass: object }) {
   return (
     <Box aria-disabled="true" title="Not part of your access" sx={{
