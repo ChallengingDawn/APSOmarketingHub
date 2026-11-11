@@ -67,6 +67,8 @@ import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockC
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, picturesOn, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
 import { picturesHold, type MediaFile, type PictureCheck } from "./media";
+import { contentMediaState } from "./contentMedia";
+import { storeFailed, storePictures, storedStates } from "./pictureStore";
 import { sinceOf } from "./published";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { modulesStrings, withModulesStrings } from "./modules/translate";
@@ -1112,14 +1114,23 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
 /**
  * A new page's own pictures in the target's media (10.11.2026 - the Kalrez page's hero was Magento's grey placeholder):
  * each read once (a HEAD of its address there), whatever version names it. A missing one holds Publish (`hold`).
+ * With the hub's picture storage on (11.11.2026, ./contentMedia.ts): each read in the storage instead - stored, or stored
+ * by Publish - and nothing holds (`storage: "hub"`). A storage set up without the task's credentials (a laptop) stays off
+ * and says so (`note`).
  */
-async function picturesOf(env: Env, pics: { view: string; files: MediaFile[] }[]): Promise<{ list: (PictureCheck & { views: string[] })[]; hold: string | null }> {
+async function picturesOf(env: Env, pics: { view: string; files: MediaFile[] }[]): Promise<{ list: (PictureCheck & { views: string[] })[]; hold: string | null; storage?: "hub"; note?: string | null }> {
   const byFile = new Map<string, MediaFile & { views: string[] }>();
   for (const p of pics) for (const f of p.files) { const had = byFile.get(f.file); if (had) { if (!had.views.includes(p.view)) had.views.push(p.view); } else byFile.set(f.file, { ...f, views: [p.view] }); }
   const files = [...byFile.values()];
+  const store = contentMediaState();
+  const own = files.filter((f) => f.address);
+  if (store.on && own.length === files.length) {
+    const checked = await storedStates(files.map(({ views: _v, ...f }) => f)).catch(() => files.map(({ views: _v, ...f }) => ({ ...f, address: f.address ?? "", state: "unknown" as const })));
+    return { list: checked.map((c, i) => ({ ...c, views: files[i].views })), hold: null, storage: "hub" };
+  }
   const checked = await picturesOn(env, files.map(({ views: _v, ...f }) => f)).catch(() => files.map((f) => ({ ...f, address: "", state: "unknown" as const })));
   const list = checked.map((c, i) => ({ ...c, views: files[i].views }));
-  return { list, hold: picturesHold(list.filter((p) => p.state === "missing"), ENVS[env].label) };
+  return { list, hold: picturesHold(list.filter((p) => p.state === "missing"), ENVS[env].label), note: store.on ? null : store.why };
 }
 
 const magentoPublish: ServerAction = async (ctx, raw, input) => {
@@ -1134,14 +1145,28 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const results: { view: string; ok: boolean; action?: string; pageId?: string; error?: string; stores?: string[]; note?: string }[] = [];
   const records: MagentoRecord[] = [];
   const moved: Op[] = [];
+  // each store view's page as Magento gets it - read once, before anything is written
+  const wanted = new Map<string, Awaited<ReturnType<typeof magentoOf>>>();
+  for (const v of views) wanted.set(v, await magentoOf(raw, v, env));
+  // the hub's picture storage on (11.11.2026, SARCLA: "I can't copy-paste each new picture to Magento"): the page's own
+  // pictures stored first - each one not stored yet; one that cannot be stored refuses Publish, nothing written
+  const hubStore = contentMediaState().on;
+  if (hubStore) {
+    const own = [...wanted.values()].flatMap((m) => (m.cms && m.want && !m.why && !m.blocked ? m.sent?.pictures ?? [] : [])).filter((f) => f.address);
+    if (own.length) {
+      const no = storeFailed(await storePictures(own));
+      if (no) throw new Error(no);
+    }
+  }
   for (const v of views) {
-    const m = await magentoOf(raw, v, env);
+    const m = wanted.get(v)!;
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     const want = m.want;
     // a new page: the same page in each of the store views its version goes to, one Magento page each (Content v11)
     if (want.kind === "page") {
-      // its own pictures must be in the target's media first (10.11.2026): read again now, a missing one holds the write
-      const pics = m.sent?.pictures.length ? await picturesOf(env, [{ view: v, files: m.sent.pictures }]) : null;
+      // its own pictures must be in the target's media first (10.11.2026): read again now, a missing one holds the write -
+      // stored above when they go to the hub's picture storage
+      const pics = m.sent?.pictures.length && !(hubStore && m.sent.pictures.every((f) => f.address)) ? await picturesOf(env, [{ view: v, files: m.sent.pictures }]) : null;
       if (pics?.hold) { results.push({ view: v, ok: false, error: `${pics.hold} Missing: ${pics.list.filter((p) => p.state === "missing").map((p) => p.file).join(", ")}.` }); continue; }
       try {
         const w = await cmsSharedWrite(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want }, ctx.me.username);

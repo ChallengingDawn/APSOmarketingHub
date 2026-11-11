@@ -53,8 +53,10 @@ export type EnvState = {
 export type StatusView = Omit<MagentoView, "want"> & { label?: string; stores?: { view: string; open: boolean; id: number | null }[]; since?: Partial<Record<Env, Since>> };
 export type Status = { views: StatusView[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
 export type PlanOut = PagePlan | SharedPlan | { view: string; env: Env; action: "none"; why: string; error: true };
-/** A new page's own pictures in one target's media (10.11.2026), read with the plan: each there or not, and what holds. */
-export type PicturesOut = { list: (PictureCheck & { views: string[] })[]; hold: string | null };
+/** A new page's own pictures in one target's media (10.11.2026), read with the plan: each there or not, and what holds.
+ * `storage: "hub"` (11.11.2026): they go to the hub's picture storage instead - stored, or stored by Publish, nothing
+ * holds; `note`: why the storage is off where it was set up (a laptop). */
+export type PicturesOut = { list: (PictureCheck & { views: string[] })[]; hold: string | null; storage?: "hub"; note?: string | null };
 type Result = { view: string; ok: boolean; action?: string; pageId?: string; error?: string; stores?: string[]; note?: string };
 const isShared = (p: PlanOut | undefined): p is SharedPlan => !!p && "targets" in p;
 
@@ -206,11 +208,15 @@ function WhatIsSent({ api, v, envs, plans, on }: { api: StudioApi; v: Status["vi
           </Box>
         );
       })}
-      {s.pictures.length > 0 && (
+      {s.pictures.length > 0 && (s.pictures.every((p) => p.address) ? (
+        <Typography sx={{ mt: 0.75, fontSize: "0.76rem", color: MUTED }}>
+          {s.pictures.length} picture{s.pictures.length === 1 ? "" : "s"} of the hub, at {s.pictures.length === 1 ? "its" : "their"} address in the hub&apos;s picture storage ({s.pictures.map((p) => p.file).join(", ")}) - stored on Publish when {s.pictures.length === 1 ? "it is" : "they are"} not yet.
+        </Typography>
+      ) : (
         <Typography sx={{ mt: 0.75, fontSize: "0.76rem", color: MUTED }}>
           {s.pictures.length} picture{s.pictures.length === 1 ? "" : "s"} of the hub, at {s.pictures.length === 1 ? "its" : "their"} address in the shop&apos;s media (wysiwyg/content: {s.pictures.map((p) => p.file).join(", ")}) - Pictures, below, says whether Magento has {s.pictures.length === 1 ? "it" : "them"}.
         </Typography>
-      )}
+      ))}
       {isNew && <Button size="small" onClick={() => setHtml(!html)} sx={{ ...btn, px: 0, mt: 0.5, color: PINK, fontSize: "0.76rem" }}>{html ? "Hide the content's HTML" : "Show the content's HTML"}</Button>}
       {html && <HtmlOf api={api} view={v.view} />}
     </Box>
@@ -275,6 +281,44 @@ const PIC_STATE: Record<PictureCheck["state"], { c: string; w: (target: string) 
   missing: { c: "#c5221f", w: (t) => `not in ${t}'s media` },
   unknown: { c: AMBER, w: () => "could not be read" },
 };
+/** The same in the hub's picture storage (11.11.2026): nothing to do by hand - Publish stores what is not stored yet. */
+const HUB_STATE: Record<PictureCheck["state"], { c: string; w: string }> = {
+  there: { c: GREEN, w: "stored" },
+  missing: { c: BLUE, w: "goes to the hub's picture storage on Publish" },
+  unknown: { c: AMBER, w: "could not be read - Publish stores it if it is missing" },
+};
+
+/** A new page's own pictures in the hub's picture storage (11.11.2026, SARCLA: "I can't copy-paste each new picture to
+ * Magento"): ACC and production show the same files, so one box - each picture stored or to be stored, its address. */
+function HubPictures({ envs, p, reading, onRead }: { envs: EnvState[]; p: PicturesOut; reading: Record<string, boolean>; onRead: (env: Env) => void }) {
+  const left = p.list.filter((x) => x.state !== "there").length;
+  const n = p.list.length;
+  const busy = envs.some((e) => reading[e.env]);
+  return (
+    <>
+      <Kick>Pictures</Kick>
+      <Box sx={{ mb: 1, p: 1.25, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Typography sx={{ flex: 1, fontSize: "0.8rem", fontWeight: 700, color: INK }}>
+            {!left ? `${n === 1 ? "Its picture is" : `All ${n} pictures are`} stored in the hub's picture storage.`
+              : `${left === n ? (n === 1 ? "Its picture goes" : `Its ${n} pictures go`) : `${left} of ${n} pictures go`} to the hub's picture storage on Publish - nothing to upload by hand.`}
+          </Typography>
+          <Button size="small" onClick={() => { for (const e of envs) onRead(e.env); }} disabled={busy} startIcon={busy ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
+            sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0, flexShrink: 0 }}>Read again</Button>
+        </Box>
+        <Box sx={{ mt: 0.75, display: "grid", gap: 0.4 }}>
+          {p.list.map((x) => (
+            <Box key={x.file} sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0, flexWrap: "wrap" }}>
+              <Box component="span" sx={{ ...mono, fontSize: "0.74rem", color: INK, minWidth: 0, overflowWrap: "anywhere" }}>{x.file}</Box>
+              <Box component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: HUB_STATE[x.state].c, flexShrink: 0 }}>{HUB_STATE[x.state].w}</Box>
+              {x.address && <Box component="a" href={x.address} target="_blank" rel="noopener noreferrer" sx={{ ...mono, fontSize: "0.68rem", color: MUTED, minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{x.address.replace(/^https:\/\//, "")}</Box>}
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    </>
+  );
+}
 
 /**
  * A new page's own pictures in each target's media (10.11.2026 - SARCLA's Kalrez page showed Magento's grey placeholder
@@ -288,7 +332,10 @@ function Pictures({ envs, pics, reading, onRead, title }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const shown = envs.filter((e) => e.key && (pics[e.env]?.list.length ?? 0) > 0);
+  // the hub's picture storage (11.11.2026): one box for every target - the same files, nothing held
+  const hub = shown.find((e) => pics[e.env]?.storage === "hub");
   if (!shown.length) return null;
+  if (hub) return <HubPictures envs={shown} p={pics[hub.env]!} reading={reading} onRead={onRead} />;
   const download = async (e: EnvState, list: PictureCheck[]) => {
     setBusy(e.env); setSaid(null);
     const files: FileOut[] = [];
@@ -314,7 +361,9 @@ function Pictures({ envs, pics, reading, onRead, title }: {
         return (
           <Box key={e.env} sx={{ mb: 1, p: 1.25, borderRadius: "10px", border: `1px solid ${p.hold ? "#f1c4c0" : HAIRLINE}`, bgcolor: p.hold ? "#fff6f5" : "#fff" }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <Typography sx={{ flex: 1, fontSize: "0.8rem", fontWeight: 700, color: INK }}>{e.label}: {p.hold ?? picturesHold(p.list, e.label) ?? `${p.list.length === 1 ? "its picture is" : `all ${p.list.length} pictures are`} in Magento's media.`}</Typography>
+              <Typography component="div" sx={{ flex: 1, fontSize: "0.8rem", fontWeight: 700, color: INK }}>{e.label}: {p.hold ?? picturesHold(p.list, e.label) ?? `${p.list.length === 1 ? "its picture is" : `all ${p.list.length} pictures are`} in Magento's media.`}
+                {p.note && <Box component="span" sx={{ display: "block", fontWeight: 500, fontSize: "0.74rem", color: MUTED }}>{p.note} Here they go to Magento&apos;s media as before.</Box>}
+              </Typography>
               <Button size="small" onClick={() => onRead(e.env)} disabled={!!reading[e.env]} startIcon={reading[e.env] ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
                 sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0, flexShrink: 0 }}>Read Magento again</Button>
             </Box>
@@ -643,7 +692,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
         {envs.filter((e) => on.includes(e.env)).map((e, i) => {
           const writable = sel.filter((v) => { const p = plans[e.env]?.find((x) => x.view === v); return doc.source !== "new" ? true : p && p.action !== "none"; });
           // a new page's own pictures not in this shop's media yet: Publish waits (Pictures, above)
-          const picHold = doc.source === "new" ? pics[e.env]?.hold ?? null : null;
+          const picHold = doc.source === "new" && pics[e.env]?.storage !== "hub" ? pics[e.env]?.hold ?? null : null;
           const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : picHold ? "Its pictures first - upload them to Magento's media (Pictures, above), then Read Magento again." : null);
           const blocked = cmsViews.filter((v) => sel.includes(v.view) && v.blocked).length;
           const off = !!why || !!busy || !!reading[e.env] || !!blocked;

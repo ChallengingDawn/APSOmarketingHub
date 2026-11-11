@@ -32,7 +32,9 @@ import {
 } from "./model";
 import { framedPage, pageHtml, renderNewPage, type InsertHtml } from "./newpage";
 import { PAGE_LAYOUT, ROW_CLASS, framePage, oneColumn } from "./frame";
-import { hubPicturesIn, mediaAddress, mediaFileOf, mediaGallerySteps, pictureState, withMediaAddresses, type MediaFile, type MediaHead, type PictureCheck } from "./media";
+import { hubPicturesIn, mediaAddress, mediaFileOf, mediaGallerySteps, pictureAltsIn, pictureState, pictureWordsOf, withMediaAddresses, type MediaFile, type MediaHead, type PictureCheck } from "./media";
+import { contentAddress, contentFileOf, contentMediaState } from "./contentMedia";
+import { storeFailed, storePictures } from "./pictureStore";
 import { moduleLinks, relinkHtml, shopLinkOf } from "./links";
 import https from "node:https";
 
@@ -463,20 +465,34 @@ const identifierOf = (rest: string) => rest.replace(/\.html?$/i, "").replace(/\/
 
 export type PasteOut = { ok: true; blocks: PasteBlock[]; warnings: string[]; store: string } | { ok: false; error: string };
 
-/** The hub's pictures a page shows, each with the name it gets in Magento's media (the hub is not public). */
-async function pictureFiles(urls: string[]): Promise<Map<string, MediaFile>> {
+/**
+ * The hub's pictures a page shows, each with the name it gets on the shop (the hub is not public): with the hub's picture
+ * storage on (./contentMedia.ts, 11.11.2026) a readable name from its words (`words`, by its path: its alt text or idea,
+ * else the picture's own name or prompt) and its address there; else its file in Magento's media (apx-<id>.<ext>).
+ */
+async function pictureFiles(urls: string[], words: ReadonlyMap<string, string> = new Map()): Promise<Map<string, MediaFile>> {
   const out = new Map<string, MediaFile>();
+  const store = contentMediaState();
   for (const u of urls) {
     const m = /^\/api\/content\/picture\/(\d+)-[\w-]+$/.exec(u);
     if (!m || out.has(u)) continue;
     const a = await getAsset(Number(m[1])).catch(() => null);
-    out.set(u, { file: mediaFileOf(Number(m[1]), a?.mime), url: u });
+    if (!store.on) { out.set(u, { file: mediaFileOf(Number(m[1]), a?.mime), url: u }); continue; }
+    const file = contentFileOf(Number(m[1]), a?.mime, words.get(u) || a?.name?.replace(/\.[a-z0-9]{2,5}$/i, "") || a?.prompt || "");
+    out.set(u, { file, url: u, address: contentAddress(store.base, file) });
   }
   return out;
 }
 
-/** Every hub picture a page's HTML names - its fields', its modules', its banners' - with its file in Magento's media. */
-const mediaFilesOf = (html: string) => pictureFiles(hubPicturesIn(html).map((p) => p.url));
+/** A picture's words for its name: its alt text in the HTML, else what the document says of it (alt, idea, a tile's name). */
+function wordsOf(html: string, doc: unknown): Map<string, string> {
+  const out = pictureWordsOf(doc);
+  for (const [u, w] of pictureAltsIn(html)) out.set(u, w);
+  return out;
+}
+
+/** Every hub picture a page's HTML names - its fields', its modules', its banners' - with its file on the shop. */
+const mediaFilesOf = (html: string, doc: unknown) => pictureFiles(hubPicturesIn(html).map((p) => p.url), wordsOf(html, doc));
 
 /**
  * A new page's content, store view by store view: ONE HTML Code element's HTML (`inner` - the hand-over pastes it) and
@@ -486,7 +502,7 @@ const mediaFilesOf = (html: string) => pictureFiles(hubPicturesIn(html).map((p) 
 async function newPageContent(doc: PageDoc, d: PageDoc, base: string, inserts: InsertOut[], warnings?: string[]): Promise<{ inner: string; content: string; files: Map<string, MediaFile> }> {
   const body = renderNewPage(d.fields, { store: d.store, inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })) });
   const linkedHtml = linked(pageHtml(body, styleBlock(finalChanges(d).changes)), doc, d.store, warnings);
-  const files = await mediaFilesOf(linkedHtml);
+  const files = await mediaFilesOf(linkedHtml, d.fields);
   const inner = withMediaAddresses(linkedHtml, files, base);
   return { inner, content: framePage(inner), files };
 }
@@ -584,7 +600,18 @@ export async function pasteOf(raw: unknown, lang: string | null = null, _shopSto
         ].join("\n"),
       },
     ];
-    if (files.size) {
+    // with the hub's picture storage on (11.11.2026): nothing to upload - they are stored as the hand-over is made
+    const own = [...files.values()].filter((p) => p.address);
+    if (own.length) {
+      const out = await storePictures(own);
+      const no = storeFailed(out);
+      if (no) warnings.unshift(no.replace(/ - nothing was written to Magento\. Try Publish again in a moment\.$/, " - the page would show them missing. Open the hand-over again in a moment."));
+      blocks.push({
+        key: "pictures", label: `Its pictures (${own.length}) - in the hub's picture storage`, lang: "text",
+        steps: ["Nothing to upload: the content names each picture at its address in the hub's picture storage, where the hub has stored it."],
+        code: own.map((p) => `${p.file}   ${p.address}`).join("\n"),
+      });
+    } else if (files.size) {
       const list = [...files.values()];
       blocks.push({
         key: "pictures", label: `Its pictures (${files.size}) - into ${target}'s media first`, lang: "text",
@@ -681,8 +708,9 @@ export type MagentoSent = {
   /** a page made here (created or updated whole), or an existing page's changes put into its content */
   kind: "page" | "changes";
   title: string; identifier: string; metaTitle: string; metaDescription: string; size: number; active: boolean;
-  /** the hub's pictures the content names in Magento's media (wysiwyg/content) - uploaded there by hand first */
-  pictures: { file: string; url: string }[];
+  /** the hub's pictures the content names in Magento's media (wysiwyg/content) - uploaded there by hand first; with the
+   * hub's picture storage on, each at its `address` there - stored by Publish (11.11.2026) */
+  pictures: MediaFile[];
   /** an existing page: its changes and banners */
   changes: number; banners: number;
   /** an existing page given a new URL key (its search engine fields) - "" when it keeps its own */
@@ -765,9 +793,11 @@ export async function magentoOf(raw: unknown, view: string, env?: Env): Promise<
   if (!final.changes.length && !inserts.length && !hasSeo) return { ...base, cms: true, why: "There are no changes to write yet.", path: d.path };
   const box = (x: InsertOut) => `<div class="apx-ins" style="margin:24px 0">${x.paste}</div>`;
   // the hub's own pictures in the changes (a banner put on the page from the banner studio, Content v7): named in Magento's
-  // media as a new page's are - uploaded there by hand first, the hand-over lists them; the hub is not public
-  const files = await pictureFiles([...new Set(final.changes.flatMap((ch) => ("html" in ch ? (ch.html.match(/\/api\/content\/picture\/\d+-[\w-]+/g) ?? []) : [])))]);
-  const pics = files.size ? final.changes.map((ch) => ("html" in ch ? { ...ch, html: [...files].reduce((h, [u, f]) => h.split(u).join(`{{media url='wysiwyg/content/${f.file}'}}`), ch.html) } : ch)) : final.changes;
+  // media as a new page's are - uploaded there by hand first, the hand-over lists them; the hub is not public. With the
+  // hub's picture storage on (11.11.2026): at their address there, stored by Publish
+  const changed = final.changes.map((ch) => ("html" in ch ? ch.html : "")).join("\n");
+  const files = await pictureFiles([...new Set(changed.match(/\/api\/content\/picture\/\d+-[\w-]+/g) ?? [])], wordsOf(changed, final.changes));
+  const pics = files.size ? final.changes.map((ch) => ("html" in ch ? { ...ch, html: [...files].reduce((h, [u, f]) => h.split(u).join(f.address || `{{media url='wysiwyg/content/${f.file}'}}`), ch.html) } : ch)) : final.changes;
   // its blocks' links in each visitor's own store view (Content v10, point 9) - the same changes go to every one it is for
   const changes = pics.map((ch) => ("html" in ch && typeof ch.html === "string" ? { ...ch, html: linked(ch.html, doc, d.store) } : ch));
   const want: Want = {
