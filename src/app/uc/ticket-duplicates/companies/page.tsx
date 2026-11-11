@@ -50,6 +50,7 @@ import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import type { LogEntry, Mode, RunInfo, Settings, Snapshot } from "@/lib/companyDuplicates/engine";
 import { MERGE_PER_HOUR, type Company, type Group, type MergeEvent, type Rules } from "@/lib/companyDuplicates/rules";
 import { DupToggle } from "../DupToggle";
+import { CountryTab } from "./CountryTab";
 import { GroupTable } from "./GroupTable";
 import { Decide, Decisions, useDecisionState } from "./decide";
 import Link from "next/link";
@@ -62,8 +63,8 @@ type Data = {
   history: { at: string; survivors: number; read: number; error: string | null; merges: Merge[] } | null;
   admin: boolean;
 };
-type TabId = "overview" | "erp" | "possible" | "left" | "decisions" | "settings";
-const TAB_HASH: Record<TabId, string> = { overview: "#overview", erp: "#same-customer-number", possible: "#possible", left: "#left-alone", decisions: "#decisions", settings: "#settings" };
+type TabId = "overview" | "erp" | "possible" | "left" | "country" | "decisions" | "settings";
+const TAB_HASH: Record<TabId, string> = { overview: "#overview", erp: "#same-customer-number", possible: "#possible", left: "#left-alone", country: "#country", decisions: "#decisions", settings: "#settings" };
 const COLOR = { both: "#1b7a55", place: "#2d6fa8", website: "#7c5cd6", other: "#c47a00", workflow: "#8a94a6", hub: "#2459d1", person: "#7c5cd6", rest: "#c9cfd8" };
 const small = { fontSize: "0.8rem" } as const;
 const POSSIBLE_KINDS: Kind[] = ["both", "place", "website", "other"];
@@ -444,7 +445,9 @@ export default function CompanyDuplicates() {
   const d = r?.state === "ok" ? r.data : null;
   const ctx = useDecisionState(!!d?.admin, again);
   let body: React.ReactNode;
-  if (r === null) body = <LoadingPanel label="Reading the companies…" />;
+  // Country reads its own data (/api/uc/company-country), not the duplicates'
+  if (tab === "country") body = <CountryTab />;
+  else if (r === null) body = <LoadingPanel label="Reading the companies…" />;
   else if (r.state !== "ok" || !d) body = <UpstreamPanel source="Duplicates & merges" error={r.state === "error" ? r.error : "not configured"} status={r.state === "error" ? r.status : null} onRetry={again} />;
   else if (tab === "settings") body = <SettingsTab d={d} onChanged={again} />;
   else if (tab === "decisions") body = <DecisionsTab d={d} />;
@@ -475,6 +478,7 @@ export default function CompanyDuplicates() {
             { id: "erp", label: "Same customer number", count: f?.sure.length ? full(f.sure.length) : null },
             { id: "possible", label: "Possible duplicates", count: f?.possible.length ? full(f.possible.length) : null },
             { id: "left", label: "Left alone", count: null },
+            { id: "country", label: "Country", count: null },
             { id: "decisions", label: "Decisions", count: null },
             { id: "settings", label: "Settings", count: null },
           ]} />

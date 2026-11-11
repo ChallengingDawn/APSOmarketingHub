@@ -213,18 +213,19 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "Back Office distribution", note: "Who gets each new Back Office and GQS ticket - shadow mode, side by side with the workflows", href: "/uc/bo-distribution", icon: "assign", ...TEAL },
       // tickets and companies, one app with a toggle on top (SARCLA 10.11.2026: "company duplicates should go inside of
       // duplicates and merges") - the companies at /uc/ticket-duplicates/companies, under this entry and its grant
-      { name: "Duplicates & merges", note: "Tickets: the same request twice, the same order. Companies: the same customer number, name and postcode, website. Contacts without a company - linked by a click or by their e-mail domain; names with broken letters repaired. Performis: the new title of each account of one company", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
+      { name: "Duplicates & merges", note: "Tickets: the same request twice, the same order. Companies: the same customer number, name and postcode, website; the country in HubSpot's country list. Contacts without a company - linked by a click or by their e-mail domain; names with broken letters repaired. Performis: the new title of each account of one company", href: "/uc/ticket-duplicates", icon: "copy", ...PURPLE },
       { name: "Certificates", note: "The Back Office's certificate requests: AVOR, the Back Office, the conformity experts - reminders and hand-overs", href: "/uc/certificates", icon: "verified", ...GREEN },
       { name: "Ticket value", note: "Each ticket's sales potential - shadow mode, side by side with the TICKET VALUE CALCULATION workflow", href: "/uc/ticket-value", icon: "tag", ...AMBER },
     ],
   },
   {
-    // the company jobs of the old HubSpot workflows, a sub app of their own (SARCLA 10.11.2026: "gmaps query - create a
-    // complete sub app, for the moment with only GMAPS query inside"); each job its page on the side panel
-    slug: "company-data", name: "Company data", line: "Each company's data kept up by the hub: its Google Maps link and its country", icon: "category", ...GREEN,
+    // the Google Maps job of the old HubSpot workflows, a sub app of its own (SARCLA 10.11.2026: "gmaps query - create a
+    // complete sub app, for the moment with only GMAPS query inside"); named APSOMaps on 11.11.2026 ("instead of company
+    // data call it APSOMaps"), the country moved the same day into Duplicates & merges > Companies > Country. The slug stays
+    // company-data, so the address and any grant on it keep working.
+    slug: "company-data", name: "APSOMaps", line: "Every company's address as a Google Maps link, kept up by the hub", icon: "map", ...GREEN,
     pages: [
       { name: "Google Maps link", note: "Every company without a Google Maps link gets one from its name and address", href: "/uc/google-maps", icon: "map", ...GREEN },
-      { name: "Country", note: "Every company with a country gets it in HubSpot's country list (country_custom), which the regions and phones read", href: "/uc/company-country", icon: "globe", ...GREEN },
     ],
   },
   {

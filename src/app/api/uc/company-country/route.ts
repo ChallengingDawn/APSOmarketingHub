@@ -1,4 +1,4 @@
-// COMPANY DATA > Country (src/lib/companyCountry). Replaces the HubSpot workflow "SARCLA | REGION TO COUNTRY CUSTOM",
+// DUPLICATES & MERGES > Companies > Country (src/lib/companyCountry). Replaces the HubSpot workflow "SARCLA | REGION TO COUNTRY CUSTOM",
 // SARCLA 11.11.2026.
 // GET: how it runs, the figures, the companies still without a value (the rule's value, or none: for a person), the
 // values written (30 days) and the dropdown's values.
