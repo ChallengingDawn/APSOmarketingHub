@@ -18,11 +18,15 @@
 import { esc } from "./kit";
 import { cleanButtonLook, cleanTextLook, hexOfColor, labelOn, normHex, readCheck, unpackLook, type ButtonLook, type TextLook } from "../style";
 import { pictureAddress } from "./address";
+import { tileWordsOf } from "./tilewords";
 import type { Drawn, ModuleRef, Opts } from "./types";
 
 export const TEXT_LOOK_KEY = { title: "look-title", eyebrow: "look-eyebrow", text: "look-text" } as const;
 export type LookField = keyof typeof TEXT_LOOK_KEY;
 export const BUTTON_LOOK_KEY = { link: "btn-link", link2: "btn-link2" } as const;
+/** Content v13b (SARCLA 11.11.2026: "some buttons still don't have button options"): the look of its tiles' buttons -
+ * every tile's "View product" / "Alle anzeigen" alike (each still leads to its own tile's product or category) */
+export const TILES_LOOK_KEY = "btn-tiles";
 export type ButtonField = keyof typeof BUTTON_LOOK_KEY;
 
 /** The modules whose two columns can be dragged (point 5): the grid that holds them, the layouts where it is one. */
@@ -92,6 +96,25 @@ function tagText(html: string, inner: string[], cls: string): string {
     return html.slice(0, m.index) + `<${m[1]}${withCls}>${m[3]}</${m[1]}>` + html.slice(m.index + m[0].length);
   }
   return html;
+}
+
+/** A link's page without its host and store view. */
+const pageOfHref = (u: string) => String(u ?? "").trim().replace(/^https?:\/\/[^/]+/i, "").replace(/^\/[a-z]{2}-[a-z]{2,3}(\/(eur|chf))?(?=\/|$)/i, "").replace(/^\/+/, "").replace(/[?#].*$/, "");
+
+/** EVERY element whose whole content is one of these words (a tile's button: a link, or the words in one): class `cls`
+ * added - never the module's own buttons (their page is the module's link), a new tab on a link when asked. */
+function tagTiles(html: string, words: string[], own: string[], cls: string, tab: boolean): string {
+  if (!words.length) return html;
+  const re = new RegExp(`<(a|button|span|i|em|b|strong)((?:\\s[^>]*)?)>\\s*(${words.map((w) => looseRe(esc(w))).join("|")})\\s*</\\1>`, "g");
+  return html.replace(re, (all, tag: string, attrs: string | undefined, said: string) => {
+    const at = attrs ?? "";
+    const link = /\shref="([^"]*)"/.exec(at)?.[1] ?? "";
+    if (tag === "a" && link && own.includes(pageOfHref(link))) return all;
+    if (/\sclass="[^"]*\bam-(b1|b2|all)\b/.test(at)) return all;
+    let a = /\sclass="/.test(at) ? at.replace(/\sclass="([^"]*)"/, (_x, c: string) => ` class="${c} ${cls}"`) : `${at} class="${cls}"`;
+    if (tab && tag === "a" && !/\starget=/.test(a)) a += ' target="_blank" rel="noopener"';
+    return `<${tag}${a}>${said}</${tag}>`;
+  });
 }
 
 /** The first link with these words: its class `cls` added, and a new tab when asked. */
@@ -166,6 +189,15 @@ export function withLooks(m: ModuleRef, d: Drawn): Drawn {
     const cls = f === "link" ? "am-b1" : "am-b2";
     html = tagAnchor(html, s[f].label, cls, !!b.tab);
     const rules = buttonRules(b, cls);
+    if (rules) css.push(rules);
+  }
+  // its tiles' buttons (Content v13b): every tile's alike - each still leads to its own tile's page
+  const tb = cleanButtonLook(unpackLook(x[TILES_LOOK_KEY]));
+  if (Object.keys(tb).length) {
+    const own = [s.link, s.link2].filter((l) => l.label.trim() && l.url).map((l) => pageOfHref(l.url));
+    const words = [...new Set(Object.values(tileWordsOf(s.store, x)).map((w) => w.trim()).filter(Boolean))];
+    html = tagTiles(html, words, own, "am-tb", !!tb.tab);
+    const rules = buttonRules(tb, "am-tb").replace(/@@ a\.am-tb/g, "@@ :is(a,button,span,i,em,b,strong).am-tb");
     if (rules) css.push(rules);
   }
   // its words

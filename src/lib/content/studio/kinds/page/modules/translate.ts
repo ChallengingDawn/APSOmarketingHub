@@ -10,7 +10,7 @@
 // among options, products (they are the shop's - read again in the store view, ./Panel "Finding the same products").
 
 import { kindOf } from "./model";
-import type { ModuleRef } from "./types";
+import type { Card, ModuleRef } from "./types";
 
 export type ModItem = { id: string; text: string };
 
@@ -79,4 +79,27 @@ export function withModuleStrings(id: string, m: ModuleRef, items: readonly ModI
 export function withModulesStrings<T extends { id: string; module: ModuleRef }>(mods: readonly T[] | undefined, items: readonly ModItem[]): T[] | undefined {
   if (!mods) return mods as undefined;
   return mods.map((pm) => ({ ...pm, module: withModuleStrings(pm.id, pm.module, items) }));
+}
+
+/* ── its products, as the translated store view's shop has them (Content v13, SARCLA 11.11.2026, screenshot 30: the German
+ *    page's "Two products side by side" kept /de-CH/10341003-ffkm-o-ring-evolastr-pn794.html, the English name and
+ *    "477 articles": "also one link also when translated") ── */
+
+/** The numbers to read again in the new store view - only a module whose items are all products with a number. */
+export function productNumbersOf(m: ModuleRef): string[] {
+  const items = m.settings.items ?? [];
+  if (!items.length || items.some((c) => c.kind !== "product" || !/^\d{8,10}$/.test(c.number))) return [];
+  return items.map((c) => c.number);
+}
+
+/** The items as the new store view's shop has them, in the same order; a product it does not have keeps its card. */
+export function itemsAs(items: readonly Card[], cards: readonly Card[]): { items: Card[]; missing: number } {
+  const by = new Map(cards.filter((c) => c.number).map((c) => [c.number, c]));
+  let missing = 0;
+  const out = items.map((c) => {
+    const n = by.get(c.number);
+    if (!n) { missing += 1; return c; }
+    return { ...n, ...(c.from ? { from: c.from } : {}) };
+  });
+  return { items: out, missing };
 }
