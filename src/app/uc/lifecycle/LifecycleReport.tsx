@@ -56,6 +56,7 @@ import {
 } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab, type TabDef } from "@/app/uc/report/Tabs";
 import { OutcomeReport } from "@/app/uc/report/OutcomeReport";
+import { Uc12Calendar, Uc12Today } from "./RevenueDrop";
 import { isClosed, isWon } from "@/lib/erosion/model";
 import { HUB_UCS, PORTAL, UCS, stageLabel, type ViewKey } from "@/lib/lifecycle/config";
 import type { CardSlot, ChartView, Col, EmailView, Fmt, IconKey, Row, UcCard, View } from "@/lib/lifecycle/types";
@@ -491,8 +492,8 @@ function UcCards() {
   );
 }
 
-type TabId = "cases" | "results" | "follow" | "list" | "emails";
-const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", follow: "#resolutions", list: "#list", emails: "#emails" };
+type TabId = "cases" | "results" | "follow" | "list" | "emails" | "drop" | "calendar";
+const TAB_HASH: Record<TabId, string> = { cases: "#use-cases", results: "#results", follow: "#resolutions", list: "#list", emails: "#emails", drop: "#tickets-today", calendar: "#calendar" };
 /** The UCs whose tickets get Erosion's "Win rate & resolution" (views.ts WIN_UCS). */
 const WIN_TAB: ViewKey[] = ["uc15", "uc6", "uc9", "uc4"];
 
@@ -532,7 +533,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
   const title = v ? (overview ? v.title : `${v.code} ${v.title}`) : uc ? `${uc.code} ${uc.title}` : "Use Cases Overview";
   const does = v?.does ?? uc?.does ?? "Every use case, where every company stands in its lifecycle today, and how many moved stage each month.";
   const busy = !resp || stale || !!st?.computing || !!resp?.emailState?.computing;
-  const [tab, selectTab] = useHashTab<TabId>(TAB_HASH, overview ? "cases" : "results");
+  const [tab, selectTab] = useHashTab<TabId>(TAB_HASH, overview ? "cases" : key === "uc12" ? "drop" : "results");
   const results = (v?.charts ?? []).filter((c) => (c.tab ?? "results") === "results");
   // where the win-rate report shows the closed tickets' answers, the answers chart would only repeat it
   const follow = (v?.charts ?? []).filter((c) => c.tab === "follow" && !(WIN_TAB.includes(key) && c.answers));
@@ -543,13 +544,17 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         { id: "list", label: LIST_TAB.overview, count: null },
       ]
     : [
+        // UC12: who today's run tickets and the calendar per person - their own read (src/lib/lifecycle/revenueDropRead.ts)
+        ...(key === "uc12" ? [{ id: "drop" as const, label: "Tickets today", count: null }, { id: "calendar" as const, label: "Calendar", count: null }] : []),
         { id: "results", label: "Results", count: null },
         { id: "follow", label: "Resolutions", count: WIN_TAB.includes(key) && rtClosed ? `${Math.round((100 * rt.filter(isWon).length) / rtClosed)}%` : null },
         { id: "list", label: LIST_TAB[key], count: v?.list ? full(v.list.total) : null },
         ...(key !== "uc12" ? [{ id: "emails" as const, label: "Emails", count: resp?.emails ? String(resp.emails.rows.length) : null }] : []),
       ];
   const shown: TabId = tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
-  const needsData = shown !== "cases";
+  // UC12's own tabs: the period, the tasks' tiles and "converted" do not shape them
+  const own = shown === "drop" || shown === "calendar";
+  const needsData = shown !== "cases" && !own;
 
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
@@ -560,12 +565,12 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
           rightSlot={
             <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <TopFindings items={(v?.findings ?? []).map((text) => ({ text }))} />
-              {busy && <CircularProgress size={14} sx={{ color: MUTED }} />}
-              <WindowPicker />
+              {busy && !own && <CircularProgress size={14} sx={{ color: MUTED }} />}
+              {!own && <WindowPicker />}
             </Box>
           }
         />
-        {(v?.converted ?? uc?.converted) && <Typography sx={{ fontSize: "0.88rem", color: INK, mt: -1.5 }}>{v?.converted ?? uc?.converted}</Typography>}
+        {!own && (v?.converted ?? uc?.converted) && <Typography sx={{ fontSize: "0.88rem", color: INK, mt: -1.5 }}>{v?.converted ?? uc?.converted}</Typography>}
       </Box>
 
       {resp && !resp.ok && (
@@ -576,7 +581,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         </GlassCard>
       )}
 
-      {v && (
+      {v && !own && (
         <>
           {st?.computing && <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>Refreshing in the background - showing the last finished read.</Typography>}
           {st?.error && <Typography sx={{ fontSize: "0.8rem", color: RED }}>The last refresh failed ({st.error}) - showing the read before it.</Typography>}
@@ -593,6 +598,8 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
       </Box>
 
       {shown === "cases" && <Box id="lifecycle-panel-cases" role="tabpanel"><UcCards /></Box>}
+      {shown === "drop" && <Box id="lifecycle-panel-drop" role="tabpanel" sx={{ minWidth: 0 }}><Uc12Today key="uc12-today" /></Box>}
+      {shown === "calendar" && <Box id="lifecycle-panel-calendar" role="tabpanel" sx={{ minWidth: 0 }}><Uc12Calendar key="uc12-calendar" /></Box>}
 
       {needsData && resp?.ok && !v && (
         <GlassCard>
@@ -624,7 +631,7 @@ export default function LifecycleReport({ view: key }: { view: ViewKey }) {
         <Box id="lifecycle-panel-emails" role="tabpanel" sx={{ minWidth: 0 }}><Emails e={resp.emails ?? null} st={resp.emailState ?? null} /></Box>
       )}
 
-      {v && (
+      {v && !own && (
         <Box sx={{ display: "grid", gap: 0.5 }}>
           {v.notes.map((n) => <Typography key={n} sx={{ fontSize: "0.78rem", color: MUTED }}>{n}</Typography>)}
           <Typography sx={{ fontSize: "0.75rem", color: FAINT }}>
