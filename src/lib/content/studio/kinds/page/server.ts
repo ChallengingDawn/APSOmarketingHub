@@ -41,9 +41,9 @@ import { s } from "../../contract";
 import type { Op } from "../../doc";
 import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
-import { markerOf } from "@/lib/convert/handoff";
+import { markerFor, notesFor } from "@/lib/content/convertTodo";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
-import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
+import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsWrittenContent, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
 
 /** Production only after the same to-do was written on ACC and looked at there (Content v11 - the first production CMS
  * write of the hub must never be its first write). */
@@ -65,7 +65,9 @@ import {
 } from "./model";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
-import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
+import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, picturesOn, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
+import { picturesHold, type MediaFile, type PictureCheck } from "./media";
+import { sinceOf } from "./published";
 import { deeplConfigured, translate as deepl } from "@/lib/translator/deepl";
 import { appBriefOf } from "./appBrief";
 import { moduleActions, moduleFillTask, moduleWordsTask } from "./modules/server";
@@ -73,7 +75,7 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
-import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
+import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, guardText, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
 import { readStore, treeFor } from "./plan/fill";
 import { categoryFacts, type CategoryFacts } from "./modules/source";
 import { readBrain } from "@/lib/brain";
@@ -119,7 +121,28 @@ function context(ctx: StudioCtx, d: PageDoc): string {
   ].filter(Boolean).join("\n");
 }
 
-function pageBlock(d: PageDoc): string {
+/**
+ * "Write it all again" in one of three ways (Content v12, SARCLA 10.11.2026: "on content when write back should be able to
+ * write from topic or direct or ask") - the same whole-page write (fill_page), told how:
+ *   topic    from the to-do's subject and brief, the page written FRESH - its blocks kept, its present words not shown
+ *   better   the page as it stands, written again better - its facts and its blocks kept, no question asked
+ *   ask      the person's words ("What should change?") - THE PERSON ASKS, the whole page written with them
+ */
+export type WriteMode = "topic" | "better" | "ask";
+export const writeModeIn = (input: Record<string, unknown>): WriteMode | null => (input.mode === "topic" || input.mode === "better" || input.mode === "ask" ? input.mode : null);
+export const WRITE_MODE_TELL: Record<WriteMode, string> = {
+  topic: "WRITE IT FRESH FROM THE TOPIC: the to-do's subject and brief (above) are what the page is about. Its present words are NOT shown on purpose - do not try to keep or rephrase them; write every block new, as on a first write, in the blocks the page has.",
+  better: "WRITE IT AGAIN, BETTER: the page as it stands (its fields, above) is the base - keep its subject, its facts, its dates and its blocks, and make every block clearer, more concrete and more useful for a buyer. Nothing is asked: do not add a claim the page, the brief or the shop's facts do not hold.",
+  ask: "WRITE IT AGAIN AS THE PERSON ASKS (below): the whole page, every block it has, with that change - what the ask does not touch keeps its facts.",
+};
+
+/** The page as the AI sees it - "From the topic" (Content v12): its blocks only, never its present words. */
+function pageBlock(d: PageDoc, how: { words?: boolean } = {}): string {
+  if (d.source === "new" && how.words === false) {
+    return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
+THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
+(Its present words are left out on purpose - the page is written fresh from its topic.)`;
+  }
   if (d.source === "new") {
     return `A NEW PAGE for the store view ${d.store} (language: ${langOf(d)}).
 THE PAGE'S BLOCKS, IN THEIR ORDER ON THE PAGE: ${blocksOf(d.fields).filter((b) => b.num).map((b) => `${b.num} ${b.name}${b.key.startsWith("sections.") ? ` (sections.${b.key.slice(9)})` : ""}`).join(" · ") || "none yet - the page is empty"}
@@ -344,15 +367,17 @@ function fillUser(part: Exclude<Part, "field">) {
       : part === "all" ? "Write the WHOLE page: every block it has (listed above), all of it final copy. A part whose block is not listed is not on the page: give it no items and empty words."
       : part === "section" ? `Write THIS section only (${sec?.title.trim() ? `now: "${sec.title}"` : "a new one"}) - it must say something the other sections do not.${where}`
         : `Write ${PART_LABEL[part]} only. The rest of the page stays as it is - fit in with it.`;
+    // "Write it all again" from the topic, directly or as asked (Content v12)
+    const mode = part === "all" ? writeModeIn(input) : null;
     return `${context(ctx, d)}
 
-${pageBlock(d)}
+${pageBlock(d, { words: mode !== "topic" })}
 
 THE SHOP'S PAGES YOU MAY LINK (address · name · kind):
 ${cands.map((c) => `${c.url} · ${c.name} · ${c.kind}`).join("\n") || "(none - leave every address empty)"}
 
 WRITE IN: ${langOf(d)} (store view ${d.store})
-${what}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
+${what}${mode ? `\n\n${WRITE_MODE_TELL[mode]}` : ""}${s(input.request, 1500) ? `\n\nTHE PERSON ASKS: ${s(input.request, 1500)}` : ""}`;
   };
 }
 
@@ -502,9 +527,12 @@ ${s(input.text, 3000) || "(empty)"}
 
 THE PERSON ASKS: ${s(input.request, 1500) || "Write it again: clearer and more useful for a buyer."}`;
   },
-  clean: (raw) => {
-    const text = s((raw as { text?: unknown })?.text, 3000).replace(/^["“„'«]+|["”“'»]+$/g, "").trim();
-    return { text, leftovers: leftoversIn(text) };
+  clean: (raw, _doc, _ctx, input) => {
+    const said: string[] = [];
+    // the shop's word rules on ONE text too (Content v12: the Kalrez hero said "both in stock in our standard assortment" -
+    // a stock promise came in by this road, the only AI text the rules did not read)
+    const text = guardText(s((raw as { text?: unknown })?.text, 3000).replace(/^["“„'«]+|["”“'»]+$/g, "").trim(), s(input.text, 3000), said, "");
+    return { text, leftovers: leftoversIn(text), ...(said.length ? { note: said.join("; ") } : {}) };
   },
 };
 
@@ -746,7 +774,11 @@ const englishAction: ServerAction = async (ctx, raw, input) => {
 // ideas"): it writes itself when its to-do came from ANY idea of the Ideas board (Own ideas too) - ./appBrief.ts says the rule.
 const brief: ServerAction = async (ctx) => {
   const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
-  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes, title: ctx.projectTitle });
+  // a page added to the project from AI testing & personalization: the to-do's own brief, under the to-do's name
+  const own = notesFor(ctx.pieceNotes, null);
+  return own
+    ? appBriefOf({ source: "convert", goal: ctx.brief.goal, notes: own, title: ctx.piece.title })
+    : appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes, title: ctx.projectTitle });
 };
 
 /* ── actions ──────────────────────────────────────────────────────────── */
@@ -761,13 +793,15 @@ const start: ServerAction = async (ctx, raw, input) => {
   const again = input.again === true;
   if (d.started && !again) return { imported: null };
   const head = await projectHead(ctx.projectId);
-  const brief = head?.project.brief ?? "";
+  // the to-do's own brief when it carries its page's marker (a page added to the project), else the project's
+  const brief = notesFor(ctx.pieceNotes, head?.project.brief) ?? "";
   const ops: Op[] = [{ op: "set", path: ["started"], value: true }, { op: "set", path: ["briefText"], value: brief.slice(0, 7000) }];
   // a page starts the way its type makes it (model.ts pageModesFor): an SEO landing page as a new page, the Page builder by
   // picking the shop's page (SARCLA 09.11.2026)
   const fix = again ? null : pageSourceFix(ctx.piece.contentType, d);
   if (fix) ops.push({ op: "set", path: ["source"], value: fix });
-  const mark = markerOf(brief);
+  // the to-do's marker first, then the project's (lib/content/convertTodo.ts)
+  const mark = markerFor(ctx.pieceNotes, head?.project.brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
   // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again - by a to-do that
@@ -852,7 +886,8 @@ async function mayShip(): Promise<boolean> {
 }
 async function testIdOf(ctx: StudioCtx): Promise<string | null> {
   const head = await projectHead(ctx.projectId);
-  return markerOf(head?.project.brief ?? "")?.testId ?? null;
+  // a page added to the project as its own to-do is no test's winner, whatever the project's marker says
+  return markerFor(ctx.pieceNotes, head?.project.brief)?.testId ?? null;
 }
 
 const winner: ServerAction = async (ctx, raw) => {
@@ -994,19 +1029,23 @@ function viewsIn(doc: PageDoc, input: Record<string, unknown>): string[] {
 const magento: ServerAction = async (ctx, raw) => {
   const doc = pageDoc(raw, ctx.piece.language);
   const keys = cmsKeys();
-  const [views, grant, backups] = await Promise.all([
+  const [views, grant, backups, written] = await Promise.all([
     Promise.all(viewsOf(doc).map((v) => magentoOf(raw, v))),
     mayShip(),
     cmsPageBackups(String(ctx.pieceId)).catch(() => []),
+    // what each store view's page got at its last write - "changed since the publish" (Content v12)
+    cmsWrittenContent(String(ctx.pieceId)).catch(() => []),
   ]);
   const onAcc = await pieceOnAcc(String(ctx.pieceId)).catch(() => false);
   const gate = (env: Env, restore = false) => gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant, key: keys[env], env, restore })
     ?? (env === "prod" && !restore && !onAcc ? ACC_FIRST : null);
   return {
     // each version (a language - Content v10) with the store views it goes to, and what the hub knows of each in Magento
-    views: views.map(({ want: _want, ...v }) => ({
+    views: views.map(({ want, ...v }) => ({
       ...v, label: versionLabel(doc, v.view),
       stores: storesOfView(doc, v.view).map((x) => ({ view: x, ...storeKnown(x) })),
+      // on ACC / production since when, and changed since (SARCLA 10.11.2026: "update current pages after changes here")
+      since: sinceOf(want?.kind === "page" ? want.content : null, storesOfView(doc, v.view), written),
     })),
     // a page of ACC is written to ACC only (Content v8, point 7: the to-do works on ACC - its last step follows it)
     envs: publishTargets(doc).map((env) => ({
@@ -1048,17 +1087,34 @@ const magentoPlan: ServerAction = async (ctx, raw, input) => {
   if (targetWhy(doc, env)) throw new Error(targetWhy(doc, env));
   const items: { view: string; want: NonNullable<Awaited<ReturnType<typeof magentoOf>>["want"]> }[] = [];
   const shared: Awaited<ReturnType<typeof cmsSharedPlan>>[] = [];
+  const pics: { view: string; files: MediaFile[] }[] = [];
   for (const v of viewsIn(doc, input)) {
-    const m = await magentoOf(raw, v);
+    const m = await magentoOf(raw, v, env);
     if (!m.cms || !m.want || m.why) continue;
     // a new page: the same page in each of the version's store views (Content v10 point 6, v11) - its plan names each one
-    if (m.want.kind === "page") shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
+    if (m.want.kind === "page") {
+      shared.push(await cmsSharedPlan(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want: m.want }));
+      if (m.sent?.pictures.length) pics.push({ view: v, files: m.sent.pictures });
+    }
     // a page of the shop: its page in each store view the version goes to, the same changes (one tag: a write again
     // replaces its own work, also where two store views share one Magento page)
     else for (const x of storesOfView(doc, v)) items.push({ view: x, want: { ...m.want, tag: `content-${v}` } });
   }
-  return { env, plans: [...shared, ...await cmsPagePlans(String(ctx.pieceId), env, items)], waiting: null };
+  return { env, plans: [...shared, ...await cmsPagePlans(String(ctx.pieceId), env, items)], waiting: null, pictures: await picturesOf(env, pics) };
 };
+
+/**
+ * A new page's own pictures in the target's media (10.11.2026 - the Kalrez page's hero was Magento's grey placeholder):
+ * each read once (a HEAD of its address there), whatever version names it. A missing one holds Publish (`hold`).
+ */
+async function picturesOf(env: Env, pics: { view: string; files: MediaFile[] }[]): Promise<{ list: (PictureCheck & { views: string[] })[]; hold: string | null }> {
+  const byFile = new Map<string, MediaFile & { views: string[] }>();
+  for (const p of pics) for (const f of p.files) { const had = byFile.get(f.file); if (had) { if (!had.views.includes(p.view)) had.views.push(p.view); } else byFile.set(f.file, { ...f, views: [p.view] }); }
+  const files = [...byFile.values()];
+  const checked = await picturesOn(env, files.map(({ views: _v, ...f }) => f)).catch(() => files.map((f) => ({ ...f, address: "", state: "unknown" as const })));
+  const list = checked.map((c, i) => ({ ...c, views: files[i].views }));
+  return { list, hold: picturesHold(list.filter((p) => p.state === "missing"), ENVS[env].label) };
+}
 
 const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
@@ -1073,11 +1129,14 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   const records: MagentoRecord[] = [];
   const moved: Op[] = [];
   for (const v of views) {
-    const m = await magentoOf(raw, v);
+    const m = await magentoOf(raw, v, env);
     if (!m.cms || !m.want || m.why || m.blocked) { results.push({ view: v, ok: false, error: m.why ?? m.blocked ?? "Not a CMS page." }); continue; }
     const want = m.want;
     // a new page: the same page in each of the store views its version goes to, one Magento page each (Content v11)
     if (want.kind === "page") {
+      // its own pictures must be in the target's media first (10.11.2026): read again now, a missing one holds the write
+      const pics = m.sent?.pictures.length ? await picturesOf(env, [{ view: v, files: m.sent.pictures }]) : null;
+      if (pics?.hold) { results.push({ view: v, ok: false, error: `${pics.hold} Missing: ${pics.list.filter((p) => p.state === "missing").map((p) => p.file).join(", ")}.` }); continue; }
       try {
         const w = await cmsSharedWrite(String(ctx.pieceId), env, { view: v, stores: storesOfView(doc, v), want }, ctx.me.username);
         const put = w.plan.targets.filter((t) => (t.state === "new" || t.state === "has") && !w.missing.includes(t.view)).map((t) => t.view);

@@ -36,7 +36,16 @@ const WORDS: Record<string, Words> = {
   nl: { go: "Naar het product", goCat: "Naar de categorie", all: "Alles tonen", allProducts: "Alle producten", more: "Meer weten", articles: "artikelen", products: "producten", categories: "categorieën", discover: "Ontdekken", shop: "Naar de shop" },
   pl: { go: "Do produktu", goCat: "Do kategorii", all: "Pokaż wszystkie", allProducts: "Wszystkie produkty", more: "Dowiedz się więcej", articles: "artykułów", products: "produktów", categories: "kategorii", discover: "Odkryj", shop: "Do sklepu" },
 };
-export const wordsFor = (store: string): Words => WORDS[String(store).slice(0, 2).toLowerCase()] ?? WORDS.en;
+/** The interface words of a store view - with the module's own tile words laid over them while it is drawn (Content v12,
+ * ./tilewords.ts: "Alle anzeigen" on a bento's tile may say "Alle O-Ringe"). */
+export const wordsFor = (store: string): Words => {
+  const w = WORDS[String(store).slice(0, 2).toLowerCase()] ?? WORDS.en;
+  const own = drawing.words;
+  if (!own) return w;
+  const out = { ...w };
+  for (const k of Object.keys(w) as (keyof Words)[]) if (own[k]) out[k] = own[k];
+  return out;
+};
 export const langOf = (store: string) => String(store).slice(0, 2).toLowerCase();
 
 /** The shop's four promises, as its home page says them (the kit's title row, from today's USP picture). */
@@ -71,7 +80,7 @@ export const promisesFor = (store: string): Point[] => (PROMISES[langOf(store)] 
 /* ── links and pictures ────────────────────────────────────────────────── */
 
 /** The store view of the module being drawn (drawModule sets it - drawing is synchronous). */
-export const drawing: { store: string | null } = { store: null };
+export const drawing: { store: string | null; words?: Record<string, string> | null } = { store: null, words: null };
 
 /** A link to the shop, written from the page's own host: the same module works on ACC and on the live shop (and in the
  * studio's preview, whose page carries the shop's address as its base). Pictures stay absolute on www - ACC lacks some
@@ -110,10 +119,13 @@ export function button(l: { label: string; url: string }, cls: string): string {
 
 /* ── the shared rules: tokens, heading, cards, tiles ───────────────────── */
 
+// The type and the colours come from ONE root (10.11.2026, SARCLA on the Kalrez page - the module's text in a bold system
+// font): on a new page the page's root (.apx-np, ../newpage.ts) gives them (--apx-*); alone - a module put into a page of
+// the shop, the gallery's picture - the same values stand in. Its words are the shop's futura-pt, never Arial.
 export const BASE = `
-@@{--red:#d80901;--red-d:#b00700;--pet:#274e64;--pet-d:#1b3a4b;--ink:#1d2326;--txt:#5e5e5e;--mute:#5b6267;--line:#e5e8ea;--tile:#e8e9eb;
-  --head:"futura-pt","Futura PT",Futura,Jost,Arial,sans-serif;display:block;box-sizing:border-box;width:100%;max-width:1170px;margin:28px auto;padding:0 10px;
-  color:var(--txt);font:15px/1.55 Arial,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-align:left;clear:both}
+@@{--red:var(--apx-red,#d80901);--red-d:#b00700;--pet:var(--apx-pet,#274e64);--pet-d:#1b3a4b;--ink:var(--apx-ink,#1d2326);--txt:var(--apx-txt,#5e5e5e);--mute:#5b6267;--line:#e5e8ea;--tile:#e8e9eb;
+  --head:var(--apx-head,"futura-pt","Futura PT",Futura,Jost,Arial,sans-serif);display:block;box-sizing:border-box;width:100%;max-width:1170px;margin:28px auto;padding:0 10px;
+  color:var(--txt);font:400 15px/1.55 var(--head);-webkit-font-smoothing:antialiased;text-align:left;clear:both}
 @@ *,@@ ::before,@@ ::after{box-sizing:border-box}
 @@ a{color:inherit;text-decoration:none!important}
 @@ img{display:block;max-width:none;border:0}

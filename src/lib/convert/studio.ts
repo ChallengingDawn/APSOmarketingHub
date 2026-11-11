@@ -325,6 +325,17 @@ export async function setAsidePageIdeas(): Promise<{ env: Env; path: string }[]>
   return r.rows.filter((x) => { const k = `${x.env} ${x.path}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+/** How many optimizations each page has (Pages' rows): waiting for a yes or no, approved or sent, and of those per block. */
+export async function optimizationsOn(env: Env, paths: string[]): Promise<Record<string, { waiting: number; approved: number; blocks: number }>> {
+  if (!paths.length) return {};
+  await ensureStudioSchema();
+  const r = await query<{ path: string; waiting: number; approved: number; blocks: number }>(
+    `SELECT path, count(*) FILTER (WHERE status = 'proposed')::int AS waiting, count(*) FILTER (WHERE status = 'approved')::int AS approved,
+            count(*) FILTER (WHERE status <> 'dropped' AND scope = 'block')::int AS blocks
+       FROM apsomh_convert_ideas WHERE env = $1 AND path = ANY($2::text[]) GROUP BY path`, [env, paths.slice(0, 200)]);
+  return Object.fromEntries(r.rows.map((x) => [x.path, { waiting: x.waiting, approved: x.approved, blocks: x.blocks }]));
+}
+
 /** Pages whose page-wide optimizations were set aside and that have no block optimization yet - to read again. */
 export async function pagesToRedo(limit: number): Promise<{ env: Env; path: string; kind: PageKind }[]> {
   await ensureStudioSchema();
@@ -620,7 +631,8 @@ ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` :
   const r = await ask<{ analysis?: string; ideas: { title: string; why: string; change: string; expect: string; impact: number; confidence: number; effort: number; target?: string; type?: string }[] }>(system, user, IDEAS_SCHEMA, 8000);
   if (!r.ok) return r;
   const reading = (r.data.analysis ?? "").trim().slice(0, 1200);
-  if (reading) {
+  // Google's reading for new landing pages is not the page's reading (it read as one of the page's on Preview)
+  if (reading && !landing) {
     await query(`INSERT INTO apsomh_convert_analyses (env, path, text, by_whom, at) VALUES ($1, $2, $3, $4, now())
                  ON CONFLICT (env, path) DO UPDATE SET text = EXCLUDED.text, by_whom = EXCLUDED.by_whom, at = now()`, [env, path, reading, by]);
   }

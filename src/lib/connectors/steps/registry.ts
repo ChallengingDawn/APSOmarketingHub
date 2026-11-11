@@ -14,7 +14,7 @@ import { companyStats, contactShipment, mandantSweep, type StepResult } from "./
 import { articleCreateMissing, articleLoad, customerAgents, magentoErpLink, magentoStamp } from "./files";
 import { revenueHistory, revenueKpi, revenueLoad } from "./revenue";
 import { erpRevenue } from "./erpRevenue";
-import { orderSync, ordersDaily, stageLoad } from "./orders";
+import { orderCompanyLink, orderSync, ordersDaily, stageLoad } from "./orders";
 import { deputySweep, ticketAssoc, wrongOwners } from "./tickets";
 import { taskDeputySweep } from "@/lib/holiday/taskSweep";
 import { runScheduled as boSentimentSweep } from "@/lib/boSentiment/engine";
@@ -93,6 +93,9 @@ export const REGISTRY: StepDef[] = [
   // HUB ONLY: web orders get their A-number from the shop itself, as soon as it has transferred
   // them (SARCLA 15.10.2026) - magento_stamp's export.xml becomes a backup
   { key: "magento_link", cadence: "15min", hubOnly: true, run: (c) => magentoErpLink(c.live, c.beat) },
+  // HUB ONLY: orders of the last 45 days still without their company, linked once the company can be found - every 6
+  // hours on the sweeps' lane (scheduler.ts), the cadence here names the lane (SARCLA 10.11.2026)
+  { key: "order_company_link", cadence: "30min", hubOnly: true, run: (c) => orderCompanyLink(c.live, c.beat) },
   { key: "ticket_assoc", cadence: "manual", run: (c) => ticketAssoc(c.live, c.beat, {}) },
   { key: "articles_create_missing", cadence: "manual", file: "dim_article.csv", run: (c) => articleCreateMissing(c.live, c.beat, { file: at(c, "dim_article.csv") }) },
 ];

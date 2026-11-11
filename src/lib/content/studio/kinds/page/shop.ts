@@ -26,13 +26,15 @@ import { readDoc } from "../../store";
 import { isPreset, normalizeBanner } from "../banner/model";
 import { pasteBlock, prefixFor, stillMarkup } from "../banner/render";
 import { STILL_CSS, absoluteCss, applyChanges, innerOf, insideOf, stillPage, stylesheetsOf, type AnyChange, type Hit } from "./apply";
-import { fieldPictures } from "./fields";
 import {
   INSERT_WHERE_LABEL, MAIN_SELECTOR, alternatesByStore, baseStore, changeLine, countryStore, pathIn, counterpartIn, finalChanges, isLegacyBody, langOfStore, languageOfStore, newPagePaste, pageDoc,
   styleBlock, storesOfView, unwritten, leftoversOf, urlKeyOf, versionLabel, viewName, viewOf, type Insert, type PageDoc, type PageOutline, type PasteBlock,
 } from "./model";
-import { renderNewPage, type InsertHtml } from "./newpage";
+import { framedPage, pageHtml, renderNewPage, type InsertHtml } from "./newpage";
+import { PAGE_LAYOUT, ROW_CLASS, framePage, oneColumn } from "./frame";
+import { hubPicturesIn, mediaAddress, mediaFileOf, mediaGallerySteps, pictureState, withMediaAddresses, type MediaFile, type MediaHead, type PictureCheck } from "./media";
 import { moduleLinks, relinkHtml, shopLinkOf } from "./links";
+import https from "node:https";
 
 /**
  * A version's content with its links to the shop in its own store view (Content v10, SARCLA point 9): the page goes to one
@@ -189,7 +191,9 @@ export async function shellOf(env: Env, store: string, fresh = false): Promise<{
   const root = `<div class="columns"><div class="column main"><div id="apx-root"></div></div></div>`;
   const emptied = applyChanges(page.html, [{ op: "html", selector: "#maincontent", html: root }]);
   // the CMS page's own title and breadcrumbs belong to that page, not to the new one
-  const html = applyChanges(emptied.html, [{ op: "hide", selector: ".breadcrumbs", all: true }, { op: "hide", selector: ".page-title-wrapper", all: true }]).html;
+  const hidden = applyChanges(emptied.html, [{ op: "hide", selector: ".breadcrumbs", all: true }, { op: "hide", selector: ".page-title-wrapper", all: true }]).html;
+  // the new page's layout, whatever the store's page was: one column (./frame.ts PAGE_LAYOUT - what Magento gets)
+  const html = oneColumn(hidden);
   const s = await still(page, html);
   return { ok: true, html: s.html, url: page.url, styled: s.styled };
 }
@@ -218,7 +222,8 @@ export async function previewOf(raw: unknown, side: "before" | "after" | "shell"
     const final = finalChanges(d);
     const body = isLegacyBody(d) ? (final.changes.find((c) => c.op === "html") as { html?: string } | undefined)?.html ?? "" : (() => {
       const r = renderNewPage(d.fields, { store: d.store, inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.html })) });
-      return `<style>${r.css}</style>${r.html}`;
+      // in the row and the element Magento gets (./frame.ts) - the same frame, the same column
+      return framedPage(r);
     })();
     const rest = final.changes.filter((c) => !(c.op === "html" && c.selector === "#maincontent"));
     const html = applyChanges(shell.html.replace(`<div id="apx-root"></div>`, `<div id="apx-root">${body}</div>`), rest as AnyChange[]).html;
@@ -458,17 +463,82 @@ const identifierOf = (rest: string) => rest.replace(/\.html?$/i, "").replace(/\/
 
 export type PasteOut = { ok: true; blocks: PasteBlock[]; warnings: string[]; store: string } | { ok: false; error: string };
 
-const EXT: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/svg+xml": "svg" };
-
 /** The hub's pictures a page shows, each with the name it gets in Magento's media (the hub is not public). */
-async function pictureFiles(urls: string[]): Promise<Map<string, { file: string; url: string }>> {
-  const out = new Map<string, { file: string; url: string }>();
+async function pictureFiles(urls: string[]): Promise<Map<string, MediaFile>> {
+  const out = new Map<string, MediaFile>();
   for (const u of urls) {
     const m = /^\/api\/content\/picture\/(\d+)-[\w-]+$/.exec(u);
     if (!m || out.has(u)) continue;
     const a = await getAsset(Number(m[1])).catch(() => null);
-    out.set(u, { file: `apx-${m[1]}.${EXT[a?.mime ?? ""] ?? "jpg"}`, url: u });
+    out.set(u, { file: mediaFileOf(Number(m[1]), a?.mime), url: u });
   }
+  return out;
+}
+
+/** Every hub picture a page's HTML names - its fields', its modules', its banners' - with its file in Magento's media. */
+const mediaFilesOf = (html: string) => pictureFiles(hubPicturesIn(html).map((p) => p.url));
+
+/**
+ * A new page's content, store view by store view: ONE HTML Code element's HTML (`inner` - the hand-over pastes it) and
+ * the same in its Page Builder row (`content` - what the API writes), every picture address absolute (`base`: the
+ * target's - the hub's pictures are read there before Publish), its links in the visitors' store views.
+ */
+async function newPageContent(doc: PageDoc, d: PageDoc, base: string, inserts: InsertOut[], warnings?: string[]): Promise<{ inner: string; content: string; files: Map<string, MediaFile> }> {
+  const body = renderNewPage(d.fields, { store: d.store, inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })) });
+  const linkedHtml = linked(pageHtml(body, styleBlock(finalChanges(d).changes)), doc, d.store, warnings);
+  const files = await mediaFilesOf(linkedHtml);
+  const inner = withMediaAddresses(linkedHtml, files, base);
+  return { inner, content: framePage(inner), files };
+}
+
+/* ── is each picture in the target's media? (a HEAD each, read at a person's pace) ── */
+
+const UA = "Mozilla/5.0 (compatible; APSOhub picture check)";
+/** One HEAD of a media address on the shop (its lenient parser - ./magentoHttp.ts says why). null: no answer. */
+function headOf(url: string): Promise<MediaHead | null> {
+  return new Promise((resolve) => {
+    let u: URL;
+    try { u = new URL(url); } catch { resolve(null); return; }
+    if (u.protocol !== "https:" || !own(`${u.origin}/`)) { resolve(null); return; }
+    const req = https.request(u, { method: "HEAD", insecureHTTPParser: true, headers: { "User-Agent": UA }, timeout: 12_000 }, (res) => {
+      const h = res.headers;
+      const len = Number(h["content-length"]);
+      resolve({ status: res.statusCode ?? 0, type: String(h["content-type"] ?? ""), length: Number.isFinite(len) ? len : null, etag: String(h.etag ?? ""), modified: String(h["last-modified"] ?? "") });
+      res.resume();
+    });
+    req.on("timeout", () => req.destroy(new Error("timeout")));
+    req.on("error", () => resolve(null));
+    req.end();
+  });
+}
+
+// Magento's answer for a file that is not there (its placeholder), per shop - read once an hour; a file found stays found
+// ten minutes; a missing one is read again at every check (it is uploaded in between)
+const PROBE = new Map<string, { at: number; head: MediaHead | null }>();
+const FOUND = new Map<string, number>();
+async function probeOf(base: string): Promise<MediaHead | null> {
+  const held = PROBE.get(base);
+  if (held && held.head && Date.now() - held.at < 3600_000) return held.head;
+  const head = await headOf(mediaAddress(base, "apx-probe-not-a-file.jpg"));
+  PROBE.set(base, { at: Date.now(), head });
+  return head;
+}
+
+/** Each of the page's hub pictures in a shop's media: there, missing (Magento's placeholder), or not known. */
+export async function picturesOn(env: Env, files: readonly MediaFile[]): Promise<PictureCheck[]> {
+  const base = ENVS[env].base;
+  const out: PictureCheck[] = [];
+  if (!files.length) return out;
+  const probe = await probeOf(base);
+  for (const f of files) {
+    const address = mediaAddress(base, f.file);
+    if (Date.now() - (FOUND.get(address) ?? 0) < 10 * 60_000) { out.push({ ...f, address, state: "there" }); continue; }
+    await sleep(300);
+    const state = pictureState(await headOf(address), probe);
+    if (state === "there") FOUND.set(address, Date.now());
+    out.push({ ...f, address, state });
+  }
+  while (FOUND.size > 200) FOUND.delete(FOUND.keys().next().value as string);
   return out;
 }
 
@@ -495,40 +565,39 @@ export async function pasteOf(raw: unknown, lang: string | null = null, _shopSto
     }
     const f = d.fields;
     if (!f.hero.title.trim()) return { ok: false, error: "Give the page its title first (the hero's title)." };
-    const files = await pictureFiles(fieldPictures(f).map((p) => p.pic.url));
-    const body = renderNewPage(f, {
-      store: d.store,
-      inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })),
-      picture: (u) => { const p = files.get(u); return p ? `{{media url="wysiwyg/content/${p.file}"}}` : u; },
-    });
-    const rest = final.changes;
-    const code = linked(`<style>\n${body.css}\n</style>\n${styleBlock(rest)}${body.html}`, doc, d.store, warnings);
+    // the home page kit's paste (10.11.2026): ONE Full Width row without padding, ONE HTML Code element, one column - the
+    // hub's pictures named in the media of the shop the to-do works on
+    const target = ENVS[d.env].label;
+    const { inner: code, files } = await newPageContent(doc, d, ENVS[d.env].base, inserts, warnings);
     const blocks: PasteBlock[] = [
       {
         key: "fields", label: "The page's fields", lang: "text",
         steps: [
           "Content > Pages > Add New Page.",
           `Copy each value into its field. ${storeLine}. Leave "Content Heading" empty - the page's title is in its content.`,
+          "Design: Layout - 1 column (as the shop's own pages; three columns squeeze the page to the left).",
         ],
         code: [
           `Page Title: ${f.hero.title.trim()}`, `URL Key: ${f.seo.urlKey.trim() || urlKeyOf(f.hero.title)}`,
           `Meta Title: ${f.seo.title.trim() || f.hero.title.trim()}`, `Meta Description: ${f.seo.description.trim()}`,
+          `Layout: 1 column`,
         ].join("\n"),
       },
     ];
     if (files.size) {
+      const list = [...files.values()];
       blocks.push({
-        key: "pictures", label: `Its pictures (${files.size})`, lang: "text",
-        steps: [
-          "The pictures are kept in the hub, which the shop's visitors cannot reach: download each one (its address below, opened in the hub).",
-          "Content > Media Gallery: in the folder wysiwyg/content, upload each under the name given here - the page's content already points there.",
-        ],
-        code: [...files.values()].map((p) => `${p.file}   <-   ${p.url}`).join("\n"),
+        key: "pictures", label: `Its pictures (${files.size}) - into ${target}'s media first`, lang: "text",
+        steps: ["The pictures are kept in the hub, which the shop's visitors cannot reach - the page shows Magento's grey placeholder until they are in its media.", ...mediaGallerySteps(target, list.map((p) => p.file))],
+        code: list.map((p) => `${p.file}   <-   ${p.url}   (the page shows ${mediaAddress(ENVS[d.env].base, p.file)})`).join("\n"),
       });
     }
     blocks.push({
       key: "content", label: "The page's content", lang: "html",
-      steps: ["In Content, drag one HTML Code element (Elements) onto the stage.", "Paste this into it, then Save. Leave the page disabled until it is reviewed on the shop."],
+      steps: [
+        `In Content (Page Builder), ONE row only - delete any other: Appearance "Full Width", every margin and padding 0, CSS Classes "${ROW_CLASS}".`,
+        "In it, ONE HTML Code element (Elements): paste this into it, then Save. Leave the page disabled until it is reviewed on the shop.",
+      ],
       code,
     });
     return { ok: true, blocks, warnings, store: d.store };
@@ -620,6 +689,8 @@ export type MagentoSent = {
   newIdentifier?: string;
   /** the version of the page it is (A, B ...) when it has more than one - "" when it has one */
   letter?: string;
+  /** a new page's layout in Magento ("1column") */
+  layout?: string;
 };
 
 /** A page of the shop's search engine fields as set in the studio (fields.seo of its store view): each only when set. */
@@ -648,7 +719,9 @@ export type MagentoView = {
 
 const bytesOf = (s: string) => new TextEncoder().encode(s).length;
 
-export async function magentoOf(raw: unknown, view: string): Promise<MagentoView> {
+/** `env`: the shop it is written to - a new page's own pictures are named in that shop's media (the to-do's own when not
+ * given: the status, the hand-over). */
+export async function magentoOf(raw: unknown, view: string, env?: Env): Promise<MagentoView> {
   const doc = pageDoc(raw);
   const d = viewOf(doc, view);
   const base: MagentoView = { view: d.store, cms: false, why: null, blocked: null, sent: null, want: null, path: null };
@@ -668,21 +741,18 @@ export async function magentoOf(raw: unknown, view: string): Promise<MagentoView
     }
     const f = d.fields;
     if (!f.hero.title.trim()) return { ...base, cms: true, why: "Give the page its title first (the hero's title)." };
-    const files = await pictureFiles(fieldPictures(f).map((p) => p.pic.url));
-    const body = renderNewPage(f, {
-      store: d.store,
-      inserts: inserts.map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.paste })),
-      picture: (u) => { const p = files.get(u); return p ? `{{media url="wysiwyg/content/${p.file}"}}` : u; },
-    });
-    // its links in each visitor's own store view (Content v10, point 9) - one page for all the store views it goes to
-    const content = linked(`<style>\n${body.css}\n</style>\n${styleBlock(finalChanges(d).changes)}${body.html}`, doc, d.store);
+    // the home page kit's way (10.11.2026): ONE Full Width row holding ONE HTML Code element, on a one-column page, every
+    // picture address absolute - the hub's in the target's media (read there before Publish); its links in each
+    // visitor's own store view (Content v10, point 9) - one page for all the store views it goes to
+    const { content, files } = await newPageContent(doc, d, ENVS[env ?? d.env].base, inserts);
     const identifier = f.seo.urlKey.trim() || urlKeyOf(f.hero.title);
     const want: Want = {
       kind: "page", identifier, title: f.hero.title.trim(), metaTitle: f.seo.title.trim() || f.hero.title.trim(), metaDescription: f.seo.description.trim(), content, active: true,
+      layout: PAGE_LAYOUT,
     };
     return {
       ...base, cms: true, blocked, want, path: `/${d.store}/${identifier}`,
-      sent: { kind: "page", title: want.title, identifier, metaTitle: want.metaTitle, metaDescription: want.metaDescription, size: bytesOf(content), active: true, pictures: [...files.values()], changes: 0, banners: inserts.length },
+      sent: { kind: "page", title: want.title, identifier, metaTitle: want.metaTitle, metaDescription: want.metaDescription, size: bytesOf(content), active: true, pictures: [...files.values()], changes: 0, banners: inserts.length, layout: PAGE_LAYOUT },
     };
   }
   if (!d.path) return { ...base, why: `The ${d.store} page is not picked yet.` };

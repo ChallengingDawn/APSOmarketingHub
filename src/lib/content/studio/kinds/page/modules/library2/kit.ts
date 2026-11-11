@@ -12,7 +12,7 @@
 // 20 KB, never a price, a discount, stock or an invented fact. A module whose slots are still empty draws them as dashed
 // placeholders that say what fills them - visible at once, never nothing.
 
-import { BUTTONS, esc, href as kitHref, langOf, marked, sharpImg } from "../kit";
+import { BUTTONS, drawing, esc, href as kitHref, langOf, marked, sharpImg } from "../kit";
 import type { Card, Drawn, FieldSpec, ModuleDef, ModuleSettings, Need, Opts, Takes, CategoryId } from "../types";
 
 export { BUTTONS, button, esc, header, icon, langOf, marked, nameOf, wordsFor } from "../kit";
@@ -32,7 +32,15 @@ const WORDS: Record<string, W> = {
   nl: { more: "Meer weten", all: "Alles tonen", open: "Openen", watch: "Video bekijken", download: "Downloaden", search: "Zoeken", searchHint: "Product, materiaal, artikelnummer …", popular: "Veel gezocht", step: "Stap", contents: "Inhoud", readMore: "Verder lezen", tool: "Naar de tool", vs: "vs", question: "Vraag", answer: "Antwoord" },
   pl: { more: "Dowiedz się więcej", all: "Pokaż wszystkie", open: "Otwórz", watch: "Obejrzyj wideo", download: "Pobierz", search: "Szukaj", searchHint: "Produkt, materiał, numer artykułu …", popular: "Często wyszukiwane", step: "Krok", contents: "Spis treści", readMore: "Czytaj dalej", tool: "Do narzędzia", vs: "vs", question: "Pytanie", answer: "Odpowiedź" },
 };
-export const w2 = (store: string): W => WORDS[langOf(store)] ?? WORDS.en;
+export const w2 = (store: string): W => {
+  const w = WORDS[langOf(store)] ?? WORDS.en;
+  // the module's own tile words while it is drawn (Content v12, ../tilewords.ts)
+  const own = drawing.words;
+  if (!own) return w;
+  const out = { ...w };
+  for (const k of Object.keys(w) as (keyof W)[]) if (own[k]) out[k] = own[k];
+  return out;
+};
 
 /* ── addresses and pictures ────────────────────────────────────────────── */
 

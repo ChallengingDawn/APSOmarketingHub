@@ -5,7 +5,7 @@
 // still lists that ACC has dropped. Read once a day and on the button (src/lib/convert/pages.ts). The Problems page and
 // the builder start from this list.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
@@ -38,11 +38,77 @@ import { ago, when } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { ENVS, KIND_LABEL, PAGE_KINDS, type Env, type PageKind } from "@/lib/convert/model";
 import type { PageRow, PagesList, PagesSummary, ReadResult, Where } from "@/lib/convert/pages";
-import { previewHref } from "../Flow";
+import type { Idea } from "@/lib/convert/studio";
+import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
+import { PageShot } from "../PageShot";
+import { AiButton } from "../AiButton";
 
 type Reads = Record<Env, { last: ReadResult | null; lastComplete: string | null }>;
-type Data = { reads: Reads; summary: PagesSummary; list: PagesList; canRead: boolean };
+type Work = Record<string, { waiting: number; approved: number; blocks: number }>;
+type Data = { reads: Reads; summary: PagesSummary; list: PagesList; work?: Work; canRead: boolean };
+type OpenData = { page: { title: string; h1: string[]; status: number }; ideas: Idea[]; canEdit: boolean; ai: boolean };
+
+const pathOf = (p: PageRow) => { try { return new URL((p.prod ?? p.acc)!.url).pathname; } catch { return ""; } };
+const keyOf = (p: PageRow) => `${p.store}|${p.rest}`;
+
+/**
+ * A page opened in place (SARCLA 10.11.2026: "the pages app more interactive, the home page the start, open as before"):
+ * the page's still picture, its optimizations (each its block and its state - a click opens it in the Preview), and the
+ * AI's button to find them. Product pages say they come later.
+ */
+function PageOpen({ env, path, kind }: { env: Env; path: string; kind: PageKind }) {
+  const [tick, setTick] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const url = `/api/website/ai-personalization/work?env=${env}&path=${encodeURIComponent(path)}&n=${tick}`;
+  const held = useHeld<OpenData>(url, [url]);
+  const d = held.result?.state === "ok" ? held.result.data : null;
+  const live = (d?.ideas ?? []).filter((i) => i.status !== "dropped" && i.contentType !== "landing-page");
+  const product = kind === "product";
+  const find = async () => {
+    setBusy(true); setErr(null);
+    const res = await convertPost<unknown>("/api/website/ai-personalization/work", { action: "ideas", env, path, numbers: null });
+    setBusy(false);
+    if (!res.ok) setErr(res.error); else setTick((n) => n + 1);
+  };
+  return (
+    <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "300px minmax(0,1fr)" }, py: 1.5 }}>
+      <Box sx={{ borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", alignSelf: "start" }}>
+        <PageShot env={env} path={path} ratio={1.1} label={path} focus={null} />
+      </Box>
+      <Box sx={{ display: "grid", gap: 1, alignContent: "start", minWidth: 0 }}>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#15223a" }}>{d?.page.h1[0] || d?.page.title || path}</Typography>
+        {product ? (
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Product pages come later: dotSource codes them in the shop&apos;s theme, so the AI proposes no optimization here for now.</Typography>
+        ) : !d ? (
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading its optimizations…</Typography>
+        ) : live.length ? (
+          <Box sx={{ display: "grid", gap: 0.5 }}>
+            {live.slice(0, 8).map((i) => (
+              <Box key={i.id} component={Link} href={previewHref(env, path, i.id)} sx={{
+                display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap", p: 0.75, borderRadius: "8px", textDecoration: "none", color: "inherit",
+                border: `1px solid ${HAIRLINE}`, "&:hover": { borderColor: "#2459d1", bgcolor: "rgba(36,89,209,.04)" },
+              }}>
+                {i.part && <Chip tint="blue">{i.part.split(" · ")[0]}</Chip>}
+                <Typography component="span" sx={{ fontSize: "0.84rem", fontWeight: 600, color: "#15223a", flex: 1, minWidth: 0 }}>{i.title}</Typography>
+                <Chip tint={i.status === "approved" ? "green" : "amber"}>{i.status === "approved" ? (i.sentAt ? "Sent to Content" : "Approved") : "Waiting"}</Chip>
+              </Box>
+            ))}
+            {live.length > 8 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>and {live.length - 8} more in the Preview</Typography>}
+          </Box>
+        ) : (
+          <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>No optimization on this page yet.</Typography>
+        )}
+        {err && <Notice tone="bad">{err}</Notice>}
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+          <Button size="small" variant="contained" disableElevation component={Link} href={previewHref(env, path)} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "6px" }}>Open in the Preview</Button>
+          {!product && d?.canEdit && d.ai && <AiButton size="small" busy={busy} onClick={() => void find()}>{busy ? "The AI is reading its blocks…" : live.length ? "Find more optimizations" : "Find optimizations"}</AiButton>}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
 
 const KIND_TINT: Record<PageKind, "blue" | "green" | "amber" | "purple" | "slate"> = {
   home: "purple", category: "blue", product: "green", cms: "amber", system: "slate",
@@ -115,6 +181,9 @@ export default function ConvertPages() {
   const [page, setPage] = useState(0);
   const [asked, setAsked] = useState<Partial<Record<Env, number>>>({});
   const [askError, setAskError] = useState<string | null>(null);
+  // the page opened in place - the home page at the start (SARCLA 10.11.2026: "the home page should be the start, open as before")
+  const [open, setOpen] = useState<string | null>(null);
+  const opened = useRef(false);
 
   // the search waits for a pause in typing
   useEffect(() => { const t = setTimeout(() => { setQ(qLive); setPage(0); }, 350); return () => clearTimeout(t); }, [qLive]);
@@ -127,6 +196,12 @@ export default function ConvertPages() {
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
+  useEffect(() => {
+    if (opened.current || !d) return;
+    opened.current = true;
+    const home = d.list.rows.find((x) => x.kind === "home" && x.store === "de-CH") ?? d.list.rows.find((x) => x.kind === "home");
+    if (home) setOpen(keyOf(home));
+  }, [d]);
 
   // while a read runs (or was just asked for), ask again every five seconds
   const anyRunning = !!d && (["prod", "acc"] as Env[]).some((e) => running(d.reads[e].last) || (asked[e] && Date.now() - asked[e]! < 15_000));
@@ -219,27 +294,49 @@ export default function ConvertPages() {
             <Table size="small" sx={{ minWidth: 820 }}>
               <TableHead>
                 <TableRow>
-                  {["Page", "Kind", "Store view", "Production", "ACC"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
+                  {["Page", "Kind", "Store view", "Optimizations", "Production", "ACC"].map((h) => <TableCell key={h} sx={headCell}>{h}</TableCell>)}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {list.rows.length === 0 && (
-                  <TableRow><TableCell colSpan={5} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>
+                  <TableRow><TableCell colSpan={6} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>
                     {totals.prod + totals.acc === 0 ? "No page read yet." : "No page matches these filters."}
                   </TableCell></TableRow>
                 )}
-                {list.rows.map((p) => (
-                  <TableRow key={`${p.store}|${p.rest}`} hover>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
-                      <Box component={Link} href={previewHref(p.prod ? "prod" : "acc", new URL((p.prod ?? p.acc)!.url).pathname)} title={`Open /${p.store}/${p.rest} in the preview`}
-                        sx={{ ...clip(520), display: "block", color: "inherit", textDecoration: "none", "&:hover": { color: "#2459d1", textDecoration: "underline" } }}>{p.rest || "(home page)"}</Box>
-                    </TableCell>
-                    <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}{p.product ? ` ${p.product}` : ""}</Chip></TableCell>
-                    <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{p.store || "–"}</TableCell>
-                    <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><PageLink side={p.prod} /></TableCell>
-                    <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><PageLink side={p.acc} /></TableCell>
-                  </TableRow>
-                ))}
+                {list.rows.map((p) => {
+                  const k = keyOf(p);
+                  const isOpen = open === k;
+                  const w = r.data.work?.[pathOf(p)];
+                  return [
+                    <TableRow key={k} hover onClick={() => setOpen(isOpen ? null : k)} sx={{ cursor: "pointer", ...(isOpen ? { bgcolor: "rgba(36,89,209,.05)" } : {}) }}>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.84rem" }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                          <Box component="span" aria-hidden sx={{ color: MUTED, fontSize: "0.8rem", width: 12, transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "none" }}>▸</Box>
+                          <Box component="span" sx={{ ...clip(500), display: "block", fontWeight: isOpen ? 700 : 400 }}>{p.rest || "(home page)"}</Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}><Chip tint={KIND_TINT[p.kind]}>{KIND_LABEL[p.kind]}{p.product ? ` ${p.product}` : ""}</Chip></TableCell>
+                      <TableCell sx={{ ...bodyCell, fontSize: "0.84rem", whiteSpace: "nowrap" }}>{p.store || "–"}</TableCell>
+                      <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>
+                        {w && (w.waiting || w.approved) ? (
+                          <Box sx={{ display: "flex", gap: 0.5 }}>
+                            {w.waiting > 0 && <Chip tint="amber">{w.waiting} waiting</Chip>}
+                            {w.approved > 0 && <Chip tint="green">{w.approved} approved</Chip>}
+                          </Box>
+                        ) : <Typography component="span" sx={{ color: MUTED, fontSize: "0.84rem" }}>–</Typography>}
+                      </TableCell>
+                      <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}><PageLink side={p.prod} /></TableCell>
+                      <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}><PageLink side={p.acc} /></TableCell>
+                    </TableRow>,
+                    isOpen ? (
+                      <TableRow key={`${k}|open`}>
+                        <TableCell colSpan={6} sx={{ ...bodyCell, bgcolor: "rgba(36,89,209,.03)" }}>
+                          <PageOpen env={p.prod ? "prod" : "acc"} path={pathOf(p)} kind={p.kind} />
+                        </TableCell>
+                      </TableRow>
+                    ) : null,
+                  ];
+                })}
               </TableBody>
             </Table>
           </Box>
@@ -257,7 +354,7 @@ export default function ConvertPages() {
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
       <PageHeader
         title="Pages"
-        subtitle="Every page of the shop, on production and on ACC, from the shop's sitemaps"
+        subtitle="Every page of the shop with its optimizations - click a page to open it; the home page first"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             {(r === null || held.stale) && <CircularProgress size={14} sx={{ color: MUTED }} />}

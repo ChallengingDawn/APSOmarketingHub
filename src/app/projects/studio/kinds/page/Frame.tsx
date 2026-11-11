@@ -151,12 +151,17 @@ function sectionBlock(d: Document, heading: string): Element | null {
 }
 
 /* ── the studio's own look inside the page ────────────────────────────── */
+// Links and buttons answer a click here (the click selects them - it never follows them): "html a" outweighs the still page's
+// "a{pointer-events:none!important}" (lib .../apply.ts STILL_CSS) that comes after this sheet in the page (this one is put
+// first, for its fonts). With the same weight the still page won: a click on a module's button fell through to the block
+// around it and opened the module's settings, never its button (Content v12, SARCLA 10.11.2026: "on some bento I cannot
+// edit the button").
 
 const SELECT_CSS = `[data-apx-hover]{outline:2px solid rgba(36,89,209,.9)!important;outline-offset:2px!important;cursor:pointer!important}
 [data-apx-sel]{outline:2px solid #c22c6e!important;outline-offset:2px!important}
 [data-apx-selblock]:not([data-apx-sel]){outline:1px dashed rgba(194,44,110,.55)!important;outline-offset:-1px!important}
 [data-apx-editing]{outline:2px solid #c22c6e!important;outline-offset:4px!important;cursor:text!important;background:rgba(194,44,110,.05)!important;-webkit-user-modify:read-write}
-a,button,summary,label,[role=button],[data-apx-f],[data-apx-b]{pointer-events:auto!important}
+html a,html button,html summary,html label,html [role=button],html [data-apx-f],html [data-apx-b]{pointer-events:auto!important}
 mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}
 [data-apx-addel]{position:absolute;left:0;right:0;height:36px;margin-top:-18px;z-index:2147483000;pointer-events:auto!important;cursor:pointer}
 [data-apx-addel]::after{content:"";position:absolute;left:24px;right:24px;top:17px;height:2px;background:#c22c6e;opacity:0;transition:opacity .15s}
@@ -267,12 +272,24 @@ const INLINE = new Set(["B", "STRONG", "EM", "I", "U", "SMALL", "SUP", "SUB", "B
 const SVG = new Set(["svg", "path", "use", "g", "circle", "rect", "line", "polyline", "polygon"]);
 const TEXTISH = /^(H[1-6]|P|A|SPAN|LI|BUTTON|SUMMARY|SMALL|STRONG|B|EM|I|LABEL|FIGCAPTION|DT|DD|TD|TH|BLOCKQUOTE)$/;
 
+/** Words that belong to the line around them (Content v12): a bold or small word drawn IN the line, and the module's red
+ * words (.am-red, a part of its headline) - not a <b> or an <i> a module draws as its own line ("Alle anzeigen" under a
+ * tile's name, "2026" under a date), which is a setting of its own. */
+function widens(el: Element): boolean {
+  if (el.classList?.contains("am-red")) return true;
+  if (!INLINE.has(el.tagName)) return false;
+  if (!el.closest("[data-apx-module]")) return true;
+  // a part of a bold word ("2026" of "06.12. 2026") is that word's
+  if (el.parentElement && INLINE.has(el.parentElement.tagName)) return true;
+  try { return (el.ownerDocument.defaultView?.getComputedStyle(el).display ?? "inline") === "inline"; } catch { return true; }
+}
+
 /** The text a click inside a module hit: the nearest element of words (a heading, a paragraph, a button) under `root` -
  * its bold or small words widened to the line they stand in; null on a picture or the module's ground. */
 function textIn(el: Element, root: Element): Element | null {
   let cur: Element | null = el;
   while (cur && cur !== root && SVG.has(cur.tagName.toLowerCase())) cur = cur.parentElement;
-  while (cur && cur !== root && INLINE.has(cur.tagName) && cur.parentElement && cur.parentElement !== root && TEXTISH.test(cur.parentElement.tagName)) cur = cur.parentElement;
+  while (cur && cur !== root && widens(cur) && cur.parentElement && cur.parentElement !== root && TEXTISH.test(cur.parentElement.tagName)) cur = cur.parentElement;
   for (; cur && cur !== root; cur = cur.parentElement) {
     if (cur.querySelector("img,picture,video")) return null;
     if (TEXTISH.test(cur.tagName) && ((cur as HTMLElement).innerText ?? cur.textContent ?? "").trim()) return cur;
@@ -434,7 +451,7 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     const ins = el.closest("[data-apx-insert]");
     if (ins) return ins;
     while (el && SVG.has(el.tagName.toLowerCase()) && el.parentElement) el = el.parentElement;
-    while (el && INLINE.has(el.tagName) && el.parentElement) el = el.parentElement;
+    while (el && widens(el) && el.parentElement) el = el.parentElement;
     if (!el || el === el.ownerDocument.body || el === el.ownerDocument.documentElement || el.id === "maincontent") return null;
     return el;
   };

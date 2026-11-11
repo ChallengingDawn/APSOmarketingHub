@@ -70,13 +70,17 @@ export function openOf(m: ModuleRef): boolean | null {
 /* ── laid over what the module drew ───────────────────────────────────── */
 
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** Words as a pattern that also finds them where the module never breaks them (Content v12): a hyphen drawn as U+2011
+ * ("O‑Ring" - the library's part 2, ./library2/kit.ts own()), a space as a no-break one. A button of "Zur O-Ring
+ * Auswahlhilfe" kept its look nowhere before. */
+const looseRe = (s: string) => escRe(s).replace(/-/g, "[-‑]").replace(/ /g, "[  ]");
 const marked = (t: string) => esc(t).replace(/==([^=]{1,60})==/g, '<span class="am-red">$1</span>');
 
 /** The first element whose whole content is these words: its class `cls` added. */
 function tagText(html: string, inner: string[], cls: string): string {
   for (const w of inner) {
     if (!w) continue;
-    const re = new RegExp(`<([a-z][a-z0-9]*)((?:\\s[^>]*)?)>(${escRe(w)})</\\1>`);
+    const re = new RegExp(`<([a-z][a-z0-9]*)((?:\\s[^>]*)?)>(${looseRe(w)})</\\1>`);
     const m = re.exec(html);
     if (!m) continue;
     const attrs = m[2] ?? "";
@@ -88,7 +92,7 @@ function tagText(html: string, inner: string[], cls: string): string {
 
 /** The first link with these words: its class `cls` added, and a new tab when asked. */
 function tagAnchor(html: string, label: string, cls: string, tab: boolean): string {
-  const re = new RegExp(`<a((?:\\s[^>]*)?)>(${escRe(esc(label.trim()))})</a>`);
+  const re = new RegExp(`<a((?:\\s[^>]*)?)>(${looseRe(esc(label.trim()))})</a>`);
   const m = re.exec(html);
   if (!m) return html;
   let attrs = m[1] ?? "";

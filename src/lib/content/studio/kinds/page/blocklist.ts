@@ -14,6 +14,7 @@ import { blockOrder, emptyPic, itemId, pinGrounds, removeBlock, withOrder, type 
 import { blocksOf, previewOf, type BlockInfo, type PartState } from "./outline";
 import { kindOf, moduleGap, moduleId, moduleOfChange, type ModuleRef } from "./modules/model";
 import type { PageChange } from "./model";
+import { TILE_KEY, TILE_WORDS, shopTileWord, tileWordsOf, type TileWord } from "./modules/tilewords";
 
 /** a block of the page itself, a module of the library, a page of the shop's own block, a block the hub put on it */
 export type RowKind = "block" | "module" | "page" | "ours";
@@ -155,7 +156,6 @@ export function removeRow(f: Fields, key: string): Fields {
     const id = key.slice(NP.length);
     return { ...f, modules: (f.modules ?? []).filter((m) => m.id !== id) };
   }
-  if (key === "hero") return f;
   const order = blockOrder(f);
   const i = order.indexOf(key);
   const prev = i > 0 ? order[i - 1] : "";
@@ -163,6 +163,20 @@ export function removeRow(f: Fields, key: string): Fields {
   const out = removeBlock(key.startsWith("sections.") ? pinGrounds(f) : f, key);
   if (!f.modules?.some((m) => m.after === key)) return out;
   return { ...out, modules: (out.modules ?? f.modules).map((m) => (m.after === key ? { ...m, after: prev } : m)) };
+}
+
+/**
+ * The module that carries the page's H1 when the page's own hero is taken out (Content v12, SARCLA 10.11.2026: "delete
+ * here if you want to replace by another hero"): the first hero module of the page, else its first module - null while
+ * the hero is there (its title is the H1), or no module is on the page (the last step warns then).
+ */
+export function h1ModuleOf(f: Fields): string | null {
+  if (blockOrder(f).includes("hero")) return null;
+  const mods = newPageRows(f).filter((r) => isModuleKey(r.key));
+  const ofKind = (r: BlockRow) => (f.modules ?? []).find((m) => moduleKeyOf(m.id) === r.key);
+  const hero = mods.find((r) => kindOf(ofKind(r)?.module.type ?? "").category === "heroes");
+  const first = hero ?? mods[0];
+  return first ? first.key.slice(NP.length) : null;
 }
 
 /** A copy of a row right after it (a text-and-picture block, a module) - its key, to select it; null when a page has
@@ -301,7 +315,6 @@ export function shopRowOf(rows: BlockRow[], at: { change?: number | null; block?
 
 /* ── a module's words, edited in the page ─────────────────────────────── */
 
-const plainOf = (t: string) => t.replace(/==/g, "").replace(/\s+/g, " ").trim();
 /** The new words with the old ones' red marks kept where the marked words still stand. */
 function keepRed(old: string, next: string): string {
   let out = next;
@@ -315,29 +328,180 @@ function keepRed(old: string, next: string): string {
 }
 
 /**
+ * Words as a click reads them and as a setting holds them, made comparable (Content v12, SARCLA 10.11.2026: "on some bento
+ * I cannot edit the button"): the red marks out, a hyphen the module never breaks (U+2011 - the library's part 2 draws
+ * "O‑Ring" so) a hyphen, a no-break space a space, one space between words.
+ */
+export const wordsKey = (t: string) => t.replace(/==/g, "").replace(/[‐‑]/g, "-").replace(/[  ]/g, " ").replace(/\s+/g, " ").trim();
+/** The same words? Also when the page shows them in capitals (a small line above is `text-transform: uppercase` - the
+ * browser's innerText gives "DICHTUNGSTECHNIK") or in two lines ("06.12." over "2026"). */
+export function sameWords(clicked: string, held: string): boolean {
+  const a = wordsKey(clicked);
+  const b = wordsKey(held);
+  if (!a || !b) return false;
+  if (a === b || a.toLowerCase() === b.toLowerCase()) return true;
+  return a.replace(/\s/g, "").toLowerCase() === b.replace(/\s/g, "").toLowerCase();
+}
+/** A link's page without its host and store view ("https://www.apsoparts.com/de-CH/eur/x.html" -> "x.html"). */
+const pageOfLink = (u: string) => String(u ?? "").trim().replace(/^https:\/\/(www|acc)\.apsoparts\.com/i, "").replace(/^\/[a-z]{2}-[a-z]{2,3}(\/(eur|chf))?(?=\/|$)/i, "").replace(/^\/+/, "").replace(/[?#].*$/, "");
+
+/** A module's setting a click on the page hit: which one, and the words it holds now (plain, without its red marks). */
+export type ModuleHit = { field: string; words: string };
+
+/**
+ * Which of a module's settings holds the words clicked on the page - null when they are none of its own (a product's or
+ * a category's name comes from the shop). `href`: the link the click was inside, when it was - a button with the words
+ * of the module's own button but another page is a TILE's (the big tile's "Alle anzeigen" while the module's link says
+ * "Alle anzeigen" too, its page empty: Content v12), and its words are the tile's (./modules/tilewords.ts).
+ */
+export function moduleWordsAt(m: ModuleRef, was: string, href?: string | null): ModuleHit | null {
+  if (!wordsKey(was)) return null;
+  const s = m.settings;
+  const hit = (field: string, words: string): ModuleHit => ({ field, words: words.replace(/==/g, "").trim() });
+  for (const k of ["title", "eyebrow", "text"] as const) if (sameWords(was, s[k])) return hit(k, s[k]);
+  // a button of the module: its words, and (a click inside a link) its page
+  const isIts = (l: { label: string; url: string }) => sameWords(was, l.label) && (href === undefined || href === null || (!!l.url && pageOfLink(href) === pageOfLink(l.url)));
+  if (isIts(s.link)) return hit("link", s.link.label);
+  if (isIts(s.link2)) return hit("link2", s.link2.label);
+  for (let i = 0; i < s.points.length; i++) {
+    const p = s.points[i];
+    if (sameWords(was, p.title)) return hit(`points.${i}.title`, p.title);
+    if (sameWords(was, p.text)) return hit(`points.${i}.text`, p.text);
+  }
+  for (let i = 0; i < s.faq.length; i++) {
+    const q = s.faq[i];
+    if (sameWords(was, q.q)) return hit(`faq.${i}.q`, q.q);
+    if (sameWords(was, q.a)) return hit(`faq.${i}.a`, q.a);
+  }
+  // its short settings (a date, a badge's words) - never a look, a split or a tile's words kept there
+  for (const [k, v] of Object.entries(s.extra)) if (v && !/^(look-|btn-|w-|open$|split$)/.test(k) && sameWords(was, v)) return hit(`extra.${k}`, v);
+  // a tile's button ("Alle anzeigen", "Zum Produkt") - the module's own words for it, or the shop's
+  const tiles = tileWordsOf(s.store, s.extra);
+  for (const k of TILE_WORDS) if (tiles[k] && sameWords(was, tiles[k])) return hit(`words.${k}`, tiles[k]);
+  // the module's own button words while its page is not one the click was in (a button drawn without its page)
+  if (sameWords(was, s.link.label)) return hit("link", s.link.label);
+  if (sameWords(was, s.link2.label)) return hit("link2", s.link2.label);
+  return null;
+}
+
+/** A module's setting given new words (what moduleWordsAt found). */
+export function moduleFieldEdit(m: ModuleRef, field: string, now: string): ModuleRef | null {
+  const next = now.replace(/\s+\n/g, "\n").trim();
+  const s = m.settings;
+  const set = (settings: ModuleRef["settings"]): ModuleRef => ({ ...m, settings });
+  const tw = /^words\.(\w+)$/.exec(field);
+  if (tw && (TILE_WORDS as readonly string[]).includes(tw[1])) {
+    const k = tw[1] as TileWord;
+    const extra = { ...s.extra };
+    // empty, or the shop's own words again: the module says the shop's (in its language) once more
+    if (!next || next === shopTileWord(s.store, k)) delete extra[TILE_KEY(k)]; else extra[TILE_KEY(k)] = next.slice(0, 40);
+    return set({ ...s, extra });
+  }
+  if (!next) return null;
+  if (field === "title" || field === "eyebrow" || field === "text") return set({ ...s, [field]: keepRed(s[field], next) });
+  if (field === "link" || field === "link2") return set({ ...s, [field]: { ...s[field], label: next.slice(0, 60) } });
+  const pt = /^points\.(\d+)\.(title|text)$/.exec(field);
+  if (pt) { const i = Number(pt[1]); if (!s.points[i]) return null; return set({ ...s, points: s.points.map((x, j) => (j === i ? { ...x, [pt[2]]: next.slice(0, pt[2] === "title" ? 80 : 240) } : x)) }); }
+  const fq = /^faq\.(\d+)\.(q|a)$/.exec(field);
+  if (fq) { const i = Number(fq[1]); if (!s.faq[i]) return null; return set({ ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, [fq[2]]: next.slice(0, fq[2] === "q" ? 300 : 1500) } : x)) }); }
+  const ex = /^extra\.([\w-]+)$/.exec(field);
+  if (ex) return set({ ...s, extra: { ...s.extra, [ex[1]]: next.slice(0, 600) } });
+  return null;
+}
+
+/** What a module's setting is called, for the popup that opens on it ("Headline", "Ends (e.g. 06.12.2026)"). */
+export function moduleFieldLabel(m: ModuleRef, field: string): string {
+  const d = kindOf(m.type);
+  const spec = (kind: string) => d.fields.find((f) => f.kind === kind) as { label?: string; item?: { title: string; text: string } } | undefined;
+  if (field === "title") return spec("title")?.label ?? "Title";
+  if (field === "eyebrow") return spec("eyebrow")?.label ?? "Small line above";
+  if (field === "text") return spec("text")?.label ?? "Line under it";
+  if (field === "link") return spec("link")?.label ?? "Button";
+  if (field === "link2") return spec("link2")?.label ?? "Second button";
+  const pt = /^points\.(\d+)\.(title|text)$/.exec(field);
+  if (pt) { const p = spec("points"); return `${p?.label ?? "Point"} ${Number(pt[1]) + 1} · ${(pt[2] === "title" ? p?.item?.title : p?.item?.text) ?? (pt[2] === "title" ? "title" : "text")}`; }
+  const fq = /^faq\.(\d+)\.(q|a)$/.exec(field);
+  if (fq) return `Question ${Number(fq[1]) + 1} · ${fq[2] === "q" ? "the question" : "the answer"}`;
+  const ex = /^extra\.([\w-]+)$/.exec(field);
+  if (ex) return (d.fields.find((f) => f.kind === "extra" && f.key === ex[1]) as { label?: string } | undefined)?.label ?? "The module's words";
+  const tw = /^words\.(\w+)$/.exec(field);
+  if (tw) return "The tiles' button";
+  return "The module's words";
+}
+
+/**
  * A module's text clicked and changed in the page (Content v8, point 4: "their texts by clicking them on the page"): the
  * setting that holds those words takes the new ones, so the module is drawn again from its settings and stays editable
  * there. null when the words are not the module's own (a product's or a category's name comes from the shop).
  */
-export function moduleWordsEdit(m: ModuleRef, was: string, now: string): { module: ModuleRef; field: string } | null {
-  const w = plainOf(was);
-  const next = now.replace(/\s+\n/g, "\n").trim();
-  if (!w || !next) return null;
+export function moduleWordsEdit(m: ModuleRef, was: string, now: string, href?: string | null): { module: ModuleRef; field: string } | null {
+  const at = moduleWordsAt(m, was, href);
+  if (!at) return null;
+  const module = moduleFieldEdit(m, at.field, now);
+  return module ? { module, field: at.field } : null;
+}
+
+/* ── taking a small part out, on the page (Content v12, SARCLA 10.11.2026: "here on tile I cannot take out - also other
+ *    small elements, I should be able to delete them") ── */
+
+/** What "Take it out" does where a click landed: its words ("Take the tile out") and the page without it - null where
+ * nothing may go (the page's title: its H1). */
+export type TakeOut = { label: string; done: string; fields: Fields };
+
+/**
+ * A new page's part taken out: a tile, a question, a link of its lists (the whole item, an empty one too); a small line, a
+ * line under a title, a button, a picture (emptied - the block stays). Never the page's title (its H1).
+ */
+export function takeOutField(f: Fields, path: string): TakeOut | null {
+  const p = path.split(".");
+  const list = p[0] === "benefits" || p[0] === "faq" || p[0] === "links" ? p[0] : null;
+  if (list && p[1] && (f[list] as { id: string }[]).some((x) => x.id === p[1])) {
+    const name = list === "benefits" ? "tile" : list === "faq" ? "question" : "link";
+    const fields = { ...f, [list]: (f[list] as { id: string }[]).filter((x) => x.id !== p[1]), looks: Object.fromEntries(Object.entries(f.looks).filter(([k]) => !k.startsWith(`${list}.${p[1]}`))) } as Fields;
+    return { label: `Take the ${name} out`, done: `Took a ${name} out`, fields };
+  }
+  if (path === "hero.title") return null;
+  const last = p[p.length - 1];
+  const get = (obj: unknown, keys: string[]): unknown => keys.reduce<unknown>((o, k) => (o && typeof o === "object" ? (Array.isArray(o) ? o.find((x: { id?: string }) => x?.id === k) : (o as Record<string, unknown>)[k]) : undefined), obj);
+  const set = (value: unknown): Fields => {
+    const go = (cur: unknown, i: number): unknown => {
+      if (i === p.length) return value;
+      if (Array.isArray(cur)) return cur.map((x: { id?: string }) => (x?.id === p[i] ? go(x, i + 1) : x));
+      const o = (cur ?? {}) as Record<string, unknown>;
+      return { ...o, [p[i]]: go(o[p[i]], i + 1) };
+    };
+    return go(f, 0) as Fields;
+  };
+  const now = get(f, p);
+  if (now === undefined) return null;
+  if (last === "picture") return now && typeof now === "object" && (now as { url?: string }).url ? { label: "Take the picture out", done: "Took a picture out", fields: set({ ...(now as object), url: "" }) } : null;
+  if (last === "button") return now && typeof now === "object" && ((now as { label?: string }).label || (now as { url?: string }).url) ? { label: "Take the button out", done: "Took a button out", fields: set({ ...(now as object), label: "", url: "" }) } : null;
+  if (typeof now !== "string" || !now.trim()) return null;
+  const what = last === "eyebrow" ? "small line" : last === "sub" || last === "text" ? "line" : /Title$|^title$/.test(last) ? "heading" : "words";
+  return { label: `Take the ${what} out`, done: `Took a ${what} out`, fields: set("") };
+}
+
+/**
+ * A module's part taken out where it was clicked: its small line, its line under the title, a button, a date or a short
+ * setting, a point of its list, a question, one of its products or categories. Never its headline (a module stands on it).
+ */
+export function takeOutOfModule(m: ModuleRef, field: string | null, text = ""): { label: string; done: string; module: ModuleRef } | null {
   const s = m.settings;
-  const put = (field: string, settings: ModuleRef["settings"]) => ({ module: { ...m, settings }, field });
-  for (const k of ["title", "eyebrow", "text"] as const) if (plainOf(s[k]) === w) return put(k, { ...s, [k]: keepRed(s[k], next) });
-  if (plainOf(s.link.label) === w) return put("link", { ...s, link: { ...s.link, label: next.slice(0, 60) } });
-  if (plainOf(s.link2.label) === w) return put("link2", { ...s, link2: { ...s.link2, label: next.slice(0, 60) } });
-  for (let i = 0; i < s.points.length; i++) {
-    const p = s.points[i];
-    if (plainOf(p.title) === w) return put(`points.${i}.title`, { ...s, points: s.points.map((x, j) => (j === i ? { ...x, title: next.slice(0, 80) } : x)) });
-    if (plainOf(p.text) === w) return put(`points.${i}.text`, { ...s, points: s.points.map((x, j) => (j === i ? { ...x, text: next.slice(0, 240) } : x)) });
+  const set = (settings: ModuleRef["settings"]) => ({ ...m, settings });
+  const name = kindOf(m.type).name.toLowerCase();
+  if (field === "eyebrow" && s.eyebrow.trim()) return { label: "Take the small line out", done: `Took the ${name}'s small line out`, module: set({ ...s, eyebrow: "" }) };
+  if (field === "text" && s.text.trim()) return { label: "Take the line out", done: `Took the ${name}'s line out`, module: set({ ...s, text: "" }) };
+  if ((field === "link" || field === "link2") && (s[field].label.trim() || s[field].url)) return { label: "Take the button out", done: `Took the ${name}'s button out`, module: set({ ...s, [field]: { label: "", url: "" } }) };
+  const ex = field ? /^extra\.([\w-]+)$/.exec(field) : null;
+  if (ex && s.extra[ex[1]]) { const extra = { ...s.extra }; delete extra[ex[1]]; return { label: "Take it out", done: `Took the ${name}'s ${moduleFieldLabel(m, field!).toLowerCase()} out`, module: set({ ...s, extra }) }; }
+  const pt = field ? /^points\.(\d+)\./.exec(field) : null;
+  if (pt && s.points[Number(pt[1])]) return { label: "Take this point out", done: `Took a point of the ${name} out`, module: set({ ...s, points: s.points.filter((_, i) => i !== Number(pt[1])) }) };
+  const fq = field ? /^faq\.(\d+)\./.exec(field) : null;
+  if (fq && s.faq[Number(fq[1])]) return { label: "Take the question out", done: `Took a question of the ${name} out`, module: set({ ...s, faq: s.faq.filter((_, i) => i !== Number(fq[1])) }) };
+  // the shop's words: a product's or a category's name - that item out of the module
+  if (!field && text.trim()) {
+    const i = s.items.findIndex((c) => sameWords(text.split("\n")[0], c.name));
+    if (i >= 0) return { label: `Take this ${s.items[i].kind === "category" ? "category" : "product"} out`, done: `Took ${s.items[i].name} out of the ${name}`, module: set({ ...s, items: s.items.filter((_, k) => k !== i), fill: s.fill ? { ...s.fill, how: "hand" } : null }) };
   }
-  for (let i = 0; i < s.faq.length; i++) {
-    const q = s.faq[i];
-    if (plainOf(q.q) === w) return put(`faq.${i}.q`, { ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, q: next.slice(0, 300) } : x)) });
-    if (plainOf(q.a) === w) return put(`faq.${i}.a`, { ...s, faq: s.faq.map((x, j) => (j === i ? { ...x, a: next.slice(0, 1500) } : x)) });
-  }
-  for (const [k, v] of Object.entries(s.extra)) if (v && plainOf(v) === w) return put(`extra.${k}`, { ...s, extra: { ...s.extra, [k]: next.slice(0, 600) } });
   return null;
 }

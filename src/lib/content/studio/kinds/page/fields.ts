@@ -71,6 +71,9 @@ export type Fields = {
   order?: string[];
   /** the gallery's modules on the page (Content v6), each after a block - absent on a page without any */
   modules?: PageModule[];
+  /** Content v12 (SARCLA 10.11.2026: "also you should delete here if you want to replace by another hero"): the page's own
+   * hero taken out - its words kept (it comes back as it was); the first module of the page carries the H1 then */
+  noHero?: boolean;
 };
 
 /** A module of the gallery on a new page: its id, the block it stands after ("" = at the top), its type and settings. */
@@ -184,6 +187,7 @@ export function normalizeFields(raw: unknown): Fields {
     looks,
     ...(Array.isArray(d.order) && d.order.length ? { order: d.order.filter((k): k is string => typeof k === "string" && /^[\w.]{1,40}$/.test(k)).slice(0, 40) } : {}),
     ...(Array.isArray(d.modules) && d.modules.length ? { modules: modulesOf(d.modules) } : {}),
+    ...(d.noHero === true ? { noHero: true } : {}),
   };
 }
 
@@ -413,6 +417,8 @@ export function blockOrder(f: Fields): string[] {
     out.splice(at, 0, ...missing);
   }
   if (f.sections.length) { const p = out.indexOf("sections"); if (p >= 0) out.splice(p, 1); }
+  // the hero taken out (Content v12): not on the page
+  if (f.noHero) return out.filter((k) => k !== "hero");
   const h = out.indexOf("hero");
   if (h > 0) out.splice(h, 1);
   if (h !== 0) out.unshift("hero");
@@ -449,6 +455,13 @@ export function withOrder(f: Fields, order: string[]): Fields {
 
 /** A block added at a place of the order (1 = right after the hero): a new section, or a single block - moved there when
  * the page has it already. Its key comes back, to select it. */
+/** The page's own hero put back at the top, as it was (Content v12). */
+export function heroBack(f: Fields): Fields {
+  if (!f.noHero) return f;
+  const { noHero: _gone, ...rest } = f;
+  return withOrder(rest, ["hero", ...blockOrder(f)]);
+}
+
 export function addBlock(f0: Fields, kind: NewBlock, at: number): { fields: Fields; key: string } {
   // a new text-and-picture block never turns its neighbours' grounds (Content v11)
   const f = kind === "text" ? pinGrounds(f0) : f0;
@@ -511,7 +524,8 @@ export function moveBlockTo(f: Fields, key: string, to: number): Fields {
 /** A block taken out of the page, its words with it (Undo brings them back). The hero stays. */
 export function removeBlock(f: Fields, key: string): Fields {
   const order = blockOrder(f).filter((k) => k !== key);
-  if (key === "hero") return f;
+  // the hero out (Content v12): its words kept for when it comes back
+  if (key === "hero") return withOrder({ ...f, noHero: true }, order);
   const drop = (...prefixes: string[]) => Object.fromEntries(Object.entries(f.looks).filter(([k]) => !prefixes.some((p) => k === p || k.startsWith(`${p}.`))));
   let out: Fields = f;
   if (key.startsWith("sections.")) out = removeItem(f, "sections", key.slice(9));

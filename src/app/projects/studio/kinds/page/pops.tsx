@@ -219,6 +219,8 @@ export type TextPopProps = {
   textLook?: TextLookCtl | null;
   /** a page of the shop's element: hidden on the page (or shown again) */
   onHide?: (() => void) | null;
+  /** Content v12: the words taken out of the page (a small line, a tile, a question) - Undo brings them back */
+  onRemove?: { label: string; run: () => void } | null;
   /** a page of the shop's link: where it goes, put on the page with Done */
   href?: string | null;
   /** a button or a link: where it goes */
@@ -229,7 +231,7 @@ export type TextPopProps = {
   hint?: React.ReactNode;
 };
 
-export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, href, link, note, hint }: TextPopProps) {
+export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, onRemove, href, link, note, hint }: TextPopProps) {
   const [hrefDraft, setHrefDraft] = useState(href ?? "");
   useEffect(() => { setHrefDraft(href ?? ""); }, [href]);
   const hrefOut = href !== null && href !== undefined && hrefDraft.trim() && hrefDraft.trim() !== href ? hrefDraft.trim() : undefined;
@@ -324,6 +326,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
       foot={canEdit ? (
         <>
           {onHide && <Tooltip title="Hide it on the page"><IconButton size="small" onClick={onHide} aria-label="Hide it on the page" sx={{ color: MUTED }}><VisibilityOffOutlinedIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>}
+          {onRemove && canEdit && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
           <Box sx={{ flex: 1 }} />
           <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>{live ? "Shows in the page as you type" : "Ctrl+Enter"}</Typography>
           <Button size="small" variant="contained" disableElevation onClick={done} sx={doneBtn}>Done</Button>
@@ -388,10 +391,13 @@ export type ButtonPopProps = {
   kicker: string; title?: string;
   /** its words, and what puts them on the page (as they are typed) */
   label: string; max: number; onLabel: (v: string) => void;
-  /** its page of the shop (the shop's page search) */
-  url: string; onUrl: (v: string) => void;
+  /** its page of the shop (the shop's page search) - none for a tile's button: it leads to its tile's own page (`leads`) */
+  url?: string; onUrl?: (v: string) => void;
+  /** Content v12: where a button without a page of its own leads (a tile's "Alle anzeigen") */
+  leads?: React.ReactNode;
   api: StudioApi; store: string;
-  look: BtnLook; onLook: (next: BtnLook, label: string) => void;
+  /** its look - none for a tile's button (it keeps the module's) */
+  look?: BtnLook; onLook?: (next: BtnLook, label: string) => void;
   /** the ground it stands on ([] = not known), its colour while none is chosen, its arrow while not set */
   grounds: string[]; fallback: string; arrowDefault?: boolean;
   canEdit: boolean;
@@ -400,10 +406,12 @@ export type ButtonPopProps = {
   hint?: React.ReactNode;
   /** Content v11: every store view the page goes to - the link as each of them sends its visitor */
   stores?: string[];
+  /** Content v12: the button taken out of the page - Undo brings it back */
+  onRemove?: { label: string; run: () => void } | null;
 };
 
 /** A button, clicked on the page or opened from its block's settings: its words, its page, then its look. */
-export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores }: ButtonPopProps) {
+export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, onUrl, leads, api, store, look, onLook, grounds, fallback, arrowDefault = true, canEdit, ai, onClose, hint, stores, onRemove }: ButtonPopProps) {
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -431,6 +439,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
     <PopCard kicker={kicker} title={title} onClose={() => { flush(); onClose(); }} maxBody="min(66vh, 620px)"
       foot={canEdit ? (
         <>
+          {onRemove && <Button size="small" onClick={() => { if (timer.current) clearTimeout(timer.current); onRemove.run(); }} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
           <Box sx={{ flex: 1 }} />
           <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5 }}>Shows in the page as you change it</Typography>
           <Button size="small" variant="contained" disableElevation onClick={() => { flush(); onClose(); }} sx={doneBtn}>Done</Button>
@@ -440,12 +449,14 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
         onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); flush(); } }}
         helperText={<Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box>}
         sx={{ ...field, "& .MuiInputBase-root": { fontSize: "0.9rem" } }} />
-      <Box sx={{ mt: 1.75 }}>
-        <LinkInput api={api} store={store} value={url} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
-        {stores && stores.length > 1 && <StoreLinks url={url} stores={stores} />}
-      </Box>
+      {onUrl ? (
+        <Box sx={{ mt: 1.75 }}>
+          <LinkInput api={api} store={store} value={url ?? ""} disabled={!canEdit} label="Its page of the shop" onChange={onUrl} />
+          {stores && stores.length > 1 && <StoreLinks url={url ?? ""} stores={stores} />}
+        </Box>
+      ) : leads ? <Typography component="div" sx={{ fontSize: "0.78rem", color: INK, mt: 1.25, mb: 1, lineHeight: 1.45 }}>{leads}</Typography> : null}
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
-      {canEdit && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
+      {canEdit && look && onLook && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: AMBER, mt: 0.75 }}>{msg}</Typography>}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} placeholder="Ask AI for the button's words…" />}
     </PopCard>
@@ -789,8 +800,11 @@ export function ShopBlockPop({ row, look, onLook, hidden, onHide, onReplace, onA
  * The small dark bar over what is selected in the page (Content v8): the block it is in - a click selects the whole block -
  * and the element itself; then what can be done here: its editor (a text, a picture), the block's settings, the AI.
  */
-export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onClose }: {
+export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onRemove, onClose }: {
   block: { num: number; name: string; module: boolean } | null;
+  /** Content v12 (SARCLA 10.11.2026: "here on tile I cannot take out"): the part selected taken out - a tile, a question,
+   * a small line, a button, a product of a module */
+  onRemove?: { label: string; run: () => void } | null;
   /** the element inside the block ("Heading", "Picture") - none when the block itself is selected */
   label: string | null;
   onBlock?: () => void;
@@ -820,6 +834,7 @@ export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onClose
       {edit && <Button size="small" onClick={edit.run} sx={b}>{edit.label}</Button>}
       {onSettings && <Tooltip title="The block's settings"><Button size="small" onClick={onSettings} startIcon={<TuneIcon sx={{ fontSize: 15 }} />} sx={b}>Settings</Button></Tooltip>}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Ask AI</Button>}
+      {onRemove && <Tooltip title={`${onRemove.label} - Undo brings it back`}><IconButton size="small" onClick={onRemove.run} aria-label={onRemove.label} sx={{ color: "#ffb4a9", p: 0.45, "&:hover": { bgcolor: "rgba(255,255,255,.12)", color: "#fff" } }}><DeleteOutlineIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
     </Box>
   );

@@ -166,7 +166,51 @@ async function blocksSwitch(): Promise<string[]> {
   return notes;
 }
 
-/** Every hour, at any time of day: the English pass, the switch to block optimizations, then the types' top-up - one hub task at a time. */
+/**
+ * AT LEAST 50 TO START (SARCLA 10.11.2026: "give much more optimization, at least 50 to start"): while fewer than 50 block
+ * optimizations wait for a yes or no, every hour up to 8 more pages are read - the problem pages first (most add-to-carts
+ * missed), then the others with the most views; no product page, no page with a block optimization open, each page once
+ * a day; it yields to the day's AI budget.
+ */
+export const BLOCK_TARGET = 50;
+export const FILL_PER_HOUR = 8;
+async function fillUp(): Promise<string[]> {
+  await query(TOPUP_SCHEMA);
+  const waiting = Number((await query<{ n: string }>(`SELECT count(*) AS n FROM apsomh_convert_ideas WHERE status = 'proposed' AND scope = 'block'`)).rows[0]?.n ?? 0);
+  if (waiting >= BLOCK_TARGET) return [];
+  const to = isoDay(Date.now() - 86_400_000);
+  const from = isoDay(Date.parse(to) - 27 * 86_400_000);
+  const data = await buildProblems(from, to);
+  if (!data.ga4.ok) return [`no pages to read - Google Analytics did not answer (${data.ga4.error ?? "not connected"})`];
+  const own = data.pages.filter((p) => blockPage(classify(p.path).kind));
+  const pages = [
+    ...(sortProblems(own.filter((p) => p.reasons.length > 0), "missed") as typeof own),
+    ...own.filter((p) => p.reasons.length === 0).sort((a, b) => (b.views ?? 0) - (a.views ?? 0)),
+  ];
+  const day = swissNow().day;
+  let done = 0;
+  let made = 0;
+  for (const p of pages) {
+    if (done >= FILL_PER_HOUR || waiting + made >= BLOCK_TARGET) break;
+    const work = await pageWork("prod", p.path);
+    if (work.ideas.some((i) => i.scope === "block" && i.status !== "dropped")) continue;
+    const key = `fill:${p.path}`.slice(0, 300);
+    const mine = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ($1, $2, 'started') ON CONFLICT (day, type) DO NOTHING RETURNING type`, [day, key]);
+    if (!mine.rows.length) continue;
+    done++;
+    const numbers: Numbers = {
+      views: p.views, addToCarts: p.addToCarts, rate: p.rate, typical: p.typical, reasons: p.reasons,
+      companies: p.shop?.companies ?? null, lost: p.shop?.lost ?? null, topLoss: p.shop?.topLoss ? STEP_LABEL[p.shop.topLoss as Step] : null, from, to,
+    };
+    const r = await proposeBlocks("prod", p.path, numbers, "the AI's start batch").catch((e: Error) => ({ ok: false as const, error: e.message }));
+    await query(`UPDATE apsomh_convert_topups SET at = now(), note = $3 WHERE day = $1 AND type = $2`, [day, key, (r.ok ? `${r.data.length} block optimizations` : r.error).slice(0, 500)]);
+    if (r.ok) made += r.data.length;
+    if (!r.ok && /times today/.test(r.error)) break;
+  }
+  return done ? [`start batch: ${made} block optimizations from ${done} pages - ${waiting + made} wait (target ${BLOCK_TARGET})`] : [];
+}
+
+/** Every hour, at any time of day: the English pass, the switch to block optimizations, the start batch, then the types' top-up - one hub task at a time. */
 async function dayTick(): Promise<void> {
   const client = await getPool().connect();
   try {
@@ -177,6 +221,8 @@ async function dayTick(): Promise<void> {
       if (en.ideas || en.readings || en.summaries || en.left || en.note.startsWith("failed")) console.log(`[convert-english] ${en.note}`);
       const switched = await blocksSwitch().catch((e: Error) => [`failed: ${e.message}`]);
       for (const n of switched) console.log(`[convert-blocks] ${n}`);
+      const filled = await fillUp().catch((e: Error) => [`start batch failed: ${e.message}`]);
+      for (const n of filled) console.log(`[convert-blocks] ${n}`);
       const notes = await runTopUp().catch((e: Error) => [`failed: ${e.message}`]);
       for (const n of notes) console.log(`[convert-topup] ${n}`);
     } finally {
