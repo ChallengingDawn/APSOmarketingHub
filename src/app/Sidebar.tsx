@@ -128,7 +128,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
 import Link from "next/link";
 
-import { AP_HUB_HOME, adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { AP_HUB_HOME, adminOnlyPath, asCross, asRole, crossClosed, planClosedTo, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { SEALING_PAGES } from "@/lib/apHub/sealingPages";
 import AssessmentOutlinedIcon from "@mui/icons-material/AssessmentOutlined";
 import { accessAt } from "@/lib/auth/tree";
@@ -707,9 +707,10 @@ export default function Sidebar({ hub }: { hub?: "ap" } = {}) {
   }, []);
 
   const role = viewed?.role ?? acc?.role;
-  // a person of Angst+Pfister (a cross-admin too): the action plan is greyed, never a link (access.ts crossClosed,
-  // SARCLA 10.11.2026: "action plan should be grey for AP employees and not be accessible not even as viewer")
-  const crossNow = (viewed ? viewed.cross ?? null : acc?.cross ?? null) !== null;
+  // a cross-user of Angst+Pfister: the action plan is greyed, never a link (access.ts crossClosed, SARCLA 10.11.2026:
+  // "action plan should be grey for AP employees and not be accessible not even as viewer") - a cross-admin is an admin
+  // and sees it (SARCLA 11.11.2026)
+  const crossNow = planClosedTo(viewed ? viewed.cross ?? null : acc?.cross ?? null);
   const allowed = (item: Pick<Item, "href" | "adminOnly">) => {
     // The flag says so, or the path does. Two ways to spell the same rule, so a
     // governance page added later is covered without anyone remembering to.

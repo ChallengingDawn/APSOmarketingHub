@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired } from "../src/lib/auth/access";
+import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired, planClosedTo } from "../src/lib/auth/access";
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
 import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
 import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
 
-test("cross access: the action plan is closed to every person of Angst+Pfister, its page and its data", () => {
+test("cross access: the action plan is closed to a cross-user of Angst+Pfister, its page and its data - never to a cross-admin", () => {
+  // a cross-admin is an admin of APSOparts too (SARCLA 11.11.2026: "cross admins are also admins in APSO, they should see everything")
+  assert.equal(planClosedTo("user"), true);
+  assert.equal(planClosedTo("admin"), false);
+  assert.equal(planClosedTo(null), false);
+  assert.equal(planClosedTo(undefined), false);
   for (const p of ["/action-plan", "/action-plan/kpis", "/action-plan/scroll-to-sale?x=1", "/api/action-plan", "/api/action-plan/summit"]) {
     assert.equal(crossClosed(p), true, p);
   }

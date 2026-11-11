@@ -99,8 +99,8 @@ export async function middleware(req: NextRequest) {
     if (payload.cross === "user" && crossHiddenApi(pathname)) {
       return NextResponse.json({ ok: false, error: "This report is not part of your access." }, { status: 403 });
     }
-    // the action plan: closed to every person of Angst+Pfister, a cross-admin too (access.ts crossClosed)
-    if ((payload.cross === "user" || payload.cross === "admin") && crossClosed(pathname)) {
+    // the action plan: closed to a cross-user of Angst+Pfister; a cross-admin is an admin (access.ts crossClosed)
+    if (payload.cross === "user" && crossClosed(pathname)) {
       return pathname.startsWith("/api/")
         ? NextResponse.json({ ok: false, error: "The action plan is not part of your access." }, { status: 403 })
         : NextResponse.redirect(new URL("/?denied=action-plan", req.url));
