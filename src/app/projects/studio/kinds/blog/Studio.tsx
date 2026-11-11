@@ -8,6 +8,13 @@
 // the whole post -> a picture: click its frame, make or upload it on the right -> the outline on the left is the map
 // (each part with its state; sections added, moved, removed) -> Google, Magento and notes under the outline -> ask for
 // review in the bar.
+//
+// cv16 (SARCLA 11.11.2026: "compare the evolution of this page to the other content types and improve them") - the Page
+// builder's bar, where it fits a post: the label over a picked part moves, duplicates and takes out a block, a section, a
+// question, a product, and writes a section again at once; a picture is made from the words in its own box (the newest
+// ask wins, "From: ..."), or fine-tuned; "Write it all again" has the Page builder's four ways; every AI text is read
+// against the shop's word rules on the server and the change's line says what was left out; a translation takes every
+// part along and its links follow the language; the last step is a wide publishing view (Publish.tsx).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -31,6 +38,12 @@ import {
   BLOG_STORES, LANGUAGE_NAME, LIMITS, blogDoc, shopUrl, slugify, storeOf, type BlogCard, type BlogDoc, type BlogSection,
 } from "@/lib/content/studio/kinds/blog/model";
 import { addFaq, addProduct, addSection, moveSection, oneLine, partLabel, partText, sectionOf, setPart } from "@/lib/content/studio/kinds/blog/parts";
+import { doPartAction, partActions, type PartAction } from "@/lib/content/studio/kinds/blog/elements";
+import { postFollowsStore } from "@/lib/content/studio/kinds/blog/publish";
+import { isNewest, startJob, type SlotJobs } from "@/lib/content/studio/kinds/page/pictureJobs";
+import type { WriteMode } from "../page/WriteAgain";
+import { makePicture, refinePicture } from "../../pictures";
+import { PictureWords, type PictureMaking } from "./PictureWords";
 import { postDocument } from "@/lib/content/studio/kinds/blog/render";
 import type { RichMode } from "@/lib/content/studio/kinds/blog/richEdit";
 import { AssistantPanel, Field, Label, PINK, Pane, StudioPanes, btn, field, mainBtn, type QuickAsk } from "../../parts";
@@ -47,13 +60,20 @@ export const LANGS = ["DE", "FR", "IT", "EN", "NL", "PL"] as const;
 const DESKTOP = 1040;
 
 type Outline = Pick<BlogDoc, "title" | "slug" | "metaTitle" | "metaDescription" | "excerpt" | "sections" | "faq" | "tags" | "takeaways"> & {
-  cta: { title: string; text: string; label: string }; picture: string; pictureAlt: string;
+  cta: { title: string; text: string; label: string }; picture: string; pictureAlt: string; heroCaption?: string; authorRole?: string;
+  /** what the shop's word rules left out (server: lib/content/studio/kinds/blog/guard.ts) */
+  note?: string;
 };
+/** What the change's line says of what the shop's word rules left out. */
+const ruled = (note?: string) => (note ? ` Left out by the shop's word rules: ${note}.` : "");
 type Work = { label: string; key: string | null; since: number } | null;
 
 /** The AI's sections laid over the post's: a picture already in place stays with the section at the same place. */
-function keepPictures(next: BlogSection[], cur: BlogSection[]): BlogSection[] {
-  return next.map((s, i) => (cur[i]?.image.url ? { ...s, image: { ...cur[i].image, alt: cur[i].image.alt || s.image.alt } } : s));
+function keepPictures(next: BlogSection[], cur: BlogSection[], translated = false): BlogSection[] {
+  return next.map((s, i) => (cur[i]?.image.url
+    // a translation: what the picture shows and the line under it in the new language (cv16 - every part goes along)
+    ? { ...s, image: { ...cur[i].image, alt: translated ? s.image.alt || cur[i].image.alt : cur[i].image.alt || s.image.alt, caption: translated ? s.image.caption || cur[i].image.caption : cur[i].image.caption } }
+    : s));
 }
 
 const isPicture = (key: string | null) => !!key && (key === "hero" || /^s:[^:]+:img$/.test(key));
@@ -135,28 +155,46 @@ function Author({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d:
 
 /** A picture of the post: the picture with Change / Remove, what it shows, the line under it - or, without one, the
  *  hub's picture panel: make it from the idea (prefilled), upload one, or pick one already made. */
-function Picture({ api, d, set, pkey, canEdit, onMaking }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean; onMaking?: (on: boolean) => void }) {
-  const p = api.data.piece;
+/** A picture made or uploaded lands up to 40 s later: on the post as it is then, never on an older copy. `from`: the words
+ *  the ask started from - words typed in the box since are the person's and stay there. */
+function landPicture(api: StudioApi, d: BlogDoc, pkey: string, x: { url: string; prompt?: string | null; alt?: string | null }, from?: string) {
   const sid = sectionOf(pkey);
-  const s = sid ? d.sections.find((x) => x.id === sid) : null;
-  const pic = s ? s.image : d.hero;
-  const put = (next: BlogDoc["hero"]) => set(s ? { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, image: next } : x)) } : { ...d, hero: next });
-  // a picture made or uploaded lands up to 40 s later: on the post as it is then, never on this older copy
-  const land = (x: { url: string; prompt?: string | null; alt?: string | null }) => api.setDoc((raw: unknown) => {
+  api.setDoc((raw: unknown) => {
     const cur = blogDoc(raw, { language: d.language, author: d.author, title: d.title });
     const sec = sid ? cur.sections.find((y) => y.id === sid) : null;
     if (sid && !sec) return cur;
     const was = sec ? sec.image : cur.hero;
-    const next = { ...was, url: x.url, alt: x.alt || was.alt || (sec ? sec.heading : cur.title), prompt: x.prompt ?? was.prompt };
+    const typed = from !== undefined && !!was.prompt.trim() && was.prompt !== from;
+    const next = { ...was, url: x.url, alt: x.alt || was.alt || (sec ? sec.heading : cur.title), prompt: typed ? was.prompt : x.prompt ?? was.prompt };
     return sec ? { ...cur, sections: cur.sections.map((y) => (y.id === sec.id ? { ...y, image: next } : y)) } : { ...cur, hero: next };
   });
-  const idea = pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));
+}
+
+/** The words a picture starts from: the AI's idea, else its section's heading or the post's title. */
+const ideaOf = (d: BlogDoc, s: BlogSection | null, pic: BlogDoc["hero"]) =>
+  pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));
+
+function Picture({ api, d, set, pkey, canEdit, making, error, onMake }: {
+  api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean;
+  making: PictureMaking | null; error: string | null; onMake: (pkey: string, words: string, how: "make" | "tune") => void;
+}) {
+  const p = api.data.piece;
+  const sid = sectionOf(pkey);
+  const s = sid ? d.sections.find((x) => x.id === sid) ?? null : null;
+  const pic = s ? s.image : d.hero;
+  const put = (next: BlogDoc["hero"]) => set(s ? { ...d, sections: d.sections.map((x) => (x.id === s.id ? { ...x, image: next } : x)) } : { ...d, hero: next });
+  const idea = ideaOf(d, s, pic);
   return (
     <Box>
+      {/* the slot: the picture, Upload, Gallery, Remove - made from words in the box under it (cv16) */}
       <PictureSlot url={pic.url} alt={pic.alt} aspect={s ? "3:2" : "16:9"} suggestion={idea} projectId={p.projectId} pieceId={p.id} me={api.data.me} disabled={!canEdit}
-        onPick={(x) => land(x)} onMaking={onMaking}
+        tabs={["upload", "project", "mine"]} onPick={(x) => landPicture(api, d, pkey, x)}
         onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google)" />
-      {pic.url && <Box sx={{ mt: 1 }}><Field label="A line under it (optional)" value={pic.caption} disabled={!canEdit} onChange={(v) => put({ ...pic, caption: v })} /></Box>}
+      {canEdit && (
+        <PictureWords words={idea} onWords={(w) => put({ ...pic, prompt: w })} hasPicture={!!pic.url} canTune={pic.url.startsWith("/api/content/picture/")}
+          making={making} error={error} disabled={!canEdit} onMake={(w) => onMake(pkey, w, "make")} onTune={(ask) => onMake(pkey, ask, "tune")} />
+      )}
+      {pic.url && <Box sx={{ mt: 1.25 }}><Field label="A line under it (optional)" value={pic.caption} disabled={!canEdit} onChange={(v) => put({ ...pic, caption: v })} /></Box>}
     </Box>
   );
 }
@@ -173,8 +211,13 @@ export default function Studio({ api }: StudioProps) {
   const set = useCallback((next: BlogDoc) => api.setDoc(next), [api]);
 
   const [sel, setSel] = useState<string | null>(null);
-  /** the picture being made: it breathes in the page */
-  const [picBusy, setPicBusy] = useState<string | null>(null);
+  /** the pictures being made (by their part): each breathes in the page; the newest ask of a part wins (cv16) */
+  const [pics, setPics] = useState<Record<string, PictureMaking>>({});
+  const [picErr, setPicErr] = useState<Record<string, string>>({});
+  const jobs = useRef<SlotJobs>({});
+  const picBusy = Object.keys(pics)[0] ?? null;
+  /** the last step open: the build column twice as wide, the assistant a thin rail (the Page builder's publishing view) */
+  const [publishing, setPublishing] = useState(false);
   const [focus, setFocus] = useState<{ key: string; at: number } | null>(null);
   const [editKey, setEditKey] = useState<{ key: string; at: number } | null>(null);
   const [open, setOpen] = useState<string[]>([]);
@@ -235,34 +278,89 @@ export default function Studio({ api }: StudioProps) {
     try { return await fn(); } finally { setWork(null); }
   };
 
-  const write = (request: string, language?: string) => { if (language) setTl(language); return busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
+  /** The whole post written by the AI: from the brief, again (its ways - cv16), or translated. */
+  const write = (request: string, language?: string, mode?: "topic" | "directly" | "ask") => { if (language) setTl(language); return busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : mode === "topic" ? "Writing the post new from the topic…" : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
     const ask = language ? `Translate the whole post into ${LANGUAGE_NAME[language] ?? language}, faithfully.${request ? ` ${request}` : ""}` : request;
     // the to-do's name in the bar is the topic while the post's own title is still "Untitled …"
     const topic = untitled(docRef.current.title) ? p.title : docRef.current.title;
-    const r = await api.ai<Outline>("outline", { topic, request: ask, ...(language ? { language } : {}) });
+    const r = await api.ai<Outline>("outline", { topic, request: ask, ...(language ? { language } : {}), ...(mode && !language ? { mode } : {}) });
     if (!r.ok) return r.error;
     const x = r.result;
     if (!x.sections.length) return "No post came back - ask again.";
     const cur = docRef.current;
     const lg = language ?? cur.language;
-    await lay({
+    const patch: Partial<BlogDoc> = {
       title: x.title || cur.title, slug: language ? x.slug || slugify(x.title) : cur.slug && cur.slug !== slugify(cur.title) ? cur.slug : x.slug || cur.slug,
       metaTitle: x.metaTitle, metaDescription: x.metaDescription, excerpt: x.excerpt, takeaways: x.takeaways,
-      sections: keepPictures(x.sections, cur.sections), faq: x.faq.length ? x.faq : cur.faq,
+      sections: keepPictures(x.sections, cur.sections, !!language), faq: x.faq.length ? x.faq : cur.faq,
       tags: language || !cur.tags.length ? x.tags : cur.tags,
       cta: { ...cur.cta, title: x.cta.title, text: x.cta.text, label: x.cta.label },
-      hero: { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: cur.hero.alt || x.pictureAlt },
-      ...(language ? { language: lg, store: storeOf(lg) } : {}),
-    }, language
-      ? `Translated into ${LANGUAGE_NAME[lg] ?? lg}: ${x.sections.length} sections, ${x.faq.length} questions, store view ${storeOf(lg)}.`
-      : `The post: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}`, language);
+      hero: language
+        ? { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: x.pictureAlt || cur.hero.alt, caption: x.heroCaption || cur.hero.caption }
+        : { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: cur.hero.alt || x.pictureAlt },
+      ...(language ? { language: lg, store: storeOf(lg), authorRole: x.authorRole || cur.authorRole } : {}),
+    };
+    // a translation's links follow the language: /de-CH/... in the text, the band's button and the products become the new
+    // store view's (cv16 - the Page builder's "products and links follow the language")
+    const moved = language ? postFollowsStore({ excerpt: patch.excerpt ?? "", sections: patch.sections ?? [], faq: patch.faq ?? [], cta: { ...cur.cta, ...patch.cta }, relatedProducts: cur.relatedProducts }, cur.store, storeOf(lg)) : null;
+    await lay(moved ? { ...patch, ...moved } : patch, (language
+      ? `Translated into ${LANGUAGE_NAME[lg] ?? lg}: ${x.sections.length} sections, ${x.faq.length} questions, the pictures' words, store view ${storeOf(lg)} - its links and products follow it.`
+      : `${mode === "topic" ? "Written new from the topic" : mode === "directly" ? "Written again, better" : mode === "ask" ? "Written again as you asked" : "The post"}: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}`) + ruled(x.note), language);
     setSel(null);
     return null;
   }).finally(() => setTl(null)); };
 
+  /** "Write it all again" (the Page builder's own choice, ../page/WriteAgain.tsx): its four ways. */
+  const writeAgain = (mode: WriteMode, request?: string) => {
+    if (mode === "reset") {
+      const cur = docRef.current;
+      void lay({
+        excerpt: "", takeaways: [], sections: [], faq: [], metaTitle: "", metaDescription: "", hero: { url: "", alt: "", caption: "", prompt: "" },
+        cta: { ...cur.cta, title: "", text: "", label: "" },
+      }, "Started again - the post is empty (its title, author, day, store view, topics and products kept).");
+      setSel(null);
+      return;
+    }
+    void write(request ?? "", undefined, mode === "better" ? "directly" : mode);
+  };
+
+  /** A picture made from words, or fine-tuned - the newest ask of a part is the one that lands (page/pictureJobs.ts). */
+  const makePic = async (pkey: string, words: string, how: "make" | "tune") => {
+    const cur = docRef.current;
+    const sid0 = sectionOf(pkey);
+    const s = sid0 ? cur.sections.find((x) => x.id === sid0) ?? null : null;
+    const pic = s ? s.image : cur.hero;
+    if (!words.trim()) return;
+    const n = startJob(jobs.current, pkey);
+    setPics((m) => ({ ...m, [pkey]: { from: words, since: Date.now(), how } }));
+    setPicErr((m) => ({ ...m, [pkey]: "" }));
+    const where = { projectId: p.projectId, pieceId: p.id };
+    const aspect = s ? "3:2" : "16:9";
+    const r = how === "tune" ? await refinePicture(pic.url, words, aspect, where) : await makePicture(words, aspect, where);
+    // an older ask: its picture reaches the project's pictures (the gallery), never this slot
+    if (!isNewest(jobs.current, pkey, n)) return;
+    setPics((m) => { const next = { ...m }; delete next[pkey]; return next; });
+    if (!r.ok) { setPicErr((m) => ({ ...m, [pkey]: r.error })); return; }
+    landPicture(api, cur, pkey, { url: r.picture.url, alt: r.picture.alt, prompt: how === "tune" ? pic.prompt || words : words }, how === "tune" ? pic.prompt : words);
+  };
+
+  /** Move / Duplicate / Take out from the label over the picked part (cv16, ../../../../lib/.../blog/elements.ts). */
+  const partAct = (key: string, act: PartAction) => {
+    const cur = docRef.current;
+    if (act === "remove" && /^s:[^:]+:h$/.test(key)) {
+      const i = cur.sections.findIndex((x) => x.id === sectionOf(key));
+      if (!window.confirm(`Take section ${i + 1}${cur.sections[i]?.heading ? ` "${cur.sections[i].heading}"` : ""} out? Undo is in Versions.`)) return;
+    }
+    const r = doPartAction(cur, key, act);
+    // on the post as it is this instant (the words just kept go first)
+    api.setDoc((raw: unknown) => doPartAction(blogDoc(raw, { language: p.language, author: me, title: p.title }), key, act).doc);
+    setSel(r.key);
+    if (r.key) setFocus({ key: r.key, at: Date.now() });
+  };
+
   /** One part changed by the assistant (the part task), or a section written again (the section task). */
   const changePart = (key: string, request: string, label: string) => busyRun(`${label} - ${partLabel(docRef.current, key).toLowerCase()}…`, key, async () => {
-    const r = await api.ai<{ text: string }>("part", { key, request });
+    const r = await api.ai<{ text: string; note?: string }>("part", { key, request });
     if (!r.ok) return r.error;
     if (!r.result.text.trim()) return "Nothing came back - ask again, in other words.";
     const cur = docRef.current;
@@ -270,37 +368,37 @@ export default function Studio({ api }: StudioProps) {
     if (before === null) return "That part is gone.";
     const sid = sectionOf(key);
     const patch: Partial<BlogDoc> = sid ? { sections: setPart(cur, key, r.result.text).sections } : (() => { const n = setPart(cur, key, r.result.text); const k = key.split(":")[0]; return k === "title" ? { title: n.title } : k === "lead" ? { excerpt: n.excerpt } : k === "short" ? { takeaways: n.takeaways } : k === "cta" ? { cta: n.cta } : k === "faq" ? { faq: n.faq } : k === "prod" ? { relatedProducts: n.relatedProducts } : k === "hero" ? { hero: n.hero } : {}; })();
-    await lay(patch, `${label}: ${partLabel(cur, key).toLowerCase()}.`);
+    await lay(patch, `${label}: ${partLabel(cur, key).toLowerCase()}.${ruled(r.result.note)}`);
     return null;
   });
   const sectionAgain = (sid: string, request = "") => busyRun("Writing this section again…", `s:${sid}:h`, async () => {
     const i = docRef.current.sections.findIndex((s) => s.id === sid);
     if (i < 0) return "That section is gone.";
-    const r = await api.ai<{ heading: string; body: string; quote: string }>("section", { index: i, mode: "write", ...(request ? { request } : {}) });
+    const r = await api.ai<{ heading: string; body: string; quote: string; note?: string }>("section", { index: i, mode: "write", ...(request ? { request } : {}) });
     if (!r.ok) return r.error;
     if (!r.result.body) return "No text came back - ask again.";
     const cur = docRef.current;
-    await lay({ sections: cur.sections.map((s) => (s.id === sid ? { ...s, heading: r.result.heading || s.heading, body: r.result.body, quote: r.result.quote ?? s.quote } : s)) }, `Section ${i + 1} written again.`);
+    await lay({ sections: cur.sections.map((s) => (s.id === sid ? { ...s, heading: r.result.heading || s.heading, body: r.result.body, quote: r.result.quote ?? s.quote } : s)) }, `Section ${i + 1} written again${request ? " as asked" : ""}.${ruled(r.result.note)}`);
     return null;
   });
   const questions = (add: boolean) => busyRun(add ? "Adding a question…" : "Writing the questions and answers…", "faq", async () => {
     if (!docRef.current.sections.length) return "Write the post first - the questions come from it.";
-    const r = await api.ai<{ faq: BlogDoc["faq"] }>("faq", add ? { add: true } : {});
+    const r = await api.ai<{ faq: BlogDoc["faq"]; note?: string }>("faq", add ? { add: true } : {});
     if (!r.ok) return r.error;
     if (!r.result.faq.length) return "No question came back - ask again.";
-    await lay({ faq: add ? [...docRef.current.faq, ...r.result.faq] : r.result.faq }, add ? `${r.result.faq.length} question${r.result.faq.length === 1 ? "" : "s"} added.` : `${r.result.faq.length} questions with their answers.`);
+    await lay({ faq: add ? [...docRef.current.faq, ...r.result.faq] : r.result.faq }, (add ? `${r.result.faq.length} question${r.result.faq.length === 1 ? "" : "s"} added.` : `${r.result.faq.length} questions with their answers.`) + ruled(r.result.note));
     pick("faq", true);
     return null;
   });
   const meta = () => busyRun("Writing Google's title and description…", null, async () => {
-    const r = await api.ai<{ metaTitle: string; metaDescription: string; excerpt: string; slug: string }>("meta");
+    const r = await api.ai<{ metaTitle: string; metaDescription: string; excerpt: string; slug: string; note?: string }>("meta");
     if (!r.ok) return r.error;
     const cur = docRef.current;
     await lay({
       metaTitle: r.result.metaTitle, metaDescription: r.result.metaDescription,
       ...(cur.excerpt.trim() ? {} : { excerpt: r.result.excerpt }),
       ...(!cur.slug || cur.slug === slugify(cur.title) ? { slug: r.result.slug || cur.slug } : {}),
-    }, "Google's title and description (under the outline: What Google shows).");
+    }, `Google's title and description (under the outline: What Google shows).${ruled(r.result.note)}`);
     return null;
   });
 
@@ -343,11 +441,9 @@ export default function Studio({ api }: StudioProps) {
     quick = [
       {
         // the same words as the start card and the map's header (the flow standard)
-        label: d.sections.length ? "Write it all again" : "Write the whole post with AI",
-        run: async () => {
-          if (docRef.current.sections.some((s) => s.body.trim()) && !window.confirm("Write the post again? It takes the place of what is written - Undo brings it back.")) return null;
-          return write("");
-        },
+        label: d.sections.length ? "Write it all again, better" : "Write the whole post with AI",
+        // written again: every section kept and written better (Undo in the history); the other ways are in the map's header
+        run: async () => write("", undefined, d.sections.length ? "directly" : undefined),
       },
       // with nothing written yet, writing it is the one next step
       ...(d.sections.length ? [
@@ -355,7 +451,7 @@ export default function Studio({ api }: StudioProps) {
         { label: "Title and description for Google", run: meta },
       ] : []),
     ];
-    onAsk = (t) => write(t);
+    onAsk = (t) => write(t, undefined, docRef.current.sections.length ? "ask" : undefined);
     placeholder = d.sections.length ? "Ask for a change to the whole post - e.g. add a section on storage, for buyers rather than engineers" : "What should the post say? Or ask the assistant to write it from the brief";
   } else if (words !== null && !sel.startsWith("prod:")) {
     // a product's name is the shop's: written by hand, never by the assistant
@@ -376,7 +472,7 @@ export default function Studio({ api }: StudioProps) {
   } else if (section) {
     quick = [{ label: "Write this section again", run: () => sectionAgain(section.id) }];
     onAsk = (t) => sectionAgain(section.id, t);
-    placeholder = "What should this section say?";
+    placeholder = "What should change? Empty: written again from the post";
   }
 
   const top = (
@@ -406,7 +502,7 @@ export default function Studio({ api }: StudioProps) {
   /* ── the picked part's own fields: under its row in the map (the flow standard) ── */
   const fields = (
     <Box>
-      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} onMaking={(on) => setPicBusy(on ? sel : null)} />}
+      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} making={pics[sel!] ?? null} error={picErr[sel!] || null} onMake={(k, w, how) => void makePic(k, w, how)} />}
       {sel === "tags" && <TopicEditor d={d} set={set} canEdit={canEdit} />}
       {sel === "author" && <Author api={api} d={d} set={set} canEdit={canEdit} />}
       {(sel === "prods" || sel?.startsWith("prod:")) && <Products d={d} set={set} canEdit={canEdit} picked={sel} onPick={(k) => setSel(k)} />}
@@ -462,7 +558,9 @@ export default function Studio({ api }: StudioProps) {
         {work && <Working label={work.label} since={work.since} />}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
           selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
-          rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined} />
+          rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined}
+          partActions={(k) => partActions(docRef.current, k)} onPartAction={partAct}
+          onAgain={enabled && !work && sid ? () => void sectionAgain(sid, askRef.current?.value.trim() ?? "") : undefined} />
       </Box>
     </Pane>
   );
@@ -477,15 +575,12 @@ export default function Studio({ api }: StudioProps) {
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75, textAlign: "center" }}>or open a part below and write it yourself</Typography>
     </Box>
   ) : null;
-  const writeAll = !empty && enabled ? () => {
-    if (docRef.current.sections.some((x) => x.body.trim()) && !window.confirm("Write the post again? It takes the place of what is written - Undo brings it back.")) return;
-    void write("");
-  } : undefined;
+  const writeAll = !empty && enabled ? writeAgain : undefined;
 
   return (
-    <StudioPanes id="blog4" buildWidth={300} assistWidth={330}
+    <StudioPanes id="blog4" buildWidth={300} assistWidth={330} wide={publishing}
       build={<Outline api={api} d={d} set={set} sel={sel} cards={cards} onAddSection={newSection}
-        onPick={(key) => pick(key, true)} fields={fields} start={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null} />}
+        onPick={(key) => pick(key, true)} fields={fields} start={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null} onStep={(s) => setPublishing(s === "publish")} />}
       preview={preview}
       assist={assist}
     />

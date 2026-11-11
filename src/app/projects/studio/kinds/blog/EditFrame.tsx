@@ -22,8 +22,12 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import Tooltip from "@mui/material/Tooltip";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
+import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FormatBoldIcon from "@mui/icons-material/FormatBold";
 import LinkIcon from "@mui/icons-material/Link";
 import { HAIRLINE } from "@/app/uc/report/ui";
@@ -98,9 +102,15 @@ export type EditFrameProps = {
   linkSearch?: (q: string) => Promise<{ label: string; href: string }[]>;
   /** a shop path ("/de/...") made whole with this (an e-mail needs the full address) */
   linkBase?: string;
+  /** cv16 (the blog): what the picked part can do besides its words - Move up / down, Duplicate, Take it out - in the
+   *  label, after Ask AI (the Page builder's element popup order); null or all false: none shown */
+  partActions?: (key: string) => { up: boolean; down: boolean; duplicate: boolean; remove: boolean; what: string } | null;
+  onPartAction?: (key: string, act: "up" | "down" | "duplicate" | "remove") => void;
+  /** cv16 (the blog): "Write again" in the label - the part's section written again by the AI, at once */
+  onAgain?: (key: string) => void;
 };
 
-export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true, rich, redMarks, label, onAskAi, linkSearch, linkBase }: EditFrameProps) {
+export function EditFrame({ html, device, width, title, texts, oneLine, selected, onSelect, onCommit, readOnly, focus, editKey, busy, overlay, framed = true, rich, redMarks, label, onAskAi, linkSearch, linkBase, partActions, onPartAction, onAgain }: EditFrameProps) {
   const box = useRef<HTMLDivElement | null>(null);
   const frame = useRef<HTMLIFrameElement | null>(null);
   const [src, setSrc] = useState(html);
@@ -498,7 +508,10 @@ export function EditFrame({ html, device, width, title, texts, oneLine, selected
           <SelLabel boxRef={labelRef} name={selName} left={labelAt?.x ?? Math.max(0, Math.min(selBox.left, w * zoom - 430))} top={labelAt?.y ?? Math.max(-34, selBox.top - 34)}
             rich={richOn} red={!!redMarks} onBold={() => { doc()?.execCommand("bold"); }} onRed={() => { const dd = doc(); if (dd) toggleRed(dd); }}
             onLink={startLink} linkOn={!!linking}
-            onAi={onAskAi} onClose={() => { if (hold.current) finishLink(null); if (editing.current) end(true); onSelect(null); }} />
+            onAi={onAskAi} onClose={() => { if (hold.current) finishLink(null); if (editing.current) end(true); onSelect(null); }}
+            acts={!readOnly && selected && onPartAction ? partActions?.(selected) ?? null : null} room={Math.max(200, w * zoom)}
+            onAct={(act) => { if (!selected || !onPartAction) return; if (hold.current) finishLink(null); if (editing.current) end(true); onPartAction(selected, act); }}
+            onAgain={!readOnly && selected && onAgain ? () => { if (editing.current) end(true); onAgain(selected); } : undefined} />
         )}
         {selBox && (linking || linkNote) && (
           <Box sx={{ position: "absolute", left: Math.max(0, Math.min(selBox.left, w * zoom - 340)), top: Math.max(-2, selBox.top - 2), zIndex: 5 }}>
@@ -537,14 +550,18 @@ function toggleRed(d: Document) {
 
 /** The small dark label over the picked part (the flow standard): its name, Ask AI, x - and while its words are edited
  *  as they look, Bold and Red. Mouse-down keeps the focus (and the words picked) in the page. */
-function SelLabel({ boxRef, name, left, top, rich, red, onBold, onRed, onLink, linkOn, onAi, onClose }: {
+function SelLabel({ boxRef, name, left, top, rich, red, onBold, onRed, onLink, linkOn, onAi, onClose, acts, onAct, onAgain, room }: {
+  /** the frame's width on screen: a label with more tools scrolls inside itself, never the page sideways (a phone) */
+  room?: number;
   boxRef?: React.Ref<HTMLDivElement>; name: string; left: number; top: number; rich: boolean; red: boolean; onBold: () => void; onRed: () => void; onLink: () => void; linkOn: boolean; onAi?: () => void; onClose: () => void;
+  acts?: { up: boolean; down: boolean; duplicate: boolean; remove: boolean; what: string } | null; onAct?: (act: "up" | "down" | "duplicate" | "remove") => void; onAgain?: () => void;
 }) {
   const b = { textTransform: "none" as const, fontWeight: 600, color: "#fff", minWidth: 0, px: 0.9, py: 0.2, fontSize: "0.74rem", borderRadius: "4px", lineHeight: 1.6, whiteSpace: "nowrap" as const, "&:hover": { bgcolor: "rgba(255,255,255,.14)" } };
   return (
     <Box ref={boxRef} onMouseDown={(e) => e.preventDefault()} sx={{
       position: "absolute", left, top, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 0.25, height: LABEL_H, px: 0.5, width: "max-content",
-      bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: 430,
+      bgcolor: "#15223a", color: "#fff", borderRadius: "6px", boxShadow: "0 8px 22px rgba(21,34,58,.3)", pointerEvents: "auto", maxWidth: acts || onAgain ? Math.min(600, room ?? 600) : 430,
+      ...(acts || onAgain ? { overflowX: "auto", overflowY: "hidden", scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } } : {}),
     }}>
       <Box component="span" sx={{ fontSize: "0.74rem", fontWeight: 700, px: 0.75, color: "rgba(255,255,255,.82)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{name}</Box>
       {rich && (
@@ -555,6 +572,16 @@ function SelLabel({ boxRef, name, left, top, rich, red, onBold, onRed, onLink, l
         </>
       )}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={{ ...b, "& .MuiButton-startIcon": { mr: 0.4 } }}>Ask AI</Button>}
+      {onAgain && <Tooltip title="The AI writes this section again at once - the box on the right says what should change (empty: from the post). Undo is in the history."><Button size="small" onClick={onAgain} sx={b}>Write again</Button></Tooltip>}
+      {acts && (acts.up || acts.down || acts.duplicate || acts.remove) && (
+        <>
+          <Box component="span" sx={{ width: "1px", height: 16, bgcolor: "rgba(255,255,255,.2)", mx: 0.25, flexShrink: 0 }} />
+          {(acts.up || acts.down) && <Tooltip title={`Move the ${acts.what} up`}><span><IconButton size="small" disabled={!acts.up} onClick={() => onAct?.("up")} aria-label={`Move the ${acts.what} up`} sx={{ color: "#fff", p: 0.4, "&.Mui-disabled": { color: "rgba(255,255,255,.3)" } }}><ArrowUpwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>}
+          {(acts.up || acts.down) && <Tooltip title={`Move the ${acts.what} down`}><span><IconButton size="small" disabled={!acts.down} onClick={() => onAct?.("down")} aria-label={`Move the ${acts.what} down`} sx={{ color: "#fff", p: 0.4, "&.Mui-disabled": { color: "rgba(255,255,255,.3)" } }}><ArrowDownwardIcon sx={{ fontSize: 15 }} /></IconButton></span></Tooltip>}
+          {acts.duplicate && <Tooltip title={`Duplicate the ${acts.what}`}><IconButton size="small" onClick={() => onAct?.("duplicate")} aria-label={`Duplicate the ${acts.what}`} sx={{ color: "#fff", p: 0.4 }}><ContentCopyIcon sx={{ fontSize: 14 }} /></IconButton></Tooltip>}
+          {acts.remove && <Tooltip title={`Take the ${acts.what} out`}><IconButton size="small" onClick={() => onAct?.("remove")} aria-label={`Take the ${acts.what} out`} sx={{ color: "#ff8a85", p: 0.4 }}><DeleteOutlineIcon sx={{ fontSize: 15 }} /></IconButton></Tooltip>}
+        </>
+      )}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
     </Box>
   );
