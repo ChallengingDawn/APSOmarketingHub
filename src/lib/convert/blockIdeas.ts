@@ -69,6 +69,9 @@ links without pictures, a quote nobody acts on). Never the block that holds the 
 block a buyer needs exactly as it is (a product's data, an address to write to). 1 to ${BLOCK.maxBlocks} blocks, the most
 promising first. A version keeps the block's job: a block that leads to a sign-up, an account or a contact still leads
 there (its button's "link" one of the addresses below), with a stronger reason to go.
+A BUTTON NAMES THE PAGE IT OPENS: its words say that page's name ("Zu den O-Ringen", "Dichtungstechnik ansehen") and
+its "link" is exactly that address. Never "all products", "all technologies", "the whole range" - the shop has no such
+page in the lists below (the hub leaves such a button out); a module of categories shows the range by itself.
 Each version: "module" (an id of THE LIBRARY), "layout", its "words" written for this page in the page's language
 (FULL - every word the module takes), "fill" (how the hub fills it from the shop), "link"/"link2", "why" (ENGLISH, under
 10 words) and "label" (ENGLISH, under 8 words: what makes it different). Every fact only from the page and the brand.`;
