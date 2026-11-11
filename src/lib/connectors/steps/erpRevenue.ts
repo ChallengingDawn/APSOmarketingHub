@@ -37,6 +37,7 @@ import { saveOrderBook } from "@/lib/reporting/orderBookStore";
 import { loadOtdHistory, otdDates, otdTransport, saveOtdFromErp } from "@/lib/reporting/otdStore";
 import { otdArticleInfo } from "@/lib/reporting/otdArticles";
 import { otdDirectCutKinds } from "@/lib/reporting/otdDirectCut";
+import { fetchFiles } from "@/lib/connectors/sftp";
 import { saveSealing } from "@/lib/apHub/sealingStore";
 import path from "node:path";
 import { query } from "@/lib/db/client";
@@ -298,8 +299,11 @@ export async function erpRevenue(live: boolean, beat: Beat, opts: ErpRevenueOpts
       const notRead = (e: unknown) => ({ days: undefined, status: `not read: ${(e as Error)?.message ?? e}` });
       const [tr, fd] = await Promise.all([otdTransport(dir).catch(notRead), otdDates(dir).catch(notRead)]);
       const days = tr.days, fileDays = fd.days;
-      // each article's text and product group from the nightly article master beside the workbook (dim_article.csv)
-      const ai = await otdArticleInfo(dir, wb.erpLines.lines.map((l) => l.article), beat)
+      // each article's text and product group from the nightly article master beside the workbook (dim_article.csv) - a run
+      // from the page on a copy started since the delivery has only the workbook: the master is fetched from the ERP's folder
+      // (read-only, the download record untouched; SARCLA 11.11.2026 "count it directly")
+      const fetchMissing = process.env.SFTP_KEY ? (name: string) => fetchFiles(dir, [name]).then((r) => r.error ?? (r.pulled.length ? null : `${name} is not in the ERP's folder`)) : undefined;
+      const ai = await otdArticleInfo(dir, wb.erpLines.lines.map((l) => l.article), beat, fetchMissing)
         .catch((e: unknown) => ({ infoOf: undefined, status: `not read: ${(e as Error)?.message ?? e}` }));
       // GLC's lines of DirectCut orders: a leftover off the shelf or cut on the saw (the DirectCut middleware, kept)
       const dc = await otdDirectCutKinds().catch((e: unknown) => ({ glcOf: undefined, status: `not read: ${(e as Error)?.message ?? e}` }));
