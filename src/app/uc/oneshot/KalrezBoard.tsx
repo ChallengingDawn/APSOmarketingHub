@@ -125,18 +125,29 @@ function CustomerTable({ rows, mode }: { rows: KzCard[]; mode: "next" | "all" })
 function TicketsPanel({ onDone }: { onDone: () => void }) {
   const [n, setN] = useState(0);
   const held = useHeld<Plan>(`/api/uc/oneshot/kalrez?plan=1&n=${n}`, [n]);
-  const [busy, setBusy] = useState<"preview" | "create" | null>(null);
+  const [busy, setBusy] = useState<"preview" | "create" | "titles" | null>(null);
   const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
   const plan = held.result?.state === "ok" ? held.result.data : null;
   const missing = plan ? plan.rows.filter((r) => !r.ticketId).length : 0;
+  const renamed = plan ? plan.rows.filter((r) => r.renamed).length : 0;
 
-  const act = async (action: "preview" | "create") => {
+  const act = async (action: "preview" | "create" | "titles") => {
     setBusy(action);
     setMsg(null);
     try {
       const res = await fetch("/api/uc/oneshot/kalrez", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: KzRun; error?: string };
-      if (!res.ok || !j.ok || !j.data) {
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean; data?: KzRun; error?: string; titles?: { checked: number; fixed: number; failed: string[] };
+      };
+      if (res.status === 504) {
+        // the browser stopped waiting; the hub carries on (11.11.2026: 109 tickets took about 6 minutes)
+        setMsg({ tone: "ok", text: "Still working - the hub carries on after the browser stops waiting. Reload this tab in a few minutes." });
+      } else if (action === "titles" && res.ok && j.ok && j.titles) {
+        const t = j.titles;
+        setMsg({ tone: t.failed.length ? "bad" : "ok", text: `${t.fixed} title${t.fixed === 1 ? "" : "s"} put back of ${t.checked} checked${t.failed.length ? ` - failed: ${t.failed.join("; ")}` : ""}.` });
+        setN((x) => x + 1);
+        onDone();
+      } else if (!res.ok || !j.ok || !j.data) {
         setMsg({ tone: "bad", text: j.error ?? `HTTP ${res.status}` });
       } else {
         const r = j.data;
@@ -168,6 +179,11 @@ function TicketsPanel({ onDone }: { onDone: () => void }) {
           note="One per customer, owned by the company owner: ESO pipeline for ESO people, TSA for TSA people and the unassigned; company, up to 5 contacts and the Kalrez orders linked"
           right={plan.admin ? (
             <Box sx={{ display: "flex", gap: 1 }}>
+              {renamed > 0 && (
+                <Button size="small" variant="contained" color="warning" disableElevation disabled={!!busy} onClick={() => act("titles")}>
+                  {busy === "titles" ? "Putting the titles back…" : `Put ${renamed} title${renamed === 1 ? "" : "s"} back`}
+                </Button>
+              )}
               <Button size="small" variant="outlined" disabled={!!busy} onClick={() => act("preview")}>
                 {busy === "preview" ? "Checking…" : "Check"}
               </Button>
@@ -184,6 +200,11 @@ function TicketsPanel({ onDone }: { onDone: () => void }) {
           </Typography>
         )}
         {!plan.admin && missing > 0 && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>An admin makes the tickets from here.</Typography>}
+        {renamed > 0 && (
+          <Typography sx={{ fontSize: "0.8rem", color: "#a96a12", fontWeight: 600 }}>
+            {renamed} ticket{renamed === 1 ? " has" : "s have"} another title in HubSpot (the workflow &quot;ESO CREATION TICKETS 1.0&quot; renames new ESO tickets) - {plan.admin ? "put them back with the button." : "an admin puts them back here."}
+          </Typography>
+        )}
       </Box>
       <Box sx={{ overflowX: "auto" }}>
         <Table size="small">
@@ -195,7 +216,10 @@ function TicketsPanel({ onDone }: { onDone: () => void }) {
           <TableBody>
             {plan.rows.map((r) => (
               <TableRow key={r.un} hover>
-                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: INK, ...clip(520) }}>{r.subject}</TableCell>
+                <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", color: INK, ...clip(520) }}>
+                  {r.subject}
+                  {r.renamed && <Chip size="small" label="renamed in HubSpot" sx={{ ml: 1, height: 18, fontSize: "0.64rem", fontWeight: 700, bgcolor: TINT.amber.bg, color: TINT.amber.fg }} />}
+                </TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", whiteSpace: "nowrap" }}>{r.owner}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }}>{r.team}</TableCell>
                 <TableCell sx={{ ...bodyCell, fontSize: "0.8rem" }} align="right">{r.orders}</TableCell>
