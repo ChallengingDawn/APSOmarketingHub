@@ -33,7 +33,9 @@ import type { PageBackup } from "@/lib/convert/cms";
 import { noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoCheck";
 import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
+import { mediaGallerySteps, picturesHold, type PictureCheck } from "@/lib/content/studio/kinds/page/media";
 import { PINK, btn, mainBtn } from "../../parts";
+import { fileStem, saveFiles, type FileOut } from "../../frame";
 import type { StudioApi } from "../../useStudio";
 import { Publish as HandOver } from "./Sections";
 import { Hint, mono } from "./ui";
@@ -47,6 +49,8 @@ export type EnvState = {
 export type StatusView = Omit<MagentoView, "want"> & { label?: string; stores?: { view: string; open: boolean; id: number | null }[] };
 export type Status = { views: StatusView[]; envs: EnvState[]; gate: { canEdit: boolean; approved: boolean; grant: boolean; why: string | null }; backups: PageBackup[] };
 export type PlanOut = PagePlan | SharedPlan | { view: string; env: Env; action: "none"; why: string; error: true };
+/** A new page's own pictures in one target's media (10.11.2026), read with the plan: each there or not, and what holds. */
+export type PicturesOut = { list: (PictureCheck & { views: string[] })[]; hold: string | null };
 type Result = { view: string; ok: boolean; action?: string; pageId?: string; error?: string; stores?: string[]; note?: string };
 const isShared = (p: PlanOut | undefined): p is SharedPlan => !!p && "targets" in p;
 
@@ -171,6 +175,8 @@ function WhatIsSent({ api, v, envs, plans, on }: { api: StudioApi; v: Status["vi
       ? `${kb(s.size)} of HTML - the page as the preview draws it${s.banners ? `, ${s.banners} banner${s.banners === 1 ? "" : "s"} in it` : ""}`
       : `Magento's content of the page, with ${s.changes} change${s.changes === 1 ? "" : "s"}${s.banners ? ` and ${s.banners} banner${s.banners === 1 ? "" : "s"}` : ""} put in place`],
     ...(isNew ? [["Shown", "On - visible on the shop at its address"] as [string, React.ReactNode]] : []),
+    // the home page kit's frame (10.11.2026): one column, one Full Width row with one HTML Code element
+    ...(isNew && s.layout ? [["Layout", "1 column - the content in one Full Width row, one HTML Code element, in line with the shop's breadcrumb"] as [string, React.ReactNode]] : []),
   ];
   return (
     <Box sx={{ mt: 0.75, mb: 0.5, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
@@ -196,8 +202,8 @@ function WhatIsSent({ api, v, envs, plans, on }: { api: StudioApi; v: Status["vi
         );
       })}
       {s.pictures.length > 0 && (
-        <Typography sx={{ mt: 0.75, fontSize: "0.76rem", color: AMBER }}>
-          {s.pictures.length} picture{s.pictures.length === 1 ? "" : "s"} must be in Magento&apos;s media first (wysiwyg/content: {s.pictures.map((p) => p.file).join(", ")}) - Magento&apos;s API takes no pictures. The hand-over below lists them.
+        <Typography sx={{ mt: 0.75, fontSize: "0.76rem", color: MUTED }}>
+          {s.pictures.length} picture{s.pictures.length === 1 ? "" : "s"} of the hub, at {s.pictures.length === 1 ? "its" : "their"} address in the shop&apos;s media (wysiwyg/content: {s.pictures.map((p) => p.file).join(", ")}) - Pictures, below, says whether Magento has {s.pictures.length === 1 ? "it" : "them"}.
         </Typography>
       )}
       {isNew && <Button size="small" onClick={() => setHtml(!html)} sx={{ ...btn, px: 0, mt: 0.5, color: PINK, fontSize: "0.76rem" }}>{html ? "Hide the content's HTML" : "Show the content's HTML"}</Button>}
@@ -259,6 +265,83 @@ function NoKeySteps({ envs }: { envs: Env[] }) {
   );
 }
 
+const PIC_STATE: Record<PictureCheck["state"], { c: string; w: (target: string) => string }> = {
+  there: { c: GREEN, w: () => "in Magento" },
+  missing: { c: "#c5221f", w: (t) => `not in ${t}'s media` },
+  unknown: { c: AMBER, w: () => "could not be read" },
+};
+
+/**
+ * A new page's own pictures in each target's media (10.11.2026 - SARCLA's Kalrez page showed Magento's grey placeholder
+ * in its hero: its picture was never uploaded, and one line said so). Read with the plan, each by its address on the
+ * shop; a missing one holds Publish, with the pictures to download (one zip), the Media Gallery's steps and "Read Magento
+ * again".
+ */
+function Pictures({ envs, pics, reading, onRead, title }: {
+  envs: EnvState[]; pics: Record<string, PicturesOut | undefined>; reading: Record<string, boolean>; onRead: (env: Env) => void; title: string;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const shown = envs.filter((e) => e.key && (pics[e.env]?.list.length ?? 0) > 0);
+  if (!shown.length) return null;
+  const download = async (e: EnvState, list: PictureCheck[]) => {
+    setBusy(e.env); setSaid(null);
+    const files: FileOut[] = [];
+    const lost: string[] = [];
+    for (const p of list) {
+      try {
+        const r = await fetch(p.url);
+        if (!r.ok) throw new Error(String(r.status));
+        const b = await r.blob();
+        files.push({ name: p.file, data: b, type: b.type || "image/jpeg" });
+      } catch { lost.push(p.file); }
+    }
+    const saved = await saveFiles(files, `${fileStem(title)}-pictures-${e.env}.zip`);
+    setBusy(null);
+    setSaid(lost.length ? `The hub could not hand over ${lost.join(", ")}.` : saved ? `${saved.files === 1 ? files[0].name : `${saved.name} (${saved.files} pictures)`} - in your downloads.` : null);
+  };
+  return (
+    <>
+      <Kick>Pictures</Kick>
+      {shown.map((e) => {
+        const p = pics[e.env]!;
+        const missing = p.list.filter((x) => x.state === "missing");
+        return (
+          <Box key={e.env} sx={{ mb: 1, p: 1.25, borderRadius: "10px", border: `1px solid ${p.hold ? "#f1c4c0" : HAIRLINE}`, bgcolor: p.hold ? "#fff6f5" : "#fff" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography sx={{ flex: 1, fontSize: "0.8rem", fontWeight: 700, color: INK }}>{e.label}: {p.hold ?? picturesHold(p.list, e.label) ?? `${p.list.length === 1 ? "its picture is" : `all ${p.list.length} pictures are`} in Magento's media.`}</Typography>
+              <Button size="small" onClick={() => onRead(e.env)} disabled={!!reading[e.env]} startIcon={reading[e.env] ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
+                sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0, flexShrink: 0 }}>Read Magento again</Button>
+            </Box>
+            <Box sx={{ mt: 0.75, display: "grid", gap: 0.4 }}>
+              {p.list.map((x) => (
+                <Box key={x.file} sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0 }}>
+                  <Box component="span" sx={{ ...mono, fontSize: "0.74rem", color: INK, flexShrink: 0 }}>{x.file}</Box>
+                  <Box component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: PIC_STATE[x.state].c, flexShrink: 0 }}>{PIC_STATE[x.state].w(e.label)}</Box>
+                  {x.address && <Box component="a" href={x.address} target="_blank" rel="noopener noreferrer" sx={{ ...mono, fontSize: "0.68rem", color: MUTED, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>{x.address.replace(/^https:\/\//, "")}</Box>}
+                </Box>
+              ))}
+            </Box>
+            {missing.length > 0 && (
+              <>
+                <Box component="ol" sx={{ m: 0, mt: 1, pl: 2.25, display: "grid", gap: 0.35 }}>
+                  {mediaGallerySteps(e.label, missing.map((x) => x.file)).map((s) => <Typography key={s} component="li" sx={{ fontSize: "0.78rem", color: INK, lineHeight: 1.45 }}>{s}</Typography>)}
+                </Box>
+                <Button size="small" variant="outlined" disabled={busy === e.env} onClick={() => void download(e, missing)}
+                  startIcon={busy === e.env ? <CircularProgress size={12} color="inherit" /> : undefined}
+                  sx={{ ...btn, mt: 1, height: 34, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
+                  {missing.length === 1 ? "Download the picture" : `Download the pictures (one zip, ${missing.length})`}
+                </Button>
+              </>
+            )}
+          </Box>
+        );
+      })}
+      {said && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 0.5 }}>{said}</Typography>}
+    </>
+  );
+}
+
 const dayWords = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 /** Publish now - or only put it on the content calendar (SARCLA 10.11.2026: "you should be able to publish or only send to
@@ -301,9 +384,10 @@ function OrCalendar({ api }: { api: StudioApi }) {
 export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string;
   /** what Magento was read to say (a static check draws the step with it) */
-  initial?: { status: Status; plans: Record<string, PlanOut[]> };
+  initial?: { status: Status; plans: Record<string, PlanOut[]>; pictures?: Record<string, PicturesOut> };
 }) {
   const [status, setStatus] = useState<Status | null>(initial?.status ?? null);
+  const [pics, setPics] = useState<Record<string, PicturesOut>>(initial?.pictures ?? {});
   const [err, setErr] = useState<string | null>(null);
   const [on, setOn] = useState<Env[]>(["acc"]);
   const [picked, setPicked] = useState<string[] | null>(null);
@@ -337,9 +421,12 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   const read = useCallback(async (env: Env, views: string[]) => {
     if (!views.length) return;
     setReading((x) => ({ ...x, [env]: true }));
-    const r = await apiRef.current.act<{ env: Env; plans: PlanOut[]; waiting: string | null }>("magento_plan", { env, views });
+    const r = await apiRef.current.act<{ env: Env; plans: PlanOut[]; waiting: string | null; pictures?: PicturesOut }>("magento_plan", { env, views });
     setReading((x) => ({ ...x, [env]: false }));
-    if (r.ok) setPlans((p) => ({ ...p, [env]: r.result.plans }));
+    if (r.ok) {
+      setPlans((p) => ({ ...p, [env]: r.result.plans }));
+      setPics((p) => ({ ...p, [env]: r.result.pictures ?? { list: [], hold: null } }));
+    }
   }, []);
   // Magento read for each target that has its key - what a write would do, nothing written
   const selKey = sel.join(",");
@@ -483,10 +570,14 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
       </Box>
       <Hint mt={0.75}>{doc.source === "new" ? "One page per language, written into every store view ticked - Magento keeps one copy of it in each. A click on a row shows the exact page Magento gets; nothing is written until you press Publish." : "The changes go into the page of each store view the language goes to. A click on a row shows what Magento gets; nothing is written until you press Publish."}</Hint>
 
+      {doc.source === "new" && <Pictures envs={envs.filter((e) => on.includes(e.env))} pics={pics} reading={reading} onRead={(env) => void read(env, sel)} title={api.data.piece.title} />}
+
       <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
         {envs.filter((e) => on.includes(e.env)).map((e, i) => {
           const writable = sel.filter((v) => { const p = plans[e.env]?.find((x) => x.view === v); return doc.source !== "new" ? true : p && p.action !== "none"; });
-          const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : null);
+          // a new page's own pictures not in this shop's media yet: Publish waits (Pictures, above)
+          const picHold = doc.source === "new" ? pics[e.env]?.hold ?? null : null;
+          const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : picHold ? "Its pictures first - upload them to Magento's media (Pictures, above), then Read Magento again." : null);
           const blocked = cmsViews.filter((v) => sel.includes(v.view) && v.blocked).length;
           const off = !!why || !!busy || !!reading[e.env] || !!blocked;
           // the review or the grant is said once, at the top; the key, per target

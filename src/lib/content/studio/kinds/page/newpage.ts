@@ -14,6 +14,7 @@ import { moduleGap } from "./modules/model";
 import { renderModule, renderSkeleton } from "./modules/render";
 import { labelOn } from "./style";
 import { inStore } from "./links";
+import { FRAME_CSS, SHOP_FONT, framePage } from "./frame";
 
 export type InsertHtml = { id: string; where: "top" | "after-intro" | "bottom"; html: string; label?: string };
 export type RenderOpts = {
@@ -269,13 +270,27 @@ export const ADD_CSS = `.apx-np-add{position:relative;height:0;z-index:8;pointer
 .apx-np-empty-sk i:nth-child(2){width:82%;height:44px}
 .apx-np-empty-sk i:nth-child(3){width:64%;height:44px}`;
 
-/** The page's stylesheet - one per page, every rule under .apx-np. */
-export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274e64;--petrol-d:#1b3a4b;--ink:#1d2326;--text:#4a5459;--muted:#66727a;--line:#e1e7ea;--grey:#f2f4f5;--sand:#f7f2ea;--head:futura-pt,Jost,"Helvetica Neue",Arial,sans-serif;font:400 16px/1.65 var(--head);color:var(--text);-webkit-font-smoothing:antialiased;text-align:left}
+/**
+ * The page's stylesheet - one per page, every rule under .apx-np (after the frame's, ./frame.ts FRAME_CSS).
+ *
+ * 10.11.2026, the home page kit's way (SARCLA on the Kalrez page: "what the hell"): the page lies in the theme's content
+ * container - the row around it (./frame.ts) - so every block's content is that container, in line with the breadcrumb at
+ * every width: no width or gutter of its own any more (it had 1180 px and 32 px, a module 1180 px and 32 px again around
+ * its own 1170 px and 10 px). The hero and the call to action are panels in the container; a block on grey, sand or
+ * petrol is a band whose colour runs out to the window's edges (the kit's tools band: a shadow 100vmax wide, clipped to
+ * the band's height); a module fills the container.
+ * ONE root for the type and the colours: .apx-np sets the shop's font and colours (--apx-*), every block and every module
+ * of the page takes them from there (./modules/kit.ts BASE reads the same tokens) - no system font anywhere (the module's
+ * text was Arial, bold on the Kalrez page).
+ */
+export const NEW_PAGE_CSS = `.apx-np{--apx-head:${SHOP_FONT};--apx-red:#d80901;--apx-pet:#274e64;--apx-ink:#1d2326;--apx-txt:#5e5e5e;--red:var(--apx-red);--red-d:#b00701;--petrol:var(--apx-pet);--petrol-d:#1b3a4b;--ink:var(--apx-ink);--text:var(--apx-txt);--muted:#66727a;--line:#e1e7ea;--grey:#f2f4f5;--sand:#f7f2ea;--head:var(--apx-head);display:block;width:100%;margin:0;padding:0;font:400 16px/1.65 var(--head);color:var(--text);-webkit-font-smoothing:antialiased;text-align:left}
 .apx-np *,.apx-np *::before,.apx-np *::after{box-sizing:border-box}
 .apx-np img{max-width:100%;border:0}
 .apx-np .apx-np-blk{padding:64px 0;margin:0}
-.apx-np .apx-np-in{max-width:1180px;margin:0 auto;padding:0 32px}
-.apx-np .apx-np-narrow{max-width:860px}
+.apx-np .apx-np-in{width:100%;max-width:none;margin:0;padding:0}
+.apx-np .apx-np-in.apx-np-narrow{max-width:860px;margin:0 auto}
+.apx-np .apx-np-blk:not(.apx-np-hero):not(.apx-np-cta):is(.apx-np-bg-grey,.apx-np-bg-sand,.apx-np-bg-petrol){box-shadow:0 0 0 100vmax var(--band);clip-path:inset(0 -100vmax)}
+.apx-np .apx-np-bg-grey{--band:var(--grey)}.apx-np .apx-np-bg-sand{--band:var(--sand)}.apx-np .apx-np-bg-petrol{--band:var(--petrol)}
 .apx-np .apx-np-bg-white{background:#fff}
 .apx-np .apx-np-bg-grey{background:var(--grey)}
 .apx-np .apx-np-bg-sand{background:var(--sand)}
@@ -332,6 +347,7 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-q[open] summary::after{content:"\\2013"}
 .apx-np .apx-np-a{padding:0 0 22px}
 .apx-np .apx-np-cta{border-radius:18px;margin:8px 0 32px;text-align:center}
+.apx-np .apx-np-cta .apx-np-in{padding:0 32px}
 .apx-np .apx-np-cta .apx-np-btns{justify-content:center}
 .apx-np .apx-np-ins{margin:24px 0}
 .apx-np .apx-np-ac{text-align:center}
@@ -377,13 +393,12 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-card.apx-np-span-2{grid-column:span 2}.apx-np .apx-np-card.apx-np-span-3{grid-column:span 3}.apx-np .apx-np-card.apx-np-span-4{grid-column:span 4}
 .apx-np .apx-np-slot{display:block;margin:10px 0;padding:14px 16px;border:1.5px dashed #b6c2cb;border-radius:10px;background:rgba(255,255,255,.55);color:#7d8b95;font:500 15px/1.4 var(--head);letter-spacing:0;text-transform:none}
 .apx-np .apx-np-pic-empty{display:flex;align-items:center;justify-content:center;border:1.5px dashed #b6c2cb;background:rgba(255,255,255,.5);box-shadow:none;color:#7d8b95;font:500 15px/1.4 var(--head);text-align:center;padding:24px}
-.apx-np [data-apx-module]{max-width:1180px;padding:0 32px;margin:40px auto}
+.apx-np [data-apx-module]{width:100%;max-width:none;margin:40px 0;padding-left:0;padding-right:0}
 @media (max-width:767px){
-.apx-np [data-apx-module]{padding:0 20px;margin:28px auto}
+.apx-np [data-apx-module]{margin:28px 0}
 .apx-np .apx-np-blk{padding:40px 0}
-.apx-np .apx-np-in{padding:0 20px}
-.apx-np .apx-np-hero{border-radius:0;margin:0}
-.apx-np .apx-np-hero .apx-np-in{grid-template-columns:minmax(0,1fr)!important;gap:28px;padding:8px 20px}
+.apx-np .apx-np-hero{border-radius:14px;margin:12px 0 4px}
+.apx-np .apx-np-hero .apx-np-in{grid-template-columns:minmax(0,1fr)!important;gap:24px;padding:4px 18px}
 .apx-np .apx-np-h1{font-size:32px!important}
 .apx-np .apx-np-h2{font-size:25px!important;margin-bottom:18px!important}
 .apx-np .apx-np-h1.apx-np-s-xl{font-size:38px!important}.apx-np .apx-np-h2.apx-np-s-xl{font-size:30px!important}
@@ -394,5 +409,13 @@ export const NEW_PAGE_CSS = `.apx-np{--red:#d80901;--red-d:#b00701;--petrol:#274
 .apx-np .apx-np-sec.is-left .apx-np-pic{order:0}
 .apx-np .apx-np-btn{width:100%}
 .apx-np .apx-np-btn-link{width:auto}
-.apx-np .apx-np-cta{border-radius:0;margin:0}
+.apx-np .apx-np-cta{border-radius:14px;margin:0 0 24px}
+.apx-np .apx-np-cta .apx-np-in{padding:0 18px}
 }`;
+
+/** The page's own HTML Code element: its stylesheet (the frame's rules first), `more` (the change list's own rules, a
+ * <style> of its own) and the page. */
+export const pageHtml = (r: { css: string; html: string }, more = "") => `<style>\n${FRAME_CSS}\n${r.css}\n</style>\n${more}${r.html}`;
+
+/** The page as Magento gets it - and as the preview draws it: the row, the element, its stylesheet and the page. */
+export const framedPage = (r: { css: string; html: string }, more = "") => framePage(pageHtml(r, more));

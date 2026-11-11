@@ -40,6 +40,7 @@ import {
   howToAdd, langName, leadOf, leftoversOf, mainView, shopUrl, storesOfView, versionLabel, viewName, viewShort, viewState, viewsOf, type LangState, type Leftover, type PageDoc, type StoreGroup,
 } from "@/lib/content/studio/kinds/page/model";
 import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
+import { FRAME_CSS, framePage } from "@/lib/content/studio/kinds/page/frame";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
 import type { InsertOut, Presence, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
@@ -334,7 +335,8 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
   const patch = useMemo(() => {
     if (!isNew) return undefined;
     const r = renderNewPage(d.fields, { marks: true, adds: !!adds, busy: writing, store: d.store, inserts: (inserts ?? []).filter((x) => x.ok).map((x) => ({ id: x.id, where: x.where, html: x.html })) });
-    return `<style>${r.css}\n${BUSY_CSS}\n${ADD_CSS}</style>${r.html}`;
+    // in the row and the element Magento gets (the home page kit's frame, ./frame.ts): the shop's column, as on the shop
+    return framePage(`<style>${FRAME_CSS}\n${r.css}\n${BUSY_CSS}\n${ADD_CSS}</style>${r.html}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, d.fields, inserts, JSON.stringify(writing ?? null), !!adds]);
 
