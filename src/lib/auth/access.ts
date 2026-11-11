@@ -150,14 +150,17 @@ export function crossHiddenApi(pathname: string): boolean {
 }
 
 /**
- * The action plan is APSOparts' own: closed to every person of Angst+Pfister - a cross-admin too - its page and its
- * data, not even to look at; the menus show it greyed (SARCLA 10.11.2026: "action plan should be grey for AP employees
- * and not be accessible not even as viewer"). The middleware refuses it at the door.
+ * The action plan is APSOparts' own: closed to a cross-user of Angst+Pfister - its page and its data, not even to look
+ * at; the menus show it greyed (SARCLA 10.11.2026: "action plan should be grey for AP employees and not be accessible
+ * not even as viewer"). A cross-admin is an admin of APSOparts too and sees it like every admin (SARCLA 11.11.2026:
+ * "cross admins are also admins in APSO, they should see everything"). The middleware refuses it at the door.
  */
 const CROSS_CLOSED = /^\/(api\/)?action-plan(\/|$)/;
 export function crossClosed(pathname: string): boolean {
   return CROSS_CLOSED.test(pathname.split("?")[0]);
 }
+/** whom the action plan is closed to: a cross-user only - never a cross-admin */
+export const planClosedTo = (cross: Cross | null | undefined): boolean => cross === "user";
 
 /** Where the Angst+Pfister hub begins. */
 export const AP_HUB_HOME = "/ap";

@@ -4,11 +4,12 @@
 // refuses, and the API holds the same rule (src/app/api/action-plan/guard.ts).
 import { redirect } from "next/navigation";
 import { myAccess } from "@/lib/auth/appAccess";
+import { planClosedTo } from "@/lib/auth/access";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
   const access = await myAccess();
   if (!access) redirect("/signin");
-  // and never a person of Angst+Pfister, a cross-admin included (access.ts crossClosed, SARCLA 10.11.2026)
-  if (access.role !== "admin" || access.cross !== null) redirect("/");
+  // and never a cross-user of Angst+Pfister - a cross-admin is an admin (access.ts planClosedTo, SARCLA 11.11.2026)
+  if (access.role !== "admin" || planClosedTo(access.cross)) redirect("/");
   return <>{children}</>;
 }

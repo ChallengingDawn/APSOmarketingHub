@@ -34,7 +34,7 @@ import MeshBackground, { MESH_BASE } from "./MeshBackground";
 import { HomeBar } from "./HomeBar";
 import { APPS, HUB_TOOLS, type HubApp } from "./hubApps";
 import { useViewAs } from "./ViewAs";
-import { adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { adminOnlyPath, asCross, asRole, crossClosed, planClosedTo, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
@@ -126,9 +126,9 @@ export default function FrontPage() {
   // Declared here, not beside the header: everything below reads it, and a
   // const used above its own line is a blank page, not a type error.
   const role = viewed?.role ?? myRole;
-  // a person of Angst+Pfister (cross-user or cross-admin, a preview follows the person previewed): the action plan is
-  // greyed and closed to them (access.ts crossClosed, SARCLA 10.11.2026)
-  const crossNow = (viewed ? viewed.cross ?? null : myCross) !== null;
+  // a cross-user of Angst+Pfister (a preview follows the person previewed): the action plan is greyed and closed to them
+  // (access.ts crossClosed, SARCLA 10.11.2026); a cross-admin is an admin and sees it (SARCLA 11.11.2026)
+  const crossNow = planClosedTo(viewed ? viewed.cross ?? null : myCross);
   // No count of what is missing. Telling somebody there are four apps they
   // cannot have is a locked door described in words — SARCLA: take it out.
   // Connectors & Integration has its own square under the tiles instead of a tile.
@@ -338,7 +338,7 @@ export default function FrontPage() {
 
           {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
               of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
-          {/* greyed for the people of Angst+Pfister, a cross-admin too: shown, never opened (SARCLA 10.11.2026) */}
+          {/* greyed for a cross-user of Angst+Pfister: shown, never opened (SARCLA 10.11.2026); a cross-admin opens it */}
           {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
             ? <LockedPlanCard glass={glass} />
             : <ActionPlanCard glass={glass} focusRing={focusRing} />)}

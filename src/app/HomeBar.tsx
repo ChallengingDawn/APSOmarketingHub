@@ -31,7 +31,7 @@ import { search as searchApps, type Hit } from "./hubApps";
 import { useViewAs } from "./ViewAs";
 import { AvatarFace } from "./AvatarFace";
 import { Wordmark } from "./Wordmark";
-import { APP_KEYS, AP_HUB_HOME, AP_SETTINGS, adminOnlyPath, asCross, asRole, crossClosed, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { APP_KEYS, AP_HUB_HOME, AP_SETTINGS, adminOnlyPath, asCross, asRole, crossClosed, planClosedTo, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { accessAt } from "@/lib/auth/tree";
 
 const INK = "#15223a";
@@ -120,12 +120,13 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   // the two hubs, for the people of Angst+Pfister only - cross-user or cross-admin (access.ts Cross), never an admin
   // without the mark (SARCLA 10.11.2026 on Bernd seeing it: "only cross people"); a preview follows the person previewed
   const twoHubs = (viewed ? viewed.cross ?? null : myCross) !== null;
+  const planShut = planClosedTo(viewed ? viewed.cross ?? null : myCross);
   const mayOpen = (href: string) => {
     const path = href.split("?")[0];
     if (!path.startsWith("/")) return true; // the shop, HubSpot - not ours to gate
     if (adminOnlyPath(path) && role !== "admin") return false;
-    // the action plan: never for a person of Angst+Pfister, a cross-admin too (access.ts crossClosed)
-    if (twoHubs && crossClosed(path)) return false;
+    // the action plan: never for a cross-user of Angst+Pfister; a cross-admin is an admin (access.ts planClosedTo)
+    if (planShut && crossClosed(path)) return false;
     // the page's own sub-app decides, else its app (src/lib/auth/tree.ts); a page of no app is everybody's
     if (viewed) return canOpenPath(path);
     if (!myLevels) return true;
@@ -176,7 +177,7 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
     // where Mission Control was: the action plan, for admins only (SARCLA 01.11.2026)
     // ... greyed and never a link for the people of Angst+Pfister, a cross-admin too (SARCLA 10.11.2026: "action plan
     // should be grey for AP employees and not be accessible not even as viewer")
-    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" || twoHubs, locked: twoHubs },
+    { name: "Action plan", href: "/action-plan", icon: <DashboardOutlinedIcon />, show: role === "admin" || planShut, locked: planShut },
     { name: "Live", href: "/live", icon: <SensorsIcon />, show: mayOpen("/live") },
     { name: "Resources", href: "/#resources", icon: <MenuBookIcon />, show: !reads },
     { name: "Settings", href: "/settings", icon: <SettingsOutlinedIcon />, show: true },
