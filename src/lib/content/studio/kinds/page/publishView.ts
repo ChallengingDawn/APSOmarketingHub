@@ -4,15 +4,18 @@
 // SARCLA 11.11.2026, ~13:40, after publishing the first official page (Kalrez) with the new picture storage: "On the
 // Magento last step we should be able to see the current links in one tab, and in one click update them all"; "we should
 // see the setup as today"; "pictures should be a new tab"; "the A/B test on the publish modal: we need to control it from
-// here". The view has four sections - Pages, Pictures, A/B test, Setup. This file says, from what the last step already
+// here". The view has its sections - Pages, Pictures, A/B test (Setup folded into Pages since v14b). This file says, from what the last step already
 // reads (the versions with their `since`, the to-do's records of what it wrote), what each page is on each shop, what
 // "Update all" writes there and why it cannot, and which A/B tests are the page's.
 
 import { liveOn, pathOf, SHOP_LABEL, type LivePage, type ShopEnv, type Since, type WrittenRecord } from "./published";
+import { answerSaid, isHtmlAnswer } from "../../../../convert/magentoSaid";
 
-export type PubSection = "pages" | "pictures" | "ab" | "setup";
+// Content v14b (SARCLA 11.11.2026, 15:35: "Setup and Pages do the same as a tab"): Setup is part of Pages - its ticks and
+// targets folded under "Where it goes", its rights one line on top, the calendar and the hand-over at the foot.
+export type PubSection = "pages" | "pictures" | "ab";
 export const PUB_SECTIONS: { key: PubSection; label: string }[] = [
-  { key: "pages", label: "Pages" }, { key: "pictures", label: "Pictures" }, { key: "ab", label: "A/B test" }, { key: "setup", label: "Setup" },
+  { key: "pages", label: "Pages" }, { key: "pictures", label: "Pictures" }, { key: "ab", label: "A/B test" },
 ];
 
 /** ACC first (the server's own words, lib .../server.ts ACC_FIRST): production is refused until the page is on ACC. */
@@ -74,7 +77,7 @@ export function updateAllOf(rows: readonly PageRow[], env: ShopEnv, opts: { all:
   const onShop = can.some((r) => r.envs[env].state !== "none");
   const why = env === "prod" && !opts.accLive ? ACC_FIRST
     : opts.held ? opts.held
-      : !can.length ? "No page can be written - see Setup."
+      : !can.length ? "No page can be written - see Where it goes."
         : !n ? (onShop ? `Nothing changed since the publish on ${shop} - tick "all" to write every page again.` : `Not on ${shop} yet - tick "all" to publish every page.`)
           : null;
   return { env, views: pick.map((r) => r.view), pages: n, storeViews: pick.reduce((s, r) => s + r.stores.length, 0), verb, label, why };
@@ -163,4 +166,33 @@ export function changeWords(c: ChangeLite): string {
   const at = c.selector ? ` ${c.op === "insert" ? `${c.where ?? "after"} ` : "in "}${c.selector}` : "";
   const what = ({ css: "Style", html: "New content", replace: "Replaced", insert: "Added", text: "New text", hide: "Hidden", attr: "Changed" } as Record<string, string>)[c.op] ?? c.op;
   return `${what}${at}${c.note ? ` - ${c.note}` : ""}`;
+}
+
+/* ── a write refused (Content v14b, SARCLA 11.11.2026, 15:35: production's "Update all" said "Magento answered 403:
+ *    <!doctype html>…" for en-INT, it-CH, nl-NL and pl-PL while de-CH and fr-CH were created) ── */
+
+/** A refusal in plain words: an HTML page Magento's address answered with is said by its title and its HTTP status (an
+ * older message that kept the page's first characters, whose title was cut, says that it was an HTML page). */
+export function readableError(error: string | null | undefined): { text: string; status: number | null; html: boolean } {
+  const e = String(error ?? "").trim();
+  const status = Number(/answered (\d{3})/.exec(e)?.[1] ?? "") || null;
+  const at = e.search(/<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]/i);
+  if (at < 0) return { text: e || "Not written.", status, html: /an HTML page/.test(e) };
+  const head = e.slice(0, at).replace(/[:\s]+$/, "");
+  const rest = e.slice(at);
+  const said = isHtmlAnswer(rest) && /<title/i.test(rest) && /<\/title>/i.test(rest) ? answerSaid(rest) : "an HTML page instead of Magento's API answer (its title was cut off)";
+  return { text: `${head || "Magento answered"}${status && !head ? ` ${status}` : ""}: ${said}`, status, html: true };
+}
+
+/** The pages to write again after a run: each failed result's page - a version by its key, a store view of a page of the
+ * shop by the version it belongs to - once each, in the rows' order; a failure of the whole call (no view) is not one. */
+export function retryViews(results: readonly { view: string; ok: boolean }[], rows: readonly Pick<PageRow, "view" | "stores">[]): string[] {
+  const failed = new Set<string>();
+  for (const r of results) {
+    if (r.ok || !r.view) continue;
+    const row = rows.find((x) => x.view === r.view) ?? rows.find((x) => x.stores.includes(r.view));
+    if (row) failed.add(row.view);
+  }
+  // a page that failed in one store view and was written in another (a page of the shop) is written again whole
+  return rows.map((r) => r.view).filter((v) => failed.has(v));
 }
