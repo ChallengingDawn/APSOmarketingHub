@@ -49,6 +49,7 @@ import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { linkInStores } from "@/lib/content/studio/kinds/page/links";
+import { madeFrom, makeButton } from "@/lib/content/studio/kinds/page/pictureJobs";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import {
@@ -526,6 +527,10 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
   useEffect(() => { setIdeaDraft(idea ?? ""); }, [idea]);
   useEffect(() => { setAltDraft(alt); }, [alt]);
   const isMaking = making?.state === "making";
+  // Content v13: the words it is being made from; new words in the box while it is made = a new ask that replaces it
+  const fine = !!making?.label?.startsWith("Fine");
+  const mk = makeButton({ hasPicture: !!url, making: isMaking, makingFrom: isMaking && !fine ? making?.idea ?? null : null, draft: ideaDraft, canMake });
+  const from = isMaking && !fine ? madeFrom(making?.idea) : "";
   const tune = async (a: string) => {
     if (!onRefine || !a.trim()) return;
     setTuning(true); setMsg(null);
@@ -558,6 +563,7 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
             {isMaking && (
               <Box sx={{ position: "absolute", left: 12, right: 12, bottom: 10 }}>
                 <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: PINK, mb: 0.5, textAlign: "center" }}>{making?.label ?? "Making the picture…"} up to 40 seconds</Typography>
+                {from && <Typography title={making?.idea} sx={{ fontSize: "0.72rem", color: INK, mb: 0.5, textAlign: "center", bgcolor: "rgba(255,255,255,.85)", borderRadius: "4px", px: 0.75, py: 0.25, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>From: “{from}”</Typography>}
                 <LinearProgress sx={{ height: 3, borderRadius: 2, bgcolor: "rgba(194,44,110,.12)", "& .MuiLinearProgress-bar": { bgcolor: PINK } }} />
               </Box>
             )}
@@ -566,8 +572,8 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
           {canEdit && (
             <Box sx={{ display: "flex", gap: 0.75, mt: 1, flexWrap: "wrap" }}>
               {onMake && (
-                <Button size="small" variant="outlined" disabled={!canMake || isMaking || !ideaDraft.trim()} onClick={() => { if (onIdea && ideaDraft !== (idea ?? "")) onIdea(ideaDraft); onMake(ideaDraft.trim()); }}
-                  startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)" }}>{url ? "Make another" : "Make it"}</Button>
+                <Button size="small" variant="outlined" disabled={mk.disabled} onClick={() => { if (onIdea && ideaDraft !== (idea ?? "")) onIdea(ideaDraft); onMake(ideaDraft.trim()); }}
+                  startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)" }}>{mk.label}</Button>
               )}
               <Button size="small" variant="outlined" disabled={isMaking} onClick={onUpload} startIcon={<FileUploadOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, borderColor: HAIRLINE }}>Upload</Button>
               {onRefine && url && <Button size="small" variant="outlined" disabled={isMaking} onClick={() => setTab("tune")} sx={{ ...quiet, borderColor: HAIRLINE }}>Fine-tune</Button>}

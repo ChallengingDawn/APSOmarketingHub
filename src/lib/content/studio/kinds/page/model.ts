@@ -298,8 +298,9 @@ export const SHOP_STORES: readonly string[] = (() => {
 export const LANG_ORDER = ["de", "fr", "it", "en", "nl", "pl", "cs"] as const;
 /** @deprecated the four the studio offered before 08.11.2026 - the shop's languages come from its store views now */
 export const LANGS = ["de", "fr", "it", "en"] as const;
-/** Each language's own store view: the Swiss one where the shop has it, English the international one (x-default). */
-const HOME_STORE: Record<string, string> = { de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", cs: "cs-INT", es: "es-ES" };
+/** Each language's own store view: the Swiss one where the shop has it, English the international one (x-default). The
+ * newsletter links a page in it too (../newsletter/pageLinks.ts - the newsletter is sent per language). */
+export const HOME_STORE: Record<string, string> ={ de: "de-CH", fr: "fr-CH", it: "it-CH", en: "en-INT", nl: "nl-NL", pl: "pl-PL", cs: "cs-INT", es: "es-ES" };
 const LANGUAGE_NAME: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish", cs: "Czech", es: "Spanish" };
 
 /**

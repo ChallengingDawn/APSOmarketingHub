@@ -49,11 +49,12 @@ import { BarList } from "@/app/charts/BarList";
 import { MultiLine, type MultiSeries } from "@/app/charts/MultiLine";
 import { DEEMPHASIS, SERIES } from "@/app/charts/palette";
 import {
-  CHANGE_CATS, COMMENT, DELIVERIES, DELIVERY_ASKED, GLC, GLC_KINDS, LATE_CATS, LEAD_BUCKETS, LEAD_MEASURES, OTHER, PLANNED, POSITION_CATS, avg, emptySlice, impactRank, keysFor, monthly,
+  CHANGE_CATS, DELIVERIES, DELIVERY_ASKED, GLC, GLC_KINDS, LATE_CATS, LEAD_BUCKETS, LEAD_MEASURES, OTHER, PLANNED, POSITION_CATS, avg, emptySlice, impactRank, keysFor, monthly,
   onTimeShare, sumSlices, type ImpactRow, type OtdAxis, type OtdCube, type OtdFilter, type Slice, type Trio,
 } from "@/lib/reporting/otdRules";
 import { OTD_PAGES, type OtdSlug } from "@/lib/reporting/otdPages";
 import { CustomerExplorer } from "./OtdCustomers";
+import { GlcCompanies, SupplierLeads } from "./OtdLineViews";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -153,18 +154,28 @@ const pcsOf = (f: Frame) => [...new Set(keysFor(f.axis, f.yms, f.filter).map((x)
 /** `bare`: the body draws its own boxes (the customers' explorer) */
 type ChartDef = { id: string; title: string; hint: (f: Frame) => string; body: (f: Frame) => React.ReactNode; wide?: boolean; bare?: boolean };
 const NONE = (what = "No line in these months with these filters.") => <Typography sx={{ fontSize: "0.85rem", color: MUTED, py: 2 }}>{what}</Typography>;
-/** a few views only the OTD analysis file's months carry (planned articles, product groups, the customers' comments) */
-const FILE_ONLY = "from the OTD analysis file's months only - the morning lines do not carry it yet";
 /** the product group: the nightly article master's main group (dim_article.csv) for the morning months, the file's before */
 const GROUP_FROM = "each article's main group in the ERP's article master";
-/** the parts counted since 11.11.2026 - the cube of an earlier morning run carries none */
-const NEXT_RUN = "Counted from the next morning run on.";
+/** the parts counted since 11.11.2026 - a cube built before carries none (the ERP delivers in the evening) */
+const NEXT_RUN = "Counted from the next ERP delivery's run on.";
+/** the lead-time bands and the processing time: an empty slice carries zeros, so "counted" = a band holds a line */
+const hasDist = (s: Slice) => !!s.dist?.some((r) => r.some((x) => x > 0));
+const SQ = (f: Frame) => ({ from: f.from, to: f.to, axis: f.axisKey, filter: f.filter, yms: f.yms });
 
 const CHARTS: ChartDef[] = [
   /* ── Customers: the list, a click opens one (OtdCustomers.tsx) ── */
   {
     id: "custExplorer", wide: true, bare: true, title: "", hint: () => "",
-    body: (f) => <CustomerExplorer q={{ from: f.from, to: f.to, axis: f.axisKey, filter: f.filter, yms: f.yms }} />,
+    body: (f) => <CustomerExplorer q={SQ(f)} />,
+  },
+  /* ── every supplier's lead time and GLC's companies, from the lines kept one by one (OtdLineViews.tsx) ── */
+  {
+    id: "supLeadAll", wide: true, bare: true, title: "", hint: () => "",
+    body: (f) => <SupplierLeads q={SQ(f)} fallback={supLeadBars(f, Infinity)} />,
+  },
+  {
+    id: "glcCompanies", wide: true, bare: true, title: "", hint: () => "",
+    body: (f) => <GlcCompanies q={SQ(f)} />,
   },
   /* ── Overview ─────────────────────────────────────────────── */
   {
@@ -414,15 +425,6 @@ const CHARTS: ChartDef[] = [
       return <MultiLine labels={LABELS(f)} series={[{ key: "glc", label: GLC, values: g.map((x) => (x && x[0] ? (x[0] - x[1]) / x[0] : null)) }, { key: "sup", label: "Bought from suppliers", values: o.map(onTimeShare) }]} format={pct} tickFormat={pct0} max={1} />;
     },
   },
-  {
-    id: "supLead", title: "Real lead time of the 12 suppliers with the most lines",
-    hint: (f) => `${periodOf(f)} · the working days from the order to the customer, on average (the file's "AvgLeadTimePerSupplier")`,
-    body: (f) => {
-      const t = total(f);
-      const rows = Object.entries(t.sup).filter(([k]) => k !== OTHER).sort((a, b) => b[1][0] - a[1][0]).slice(0, 12);
-      return <BarList rows={rows.map(([s, r]) => ({ label: supName(s), value: r[0] ? r[6] / r[0] : null, secondary: `${int(r[0])} lines` }))} format={days1} labelWidth={200} />;
-    },
-  },
 
   /* ── Products ─────────────────────────────────────────────── */
   {
@@ -582,15 +584,6 @@ const CHARTS: ChartDef[] = [
     },
   },
   {
-    id: "glcKinds", title: "GLC: leftover, cut to size and the rest",
-    hint: () => "the share on time · DirectCut's orders (the shop, since autumn 2026) by what it did: a whole piece off the shelf or cut on the saw",
-    body: (f) => {
-      const t = total(f), k = t.glc, gl = t.glcLead;
-      if (!k || !k.some((r) => r[0])) return NONE(NEXT_RUN);
-      return <BarList rows={GLC_KINDS.map((label, i) => ({ label, value: share(k[i]), secondary: `${int(k[i][0])} lines · ${int(k[i][1])} late${gl?.[i]?.[0] ? ` · ${days1(gl[i][1] / gl[i][0])} to shipment` : ""}` })).filter((r, i) => k[i][0] > 0)} format={pct} labelWidth={240} max={1} />;
-    },
-  },
-  {
     id: "glcKindTrend", wide: true, title: "GLC month by month: leftover, cut to size and the rest",
     hint: (f) => `the share on time · ${axisWords(f)}`,
     body: (f) => {
@@ -626,10 +619,10 @@ const CHARTS: ChartDef[] = [
     hint: (f) => `working days, on average · promised = order to the first confirmed date, processing = order to shipment, transport = shipment to the customer, real = order to the customer · ${axisWords(f)}`,
     body: (f) => {
       const ms = months(f);
-      const hasProc = ms.some((s) => s.dist);
+      const hasProc = ms.some(hasDist);
       return <MultiLine labels={LABELS(f)} series={[
         { key: "p", label: "Promised", values: ms.map((s) => avg(s.lead[1], s.lead[0])) },
-        ...(hasProc ? [{ key: "o", label: "Processing", values: ms.map((s) => (s.dist ? avg(s.proc ?? 0, s.lead[0]) : null)) }] : []),
+        ...(hasProc ? [{ key: "o", label: "Processing", values: ms.map((s) => (hasDist(s) ? avg(s.proc ?? 0, s.lead[0]) : null)) }] : []),
         { key: "t", label: "Transport", values: ms.map((s) => avg(s.lead[3], s.lead[0])) },
         { key: "r", label: "Real", values: ms.map((s) => avg(s.lead[2], s.lead[0])) },
       ]} format={days1} tickFormat={daysTick} height={280} />;
@@ -642,12 +635,12 @@ const CHARTS: ChartDef[] = [
       const t = total(f), n = t.lead[0];
       if (!n) return NONE();
       const parts: [string, number | null][] = [
-        ["Promised", avg(t.lead[1], n)], ["Processing", t.dist ? avg(t.proc ?? 0, n) : null], ["Transport", avg(t.lead[3], n)], ["Real", avg(t.lead[2], n)],
+        ["Promised", avg(t.lead[1], n)], ["Processing", hasDist(t) ? avg(t.proc ?? 0, n) : null], ["Transport", avg(t.lead[3], n)], ["Real", avg(t.lead[2], n)],
       ];
       return <Table head={["", ...parts.map(([k]) => k), "Real minus promised"]} rows={[
         { key: "all", strong: true, cells: ["All the lines", ...parts.map(([, v]) => days1(v)), days1((avg(t.lead[2], n) ?? 0) - (avg(t.lead[1], n) ?? 0))] },
-        ...["S", "P"].map((st) => { const x = total(f, f.yms, { st: [st] }), m = x.lead[0]; return { key: st, cells: [ST_LABEL[st], days1(avg(x.lead[1], m)), x.dist ? days1(avg(x.proc ?? 0, m)) : "—", days1(avg(x.lead[3], m)), days1(avg(x.lead[2], m)), m ? days1((avg(x.lead[2], m) ?? 0) - (avg(x.lead[1], m) ?? 0)) : "—"] }; }),
-        ...["100", "110"].map((c) => { const x = total(f, f.yms, { company: [c] }), m = x.lead[0]; return { key: c, cells: [MANDANT_LABEL[c], days1(avg(x.lead[1], m)), x.dist ? days1(avg(x.proc ?? 0, m)) : "—", days1(avg(x.lead[3], m)), days1(avg(x.lead[2], m)), m ? days1((avg(x.lead[2], m) ?? 0) - (avg(x.lead[1], m) ?? 0)) : "—"] }; }),
+        ...["S", "P"].map((st) => { const x = total(f, f.yms, { st: [st] }), m = x.lead[0]; return { key: st, cells: [ST_LABEL[st], days1(avg(x.lead[1], m)), hasDist(x) ? days1(avg(x.proc ?? 0, m)) : "—", days1(avg(x.lead[3], m)), days1(avg(x.lead[2], m)), m ? days1((avg(x.lead[2], m) ?? 0) - (avg(x.lead[1], m) ?? 0)) : "—"] }; }),
+        ...["100", "110"].map((c) => { const x = total(f, f.yms, { company: [c] }), m = x.lead[0]; return { key: c, cells: [MANDANT_LABEL[c], days1(avg(x.lead[1], m)), hasDist(x) ? days1(avg(x.proc ?? 0, m)) : "—", days1(avg(x.lead[3], m)), days1(avg(x.lead[2], m)), m ? days1((avg(x.lead[2], m) ?? 0) - (avg(x.lead[1], m) ?? 0)) : "—"] }; }),
       ]} />;
     },
   },
@@ -656,7 +649,7 @@ const CHARTS: ChartDef[] = [
     hint: (f) => `${periodOf(f)} · each lead time, the lines per band of working days`,
     body: (f) => {
       const t = total(f);
-      if (!t.dist) return NONE(NEXT_RUN);
+      if (!hasDist(t)) return NONE(NEXT_RUN);
       const colors = [SERIES[2], "#cfe6d8", "#f7d9b5", "#f0b47a", "#e5873f", "#c45a1c", "#7d3410"];
       return <StackedColumns ordinal data={LEAD_MEASURES.map((m, i) => ({ x: m.split(":")[0], ...Object.fromEntries(t.dist![i].map((n, j) => [`b${j}`, n])) }))}
         parts={LEAD_BUCKETS.map((label, j) => ({ key: `b${j}`, label, color: colors[j] }))} format={n0} height={280} />;
@@ -667,7 +660,7 @@ const CHARTS: ChartDef[] = [
     hint: (f) => `${periodOf(f)} · working days, on average`,
     body: (f) => {
       type R = { label: string; n: number; p: number | null; o: number | null; t: number | null; r: number | null };
-      const rows: R[] = pcsOf(f).map((pc) => { const x = total(f, f.yms, { pc: [pc] }), m = x.lead[0]; return { label: pc, n: m, p: avg(x.lead[1], m), o: x.dist ? avg(x.proc ?? 0, m) : null, t: avg(x.lead[3], m), r: avg(x.lead[2], m) }; }).filter((r) => r.n > 0);
+      const rows: R[] = pcsOf(f).map((pc) => { const x = total(f, f.yms, { pc: [pc] }), m = x.lead[0]; return { label: pc, n: m, p: avg(x.lead[1], m), o: hasDist(x) ? avg(x.proc ?? 0, m) : null, t: avg(x.lead[3], m), r: avg(x.lead[2], m) }; }).filter((r) => r.n > 0);
       return <FullTable first="Profit centre" initial="r" rows={rows} cols={[
         { key: "n", head: "Lines", cell: (r) => int(r.n), sort: (r) => r.n },
         { key: "p", head: "Promised", cell: (r) => days1(r.p), sort: (r) => r.p ?? 0 },
@@ -683,8 +676,8 @@ const CHARTS: ChartDef[] = [
     hint: (f) => `${periodOf(f)} · working days from the shipment to the customer`,
     body: (f) => {
       const t = total(f);
-      if (!t.dist) return NONE(NEXT_RUN);
-      const all = t.dist[2].reduce((a, b) => a + b, 0);
+      if (!hasDist(t)) return NONE(NEXT_RUN);
+      const all = t.dist![2].reduce((a, b) => a + b, 0);
       return <BarList rows={LEAD_BUCKETS.slice(0, 5).map((label, j) => ({ label, value: t.dist![2][j], secondary: pct(all ? t.dist![2][j] / all : null) }))} format={n0} labelWidth={110} />;
     },
   },
@@ -774,11 +767,43 @@ const CHARTS: ChartDef[] = [
     },
   },
   {
-    id: "comment", title: "A customer's comment on the order",
-    hint: () => `the share on time with and without the customer's remark · ${FILE_ONLY}`,
+    id: "commentKinds", title: "What the customers wrote",
+    hint: () => `${REMARK_FROM} · each remark read for what it asks · the period and the filters do not apply`,
+    body: () => {
+      const all = REMARK_KINDS.reduce((a, r) => a + r[1], 0);
+      return <BarList rows={REMARK_KINDS.map(([label, n, orders]) => ({ label, value: n, secondary: `${pct(n / all)} of the remarks · ${int(orders)} orders` }))} format={n0} labelWidth={260} />;
+    },
+  },
+  {
+    id: "commentOnTime", title: "On time, by what the remark asks",
+    hint: () => `${REMARK_FROM} · the share of the lines on time, against the lines without a remark`,
+    body: () => (
+      <BarList rows={[...REMARK_KINDS, REMARK_NONE].map(([label, n, , late, days]) => ({ label, value: (n - late) / n, secondary: `${int(n)} lines · ${int(late)} late · ${days1(late ? days / late : null)} late on average` }))}
+        format={pct} labelWidth={260} max={1} />
+    ),
+  },
+  {
+    id: "commentTable", wide: true, title: "The remarks in figures",
+    hint: () => `${REMARK_FROM} · average late = the late lines' working days after the first confirmed date`,
+    body: () => {
+      const withR = REMARK_KINDS.reduce<[number, number, number, number]>((a, r) => [a[0] + r[1], a[1] + r[2], a[2] + r[3], a[3] + r[4]], [0, 0, 0, 0]);
+      const row = (key: string, label: string, [n, orders, late, days]: [number, number, number, number], strong = false) =>
+        ({ key, strong, cells: [label, int(n), orders ? int(orders) : "—", int(late), pct((n - late) / n), days1(late ? days / late : null)] });
+      return <Table head={["", "Lines", "Orders", "Late", "On time", "Average late"]} rows={[
+        ...REMARK_KINDS.map(([label, ...x]) => row(label, label, x)),
+        row("with", "Every line with a remark", withR, true),
+        row("without", "The lines without a remark", [REMARK_NONE[1], 0, REMARK_NONE[3], REMARK_NONE[4]], true),
+      ]} />;
+    },
+  },
+  {
+    id: "comment", wide: true, title: "With a remark and without, month by month",
+    hint: () => `the share on time · ${REMARK_FROM}, by the month delivered - the months after it stay empty: the ERP's files the hub receives carry no remark`,
     body: (f) => {
-      const ms = months(f);
-      return <MultiLine labels={LABELS(f)} series={COMMENT.map((label, i) => ({ key: `c${i}`, label, values: ms.map((s) => share(s.comment[i])) }))} format={pct} tickFormat={pct0} max={1} />;
+      const at = new Map(REMARK_MONTHS.map((m) => [m[0], m]));
+      const v = (i: 1 | 3) => f.yms.map((ym) => { const m = at.get(ym); if (!m) return null; const n = m[i], late = i === 1 ? m[2] : m[4]; return n ? (n - late) / n : null; });
+      if (!f.yms.some((ym) => at.has(ym))) return NONE("The OTD analysis file holds no month of this period.");
+      return <MultiLine labels={LABELS(f)} series={[{ key: "with", label: "With a remark", values: v(1) }, { key: "without", label: "Without a remark", values: v(3) }]} format={pct} tickFormat={pct0} max={1} />;
     },
   },
 
@@ -982,6 +1007,33 @@ const VS_FILE_DAYS: [string, number][] = [
   ["2 days or more later", 0.2],
 ];
 
+/** The shop customers' checkout remarks ("Bemerkung des Kunden (nicht bindend für APSOparts)" and its four languages) in
+ *  the OTD analysis file of 26.10.2026 - lines delivered Jan 2025 - Sep 2026, its rule - read 11.11.2026 for what each asks
+ *  (SARCLA: "we need to check the detail of the comment"). Counts only: [kind, lines, orders, late lines, late days]. */
+const REMARK_FROM = "the OTD analysis file's lines delivered Jan 25 – Sep 26";
+const REMARK_KINDS: [string, number, number, number, number][] = [
+  ["Their own reference (order, article, drawing)", 20619, 9624, 3945, 39783],
+  ["Another note (a commission, a person, a machine)", 3551, 2356, 785, 9651],
+  ["A delivery wish (a date, partial, how)", 588, 494, 151, 2647],
+  ["A certificate or declaration (FDA, 3.1 …)", 562, 350, 156, 1349],
+  ["A price or an offer", 330, 280, 118, 1565],
+];
+const REMARK_NONE: [string, number, number, number, number] = ["No remark", 175695, 0, 36150, 466714];
+/** month delivered -> lines with a remark, late of them, lines without, late of them */
+const REMARK_MONTHS: [string, number, number, number, number][] = [
+  ["2025-01", 1607, 395, 9183, 2120], ["2025-02", 1344, 224, 9191, 1989], ["2025-03", 1410, 209, 9025, 1307], ["2025-04", 1118, 177, 8807, 1383],
+  ["2025-05", 1382, 304, 8391, 1579], ["2025-06", 1220, 223, 7980, 1551], ["2025-07", 1359, 210, 8735, 1428], ["2025-08", 1012, 132, 6627, 1137],
+  ["2025-09", 1379, 246, 8741, 1386], ["2025-10", 1430, 215, 8890, 1413], ["2025-11", 1104, 167, 8231, 1249], ["2025-12", 784, 96, 5725, 1018],
+  ["2026-01", 1317, 342, 8779, 2214], ["2026-02", 1398, 175, 9142, 1659], ["2026-03", 1260, 222, 9713, 1956], ["2026-04", 1200, 393, 8848, 2488],
+  ["2026-05", 1019, 268, 7496, 2034], ["2026-06", 1253, 413, 8957, 2739], ["2026-07", 1198, 351, 9100, 2758], ["2026-08", 890, 237, 6982, 1522],
+  ["2026-09", 966, 156, 7148, 1219],
+];
+
+/** the cube's suppliers by their real lead time, the most lines first (the cube names its 60 largest) */
+function supLeadBars(f: Frame, n: number): React.ReactNode {
+  const rows = Object.entries(total(f).sup).filter(([k]) => k !== OTHER).sort((a, b) => b[1][0] - a[1][0]).slice(0, n);
+  return <BarList rows={rows.map(([s, r]) => ({ label: supName(s), value: r[0] ? r[6] / r[0] : null, secondary: `${int(r[0])} lines` }))} format={days1} labelWidth={200} />;
+}
 /** the suppliers with the most late days over the period (GLC among them), "Other suppliers" never one */
 function topSuppliers(f: Frame, n: number): string[] {
   return Object.entries(total(f).sup).filter(([k]) => k !== OTHER).sort((a, b) => b[1][2] - a[1][2]).slice(0, n).map(([k]) => k);
@@ -1040,8 +1092,8 @@ const TABS: Record<OtdSlug, TabDef[]> = {
   suppliers: [
     { id: "impact", label: "Impact ranking", title: "Which suppliers make us late", note: "the file's \"Supplier Impact Rank\": each supplier's late days, its index against the largest, its priority", icon: <FactoryOutlinedIcon />, tint: "pink", charts: ["top10", "supRate", "impact"] },
     { id: "months", label: "Month by month", title: "The largest contributors, month by month", note: "late days and their share of the month - the file's \"Supplier Impact Monthly\" and \"%LatePerSupplier\"", icon: <BarChartOutlinedIcon />, tint: "amber", charts: ["supDays", "supShare", "supMonthTable"] },
-    { id: "glc", label: "GLC", title: "GLC - cut to size and made in house", note: "the lines whose article has no supplier: against the lines bought in, and DirectCut's orders as a leftover off the shelf or cut on the saw", icon: <ContentCutOutlinedIcon />, tint: "purple", charts: ["glcFigures", "glcKinds", "glcPc", "glcKindTrend", "glcProc", "glcVs", "glcCats"] },
-    { id: "lead", label: "Lead time", title: "Lead time per supplier", note: "from the order to the customer", icon: <HourglassEmptyOutlinedIcon />, tint: "green", charts: ["supLead"] },
+    { id: "glc", label: "GLC", title: "GLC - cut to size and made in house", note: "the lines whose article has no supplier: DirectCut's orders as a leftover off the shelf or cut on the saw, the companies that received them, and against the lines bought in", icon: <ContentCutOutlinedIcon />, tint: "purple", charts: ["glcCompanies", "glcFigures", "glcPc", "glcKindTrend", "glcProc", "glcVs", "glcCats"] },
+    { id: "lead", label: "Lead time", title: "Lead time per supplier", note: "every supplier from the order to the customer - in figures, then the graph", icon: <HourglassEmptyOutlinedIcon />, tint: "green", charts: ["supLeadAll"] },
   ],
   products: [
     { id: "articles", label: "Articles", title: "The articles late most often", note: "with their product group, profit centre and supplier", icon: <InventoryOutlinedIcon />, tint: "amber", charts: ["articleBars", "groups", "articles"] },
@@ -1052,13 +1104,14 @@ const TABS: Record<OtdSlug, TabDef[]> = {
     { id: "changes", label: "Date changes", title: "When the confirmed date moved", note: "the lines whose date changed after the first confirmation, and how far", icon: <EventRepeatOutlinedIcon />, tint: "pink", charts: ["changed", "changedDays", "changeCats"] },
     { id: "shape", label: "Order shape", title: "The order's shape", note: "the positions per order, one delivery or several, more deliveries than confirmed", icon: <ShoppingCartOutlinedIcon />, tint: "blue", charts: ["positions", "posTable", "more", "shape"] },
     { id: "wish", label: "Customer's wish", title: "The date the customer asked for", note: "on time against the customer's wish date, and the lines first confirmed later than asked", icon: <CalendarMonthOutlinedIcon />, tint: "amber", charts: ["wishOtd", "wishLater", "wishTable"] },
-    { id: "comment", label: "Customer comment", title: "A comment from the customer", note: "the shop customer's remark at checkout (\"not binding for APSOparts\") - only the OTD analysis file's lines carry it: the ERP's files the hub receives do not", icon: <ForumOutlinedIcon />, tint: "slate", charts: ["comment"] },
+    { id: "comment", label: "Customer comment", title: "A comment from the customer", note: "what the shop customers wrote at checkout (\"not binding for APSOparts\"), read in the OTD analysis file - the ERP's files the hub receives do not carry it", icon: <ForumOutlinedIcon />, tint: "slate", charts: ["commentKinds", "commentOnTime", "commentTable", "comment"] },
+
   ],
   lead: [
     { id: "lead", label: "Lead times", title: "Lead times", note: "promised, processing, transport and real - in working days, month by month, per band and per profit centre", icon: <HourglassEmptyOutlinedIcon />, tint: "green", charts: ["leadKpis", "leadFigures", "leadDist", "leadPc"] },
     { id: "transport", label: "Transport", title: "Transport time", note: "from the shipment to the customer, and how the date at the customer was found", icon: <LocalShippingOutlinedIcon />, tint: "blue", charts: ["transport", "transportDist", "dated", "leadMandant"] },
     { id: "replen", label: "Planning & replenishment", title: "Planning and replenishment", note: "planned articles' lead times, and the lines promised faster than the supplier replenishes", icon: <TimerOutlinedIcon />, tint: "amber", charts: ["plannedLead", "replen"] },
-    { id: "suppliers", label: "Suppliers", title: "Lead time per supplier", note: "from the order to the customer", icon: <FactoryOutlinedIcon />, tint: "pink", charts: ["supLead"] },
+    { id: "suppliers", label: "Suppliers", title: "Lead time per supplier", note: "every supplier from the order to the customer - in figures, then the graph", icon: <FactoryOutlinedIcon />, tint: "pink", charts: ["supLeadAll"] },
   ],
   compare: [
     { id: "vs", label: "File vs hub", title: "The OTD analysis file against the hub", note: "the same lines, both ways", icon: <CompareArrowsOutlinedIcon />, tint: "blue", charts: ["vsMonths", "vsGap", "vsVerdict", "vsDays", "axes", "vsRule"] },

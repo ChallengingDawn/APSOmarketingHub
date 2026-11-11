@@ -18,7 +18,9 @@ export const artKey = (a: string) => a.trim().replace(/^0+(?=\d)/, "");
 
 /** The articles asked -> their text and groups. dim_article holds many rows per article (one per version): the first with a
  *  main group wins, the text from any. A file that cannot be read keeps the last kept names. */
-export async function otdArticleInfo(dir: string, articles: Iterable<string>, beat: () => Promise<void> = async () => {}):
+export async function otdArticleInfo(dir: string, articles: Iterable<string>, beat: () => Promise<void> = async () => {},
+  /** fetches the file from the ERP's folder when this copy lacks it (a step run from the page after a release) - an error, or null */
+  fetchMissing?: (name: string) => Promise<string | null>):
   Promise<{ infoOf: (a: string) => ArtInfo | undefined; status: Record<string, unknown> | string }> {
   const want = new Set<string>();
   for (const a of articles) if (a) want.add(artKey(a));
@@ -29,8 +31,13 @@ export async function otdArticleInfo(dir: string, articles: Iterable<string>, be
     return x ? { t: x[0] || undefined, g: x[1] || undefined, s: x[2] || undefined, p: x[3] || undefined } : undefined;
   };
   const p = path.join(dir, ARTICLE_FILE);
-  const st = await fs.stat(p).catch(() => null);
-  if (!st) return { infoOf: of(keptMap), status: `no ${ARTICLE_FILE} on this copy's disk - the ${keptMap.size} kept articles used` };
+  let st = await fs.stat(p).catch(() => null);
+  let fetched: string | null | undefined;
+  if (!st && fetchMissing) {
+    fetched = await fetchMissing(ARTICLE_FILE).catch((e: unknown) => String((e as Error)?.message ?? e));
+    st = await fs.stat(p).catch(() => null);
+  }
+  if (!st) return { infoOf: of(keptMap), status: `no ${ARTICLE_FILE} on this copy's disk${fetched ? ` (fetching it failed: ${fetched})` : ""} - the ${keptMap.size} kept articles used` };
   const sig = `${st.size}:${st.mtimeMs}`;
   if (kept?.sig === sig) return { infoOf: of(keptMap), status: { articles: keptMap.size, read: false } };
   const found = new Map<string, [string, string, string, string]>();
@@ -55,5 +62,5 @@ export async function otdArticleInfo(dir: string, articles: Iterable<string>, be
   // the kept names of articles this file no longer holds stay
   for (const [a, x] of keptMap) if (!found.has(a) && want.has(a)) found.set(a, x);
   await kvSet(KV_INFO, { sig, at: new Date().toISOString(), info: Object.fromEntries(found) } satisfies Kept);
-  return { infoOf: of(found), status: { rows, asked: want.size, named: found.size, with_group: [...found.values()].filter((x) => x[1]).length, read: true } };
+  return { infoOf: of(found), status: { rows, asked: want.size, named: found.size, with_group: [...found.values()].filter((x) => x[1]).length, read: true, ...(fetched === null ? { fetched: true } : {}) } };
 }
