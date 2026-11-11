@@ -44,8 +44,11 @@ test("not a product of the shop: no card", () => {
   assert.equal(withCard(duo(), "items.7", prod("10341005", "Y")), null);
 });
 
-test("product photos of every shape sit alike on a card: faded round, never a hard square", () => {
+// "Two products side by side" (the Kalrez page, LIVE 30af2745 11.11.2026): each photo one rounded tile it fills - a white
+// photo a white tile, a grey one a grey tile; the other product modules: a round fade, never the old oversized ellipse
+test("product photos of every shape sit alike on a card: a tile the photo fills (duo), never a hard square", () => {
   const html = renderModule(duo());
-  assert.match(html, /mask-image:radial-gradient\(circle closest-side at 50% 50%,#000 76%,transparent 100%\)/);
+  assert.match(html, /\.am-dp img\{[^}]*aspect-ratio:1;object-fit:cover;border-radius:20px/);
   assert.ok(!/ellipse 80% 80%/.test(html));
+  assert.ok(!/\.am-dp img\{[^}]*mix-blend-mode/.test(html), "no blend that hides only white backgrounds");
 });
