@@ -108,16 +108,24 @@ export async function buildSteps(steps: PlanStep[], current: ModChange[], store:
       // and last the category's products as the shop lists them (the AI's category, or this category page)
       const tries = fillTries(step);
       const listing = listingWay(tries, libModule(m1.type)?.takes === "products", pageCategory);
+      // what each way gave, for the log when none filled it (the home pages' "Hero with three products", 11.11.2026)
+      const tried: string[] = [];
       for (const t of listing ? [...tries, listing] : tries) {
         const mt = t.module === m1.type ? m1 : moduleOf({ ...step, module: t.module, layout: t.layout }, base, store);
-        if (!mt) continue;
-        const out = await fillModule({ module: mt.type, store: shopStore, fill: t.fill, count: t.fill.count || undefined }).catch(() => null);
+        if (!mt) { tried.push(`${t.module}: not in the library`); continue; }
+        const way = `${t.module} ${t.fill.how}${t.fill.category ? ` ${t.fill.category}` : ""}`;
+        const out = await fillModule({ module: mt.type, store: shopStore, fill: t.fill, count: t.fill.count || undefined }).catch((e: Error) => { tried.push(`${way}: ${e.message.slice(0, 80)}`); return null; });
         if (!out) continue;
         const m = withFill(mt, out, t.fill);
         lack = fullGap(m);
+        tried.push(`${way}: ${lack ? low(lack) : "full"}`);
         if (!lack) { filled = m; break; }
       }
-      if (!filled) { problems.push(`"${step.line}" left out: the shop could not fill it${lack ? ` (${low(lack)})` : ""}`); continue; }
+      if (!filled) {
+        console.log(`[convert-fill] ${store} "${step.line.slice(0, 80)}" not filled - ${tried.join(" | ").slice(0, 600)}`);
+        problems.push(`"${step.line}" left out: the shop could not fill it${lack ? ` (${low(lack)})` : ""}`);
+        continue;
+      }
       m2 = filled;
     }
     const gap = step.do === "words" ? moduleGapOf(m2) : fullGap(m2);
