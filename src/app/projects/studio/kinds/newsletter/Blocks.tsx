@@ -6,7 +6,9 @@
 //   Gallery     the block types, each drawn as it looks in the e-mail
 //   Layouts     three to start from, drawn small (the words already written are carried over)
 //   BlockTools  what a picked block needs besides its words, on the right: its picture (made or uploaded), where its
-//               button goes, a story's picture side, the logo - the words themselves are edited in the e-mail
+//               button goes, a story's picture side, the logo - the words themselves are edited in the e-mail; under each
+//               link "A page from the Page builder" (./PagePick.tsx, 11.11.2026): a new page's shop address in the
+//               newsletter's language store view
 
 import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -38,6 +40,7 @@ import { PicturePanel } from "../../pictures";
 import type { StudioApi } from "../../useStudio";
 import { StateMark } from "../blog/Outline";
 import { BLUE, Hint, PictureSlot, toolBtn, useFitHeight } from "../blog/ui";
+import { PagePick, type PageLinks } from "./PagePick";
 import { BlockThumb, LayoutThumb } from "./thumbs";
 
 const GALLERY: BlockKind[] = ["hero", "article", "text", "banner", "products", "facts", "cta", "divider", "header", "footer"];
@@ -271,11 +274,15 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
 type Where = { projectId: number; pieceId: number; me: string };
 
 /** What the picked block needs besides its words: its picture, where its button goes, a story's side, the logo. */
-export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }: {
+export function BlockTools({ b, set, disabled, where, picked, patch, onMaking, pages, language = "EN" }: {
   b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null;
   /** fields changed on the block as it is when they land (a picture comes up to 40 s later) */
   patch?: (id: string, p: Partial<Block>) => void;
   onMaking?: (key: string | null) => void;
+  /** the Page builder's pages, for "A page from the Page builder" under each link (11.11.2026) */
+  pages?: PageLinks;
+  /** the newsletter's language - a page is linked in its store view (fr -> fr-CH) */
+  language?: string;
 }) {
   const [otherLogo, setOtherLogo] = useState(false);
   const pic = (aspect: "16:9" | "1:1" | "3:2") => {
@@ -290,7 +297,14 @@ export function BlockTools({ b, set, disabled, where, picked, patch, onMaking }:
       </Box>
     );
   };
-  const link = (label: string, value: string, put: (v: string) => void) => <Field label={label} value={value} disabled={disabled} placeholder="https://www.apsoparts.com/…" onChange={(v) => put(v.trim())} />;
+  // a link: typed, or a page of the Page builder picked under it - its shop address in the newsletter's store view
+  // (SARCLA 11.11.2026: "how do we generate the link for the correct page in the newsletter?")
+  const link = (label: string, value: string, put: (v: string) => void) => (
+    <>
+      <Field label={label} value={value} disabled={disabled} placeholder="https://www.apsoparts.com/…" onChange={(v) => put(v.trim())} />
+      {pages && !disabled && <PagePick pages={pages} language={language} value={value} onPick={put} />}
+    </>
+  );
   switch (b.kind) {
     case "header": {
       const ours = isOurLogo(b.logoUrl);

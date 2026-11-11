@@ -5,13 +5,15 @@
 //   actions learn (what our last newsletters in HubSpot were and how they did - when the hub's HubSpot app may read
 //           marketing e-mails; else our gold examples), html (the e-mail, its hub pictures with the hub's full address),
 //           hubspot (send the e-mail to HubSpot as a DRAFT - switched off until SARCLA tests it: CONTENT_HUBSPOT_PUSH=on;
-//           a draft is never sent by the hub, a person schedules it)
+//           a draft is never sent by the hub, a person schedules it), pageLinks (the Page builder's new pages for the
+//           link picker - ./pageLinksRead.ts, 11.11.2026)
 import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { kvGet, kvSet } from "@/lib/db/init";
 import { readBrain } from "@/lib/brain";
 import { s, type KindDef, type StudioCtx } from "../../contract";
 import { asNewsletter, editable, emptyNewsletter, newBlock, newsletterText, renderEmail, textFields, PREHEADER_MAX, SUBJECT_MAX } from "./model";
 import { blocksFrom, digestOf, draftInHubspot, emailParts, ourEmails } from "./hubspotEmails";
+import { pageLinksFor } from "./pageLinksRead";
 
 /** Drafts to HubSpot: an admin switches them on in the studio (kv), or the hub's CONTENT_HUBSPOT_PUSH=on - no server change. */
 const PUSH_KEY = "content:hubspot_push";
@@ -200,6 +202,9 @@ a fact's figure (keep the figure, translate only its unit words).`,
     /** A DRAFT in HubSpot - never sent by the hub. Made from the e-mail the newsletter was started from (its look, footer,
      *  subscription settings) with what was changed here; a person checks it and schedules it in HubSpot.
      *  Switched on by CONTENT_HUBSPOT_PUSH=on (SARCLA's "go" 08.11.2026 for the test). */
+    /** The Page builder's new pages this person may see, for "A page from the Page builder" beside each link (SARCLA
+     *  11.11.2026: "how do we generate the link for the correct page in the newsletter?") - one read, nothing written. */
+    pageLinks: async (ctx) => ({ pages: await pageLinksFor(ctx.me) }),
     /** Whether drafts go to HubSpot - and, for an admin, the switch. */
     pushState: async (ctx) => ({ on: await pushOn(), byEnv: process.env.CONTENT_HUBSPOT_PUSH === "on", admin: ctx.me.admin }),
     pushSwitch: async (ctx, _doc, input) => {

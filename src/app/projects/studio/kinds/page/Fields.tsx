@@ -49,7 +49,7 @@ import { Choice, Hint } from "./ui";
 export type FillRun = (part: Part, opts?: { id?: string; request?: string; mode?: "topic" | "better" | "ask" }) => Promise<string | null>;
 
 /** A picture slot being made, or what went wrong (the studio keeps it by language and path). */
-export type Making = { state: "making" | "error"; error?: string; label?: string };
+export type Making = { state: "making" | "error"; error?: string; label?: string; /** the words it is being made from (Content v13) */ idea?: string };
 /** What the studio offers every picture slot: its state, "make it now", and whether the hub makes pictures at all. */
 export type PictureCtl = {
   making: (path: string) => Making | null;

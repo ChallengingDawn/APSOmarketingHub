@@ -106,6 +106,7 @@ import { useAbBar } from "../../abBar";
 import { abApplies, abLineOf, abStateOf, activateAb, type AbRunning } from "@/lib/content/studio/kinds/page/abState";
 import { fullOnly, type NewPageModule } from "@/lib/content/studio/kinds/page/plan/newpage";
 import { useNewPageModules } from "./plan/useNewPageModules";
+import { isNewest, startJob, type SlotJobs } from "@/lib/content/studio/kinds/page/pictureJobs";
 
 type Rewrite = { summary: string; changes: Change[]; problems: string[]; leftovers: string[] };
 /** The AI's block (./block.ts): the change, what it could not put right itself, what it put right */
@@ -520,6 +521,8 @@ export default function Studio({ api }: StudioProps) {
   /* ── pictures: made from the AI's idea, each in its slot ─────────────── */
 
   const [making, setMaking] = useState<Record<string, Making>>({});
+  /** each slot's asks, numbered - the newest one's picture is the one put in (./pictureJobs.ts) */
+  const slotJobs = useRef<SlotJobs>({});
   const makingRef = useRef(making);
   makingRef.current = making;
   const [imagesOn, setImagesOn] = useState<boolean | null>(null);
@@ -540,8 +543,12 @@ export default function Studio({ api }: StudioProps) {
    * the one there), or the slot is gone. */
   const makeOne = async (forLang: string, job: PictureJob, again = false) => {
     const key = slotKey(forLang, job.path);
-    setMaking((m) => ({ ...m, [key]: { state: "making" } }));
+    // Content v13 (SARCLA 11.11.2026: "make another on photo don't take into account new prompt"): each ask numbered, the
+    // newest one's picture lands - an older ask's still arrives in the project's pictures, never in the slot
+    const n = startJob(slotJobs.current, key);
+    setMaking((m) => ({ ...m, [key]: { state: "making", idea: job.idea } }));
     const r = await makePicture(job.idea, job.aspect, { projectId: api.data.piece.projectId, pieceId: api.data.piece.id });
+    if (!isNewest(slotJobs.current, key, n)) return false;
     if (!r.ok) { setMaking((m) => ({ ...m, [key]: { state: "error", error: r.error } })); return false; }
     api.setDoc((raw: unknown) => {
       const cur = pageDoc(raw, api.data.piece.language);
