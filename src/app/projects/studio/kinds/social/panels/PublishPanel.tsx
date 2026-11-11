@@ -10,6 +10,10 @@
 //   4 Approval & day  the to-do's status and its review moves; its day on the content calendar, the time
 //   5 Out             the pictures and the PDF per format, the texts to copy, "mark as published"
 // Nothing is posted from the hub: there is no network connection, by design.
+// cv16: each caption has its own Ask AI (../captions.tsx TextAi); what the shop's word rules took out of an AI text is
+// said; in a language's tab, everything here is that language's version (its texts, its link, its checks, its files).
+// The Page builder's point 7, as far as a post is handed over: with language versions, "Every language" saves each one's
+// pictures in one go, with its progress, each line saying what it saved or why not, "Try again" for a failed one.
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -31,20 +35,20 @@ import LinkedInIcon from "@mui/icons-material/LinkedIn";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { DesignThumb } from "@/app/editor/designRender";
 import { BRAND, logoSvg } from "@/lib/content/studio/kinds/banner/brand";
-import { cleanPostText, type WriteAnswer } from "@/lib/content/studio/kinds/social/ai";
+import { cleanPostText, leftOutLine, type WriteAnswer } from "@/lib/content/studio/kinds/social/ai";
 import { FORMATS, pageIn, sizeOf, withFormat, type FormatKey } from "@/lib/content/studio/kinds/social/design";
 import {
-  NETWORK, NETWORKS, NETWORK_FORMATS, checks, cleanTag, composed, composedComment, enabled, exportPack, formatsInUse, type Network, type SocialDoc,
+  NETWORK, NETWORKS, NETWORK_FORMATS, checks, cleanTag, composed, composedComment, enabled, exportPack, formatsInUse, viewOf, type Network, type SocialDoc,
 } from "@/lib/content/studio/kinds/social/model";
 import type { PieceStatus } from "@/lib/content/pieceRules";
 import { StatusChip, dayLabel } from "../../../../work/ui";
 import { moves } from "../../../../work/TodoList";
 import { ChipsInput, Checks, CopyButton } from "../../banner/ui";
-import { CaptionFor, PostText } from "../captions";
+import { CaptionFor, PostText, type TextAsk } from "../captions";
 import { Btn, Head, Note, PanelFrame, T } from "../look";
 import { FormatGlyph } from "../CanvasBar";
 import { fileStem } from "../actions";
-import { exportPages, exportPdf } from "../exportDesign";
+import { exportEverything, exportPages, exportPdf } from "../exportDesign";
 import type { StudioCtx } from "../Studio";
 
 const ICON: Record<Network, React.ReactNode> = { linkedin: <LinkedInIcon />, instagram: <InstagramIcon />, facebook: <FacebookIcon /> };
@@ -115,9 +119,9 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [adapting, setAdapting] = useState(false);
-  const list = useMemo(() => checks(doc).map((c) => c.text), [doc]);
+  const list = useMemo(() => checks(doc, ctx.lang ?? ctx.mainLang).map((c) => c.text), [doc, ctx.lang, ctx.mainLang]);
   const p = api.data.piece;
-  const stem = fileStem(p.title);
+  const stem = fileStem(p.title) + (ctx.lang ? `-${ctx.lang.toLowerCase()}` : "");
   const used = formatsInUse(doc);
   const ai = api.data.ai && canEdit;
 
@@ -142,20 +146,22 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
     setBusy(null);
   };
   const write = () => run("write", async () => {
-    const r = await api.ai<WriteAnswer>("write", { networks: nets });
+    const r = await api.ai<WriteAnswer & { leftOut?: string[] }>("write", { networks: nets });
     if (!r.ok) return r.error;
     set((d) => {
       const networks = { ...d.networks };
       for (const n of enabled(d)) { const t = r.result.texts[n]; if (t) networks[n] = { ...networks[n], text: t }; }
       return { ...d, networks, firstComment: d.networks.linkedin.on && r.result.firstComment ? r.result.firstComment : d.firstComment, hashtags: d.hashtags.length ? d.hashtags : r.result.hashtags };
     });
-    return Object.keys(r.result.texts).length ? "Written for each network - read it through." : "No text came back - try again.";
+    const left = leftOutLine(r.result.leftOut);
+    return Object.keys(r.result.texts).length ? `Written for each network - read it through.${left ? ` ${left}` : ""}` : left || "No text came back - try again.";
   });
   const adapt = async (from: Network, to: Network) => {
     setAdapting(true); setMsg(null);
-    const r = await api.ai<{ text: string; hashtags: string[] }>("adapt", { from, to });
+    const r = await api.ai<{ text: string; hashtags: string[]; leftOut?: string[] }>("adapt", { from, to });
     setAdapting(false);
     if (!r.ok) { setMsg(r.error); return; }
+    if (r.result.leftOut?.length) setMsg(leftOutLine(r.result.leftOut));
     set((d) => ({ ...d, networks: { ...d.networks, [to]: { ...d.networks[to], text: cleanPostText(r.result.text, to).text } }, hashtags: d.hashtags.length ? d.hashtags : r.result.hashtags.slice(0, 5) }));
   };
   const tags = () => run("tags", async () => {
@@ -185,9 +191,33 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
     return null;
   });
   const who = (u: string) => api.data.people.find((x) => x.username === u)?.name ?? u;
+  // cv16: every language's pictures in one go - each its own line, its progress, "Try again" for one that failed
+  const langsAll = [null, ...Object.keys(ctx.full.langs)] as (string | null)[];
+  const [langOut, setLangOut] = useState<Record<string, { state: "saving" | "done" | "failed"; n?: number; why?: string }>>({});
+  const langKey = (l: string | null) => l ?? "main";
+  const saveLang = async (l: string | null) => {
+    const k = langKey(l);
+    setLangOut((m) => ({ ...m, [k]: { state: "saving" } }));
+    try {
+      const d = viewOf(ctx.full, l);
+      const n = await exportEverything(d.design, used, fileStem(p.title) + (l ? `-${l.toLowerCase()}` : ""));
+      setLangOut((m) => ({ ...m, [k]: n ? { state: "done", n } : { state: "failed", why: "no picture was made - a picture on it did not load" } }));
+    } catch (e) {
+      setLangOut((m) => ({ ...m, [k]: { state: "failed", why: e instanceof Error ? e.message : String(e) } }));
+    }
+  };
+  const saveAllLangs = async () => { for (const l of langsAll) await saveLang(l); };
+  const savingAll = Object.values(langOut).some((x) => x.state === "saving");
+  const doneCount = langsAll.filter((l) => langOut[langKey(l)]?.state === "done").length;
+  // cv16: a caption's (or the first comment's) own Ask AI - the "ask" task, cut to the network's length
+  const askText: TextAsk = async ({ network, part, ask }) => {
+    const r = await api.ai<{ text: string; hashtags: string[]; leftOut?: string[] }>("ask", { network, part, ask });
+    if (!r.ok) return { ok: false, error: r.error };
+    return { ok: true, text: part === "comment" ? r.result.text.slice(0, 1250) : cleanPostText(r.result.text, network).text, leftOut: r.result.leftOut ?? [] };
+  };
 
   return (
-    <PanelFrame title="Publish">
+    <PanelFrame title={ctx.lang ? `Publish · ${ctx.lang}` : "Publish"}>
       <Note sx={{ mb: 2 }}>Nothing is posted from the hub - the pictures and the texts are made ready here, then posted by hand.</Note>
 
       <Step n={1} title="Where it goes">
@@ -241,7 +271,7 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
 
       <Step n={2} title="Texts" right={<Btn onClick={() => void write()} disabled={!ai || !!busy} icon={busy === "write" ? <CircularProgress size={14} /> : <AutoAwesomeIcon sx={{ color: T.accent }} />} sx={{ height: 30 }}>{nets.some((n) => doc.networks[n].text.trim()) ? "Rewrite with AI" : "Write with AI"}</Btn>}>
         {nets.length > 1 && <Box sx={{ mb: 1.25 }}><SquareChoice value={net} onChange={setTab} options={nets.map((k) => ({ key: k, label: NETWORK[k].label }))} /></Box>}
-        <CaptionFor doc={doc} set={set} canEdit={canEdit} net={net} adapt={ai ? adapt : null} adapting={adapting} />
+        <CaptionFor doc={doc} set={set} canEdit={canEdit} net={net} adapt={ai ? adapt : null} adapting={adapting} ask={ai ? askText : null} />
         <Head right={<Btn onClick={() => void tags()} disabled={!ai || !!busy} icon={busy === "tags" ? <CircularProgress size={13} /> : <AutoAwesomeIcon sx={{ color: T.accent }} />} sx={{ height: 28, fontSize: "0.76rem" }}>Suggest</Btn>}>Hashtags</Head>
         <ChipsInput values={doc.hashtags} comma max={30} disabled={!canEdit} placeholder="sealing technology, MRO…" clean={cleanTag} onChange={(v) => set((d) => ({ ...d, hashtags: v }))} />
         <Head>Link</Head>
@@ -293,6 +323,31 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
             </Box>
           ))}
         </Box>
+        {langsAll.length > 1 && (
+          <Box sx={{ mt: 1.5, p: 1.25, borderRadius: "10px", border: `1px solid ${T.line}`, bgcolor: "#fff" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography sx={{ flex: 1, fontSize: "0.84rem", fontWeight: 700, color: T.ink }}>Every language</Typography>
+              <Btn main disabled={savingAll} onClick={() => void saveAllLangs()} icon={savingAll ? <CircularProgress size={13} color="inherit" /> : <FileDownloadOutlinedIcon />} sx={{ height: 30, fontSize: "0.78rem" }}>
+                {savingAll ? `Saving · ${doneCount} of ${langsAll.length}` : `Save all ${langsAll.length} · PNG`}
+              </Btn>
+            </Box>
+            {savingAll && <Box sx={{ mt: 1, height: 3, borderRadius: 2, bgcolor: "#edf0f5", overflow: "hidden" }}><Box sx={{ height: "100%", width: `${(doneCount / langsAll.length) * 100}%`, bgcolor: T.accent, transition: "width .2s" }} /></Box>}
+            <Box sx={{ display: "grid", gap: 0.5, mt: 1 }}>
+              {langsAll.map((l) => {
+                const o = langOut[langKey(l)];
+                return (
+                  <Box key={langKey(l)} sx={{ display: "flex", alignItems: "center", gap: 1, fontSize: "0.8rem" }}>
+                    <Box sx={{ width: 34, fontWeight: 700, color: T.ink }}>{l ?? (ctx.mainLang || "Main")}</Box>
+                    <Typography sx={{ flex: 1, fontSize: "0.78rem", color: o?.state === "failed" ? "#b42318" : o?.state === "done" ? "#1b7a55" : T.ink3 }}>
+                      {!o ? `${used.length} format${used.length > 1 ? "s" : ""} · ${(l ? ctx.full.langs[l].design : ctx.full.design).pages.length} page${(l ? ctx.full.langs[l].design : ctx.full.design).pages.length > 1 ? "s" : ""}` : o.state === "saving" ? "Saving…" : o.state === "done" ? `${o.n} picture${o.n === 1 ? "" : "s"} saved` : `Not saved: ${o.why}`}
+                    </Typography>
+                    {o?.state === "failed" && <Btn disabled={savingAll} onClick={() => void saveLang(l)} sx={{ height: 26, fontSize: "0.74rem" }}>Try again</Btn>}
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+        )}
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 1.5 }}>
           {nets.map((n) => <CopyButton key={n} text={() => composed(doc, n)} label={`Copy the ${NETWORK[n].label} text`} disabled={!doc.networks[n].text.trim()} />)}
           {doc.networks.linkedin.on && composedComment(doc) && <CopyButton text={() => composedComment(doc)} label="Copy the first comment" />}

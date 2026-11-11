@@ -3,9 +3,10 @@
 // able to download"). Each format it goes out in: every page as a PNG (one file a page - an Instagram carousel), a
 // carousel as one PDF (LinkedIn shows a carousel as a document); every format at once. Drawn by the same Konva as the
 // canvas (./exportDesign.ts), at the real size - the export at the foot of the map keeps its own buttons.
+// cv16: each language version's files too (its own words on every page), named with its language.
 
 import { formatLabel } from "@/lib/content/studio/kinds/social/design";
-import { formatsInUse, normalizeSocial } from "@/lib/content/studio/kinds/social/model";
+import { formatsInUse, normalizeSocial, viewOf } from "@/lib/content/studio/kinds/social/model";
 import { fileStem, type DownloadItem, type DownloadsOf } from "../../frame";
 import { exportEverything, exportPages, exportPdf } from "./exportDesign";
 
@@ -27,6 +28,13 @@ export const downloads: DownloadsOf = (api) => {
   }
   if (formats.length > 1) {
     items.push({ key: "every", group: "Every format", label: `Every format · PNG (${formats.length})`, sub: formats.map((f) => formatLabel(f, d)).join(", "), run: async () => `${await exportEverything(d, formats, stem)} pictures saved.` });
+  }
+  for (const lang of Object.keys(doc.langs)) {
+    const v = viewOf(doc, lang).design;
+    if (!v.pages.length) continue;
+    const ls = `${stem}-${lang.toLowerCase()}`;
+    items.push({ key: `lang:${lang}`, group: `${lang} version`, label: `Every format · PNG (${formats.length})`, sub: `Its own words - ${formats.map((f) => formatLabel(f, v)).join(", ")}`, run: async () => `${await exportEverything(v, formats, ls)} pictures saved.` });
+    if (v.pages.length > 1) for (const f of formats) items.push({ key: `lang:${lang}:pdf:${f}`, group: `${lang} version`, label: `The carousel · PDF · ${formatLabel(f, v)}`, sub: "LinkedIn shows a carousel as a document", run: async () => ((await exportPdf(v, f, ls)) ? null : "The PDF could not be made.") });
   }
   return items;
 };

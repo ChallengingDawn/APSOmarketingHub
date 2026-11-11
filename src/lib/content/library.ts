@@ -241,9 +241,14 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
   } else if (kind === "social") {
     line = str(d.text, 200).split("\n")[0];
     picture = pictureOf(d.image) ?? pictureOf(row.first_pic);
-    languages = [upperLang(row.language)].filter(Boolean);
+    // cv16: its language versions too (each a tab of the social studio)
+    const own = Array.isArray(d.langs) ? d.langs.map((x) => upperLang(x)).filter(Boolean) : [];
+    languages = [...new Set([upperLang(row.language), ...own].filter(Boolean))];
     const pub = isObj(d.published) ? d.published : null;
-    if (pub) where.push({ kind: "marked", label: "Posted", at: iso(pub.at) || null, by: str(pub.by, 255) || null, links: [] });
+    // where it was posted: the networks it goes to (nothing is posted from the hub - it is marked)
+    const nets = isObj(d.nets) ? (["linkedin", "instagram", "facebook"] as const).filter((n) => (d.nets as Record<string, unknown>)[n] === true) : [];
+    const netNames = nets.map((n) => ({ linkedin: "LinkedIn", instagram: "Instagram", facebook: "Facebook" })[n]);
+    if (pub) where.push({ kind: "marked", label: netNames.length ? `Posted on ${netNames.join(", ")}` : "Posted", at: iso(pub.at) || null, by: str(pub.by, 255) || null, links: [] });
     official = !!pub || status === "live";
   } else {
     const scenes = typeof d.scenes === "number" ? d.scenes : 0;
@@ -398,8 +403,10 @@ export function libraryQuery(admin: boolean): string {
                   'hero', d.doc #> '{hero,url}', 'language', d.doc -> 'language')
               WHEN 'newsletter' THEN jsonb_build_object('subject', d.doc -> 'subject', 'preheader', d.doc -> 'preheader', 'language', d.doc -> 'language',
                   'hubspot', d.doc -> 'hubspot')
-              WHEN 'social' THEN jsonb_build_object('text', LEFT(COALESCE(d.doc #>> '{networks,linkedin,text}', ''), 300),
-                  'image', d.doc #> '{media,image,url}', 'published', d.doc -> 'published')
+              WHEN 'social' THEN jsonb_build_object('text', LEFT(COALESCE(NULLIF(d.doc #>> '{networks,linkedin,text}', ''), NULLIF(d.doc #>> '{networks,instagram,text}', ''), d.doc #>> '{networks,facebook,text}', ''), 300),
+                  'image', d.doc #> '{media,image,url}', 'published', d.doc -> 'published',
+                  'nets', jsonb_build_object('linkedin', d.doc #> '{networks,linkedin,on}', 'instagram', d.doc #> '{networks,instagram,on}', 'facebook', d.doc #> '{networks,facebook,on}'),
+                  'langs', CASE WHEN jsonb_typeof(d.doc -> 'langs') = 'object' THEN (SELECT COALESCE(jsonb_agg(k), '[]'::jsonb) FROM jsonb_object_keys(d.doc -> 'langs') k) ELSE '[]'::jsonb END)
               WHEN 'video' THEN jsonb_build_object('scenes', jsonb_array_length(${arr("d.doc -> 'scenes'")}), 'length', d.doc -> 'length',
                   'format', d.doc -> 'format', 'language', d.doc -> 'language')
               ELSE '{}'::jsonb END AS doc,

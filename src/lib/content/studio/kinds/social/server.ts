@@ -4,8 +4,14 @@
 //   adapt      one network's text rewritten for another
 //   carousel   the post turned into 5-8 slides, few words each
 //   hashtags   3-5 real ones
-//   ask        a change to one network's text, in the person's words
+//   ask        a change to one network's text (or the first comment), in the person's words
+//   translate  (cv16) every part of the post into another language: the captions, the first comment, the link's words, the
+//              words on every page in every format - its own tab from then on
 // and one action, "export": the whole post as a text to copy. Nothing is posted anywhere - publishing is not connected.
+// cv16 (SARCLA 11.11.2026: "compare the evolution of this page to the other content types and improve them"): every text the
+// AI writes goes through the shop's word rules before it lands (./guard.ts - a sentence with a price, a discount, a stock or
+// delivery promise or a certificate nobody named is taken out, and said); a task asked from a language's tab (input.lang)
+// works on that language's version and writes in it.
 
 import type { KindDef, StudioCtx } from "../../contract";
 import { LANGUAGE_BY_CODE } from "@/lib/content/languages";
@@ -13,7 +19,11 @@ import { SHOP_PHOTOS } from "../banner/brand";
 import {
   CAROUSEL_SCHEMA, HASHTAG_SCHEMA, TEXT_SCHEMA, WRITE_SCHEMA, askedNetworks, cleanCarousel, cleanTags, cleanText, cleanWrite,
 } from "./ai";
-import { NETWORK, NETWORKS, emptySocial, enabled, exportPack, isNetwork, normalizeSocial, slidesOf, socialText, type Network, type SocialDoc } from "./model";
+import {
+  NETWORK, NETWORKS, emptySocial, enabled, exportPack, isLangCode, isNetwork, normalizeSocial, slidesOf, socialText, translateItems, viewOf,
+  type Network, type SocialDoc,
+} from "./model";
+import { guardDesign, guardPost } from "./guard";
 import {
   DESIGN_SCHEMA, STYLE_GUIDE, TEMPLATE_CATALOGUE, WORDS_ANSWER_SCHEMA, WORDS_STYLES, cleanDesign, cleanWordsAnswer, describePage, type WordsStyle,
 } from "./canvasAi";
@@ -37,14 +47,39 @@ const RULES = [
 
 const langOf = (code: string | null) => (code ? LANGUAGE_BY_CODE[code.toUpperCase()]?.instruction ?? code : "English, British spelling");
 
-function context(ctx: StudioCtx, d: SocialDoc): string {
+/** The language a task works in: the tab it was asked from (a version of the post), else the to-do's own. */
+const langIn = (input: Record<string, unknown>): string | null => (isLangCode(input.lang) ? input.lang : null);
+/** The post as the task sees it: the language tab's version, else the post itself. */
+const docOf = (doc: unknown, input: Record<string, unknown>): SocialDoc => viewOf(normalizeSocial(doc), langIn(input));
+
+/** What the post may name (a certificate stays only when one of these names it): the brief, the to-do, the post's own
+ * words, the person's ask. */
+function known(ctx: StudioCtx, d: SocialDoc, input: Record<string, unknown>): string {
+  const b = ctx.brief;
+  return [ctx.projectTitle, ctx.piece.title, b.goal, b.audience, b.message, b.keywords.join(" "), ctx.projectNotes ?? "", socialText(d), typeof input.ask === "string" ? input.ask : ""].join("\n");
+}
+/** A text under the word rules, what was taken out said in `said`. */
+const guarded = (text: string, k: string, said: string[]) => guardPost(text, k, said);
+
+/** One text answer under the word rules. */
+function guardedText(a: { text: string; hashtags: string[] }, k: string): { text: string; hashtags: string[]; leftOut: string[] } {
+  const said: string[] = [];
+  return { ...a, text: guarded(a.text, k, said), leftOut: [...new Set(said)] };
+}
+
+const TRANSLATE_SCHEMA = {
+  type: "object", additionalProperties: false, required: ["items"],
+  properties: { items: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "text"], properties: { id: { type: "string" }, text: { type: "string" } } } } },
+} as const;
+
+function context(ctx: StudioCtx, d: SocialDoc, lang: string | null = null): string {
   const b = ctx.brief;
   const lines = [
     `Project: ${ctx.projectTitle || "(no title)"}`,
     `This post: ${ctx.piece.title}`,
     b.goal ? `Goal: ${b.goal}` : "", b.audience ? `Audience: ${b.audience}` : "", b.message ? `Key message: ${b.message}` : "",
     b.keywords.length ? `Keywords: ${b.keywords.join(", ")}` : "",
-    `Language: write in ${langOf(ctx.piece.language)}.`,
+    `Language: write in ${langOf(lang ?? ctx.piece.language)}.`,
     d.link.url ? `The link it points to: ${d.link.url}${d.link.label ? ` (${d.link.label})` : ""}` : "",
   ];
   for (const n of enabled(d)) if (d.networks[n].text.trim()) lines.push(`\nIts ${NETWORK[n].label} text now:\n${d.networks[n].text.trim().slice(0, 3000)}`);
@@ -108,42 +143,58 @@ export const socialKind: KindDef = {
       schema: WRITE_SCHEMA as unknown as Record<string, unknown>,
       system: `${RULES}\n\n# EACH NETWORK'S MANNER\n${Object.values(MANNER).map((m) => `- ${m}`).join("\n")}\n- Write only for the networks the question names; give an empty text for the others.`,
       user: (ctx, doc, input) => {
-        const d = normalizeSocial(doc);
+        const d = docOf(doc, input);
         const nets = askedNetworks(input, enabled(d));
-        return `${context(ctx, d)}\n\nWrite the post for: ${nets.map((n) => NETWORK[n].label).join(", ")}.${d.networks.linkedin.text.trim() || d.networks.instagram.text.trim() || d.networks.facebook.text.trim() ? " Keep what works in the texts it has; make them better." : ""}${ask(input)}`;
+        const has = d.networks.linkedin.text.trim() || d.networks.instagram.text.trim() || d.networks.facebook.text.trim();
+        // cv16 "Write it all again": from the topic (fresh - the texts there now are not the source), directly (better), as asked
+        const how = input.mode === "topic" ? " Write it fresh from the project's brief and this post's subject - the texts it has now are not your source, only what not to repeat."
+          : input.mode === "better" ? " Write the texts it has again, better: the same message and facts, a stronger hook, tighter words."
+          : has ? " Keep what works in the texts it has; make them better." : "";
+        return `${context(ctx, d, langIn(input))}\n\nWrite the post for: ${nets.map((n) => NETWORK[n].label).join(", ")}.${how}${ask(input)}`;
       },
       maxTokens: 3500,
-      // the cleaning cannot see which networks were asked (contract: clean has no input) - every text is kept, and the
-      // studio applies the networks it asked for
-      clean: (raw) => cleanWrite(raw, [...NETWORKS]),
+      // every network's text is kept (the studio applies the networks it asked for) - under the word rules
+      clean: (raw, doc, ctx, input) => {
+        const w = cleanWrite(raw, [...NETWORKS]);
+        const k = known(ctx, docOf(doc, input), input);
+        const said: string[] = [];
+        const texts: typeof w.texts = {};
+        for (const [n, t] of Object.entries(w.texts) as [Network, string][]) { const g = guarded(t, k, said); if (g.trim()) texts[n] = g; }
+        return { ...w, texts, firstComment: guarded(w.firstComment, k, said), leftOut: [...new Set(said)] };
+      },
     },
     adapt: {
       label: "Adapt for another network",
       schema: TEXT_SCHEMA as unknown as Record<string, unknown>,
       system: `${RULES}\n\n# EACH NETWORK'S MANNER\n${Object.values(MANNER).map((m) => `- ${m}`).join("\n")}\n- Rewrite the text for the target network: the same idea and facts, its manner and length - not a copy.`,
       user: (ctx, doc, input) => {
-        const d = normalizeSocial(doc);
+        const d = docOf(doc, input);
         const from = netOf(input.from, "linkedin");
         const to = netOf(input.to, "instagram");
-        return `${context(ctx, d)}\n\nRewrite the ${NETWORK[from].label} text for ${NETWORK[to].label}:\n\n${d.networks[from].text.trim()}${ask(input)}`;
+        return `${context(ctx, d, langIn(input))}\n\nRewrite the ${NETWORK[from].label} text for ${NETWORK[to].label}:\n\n${d.networks[from].text.trim()}${ask(input)}`;
       },
       maxTokens: 2000,
       // cut to the longest network here; the studio cuts to the target's own length
-      clean: (raw) => cleanText(raw, "facebook"),
+      clean: (raw, doc, ctx, input) => guardedText(cleanText(raw, "facebook"), known(ctx, docOf(doc, input), input)),
     },
     carousel: {
       label: "Make a carousel",
       schema: CAROUSEL_SCHEMA as unknown as Record<string, unknown>,
       system: `${RULES}\n\n# A CAROUSEL\n- 5 to 8 slides. Slide 1 is the cover: the hook as a headline, an eyebrow naming the topic. Then one idea per slide. The last slide (layout "end") asks the reader something or points to the shop.\n- Few words: a headline of at most about 8 words, at most two short sentences under it. A "list" slide has one point per line in its text (3 to 5 points).\n- Layouts: cover (first), statement (one strong point), photo (a point with one of the shop's photos), list, end (last).\n- Photos: only the shop's own (${SHOP_PHOTOS.map((p) => `${p.key} = ${p.label.EN}`).join(", ")}) and only where the slide is about that technology; else "none".`,
-      user: (ctx, doc, input) => `${context(ctx, normalizeSocial(doc))}\n\nTurn this post into a carousel.${ask(input)}`,
+      user: (ctx, doc, input) => `${context(ctx, docOf(doc, input), langIn(input))}\n\nTurn this post into a carousel.${ask(input)}`,
       maxTokens: 3000,
-      clean: (raw) => cleanCarousel(raw),
+      clean: (raw, doc, ctx, input) => {
+        const k = known(ctx, docOf(doc, input), input);
+        const said: string[] = [];
+        const slides = cleanCarousel(raw).slides.map((s) => ({ ...s, eyebrow: guarded(s.eyebrow, k, said), headline: guarded(s.headline, k, said), text: guarded(s.text, k, said) })).filter((s) => s.headline || s.text);
+        return { slides, leftOut: [...new Set(said)] };
+      },
     },
     hashtags: {
       label: "Suggest hashtags",
       schema: HASHTAG_SCHEMA as unknown as Record<string, unknown>,
       system: `${RULES}\n- Give 3 to 5 hashtags for this post, most specific first. Real ones people in industry search and follow - in the post's language where a tag in that language is really used, else English.`,
-      user: (ctx, doc, input) => `${context(ctx, normalizeSocial(doc))}\n\nSuggest the hashtags.${ask(input)}`,
+      user: (ctx, doc, input) => `${context(ctx, docOf(doc, input), langIn(input))}\n\nSuggest the hashtags.${ask(input)}`,
       maxTokens: 600,
       clean: (raw) => ({ hashtags: cleanTags((raw as { hashtags?: unknown })?.hashtags) }),
     },
@@ -152,40 +203,96 @@ export const socialKind: KindDef = {
       schema: DESIGN_SCHEMA as unknown as Record<string, unknown>,
       system: CANVAS_RULES,
       user: (ctx, doc, input) => {
-        const d = normalizeSocial(doc);
+        const d = docOf(doc, input);
         const { i, f, page } = pageOf(d, input);
         const board = page
           ? describePage(pageIn(d.design, page, f), i, d.design.pages.length, f)
           : `The canvas is empty (format ${f}${f === "custom" ? "" : `, ${FORMATS[f].w} x ${FORMATS[f].h}`}).`;
-        return `${context(ctx, d)}\n\n${board}${ask(input)}`;
+        return `${context(ctx, d, langIn(input))}\n\n${board}${ask(input)}`;
       },
       maxTokens: 6000,
-      clean: (raw) => cleanDesign(raw),
+      clean: (raw, doc, ctx, input) => guardDesign(cleanDesign(raw), known(ctx, docOf(doc, input), input)),
     },
     words: {
       label: "Write the words on the design",
       schema: WORDS_ANSWER_SCHEMA as unknown as Record<string, unknown>,
       system: WORDS_RULES,
       user: (ctx, doc, input) => {
-        const d = normalizeSocial(doc);
+        const d = docOf(doc, input);
         const style: WordsStyle = (WORDS_STYLES as readonly string[]).includes(String(input.style)) ? (input.style as WordsStyle) : "headline";
         const what = typeof input.describe === "string" ? input.describe.trim().slice(0, 1500) : "";
-        return `${context(ctx, d)}\n\nThe shape of the words: ${STYLE_GUIDE[style]}\n\nWhat the person describes: ${what || "(nothing - use the post's brief)"}`;
+        return `${context(ctx, d, langIn(input))}\n\nThe shape of the words: ${STYLE_GUIDE[style]}\n\nWhat the person describes: ${what || "(nothing - use the post's brief)"}`;
       },
       maxTokens: 1500,
-      clean: (raw) => cleanWordsAnswer(raw),
+      clean: (raw, doc, ctx, input) => {
+        const k = known(ctx, docOf(doc, input), { ...input, ask: input.describe });
+        const said: string[] = [];
+        const blocks = cleanWordsAnswer(raw).blocks.map((b) => ({ ...b, text: guarded(b.text, k, said) })).filter((b) => b.text.trim());
+        return { blocks, leftOut: [...new Set(said)] };
+      },
     },
     ask: {
       label: "Change the text",
       schema: TEXT_SCHEMA as unknown as Record<string, unknown>,
       system: `${RULES}\n\n# EACH NETWORK'S MANNER\n${Object.values(MANNER).map((m) => `- ${m}`).join("\n")}\n- Change the network's text as the person asks; keep the rest of it.`,
       user: (ctx, doc, input) => {
-        const d = normalizeSocial(doc);
+        const d = docOf(doc, input);
         const n = netOf(input.network, "linkedin");
-        return `${context(ctx, d)}\n\nThe ${NETWORK[n].label} text to change:\n\n${d.networks[n].text.trim() || "(empty - write it)"}${ask(input)}`;
+        // cv16: the first comment has its own Ask AI too
+        if (input.part === "comment") return `${context(ctx, d, langIn(input))}\n\nLinkedIn's first comment to change (a detail, a source or the link - short):\n\n${d.firstComment.trim() || "(empty - write it)"}${ask(input)}`;
+        return `${context(ctx, d, langIn(input))}\n\nThe ${NETWORK[n].label} text to change:\n\n${d.networks[n].text.trim() || "(empty - write it)"}${ask(input)}`;
       },
       maxTokens: 2000,
-      clean: (raw) => cleanText(raw, "facebook"),
+      clean: (raw, doc, ctx, input) => guardedText(cleanText(raw, "facebook"), known(ctx, docOf(doc, input), input)),
+    },
+    // cv16: ONE text on the design changed from its own popup's Ask AI (applied at once, with the Undo of exactly that)
+    retext: {
+      label: "Change these words",
+      schema: TEXT_SCHEMA as unknown as Record<string, unknown>,
+      system: `${WORDS_RULES}\n- You change ONE text on the design as the person asks: the same role and about the same length unless asked otherwise; keep its line breaks' rhythm; one or two key words between *stars*. Answer the new words only.`,
+      user: (ctx, doc, input) => {
+        const d = docOf(doc, input);
+        const text = typeof input.text === "string" ? input.text.slice(0, 1200) : "";
+        const role = typeof input.role === "string" ? input.role.slice(0, 40) : "text";
+        return `${context(ctx, d, langIn(input))}\n\nThe ${role} to change, as it is now:\n${text || "(empty - write it)"}${ask(input)}`;
+      },
+      maxTokens: 800,
+      effort: "low",
+      clean: (raw, doc, ctx, input) => {
+        const said: string[] = [];
+        const t = typeof (raw as { text?: unknown })?.text === "string" ? (raw as { text: string }).text.replace(/\r/g, "").replace(/\\n/g, "\n").trim().slice(0, 600) : "";
+        return { text: guarded(t, known(ctx, docOf(doc, input), input), said), leftOut: [...new Set(said)] };
+      },
+    },
+    translate: {
+      label: "Translate the post",
+      schema: TRANSLATE_SCHEMA as unknown as Record<string, unknown>,
+      system: `${RULES}
+
+# THIS TASK: THE WHOLE POST INTO ANOTHER LANGUAGE
+You are given every text of the post by id: its caption for each network ("net.linkedin", "net.instagram", "net.facebook"), LinkedIn's first comment ("comment"), the words before its link ("link.label") and the words on its design ("t.<n>": a headline, a small line, a button, a list - one point per line). Answer EVERY id with its translation.
+- Translate the meaning for engineers and buyers in that country: natural, the shop's own terms (Dichtung = joint d'etancheite = guarnizione = seal), each network's manner kept, the length roughly the same - a design's words stay as short as they are.
+- Key words between *stars* stay between stars (the same idea marked); line breaks stay where they are.
+- Hashtags inside a text stay as they are. Product names, brand names (APSOparts, Angst+Pfister, DirectCUT), norms, units and material codes (NBR, EPDM, FKM) stay as they are.
+- Nothing added, nothing left out, no note of your own.`,
+      user: (ctx, doc, input) => {
+        const d = normalizeSocial(doc);
+        const to = isLangCode(input.to) ? input.to : "EN";
+        return `Translate from ${langOf(ctx.piece.language)} into ${langOf(to)}.\n\nTHE TEXTS (JSON):\n${JSON.stringify(translateItems(d))}`;
+      },
+      maxTokens: 12000,
+      effort: "low",
+      clean: (raw, doc, ctx, input) => {
+        const d = normalizeSocial(doc);
+        const k = known(ctx, d, input);
+        const said: string[] = [];
+        const list = Array.isArray((raw as { items?: unknown })?.items) ? (raw as { items: unknown[] }).items : [];
+        const items = list.map((x) => ({ id: String((x as { id?: unknown })?.id ?? "").slice(0, 40), text: String((x as { text?: unknown })?.text ?? "").replace(/\r/g, "").slice(0, 4000) }))
+          .filter((x) => x.id && x.text.trim())
+          .map((x) => ({ id: x.id, text: guarded(x.text, k, said) }))
+          .filter((x) => x.text.trim());
+        return { items, leftOut: [...new Set(said)] };
+      },
     },
   },
   actions: {

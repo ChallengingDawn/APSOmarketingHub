@@ -133,3 +133,10 @@ export const askedNetworks = (input: unknown, fallback: Network[]): Network[] =>
   const list = Array.isArray(v) ? v.filter(isNetwork) : [];
   return list.length ? [...new Set(list)] : fallback;
 };
+
+/** What the shop's word rules took out of an AI text (./guard.ts, on the server), said in one line - empty when nothing. */
+export function leftOutLine(said: readonly string[] | null | undefined): string {
+  const list = said ?? [];
+  if (!list.length) return "";
+  return list.length === 1 ? `Left out: ${list[0]}.` : `Left out ${list.length} sentences that broke the shop's word rules (a price, a discount, a stock or delivery promise, a certificate nobody named).`;
+}

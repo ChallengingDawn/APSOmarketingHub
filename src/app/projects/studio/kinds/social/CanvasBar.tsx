@@ -30,6 +30,7 @@ import { formatsInUse } from "@/lib/content/studio/kinds/social/model";
 import { Btn, IconBtn, BAR_H, T } from "./look";
 import { fileStem, save } from "./actions";
 import type { StudioCtx } from "./Studio";
+import LangSwitch from "./Langs";
 
 /** A small picture of a format's shape. */
 export function FormatGlyph({ f, d, size = 16, on }: { f: FormatKey; d: Pick<SocialDesign, "custom">; size?: number; on?: boolean }) {
@@ -64,16 +65,25 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
   const used = formatsInUse(ctx.doc);
 
   return (
-    <Box sx={{ height: BAR_H, flexShrink: 0, display: "flex", alignItems: "center", gap: 0.5, px: 1.5, bgcolor: "rgba(255,255,255,.86)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${T.line}`, zIndex: 2 }}>
+    <Box sx={{ height: BAR_H, flexShrink: 0, display: "flex", alignItems: "center", gap: 0.5, px: 1.5, bgcolor: "rgba(255,255,255,.86)", backdropFilter: "blur(12px)", borderBottom: `1px solid ${T.line}`, zIndex: 5, position: "relative",
+      // cv16: with the language tabs, a narrow stage (Publish open) keeps the zoom in its menu - the steps step aside
+      containerType: "inline-size", "@container (max-width: 680px)": { "& .zstep": { display: "none" } },
+      // and on a phone the bar scrolls sideways rather than squeezing its buttons
+      "@container (max-width: 460px)": { "& .MuiDivider-root": { display: "none" } },
+      "@media (max-width: 600px)": { overflowX: "auto", overflowY: "hidden", px: 0.75 } }}>
       <IconBtn title="Undo (Ctrl+Z)" onClick={() => c?.undo()} disabled={!hist.past || !ctx.canEdit}><UndoIcon /></IconBtn>
       <IconBtn title="Redo (Ctrl+Y)" onClick={() => c?.redo()} disabled={!hist.future || !ctx.canEdit}><RedoIcon /></IconBtn>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
       {/* the board's size, quietly; the formats themselves are the squared choices on the right (flow standard §1) */}
-      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, px: 0.5, color: T.ink3, fontSize: "0.82rem", fontWeight: 600, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", minWidth: 0, flexShrink: 1, overflow: "hidden" }}>
+      {/* (with language tabs beside it, the size says only its shape - the tabs need the room) */}
+      <Box title={`${sizeOf(ctx.fmt, d).w} × ${sizeOf(ctx.fmt, d).h}`} sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, px: 0.5, color: T.ink3, fontSize: "0.82rem", fontWeight: 600, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", minWidth: 0, flexShrink: 1, overflow: "hidden", "& .size": { display: Object.keys(ctx.full.langs).length ? "none" : "inline" } }}>
         <FormatGlyph f={ctx.fmt} d={d} />
-        {sizeOf(ctx.fmt, d).w} × {sizeOf(ctx.fmt, d).h}
+        <span className="size">{sizeOf(ctx.fmt, d).w} × {sizeOf(ctx.fmt, d).h}</span>
       </Box>
+      {/* cv16: the post's languages, each a tab of its own (./Langs.tsx) */}
+      <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
+      <LangSwitch ctx={ctx} />
       <Menu anchorEl={fmtAnchor} open={!!fmtAnchor} onClose={() => setFmtAnchor(null)} slotProps={{ paper: { sx: { width: 320, borderRadius: "12px", mt: 0.5, boxShadow: T.shadow } } }}>
         <Typography sx={{ px: 2, pt: 1, pb: 0.5, fontSize: "0.72rem", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".06em" }}>This post's formats</Typography>
         {d.formats.map((f) => (
@@ -125,16 +135,16 @@ export default function CanvasBar({ ctx, hist, zoom }: { ctx: StudioCtx; hist: {
       <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
       {/* zoom */}
-      <IconBtn title="Zoom out" onClick={() => c?.zoom("out")}><RemoveIcon /></IconBtn>
+      <Box className="zstep" sx={{ display: "contents" }}><IconBtn title="Zoom out" onClick={() => c?.zoom("out")}><RemoveIcon /></IconBtn></Box>
       <Box component="button" type="button" onClick={(e) => setZoomAnchor(e.currentTarget)} sx={{ all: "unset", cursor: "pointer", minWidth: 52, textAlign: "center", height: 34, lineHeight: "34px", borderRadius: "8px", fontSize: "0.84rem", fontWeight: 600, color: T.ink, fontVariantNumeric: "tabular-nums", "&:hover": { bgcolor: T.hover } }}>
         {Math.round(zoom.scale * 100)}%
       </Box>
-      <IconBtn title="Zoom in" onClick={() => c?.zoom("in")}><AddIcon /></IconBtn>
+      <Box className="zstep" sx={{ display: "contents" }}><IconBtn title="Zoom in" onClick={() => c?.zoom("in")}><AddIcon /></IconBtn></Box>
       <Menu anchorEl={zoomAnchor} open={!!zoomAnchor} onClose={() => setZoomAnchor(null)} slotProps={{ paper: { sx: { borderRadius: "10px", minWidth: 150 } } }}>
         <MenuItem selected={zoom.fit} onClick={() => { setZoomAnchor(null); c?.zoom("fit"); }}>Fit to the screen</MenuItem>
         {[0.5, 0.75, 1, 1.5, 2].map((z) => <MenuItem key={z} onClick={() => { setZoomAnchor(null); c?.zoom(z); }}>{z * 100}%</MenuItem>)}
       </Menu>
-      <IconBtn title="Fit to the screen" onClick={() => c?.zoom("fit")} disabled={zoom.fit}><FitScreenOutlinedIcon /></IconBtn>
+      <Box className="zstep" sx={{ display: "contents" }}><IconBtn title="Fit to the screen" onClick={() => c?.zoom("fit")} disabled={zoom.fit}><FitScreenOutlinedIcon /></IconBtn></Box>
       <Divider orientation="vertical" flexItem sx={{ mx: 0.75, my: 1.25, borderColor: T.line }} />
 
       {/* the rare things */}
