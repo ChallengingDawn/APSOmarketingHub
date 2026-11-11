@@ -59,18 +59,22 @@ export function relinkHtml(html: string, store: string, stores = 1): { html: str
 }
 
 /** The shop addresses a module's settings carry (its cards, their children, its buttons) - to find their counterparts. */
-export function moduleLinks(settings: { items?: { url: string; children?: { url: string }[] }[]; feature?: { url: string } | null; link?: { url: string }; link2?: { url: string } }): string[] {
+export function moduleLinks(settings: { items?: { url: string; children?: { url: string }[] }[]; feature?: { url: string } | null; link?: { url: string }; link2?: { url: string }; points?: { url?: string }[]; adds?: { url: string }[] }): string[] {
   const out: string[] = [];
   const add = (u: string | undefined) => { if (u && shopLinkOf(u) && !out.includes(u)) out.push(u); };
   for (const c of settings.items ?? []) { add(c.url); for (const x of c.children ?? []) add(x.url); }
   add(settings.feature?.url);
   add(settings.link?.url);
   add(settings.link2?.url);
+  // Content v13 (SARCLA 11.11.2026: "button only have one page, not for all the shop"): the buttons added in it and its
+  // points' links follow the page's language too
+  for (const p of settings.points ?? []) add(p.url);
+  for (const a of settings.adds ?? []) add(a.url);
   return out;
 }
 
 /** A module's settings with its addresses swapped by `map` (an address it has no counterpart for stays). */
-export function relinkModule<T extends { items?: { url: string; children?: { url: string }[] }[]; feature?: { url: string } | null; link?: { url: string; label: string }; link2?: { url: string; label: string } }>(settings: T, map: Record<string, string>): T {
+export function relinkModule<T extends { items?: { url: string; children?: { url: string }[] }[]; feature?: { url: string } | null; link?: { url: string; label: string }; link2?: { url: string; label: string }; points?: { url?: string }[]; adds?: { url: string }[] }>(settings: T, map: Record<string, string>): T {
   const fx = (u: string) => map[u] ?? u;
   return {
     ...settings,
@@ -78,6 +82,8 @@ export function relinkModule<T extends { items?: { url: string; children?: { url
     ...(settings.feature ? { feature: { ...settings.feature, url: fx(settings.feature.url) } } : {}),
     ...(settings.link ? { link: { ...settings.link, url: fx(settings.link.url) } } : {}),
     ...(settings.link2 ? { link2: { ...settings.link2, url: fx(settings.link2.url) } } : {}),
+    ...(settings.points ? { points: settings.points.map((p) => (p.url ? { ...p, url: fx(p.url) } : p)) } : {}),
+    ...(settings.adds ? { adds: settings.adds.map((a) => (a.url ? { ...a, url: fx(a.url) } : a)) } : {}),
   };
 }
 
