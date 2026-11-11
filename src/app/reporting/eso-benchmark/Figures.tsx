@@ -442,7 +442,7 @@ function PagerArrows({ page, pages, setPage }: { page: number; pages: number; se
     </Box>
   );
 }
-function usePages<T>(rows: T[], size: number) {
+export function usePages<T>(rows: T[], size: number) {
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(rows.length / size));
   useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
@@ -453,7 +453,7 @@ function usePages<T>(rows: T[], size: number) {
  *  otherwise the UX is bad"). */
 const LIST_PAGE = 25;
 /** Under a list in pages: which rows are shown, "26–50 of 1,136", and the two arrows. */
-function PageBar({ page, pages, setPage, from, to, of }: { page: number; pages: number; setPage: (f: (p: number) => number) => void; from: number; to: number; of: number }) {
+export function PageBar({ page, pages, setPage, from, to, of }: { page: number; pages: number; setPage: (f: (p: number) => number) => void; from: number; to: number; of: number }) {
   if (pages <= 1) return null;
   return (
     <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1 }}>

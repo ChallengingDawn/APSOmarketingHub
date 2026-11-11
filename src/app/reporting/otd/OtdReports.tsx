@@ -38,7 +38,7 @@ import WarningAmberOutlinedIcon from "@mui/icons-material/WarningAmberOutlined";
 import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { CardTitle, FAINT, GlassCard, HAIRLINE, INK, MUTED, TINT, type Tint } from "@/app/uc/report/ui";
 import { ReportTabs } from "@/app/uc/report/Tabs";
-import { ChartBox, FullTable, H1, TWO, setQuery, type Col } from "@/app/reporting/eso-benchmark/Figures";
+import { ChartBox, FullTable, H1, PageBar, TWO, setQuery, usePages, type Col } from "@/app/reporting/eso-benchmark/Figures";
 import { ActiveFilters, PeriodPicker, quartersOf, type ActiveItem } from "@/app/reporting/eso-benchmark/EsoFilters";
 import { FilterPanel, FilterSection } from "@/app/reporting/marketing-kpis/FilterPanel";
 import { MonthTrend } from "@/app/reporting/eso-benchmark/TicketsCharts";
@@ -55,6 +55,7 @@ import {
 import { OTD_PAGES, type OtdSlug } from "@/lib/reporting/otdPages";
 import { CustomerExplorer } from "./OtdCustomers";
 import { GlcCompanies, SupplierLeads } from "./OtdLineViews";
+import { PagedBars } from "./OtdPaged";
 
 /* ── the read ──────────────────────────────────────────────────────────── */
 
@@ -361,16 +362,16 @@ const CHARTS: ChartDef[] = [
     },
   },
   {
-    id: "top10", title: "Top 10 suppliers by late days",
-    hint: (f) => `${periodOf(f)} · the working days late of their late lines, summed`,
-    body: (f) => <BarList rows={impactRank(total(f)).filter((r) => r.rank).slice(0, 10).map((r) => ({ label: supName(r.supplier), value: r.days, secondary: `${int(r.late)} late lines · ${pct(r.lateRate)} late · ${r.priority}` }))} format={n0} labelWidth={200} />,
+    id: "top10", title: "Suppliers by late days",
+    hint: (f) => `${periodOf(f)} · the working days late of their late lines, summed · every supplier, the most first, 10 a page`,
+    body: (f) => <PagedBars rows={impactRank(total(f)).filter((r) => r.rank).map((r) => ({ label: supName(r.supplier), value: r.days, secondary: `${int(r.late)} late lines · ${pct(r.lateRate)} late · ${r.priority}` }))} format={n0} />,
   },
   {
-    id: "supRate", title: "Late rate of the 10 suppliers with the most lines",
-    hint: (f) => `${periodOf(f)} · the share of their lines late`,
+    id: "supRate", title: "Late rate of every supplier",
+    hint: (f) => `${periodOf(f)} · the share of their lines late · the most lines first, 10 a page`,
     body: (f) => {
-      const rows = impactRank(total(f)).filter((r) => r.rank).sort((a, b) => b.lines - a.lines).slice(0, 10);
-      return <BarList rows={rows.map((r) => ({ label: supName(r.supplier), value: r.lateRate, secondary: `${int(r.lines)} lines · ${int(r.late)} late` }))} format={pct} labelWidth={200} />;
+      const rows = impactRank(total(f)).filter((r) => r.rank).sort((a, b) => b.lines - a.lines);
+      return <PagedBars rows={rows.map((r) => ({ label: supName(r.supplier), value: r.lateRate, secondary: `${int(r.lines)} lines · ${int(r.late)} late` }))} format={pct} />;
     },
   },
   {
@@ -398,14 +399,9 @@ const CHARTS: ChartDef[] = [
     },
   },
   {
-    id: "supMonthTable", wide: true, title: "The 15 largest contributors, month by month",
-    hint: () => "the late rate of each month, and the period's late days (the file's \"%LatePerSupplier\" and \"Supplier Impact Rank\")",
-    body: (f) => {
-      const ms = months(f), top = topSuppliers(f, 15), t = total(f);
-      return <Table head={["Supplier", ...LABELS(f), "Late days"]} left={[0]} minWidth={260 + 72 * (f.yms.length + 1)} rows={top.map((s) => ({
-        key: s, cells: [supName(s), ...ms.map((m) => { const r = m.sup[s]; return r ? cell(r[0] ? r[1] / r[0] : null, r[0], false, true) : <span style={{ color: FAINT }}>—</span>; }), int(t.sup[s]?.[2] ?? 0)],
-      }))} />;
-    },
+    id: "supMonthTable", wide: true, title: "Every contributor, month by month",
+    hint: () => "the late rate of each month, and the period's late days (the file's \"%LatePerSupplier\" and \"Supplier Impact Rank\") · the most late days first, 15 a page",
+    body: (f) => <SupMonthPages f={f} />,
   },
   {
     id: "glcCats", title: "GLC - how late, month by month",
@@ -1032,7 +1028,20 @@ const REMARK_MONTHS: [string, number, number, number, number][] = [
 /** the cube's suppliers by their real lead time, the most lines first (the cube names its 60 largest) */
 function supLeadBars(f: Frame, n: number): React.ReactNode {
   const rows = Object.entries(total(f).sup).filter(([k]) => k !== OTHER).sort((a, b) => b[1][0] - a[1][0]).slice(0, n);
-  return <BarList rows={rows.map(([s, r]) => ({ label: supName(s), value: r[0] ? r[6] / r[0] : null, secondary: `${int(r[0])} lines` }))} format={days1} labelWidth={200} />;
+  return <PagedBars rows={rows.map(([s, r]) => ({ label: supName(s), value: r[0] ? r[6] / r[0] : null, secondary: `${int(r[0])} lines` }))} size={15} format={days1} />;
+}
+/** every supplier month by month, a page at a time - a component: the pages keep their place */
+function SupMonthPages({ f }: { f: Frame }) {
+  const ms = months(f), all = topSuppliers(f, Infinity), t = total(f);
+  const { page, pages, setPage, slice } = usePages(all, 15);
+  return (
+    <Box sx={{ display: "grid", gap: 0.75, minWidth: 0 }}>
+      <Table head={["Supplier", ...LABELS(f), "Late days"]} left={[0]} minWidth={260 + 72 * (f.yms.length + 1)} rows={slice.map((s) => ({
+        key: s, cells: [supName(s), ...ms.map((m) => { const r = m.sup[s]; return r ? cell(r[0] ? r[1] / r[0] : null, r[0], false, true) : <span style={{ color: FAINT }}>—</span>; }), int(t.sup[s]?.[2] ?? 0)],
+      }))} />
+      <PageBar page={page} pages={pages} setPage={setPage} from={page * 15 + 1} to={page * 15 + slice.length} of={all.length} />
+    </Box>
+  );
 }
 /** the suppliers with the most late days over the period (GLC among them), "Other suppliers" never one */
 function topSuppliers(f: Frame, n: number): string[] {
