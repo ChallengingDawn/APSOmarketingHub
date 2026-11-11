@@ -19,7 +19,7 @@ import { brandSystemPrompt, readBrain } from "@/lib/brain";
 import { changeId, emptyPage, languageOfStore, type PageChange, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { mapText, pageLinks, pageMap, partOfSelection } from "@/lib/content/studio/kinds/page/plan/places";
 import { PLAN_SCHEMA, cleanPlan, pageWords, planSystem, planUser, stepChange, withFill, type PlanStep } from "@/lib/content/studio/kinds/page/plan/plan";
-import { drawModule, fitModuleOf, fullGap, makeModule, moduleGapOf, readModule, withWords } from "@/lib/content/studio/kinds/page/plan/library";
+import { drawModule, fitModuleOf, fullGap, libModule, makeModule, moduleGapOf, readModule, withWords } from "@/lib/content/studio/kinds/page/plan/library";
 import { fillModule, readStore, treeFor } from "@/lib/content/studio/kinds/page/plan/fill";
 import { fillTries, needsShop } from "@/lib/content/studio/kinds/page/plan/newpage";
 import type { ModuleRef } from "@/lib/content/studio/kinds/page/modules/types";
@@ -27,7 +27,7 @@ import { classify, type Env, type PageKind } from "./model";
 import { validateChanges, type Change } from "./versions";
 import { riskOf } from "./safety";
 import { shopPart } from "./blockRules";
-import { DROP_SCHEMA, TWEAKS_SCHEMA, bare, dropIn, inPlanOrder, outlineSelectors, pointedAt, revised, tweaksIn, withIds, type ModChange } from "./modularRules";
+import { DROP_SCHEMA, TWEAKS_SCHEMA, bare, dropIn, inPlanOrder, listingWay, outlineSelectors, pointedAt, revised, tweaksIn, withIds, type ModChange } from "./modularRules";
 
 type AskFn = <T>(system: string, user: string, schema: Record<string, unknown>, maxTokens: number) => Promise<{ ok: true; data: T } | { ok: false; error: string }>;
 
@@ -85,7 +85,7 @@ function moduleOf(step: Pick<PlanStep, "do" | "module" | "layout" | "words" | "l
  * A plan's steps made into the changes a version keeps, the way the Content studio applies them (usePlan apply): the
  * module with its words, filled from the shop and FULL (else left out, said), drawn by the library, at its place.
  */
-export async function buildSteps(steps: PlanStep[], current: ModChange[], store: string): Promise<{ made: ModChange[]; problems: string[] }> {
+export async function buildSteps(steps: PlanStep[], current: ModChange[], store: string, pageCategory: string | null = null): Promise<{ made: ModChange[]; problems: string[] }> {
   const problems: string[] = [];
   const made: ModChange[] = [];
   const shopStore = readStore(store);
@@ -105,7 +105,10 @@ export async function buildSteps(steps: PlanStep[], current: ModChange[], store:
       // filled from the shop, FULL: the AI's own fill, then the studio's other ways (most bought, most viewed ...)
       let filled: ModuleRef | null = null;
       let lack = "";
-      for (const t of fillTries(step)) {
+      // and last the category's products as the shop lists them (the AI's category, or this category page)
+      const tries = fillTries(step);
+      const listing = listingWay(tries, libModule(m1.type)?.takes === "products", pageCategory);
+      for (const t of listing ? [...tries, listing] : tries) {
         const mt = t.module === m1.type ? m1 : moduleOf({ ...step, module: t.module, layout: t.layout }, base, store);
         if (!mt) continue;
         const out = await fillModule({ module: mt.type, store: shopStore, fill: t.fill, count: t.fill.count || undefined }).catch(() => null);
@@ -195,7 +198,7 @@ ${elements.join("\n") || "(none read)"}`;
     newId: () => changeId(), lang: store.slice(0, 2), store,
   });
   const problems: string[] = [...plan.problems];
-  const built = await buildSteps(plan.steps, current, store);
+  const built = await buildSteps(plan.steps, current, store, a.page.kind === "category" ? a.page.path : null);
   problems.push(...built.problems);
   const made = built.made;
 

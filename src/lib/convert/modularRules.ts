@@ -128,3 +128,21 @@ export function pointedAt(request: string | null | undefined): { selector: strin
 export function outlineSelectors(lines: string[]): string[] {
   return lines.map((l) => l.split(" ·")[0]?.trim() ?? "").filter((s) => s && !/\s{2,}/.test(s));
 }
+
+/** A way to fill a module from the shop, as the studio tries it (Content's FillTry). */
+export type FillWay = { module: string; fill: { how: string; category: string; numbers: string; count: number }; layout: string; why: string };
+
+/**
+ * One more way to fill a module of products after the studio's own (fillTries): the category's products as the shop
+ * lists them - the category the AI named or, on a category page, the page itself. The night run of 11.11.2026 left a
+ * product bento and a product panel out on /de-DE/kunststofftechnik/platte.html: the category's most bought and most
+ * viewed were fewer than the module shows. null when the studio's tries list that category already, or there is none.
+ */
+export function listingWay<T extends FillWay>(tries: T[], takesProducts: boolean, pageCategory: string | null): T | null {
+  const first = tries[0];
+  if (!takesProducts || !first) return null;
+  const category = first.fill.category.trim() || pageCategory || "";
+  if (!category) return null;
+  if (tries.some((t) => t.fill.how === "category" && t.fill.category === category)) return null;
+  return { ...first, fill: { ...first.fill, how: "category", category, numbers: "" }, why: "the category's products, as the shop lists them" } as T;
+}

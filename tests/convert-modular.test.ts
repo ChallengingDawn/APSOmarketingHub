@@ -4,7 +4,7 @@
 // version keeps with the Content studio's own code - a canned answer, no AI call.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bare, dropIn, inPlanOrder, outlineSelectors, pointedAt, revised, tweaksIn, usesModules, withIds, type ModChange } from "../src/lib/convert/modularRules";
+import { bare, dropIn, inPlanOrder, listingWay, outlineSelectors, pointedAt, revised, tweaksIn, usesModules, withIds, type ModChange } from "../src/lib/convert/modularRules";
 import { runtimeSource, validateChanges, type Change } from "../src/lib/convert/versions";
 import { riskOf } from "../src/lib/convert/safety";
 import { pageDoc, type PageChange } from "../src/lib/content/studio/kinds/page/model";
@@ -119,4 +119,22 @@ test("the element a person pointed at is read from the AI helper's words", () =>
   assert.deepEqual(pointedAt("Change this element - div.x > a.y (it reads “Konto erstellen”): make it red"), { selector: "div.x > a.y", text: "Konto erstellen" });
   assert.deepEqual(pointedAt("Change this element - #hero: bigger"), { selector: "#hero", text: "" });
   assert.equal(pointedAt("Make it stand out more"), null);
+});
+
+test("a module of products is last filled with the category's listed products - the AI's category, or the category page itself", () => {
+  const way = (how: string, category: string) => ({ module: "bento", fill: { how, category, numbers: "", count: 5 }, layout: "", why: "" });
+  // the night run of 11.11.2026: bought / viewed within the category were too few for a bento
+  const page = "/de-DE/kunststofftechnik/platte.html";
+  const tries = [way("bought", ""), way("viewed", "")];
+  const last = listingWay(tries, true, page);
+  assert.equal(last?.fill.how, "category");
+  assert.equal(last?.fill.category, page);
+  assert.equal(last?.module, "bento");
+  // the AI's own category first
+  assert.equal(listingWay([way("bought", "/de-DE/dichtungstechnik/o-ringe.html")], true, page)?.fill.category, "/de-DE/dichtungstechnik/o-ringe.html");
+  // the studio tried that listing already, or no category at all, or not a module of products: nothing more
+  assert.equal(listingWay([way("category", page), way("bought", page)], true, page), null);
+  assert.equal(listingWay(tries, true, null), null);
+  assert.equal(listingWay(tries, false, page), null);
+  assert.equal(listingWay([], true, page), null);
 });

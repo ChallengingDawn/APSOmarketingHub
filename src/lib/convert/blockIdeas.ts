@@ -70,8 +70,10 @@ block a buyer needs exactly as it is (a product's data, an address to write to).
 promising first. A version keeps the block's job: a block that leads to a sign-up, an account or a contact still leads
 there (its button's "link" one of the addresses below), with a stronger reason to go.
 A BUTTON NAMES THE PAGE IT OPENS: its words say that page's name ("Zu den O-Ringen", "Dichtungstechnik ansehen") and
-its "link" is exactly that address. Never "all products", "all technologies", "the whole range" - the shop has no such
-page in the lists below (the hub leaves such a button out); a module of categories shows the range by itself.
+its "link" is exactly that address. Never "all products", "all categories", "all technologies", "the whole range" in
+any language ("Alle Produkte", "Alle Kategorien", "Zum Sortiment", "Tout l'assortiment") - the shop has no such page in
+the lists below (the hub leaves such a button out); a module of categories shows the range by itself.
+NO STOCK OR DELIVERY PROMISE in any words ("Direkt ab Lager", "sofort lieferbar", "in stock") - the hub cuts the sentence.
 Each version: "module" (an id of THE LIBRARY), "layout", its "words" written for this page in the page's language
 (FULL - every word the module takes), "fill" (how the hub fills it from the shop), "link"/"link2", "why" (ENGLISH, under
 10 words) and "label" (ENGLISH, under 8 words: what makes it different). Every fact only from the page and the brand.`;
@@ -154,7 +156,7 @@ ${focus ? `\nTHE BLOCK TO OPTIMIZE: ${focusId} - ${focus.name}. What it is: ${fo
       const plan = cleanPlan({ note: "", steps: [versionStep(v, b.at)] }, ctx);
       problems.push(...plan.problems);
       if (!plan.steps.length) continue;
-      const built = await buildSteps(plan.steps, [], store);
+      const built = await buildSteps(plan.steps, [], store, page.kind === "category" ? path : null);
       problems.push(...built.problems);
       const kept = keepSafe(built.made, own, problems);
       if (!kept.length) continue;
