@@ -88,6 +88,8 @@ ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS content_type text;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS block text;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS scope text;
 ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS part text;
+ALTER TABLE apsomh_convert_ideas ADD COLUMN IF NOT EXISTS piece_id bigint;
+CREATE INDEX IF NOT EXISTS apsomh_convert_ideas_piece ON apsomh_convert_ideas (piece_id) WHERE piece_id IS NOT NULL;
 `;
 
 let schemaReady: Promise<void> | null = null;
@@ -207,6 +209,8 @@ export type Idea = {
    *  10.11.2026: "we cannot say where it is"); "page" = one about the page as a whole (before 10.11.2026). And the
    *  block's name as a person finds it: "Block 4 of 9 · Warum unsere Kunden immer wieder bestellen". */
   scope?: "page" | "block"; part?: string | null;
+  /** The Content piece (Page builder) it was made from with the piece's own changes - ./studio.ts versionFromChanges. */
+  piece?: string | null;
 };
 /** The AI's reading of one page, written with its ideas: what works, what stops buyers. */
 export type Analysis = { text: string; at: string; by: string | null };
@@ -224,7 +228,7 @@ type IdeaRow = {
   source: "ai" | "person"; status: IdeaStatus; numbers: Numbers | null; created_by: string | null; created_at: Date;
   decided_by: string | null; decided_at: Date | null; impact: number | null; confidence: number | null; effort: number | null; target: string | null;
   sent_by?: string | null; sent_at?: Date | null; project_id?: string | null; content_type?: string | null; block?: string | null;
-  scope?: string | null; part?: string | null;
+  scope?: string | null; part?: string | null; piece_id?: string | null;
 };
 type VersionRow = {
   id: string; idea_id: string; env: Env; path: string; rev: number; changes: Change[]; summary: string; status: VersionStatus;
@@ -237,7 +241,7 @@ const toIdea = (r: IdeaRow): Idea => ({
   impact: r.impact ?? null, confidence: r.confidence ?? null, effort: r.effort ?? null, target: r.target ?? null,
   sentBy: r.sent_by ?? null, sentAt: iso(r.sent_at ?? null), projectId: r.project_id ? String(r.project_id) : null,
   contentType: typeOfIdea({ contentType: r.content_type, block: r.block }), block: r.block ?? null,
-  scope: r.scope === "block" ? "block" : "page", part: r.part ?? null,
+  scope: r.scope === "block" ? "block" : "page", part: r.part ?? null, piece: r.piece_id ? String(r.piece_id) : null,
 });
 const toVersion = (r: VersionRow): Version => ({
   id: String(r.id), ideaId: String(r.idea_id), env: r.env, path: r.path, rev: r.rev, changes: r.changes, summary: r.summary, status: r.status,
@@ -417,6 +421,37 @@ async function saveRevision(idea: Idea, changes: Change[], summary: string, requ
   } finally {
     client.release();
   }
+}
+
+/**
+ * A VERSION FROM THE PAGE BUILDER'S OWN CHANGES (SARCLA 11.11.2026, asked through Content: the Page builder's publishing
+ * view "controls it from here - this creates a test on the A/B testing platform"). No AI: the page's changes as Content
+ * made them (Content's PageChange is the hub's Change with its module beside it), checked the hub's way
+ * (validateChanges - the module and the change's id are left out, the browser never needs them). One optimization per
+ * piece and page: it is the person's (approved), made once; every later call gives its Version A a new revision, back to
+ * draft - "approve" again before a test. Without a piece, each call makes a new optimization.
+ */
+export async function versionFromChanges(env: Env, path: string, input: { changes: unknown; title: string; summary: string; piece: string | null }, by: string): Promise<{ idea: Idea | null; version: Version | null; problems: string[] }> {
+  await ensureStudioSchema();
+  const { changes, problems } = validateChanges(input.changes);
+  if (!changes.length) return { idea: null, version: null, problems: problems.length ? problems : ["the list is empty"] };
+  const title = input.title.trim().slice(0, 200) || "The page as the Page builder made it";
+  const summary = input.summary.trim().slice(0, 600) || title;
+  let idea: Idea | null = null;
+  if (input.piece) {
+    const r = await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 AND piece_id = $3 AND status <> 'dropped' ORDER BY id DESC LIMIT 1`, [env, path, input.piece]);
+    idea = r.rows[0] ? toIdea(r.rows[0]) : null;
+  }
+  if (!idea) {
+    const made = await addIdea(env, path, {
+      title, why: input.piece ? `Made in Content's Page builder (piece ${input.piece}).` : "Made in Content's Page builder.", change: summary, expect: "", type: "page-refresh", scope: "page",
+    }, by, "person", null);
+    idea = input.piece
+      ? toIdea((await query<IdeaRow>(`UPDATE apsomh_convert_ideas SET piece_id = $2 WHERE id = $1 RETURNING *`, [made.id, input.piece])).rows[0])
+      : made;
+  }
+  const version = await saveRevision(idea, changes, summary, "from the Page builder", by, "A");
+  return { idea, version, problems };
 }
 
 export async function setVersionStatus(id: string, status: VersionStatus, by: string): Promise<Version | null> {

@@ -1,7 +1,8 @@
 // Website > A/B testing > PAGE TESTS (src/lib/convert/tests.ts). GET = the tests with their figures in short (read from
 // the shop's gateway for the live ones), the approved versions waiting for a test, and whether the gateway is
-// connected; GET ?languages=<versionId>&env=acc|prod = the version's page in its other languages, to tick.
-// POST {action:"create", versionId, env?, pages?, name?} -> {id}; {action:"settings", id, name?, notes?, mde?, env?,
+// connected; GET ?languages=<versionId>&env=acc|prod = the version's page in its other languages, to tick; GET
+// ?piece=<Content piece id> = only that piece's tests (the Page builder's publishing view, SARCLA 11.11.2026).
+// POST {action:"create", versionId, env?, pages?, name?, piece?} -> {id}; {action:"settings", id, name?, notes?, mde?, env?,
 // pages?, allocation?, audience?} (a draft's conditions); {action: start|pause|resume|stop|restart|sync|remove|decide|
 // delete|copy, id, winner?, env?}. Writing needs the page's write level; starting is the approval that puts a version
 // on the shop. Without DIRECTUP_ADMIN_KEY drafts still work and the list says the gateway is not connected.
@@ -30,7 +31,8 @@ export async function GET(req: NextRequest) {
       if (!c) return fail("That version is not approved.", 404);
       return ok({ paths: await languagePaths(env, c.path) });
     }
-    const [tests, cands, live] = await Promise.all([listTests("test"), candidates("test"), gatewayTests()]);
+    const piece = idOf(sp.get("piece"));
+    const [tests, cands, live] = await Promise.all([listTests("test", piece), piece ? Promise.resolve([]) : candidates("test"), gatewayTests()]);
     const figures = await inTurns(tests, 4, (t) => figuresOf(t).catch(() => null));
     const held = new Map((live.tests ?? []).map((c) => [String(c.id), c]));
     return ok({
@@ -59,7 +61,7 @@ export async function POST(req: NextRequest) {
     if (b.action === "create") {
       const versionId = idOf(b.versionId);
       if (!versionId) return fail("Which version?", 400);
-      const t = await createDraft({ versionId, kind: "test", env: isEnv(b.env) ? b.env : "acc", pages: b.pages, name: typeof b.name === "string" ? b.name : null, allocation: b.allocation, audience: b.audience }, by);
+      const t = await createDraft({ versionId, kind: "test", env: isEnv(b.env) ? b.env : "acc", pages: b.pages, name: typeof b.name === "string" ? b.name : null, allocation: b.allocation, audience: b.audience, piece: idOf(b.piece) }, by);
       console.log(`[convert-tests] #${t.id} made from version ${versionId} by ${by}`);
       return ok({ id: t.id });
     }

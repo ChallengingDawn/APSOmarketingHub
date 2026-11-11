@@ -66,6 +66,11 @@ test("a plan step on about-us becomes a finished module block after the part, in
   const v = validateChanges(bare([ch]));
   assert.equal(v.changes.length, 1, v.problems.join("; "));
   assert.deepEqual(riskOf(v.changes), []);
+  // the Page builder sends its changes as Content keeps them, module and id beside each (work "version", 11.11.2026):
+  // the hub keeps the change as the browser needs it, never the module
+  const fromBuilder = validateChanges([ch]);
+  assert.deepEqual(fromBuilder.changes, v.changes);
+  assert.equal("module" in fromBuilder.changes[0] || "id" in fromBuilder.changes[0], false);
 });
 
 test("bare: the browser gets the change without the hub's module; the runtime leaves it out by itself", () => {

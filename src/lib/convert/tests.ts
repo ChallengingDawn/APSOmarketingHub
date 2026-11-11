@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS apsomh_convert_test_log (
   detail text NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS apsomh_convert_test_log_test ON apsomh_convert_test_log (test_id, at DESC);
+ALTER TABLE apsomh_convert_tests ADD COLUMN IF NOT EXISTS piece_id bigint;
+CREATE INDEX IF NOT EXISTS apsomh_convert_tests_piece ON apsomh_convert_tests (piece_id) WHERE piece_id IS NOT NULL;
 `;
 
 let schemaReady: Promise<void> | null = null;
@@ -94,6 +96,8 @@ export type Test = {
   createdBy: string | null; createdAt: string; startedBy: string | null; startedAt: string | null; stoppedBy: string | null; stoppedAt: string | null;
   decidedBy: string | null; decidedAt: string | null; syncedAt: string | null; syncError: string | null;
   results: Results | null; resultsAt: string | null; notes: string; updatedAt: string;
+  /** the Content piece (Page builder) it belongs to - its publishing view controls it (SARCLA 11.11.2026) */
+  piece: string | null;
   /** the page kind of its first page - product and category pages are the theme's code, CMS pages Magento's */
   pageKind: PageKind;
 };
@@ -101,11 +105,11 @@ type Row = {
   id: string; name: string; kind: TestKind; version_id: string | null; version_rev: number; n_changes: number; idea_id: string | null; env: Env; host: Host;
   pages: string[]; allocation: Allocation; audience: Audience; goal: "add_to_cart"; mde: number; v: number; status: TestStatus; winner: Test["winner"]; from_test: string | null;
   created_by: string | null; created_at: Date; started_by: string | null; started_at: Date | null; stopped_by: string | null; stopped_at: Date | null;
-  decided_by: string | null; decided_at: Date | null; synced_at: Date | null; sync_error: string | null; results: Results | null; results_at: Date | null; notes: string; updated_at: Date;
+  decided_by: string | null; decided_at: Date | null; synced_at: Date | null; sync_error: string | null; results: Results | null; results_at: Date | null; notes: string; updated_at: Date; piece_id: string | null;
 };
 const iso = (d: Date | null) => (d ? new Date(d).toISOString() : null);
 const COLS = `id, name, kind, version_id, version_rev, jsonb_array_length(changes) AS n_changes, idea_id, env, host, pages, allocation, audience, goal, mde, v, status,
-  winner, from_test, created_by, created_at, started_by, started_at, stopped_by, stopped_at, decided_by, decided_at, synced_at, sync_error, results, results_at, notes, updated_at`;
+  winner, from_test, created_by, created_at, started_by, started_at, stopped_by, stopped_at, decided_by, decided_at, synced_at, sync_error, results, results_at, notes, updated_at, piece_id`;
 const toTest = (r: Row): Test => ({
   id: String(r.id), name: r.name, kind: r.kind, versionId: r.version_id ? String(r.version_id) : null, versionRev: r.version_rev, changeCount: Number(r.n_changes ?? 0),
   ideaId: r.idea_id ? String(r.idea_id) : null, env: r.env, host: r.host, pages: r.pages ?? [], allocation: normAllocation(r.allocation), audience: normAudience(r.audience),
@@ -113,6 +117,7 @@ const toTest = (r: Row): Test => ({
   createdBy: r.created_by, createdAt: iso(r.created_at)!, startedBy: r.started_by, startedAt: iso(r.started_at), stoppedBy: r.stopped_by, stoppedAt: iso(r.stopped_at),
   decidedBy: r.decided_by, decidedAt: iso(r.decided_at), syncedAt: iso(r.synced_at), syncError: r.sync_error,
   results: r.results ? normResults(r.results, String(r.id), r.v) : null, resultsAt: iso(r.results_at), notes: r.notes ?? "", updatedAt: iso(r.updated_at)!,
+  piece: r.piece_id ? String(r.piece_id) : null,
   pageKind: classify(r.pages?.[0] ?? "/").kind,
 });
 
@@ -125,12 +130,12 @@ async function changesOf(id: string): Promise<Change[]> {
   const r = await query<{ changes: Change[] }>(`SELECT changes FROM apsomh_convert_tests WHERE id = $1`, [id]);
   return r.rows[0]?.changes ?? [];
 }
-export async function listTests(kind: TestKind | null): Promise<Test[]> {
+export async function listTests(kind: TestKind | null, piece: string | null = null): Promise<Test[]> {
   await ensureTestsSchema();
   const r = await query<Row>(
-    `SELECT ${COLS} FROM apsomh_convert_tests WHERE ($1::text IS NULL OR kind = $1)
+    `SELECT ${COLS} FROM apsomh_convert_tests WHERE ($1::text IS NULL OR kind = $1) AND ($2::bigint IS NULL OR piece_id = $2::bigint)
       ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'paused' THEN 1 WHEN 'draft' THEN 2 WHEN 'stopped' THEN 3 ELSE 4 END, updated_at DESC LIMIT 300`,
-    [kind]);
+    [kind, piece]);
   return r.rows.map(toTest);
 }
 
@@ -301,6 +306,8 @@ export async function baseRateOf(t: Test): Promise<number | null> {
 
 export async function createDraft(input: {
   versionId: string; kind: TestKind; env?: Env | null; pages?: unknown; audience?: unknown; allocation?: unknown; name?: string | null; fromTest?: string | null;
+  /** the Content piece it belongs to; else the piece its version was made from (the Page builder's own changes) */
+  piece?: string | null;
 }, by: string): Promise<Test> {
   await ensureTestsSchema();
   const v = await versionInfo(input.versionId);
@@ -312,11 +319,13 @@ export async function createDraft(input: {
   const picked = cleanPages(input.pages).filter((p) => allowed.includes(p) || p === v.path);
   const pages = [v.path, ...picked.filter((p) => p !== v.path)];
   const name = (input.name ?? "").trim().slice(0, 200) || v.title.slice(0, 200);
+  const piece = input.piece
+    ?? (await query<{ piece_id: string | null }>(`SELECT piece_id FROM apsomh_convert_ideas WHERE id = $1`, [v.ideaId])).rows[0]?.piece_id ?? null;
   const r = await query<{ id: string }>(
-    `INSERT INTO apsomh_convert_tests (name, kind, version_id, version_rev, changes, idea_id, env, host, pages, allocation, audience, created_by, from_test)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::text[], $10::jsonb, $11::jsonb, $12, $13) RETURNING id`,
+    `INSERT INTO apsomh_convert_tests (name, kind, version_id, version_rev, changes, idea_id, env, host, pages, allocation, audience, created_by, from_test, piece_id)
+     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::text[], $10::jsonb, $11::jsonb, $12, $13, $14) RETURNING id`,
     [name, input.kind, v.id, v.rev, JSON.stringify(v.changes), v.ideaId, env, HOST[env], pages, JSON.stringify(normAllocation(input.allocation ?? DEFAULT_ALLOCATION)),
-      JSON.stringify(normAudience(input.audience ?? ANY_AUDIENCE)), by, input.fromTest ?? null]);
+      JSON.stringify(normAudience(input.audience ?? ANY_AUDIENCE)), by, input.fromTest ?? null, piece]);
   const id = String(r.rows[0].id);
   await log(id, by, "created", `${input.kind === "test" ? "Test" : "Personalisation"} made from version rev ${v.rev} of "${v.title}" - ${pages.length} ${pages.length === 1 ? "page" : "pages"} on ${ENVS[env].label}`);
   return (await testById(id))!;
@@ -462,7 +471,7 @@ export async function act(id: string, action: Action, by: string, extra: { winne
       // the same test as a new draft - on production after ACC, or to change its conditions
       if (!t.versionId) throw new ConvertError("Its version is gone.");
       const env: Env = extra.env === "prod" ? "prod" : extra.env === "acc" ? "acc" : t.env;
-      const copy = await createDraft({ versionId: t.versionId, kind: t.kind, env, pages: t.pages, audience: t.audience, allocation: t.allocation, name: t.name }, by);
+      const copy = await createDraft({ versionId: t.versionId, kind: t.kind, env, pages: t.pages, audience: t.audience, allocation: t.allocation, name: t.name, piece: t.piece }, by);
       await log(id, by, "copied", `As #${copy.id} on ${ENVS[env].label}`);
       await log(copy.id, by, "copied from", `#${id} on ${ENVS[t.env].label}`);
       return copy;

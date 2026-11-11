@@ -9,7 +9,7 @@ import { isEnv } from "@/lib/convert/model";
 import { blockByKey } from "@/lib/convert/blocks";
 import { proposeBlocks } from "@/lib/convert/blockIdeas";
 import {
-  addIdea, cleanDrawn, cleanPath, editVersion, markSent, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, writeVersion,
+  addIdea, cleanDrawn, cleanPath, editVersion, markSent, pageOutline, pageWork, proposeIdeas, revisions, setIdeaStatus, setVersionStatus, shopPage, versionFromChanges, writeVersion,
   type IdeaStatus, type Numbers,
 } from "@/lib/convert/studio";
 
@@ -138,6 +138,16 @@ export async function POST(req: NextRequest) {
         const versionId = id("versionId");
         if (!versionId) return fail("versionId, please", 400);
         const r = await editVersion(versionId, b.changes, by);
+        return r.version ? NextResponse.json({ ok: true, data: r }) : fail(r.problems.join("; "));
+      }
+      case "version": {
+        // the Page builder's own changes as a version (no AI) - {env, path, changes, title?, summary?, piece?}; then
+        // "approve" and a test (Website > A/B testing > Page tests: create, start)
+        const path = cleanPath(b.path);
+        if (!isEnv(b.env) || !path) return fail("env and path, please", 400);
+        const piece = typeof b.piece === "number" && Number.isInteger(b.piece) && b.piece > 0 ? String(b.piece) : id("piece");
+        const r = await versionFromChanges(b.env, path, { changes: b.changes, title: text(b.title, 200), summary: text(b.summary, 600), piece }, by);
+        if (r.version) console.log(`[convert] version ${r.version.id} rev ${r.version.rev} from the Page builder${piece ? ` (piece ${piece})` : ""} on ${b.env}${path} by ${by}`);
         return r.version ? NextResponse.json({ ok: true, data: r }) : fail(r.problems.join("; "));
       }
       case "approve":
