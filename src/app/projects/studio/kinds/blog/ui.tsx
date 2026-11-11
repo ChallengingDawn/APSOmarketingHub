@@ -266,19 +266,24 @@ export function useFitHeight(gap = 14, key: unknown = null) {
  * Translation as ONE squared row (Content v4): "Translate the whole <post> into", every language; the one it is in now
  * dark, those made here before with a tick; a click starts it (the band and the page show it at work).
  */
-export function TranslateRow({ what, langs, names, current, made, busy, disabled, onPick }: {
+export function TranslateRow({ what, langs, names, current, made, busy, disabled, onPick, tabs = false }: {
   what: string; langs: readonly string[]; names: Record<string, string>; current: string; made: string[];
   /** the language being made now */
   busy: string | null; disabled: boolean; onPick: (lang: string) => void;
+  /** cv17 (optional): each language is a tab of its own - a click makes a tab (ticked: one made, made again from this one) */
+  tabs?: boolean;
 }) {
+  const cur = names[current.toUpperCase()] ?? current;
   return (
     <Box>
-      <Label mt={0}>Translate the whole {what} into</Label>
+      <Label mt={0}>{tabs ? `Translate this ${what} into` : `Translate the whole ${what} into`}</Label>
       <Box role="group" aria-label={`Translate the whole ${what}`} sx={{ display: "flex" }}>
         {langs.map((l, i) => {
           const now = l === current.toUpperCase();
           const done = !now && made.includes(l);
-          const tip = now ? `The ${what} is in ${names[l] ?? l} now` : busy === l ? `Translating into ${names[l] ?? l}…` : done ? `Made here before - a click translates it into ${names[l] ?? l} again` : `Translate the whole ${what} into ${names[l] ?? l}`;
+          const tip = tabs
+            ? (now ? `This is the ${names[l] ?? l} ${what}` : busy === l ? `Translating into ${names[l] ?? l}…` : done ? `The ${names[l] ?? l} ${what} is made - a click makes it again from this one` : `Make the ${names[l] ?? l} ${what} from this one - a tab of its own`)
+            : now ? `The ${what} is in ${names[l] ?? l} now` : busy === l ? `Translating into ${names[l] ?? l}…` : done ? `Made here before - a click translates it into ${names[l] ?? l} again` : `Translate the whole ${what} into ${names[l] ?? l}`;
           return (
             <Tooltip key={l} title={tip}>
               <Box component="span" sx={{ flex: 1, minWidth: 0, ml: i ? "-1px" : 0, display: "flex" }}>
@@ -299,7 +304,9 @@ export function TranslateRow({ what, langs, names, current, made, busy, disabled
           );
         })}
       </Box>
-      <Hint mt={0.75}>{busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); the history at the top (its Undo) brings this ${names[current.toUpperCase()] ?? current} back.`}</Hint>
+      <Hint mt={0.75}>{tabs
+        ? (busy ? `Translating into ${names[busy] ?? busy} - every part, its links in its store view.` : `Each language is a ${what} of its own, a tab over the page, with its own pages on the shop - this ${cur} one stays as it is.`)
+        : busy ? `Translating the whole ${what} into ${names[busy] ?? busy} - the page shows it at work.` : `A click translates everything (ticked: made here before); the history at the top (its Undo) brings this ${cur} back.`}</Hint>
     </Box>
   );
 }

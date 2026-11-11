@@ -11,6 +11,8 @@
 // cv16 (11.11.2026): "Write it all again" is the Page builder's own choice (../page/WriteAgain.tsx: From the topic /
 // Directly / Ask / Start again); the last step tells the studio it is open (`onStep`) - the build column becomes the wide
 // publishing view, the assistant a rail.
+// cv17 (12.11.2026): the map is the language open (each language a tab over the page); the last step lists every
+// language's pages (`whole`, each language's record put back with `setIn`).
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -129,8 +131,12 @@ function Row({ active, onClick, mark, num, label, detail, warn, tools, children,
   );
 }
 
-export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields, start, onWriteAll, busy, onStep }: {
+export function Outline({ api, d, set, whole, setIn, sel, onPick, onAddSection, cards, fields, start, onWriteAll, busy, onStep }: {
   api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; sel: string | null; onPick: (key: string | null) => void;
+  /** the whole post, every language (cv17) - the last step lists each language's pages; none: the post open only */
+  whole?: BlogDoc;
+  /** one language's post changed (its record of the shop) */
+  setIn?: (lang: string, fn: (cur: BlogDoc) => BlogDoc) => void;
   onAddSection: () => void; cards: BlogCard[] | null;
   /** the picked part's own fields (its picture, its topics, where its button goes...) - under its row */
   fields?: React.ReactNode;
@@ -164,7 +170,7 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
           <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("map")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The post</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Publish on the shop</Typography>
-          <Publish api={api} d={d} set={set} cards={cards} />
+          <Publish api={api} d={d} whole={whole ?? d} setIn={setIn ?? ((_l, fn) => set(fn(d)))} cards={cards} />
         </Box>
       </Pane>
     );

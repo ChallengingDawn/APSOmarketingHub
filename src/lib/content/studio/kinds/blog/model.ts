@@ -44,7 +44,18 @@ export type BlogDoc = {
   changes?: StudioChange[];
   /** where the last step found the post's pages on the shop (cv16) - the Content library's card shows it */
   published?: Published | null;
+  /** cv17: the post in other languages than its own, by language code ("FR") - each a tab of its own (./langs.ts). An
+   *  older post has none (the key is not there). */
+  langs?: Record<string, BlogLang>;
 };
+
+/** What a language of the post holds of its own (cv17, ./langs.ts): its words, its store view and the links there, its
+ *  "Changes made here" and where its pages were found on the shop. The author, the publishing day and the notes are the
+ *  post's; so are its pictures (the hero's file, and a section's when the post has that section too). */
+export const LANG_FIELDS = [
+  "title", "slug", "metaTitle", "metaDescription", "excerpt", "takeaways", "hero", "sections", "faq", "relatedProducts", "tags", "authorRole", "cta", "store",
+] as const;
+export type BlogLang = Pick<BlogDoc, (typeof LANG_FIELDS)[number]> & { changes?: StudioChange[]; published?: Published | null; at?: string };
 
 /** Where the post's pages were found on the shop (www), and when, by whom (cv16, ./publish.ts). */
 export type Published = { at: string; by: string; pages: { label: string; path: string; url: string }[] };
@@ -188,7 +199,23 @@ export function blogDoc(raw: unknown, defaults: { language?: string | null; auth
     notes: str(d.notes, 4000),
     changes: changesOf(d.changes),
     published: publishedOf(d.published),
+    ...langsPart(d.langs, lang),
   };
+}
+
+/** The stored languages put right (cv17): a language code each, never the post's own, each read as a post is - an older
+ *  post (none) gets no key at all, so it opens exactly as before. */
+function langsPart(raw: unknown, own: string): { langs?: Record<string, BlogLang> } {
+  if (!isObj(raw)) return {};
+  const out: Record<string, BlogLang> = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!/^[A-Z]{2}$/.test(k) || k === own || !isObj(v)) continue;
+    const { langs: _nested, ...rest } = v;
+    const x = blogDoc({ ...rest, language: k });
+    const pick = Object.fromEntries(LANG_FIELDS.map((f) => [f, x[f]])) as Pick<BlogDoc, (typeof LANG_FIELDS)[number]>;
+    out[k] = { ...pick, changes: x.changes ?? [], ...(x.published ? { published: x.published } : {}), ...(typeof v.at === "string" ? { at: v.at.slice(0, 40) } : {}) };
+  }
+  return Object.keys(out).length ? { langs: out } : {};
 }
 
 /** The post's address on the shop, its home's, a topic's. */

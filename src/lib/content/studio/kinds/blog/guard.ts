@@ -12,6 +12,8 @@
 //     words or the post itself never named. Explaining what FDA or EHEDG mean stays: a blog explains; it never claims.
 // Norms (ISO 3601, DIN EN 681) are general engineering knowledge: kept. Markdown keeps its shape: a list item, a table
 // row, a heading is read whole and goes whole; a paragraph loses only the sentence.
+// cv17 (12.11.2026): a whole post - a translation into a new language tab too - is read part by part (guardOutline), the
+// author's role and the topics with it; its sources are the post it was made from.
 
 import { STOCK_WORDS, brandFlags } from "../banner/brand";
 
@@ -100,6 +102,40 @@ export function guardAll<T extends Record<string, string>>(texts: T, sources: st
     return [k, g.text];
   })) as T;
   return { texts: out, said };
+}
+
+/** The words of a whole post as the AI writes or translates it (server.ts "outline"). */
+export type OutlineTexts = {
+  title: string; metaTitle: string; metaDescription: string; excerpt: string; takeaways: string[];
+  sections: { heading: string; body: string; quote: string; image: { alt: string; caption: string } }[];
+  faq: { q: string; a: string }[];
+  cta: { title: string; text: string; label: string };
+  pictureAlt: string; heroCaption: string; authorRole: string; tags: string[];
+};
+
+/**
+ * A whole post under the rules (cv17: a translation is one too - "+ Language" makes a tab from it): EVERY text of it - the
+ * title, Google's texts, the lead, "in short", each section's heading, text, pull quote, what its picture shows and the
+ * line under it, the questions and answers, the band's words, the post's picture's words, the author's role, the topics.
+ * A section, a question, a line or a topic left empty goes. `sources`: what the post it was made from (and the brief, the
+ * person) said - a certificate claimed for us in the new language needs one there too.
+ */
+export function guardOutline<T extends OutlineTexts>(x: T, sources: string): { x: T; said: string[] } {
+  const said: string[] = [];
+  const k = (t: string) => { const g = guardPost(t, sources); said.push(...g.said); return g.text; };
+  const out = {
+    ...x,
+    title: k(x.title), metaTitle: k(x.metaTitle), metaDescription: k(x.metaDescription), excerpt: k(x.excerpt),
+    takeaways: x.takeaways.map(k).filter((t) => t.trim()),
+    sections: x.sections
+      .map((s) => ({ ...s, heading: k(s.heading), body: k(s.body), quote: k(s.quote), image: { ...s.image, alt: k(s.image.alt), caption: k(s.image.caption) } }))
+      .filter((s) => s.heading || s.body),
+    faq: x.faq.map((f) => ({ ...f, q: k(f.q), a: k(f.a) })).filter((f) => f.q && f.a),
+    cta: { ...x.cta, title: k(x.cta.title), text: k(x.cta.text), label: k(x.cta.label) },
+    pictureAlt: k(x.pictureAlt), heroCaption: k(x.heroCaption), authorRole: k(x.authorRole),
+    tags: x.tags.map(k).filter((t) => t.trim()),
+  };
+  return { x: out as T, said };
 }
 
 /** What a change's line says of the sentences taken out ("" = none). */

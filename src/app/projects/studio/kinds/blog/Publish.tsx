@@ -13,6 +13,9 @@
 //             they show - the paste names them there, so none waits for Magento's Media Gallery. "Store them" stores
 //             each in turn (2 of 5...), a refusal says which and why, with "Try again" for those.
 //   More posts  as before.
+// cv17 (12.11.2026): every language of the post is a tab of its own (lib/.../blog/langs.ts) - Pages lists each language's
+// pages in its store view, each with its own "Read the shop" (its record kept with that language) and its own paste; the
+// pictures are the post's, shared: stored once, named so in every language's paste. A post in one language: as before.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -28,9 +31,10 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import {
-  SHOP, addDays, batchPlan, cardOf, homeCards, postWarnings, topicsOf, type BlogCard, type BlogDoc,
+  LANGUAGE_NAME, SHOP, addDays, batchPlan, cardOf, homeCards, postWarnings, topicsOf, type BlogCard, type BlogDoc, type Published,
 } from "@/lib/content/studio/kinds/blog/model";
-import { cardPictures, pagesOf, postPictures, publishedFrom, withStored, type LiveRead, type PictureRow } from "@/lib/content/studio/kinds/blog/publish";
+import { cardPictures, pagesOf, postPictures, publishedFrom, withStored, type LiveRead, type PictureAsk, type PictureRow } from "@/lib/content/studio/kinds/blog/publish";
+import { languagesOf, versionIn } from "@/lib/content/studio/kinds/blog/langs";
 import { hubPictures, pasteHome, pastePost, pasteTopic } from "@/lib/content/studio/kinds/blog/render";
 import { Field, btn, field, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -40,26 +44,38 @@ const PUBLISHED = new Set(["approved", "live"]);
 type Part = "pages" | "pictures" | "more";
 type Media = { on: boolean; why: string | null; list: PictureRow[] };
 
-export function Publish({ api, d, set, cards }: { api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; cards: BlogCard[] | null }) {
-  const { done, copy } = useCopy();
+const uniqAsks = (lists: PictureAsk[][]): PictureAsk[] => {
+  const out: PictureAsk[] = [];
+  for (const l of lists) for (const a of l) if (!out.some((x) => x.url === a.url)) out.push(a);
+  return out;
+};
+
+export function Publish({ api, d, whole, setIn, cards }: {
+  api: StudioApi;
+  /** the language open (its pages first in nothing - the post's own language leads) */
+  d: BlogDoc;
+  /** the whole post, every language (cv17) */
+  whole: BlogDoc;
+  /** one language's post changed: its record of the shop */
+  setIn: (lang: string, fn: (cur: BlogDoc) => BlogDoc) => void;
+  cards: BlogCard[] | null;
+}) {
   const p = api.data.piece;
   const canEdit = api.data.access.canEdit;
-  const warnings = postWarnings(d);
   const [part, setPart] = useState<Part>("pages");
-  const onHome = useMemo(() => {
-    const current = cardOf(d, { pieceId: p.id, projectId: p.projectId, status: p.status, due: p.dueDate });
-    // the home as it will be with this post on it: the posts approved or live, and this one
+  // every language's post as it reads (cv17), the post's own first
+  const views = useMemo(() => languagesOf(whole).map((l) => versionIn(whole, l)), [whole]);
+  const homes = useMemo(() => views.map((v) => {
+    const current = cardOf(v, { pieceId: p.id, projectId: p.projectId, status: p.status, due: p.dueDate });
+    // the home as it will be with this post on it: the posts approved or live, and this one (in its store view)
     return homeCards(cards ?? [], current).filter((c) => PUBLISHED.has(c.status) || c.pieceId === p.id);
-  }, [cards, d, p.id, p.projectId, p.status, p.dueDate]);
-  const o = { store: d.store, language: d.language, topics: topicsOf(onHome) };
+  }), [cards, views, p.id, p.projectId, p.status, p.dueDate]);
   // the hub's pictures go into the paste with the hub's full address - or, stored, their address in the hub's storage
   const origin = typeof window === "undefined" ? undefined : window.location.origin;
 
-  /* ── the pictures in the hub's picture storage ── */
-  const asks = useMemo(() => {
-    const own = postPictures(d);
-    return [...own, ...cardPictures(onHome).filter((c) => !own.some((x) => x.url === c.url))];
-  }, [d, onHome]);
+  /* ── the pictures in the hub's picture storage: the post's (every language shows them), then the homes' cards ── */
+  const own = useMemo(() => uniqAsks(views.map(postPictures)), [views]);
+  const asks = useMemo(() => uniqAsks([own, ...homes.map(cardPictures)]), [own, homes]);
   const asksKey = JSON.stringify(asks);
   const [media, setMedia] = useState<Media | null>(null);
   const [mediaErr, setMediaErr] = useState<string | null>(null);
@@ -94,43 +110,14 @@ export function Publish({ api, d, set, cards }: { api: StudioApi; d: BlogDoc; se
     setFailed(fails);
   };
   const missing = (media?.list ?? []).filter((x) => x.state !== "there").length;
-  const fromHub = hubPictures(d).length;
-  const unstored = media?.on ? missing : fromHub;
-
-  /* ── the pages, pasted - and read on the shop ── */
-  const blocks = useMemo(() => [
-    ...pastePost(d, { origin, due: p.dueDate }), pasteHome(onHome, { ...o, origin }), ...d.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t)),
-  ].map((b) => ({ ...b, code: withStored(b.code, stored) })),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  [d, onHome, origin, p.dueDate, stored]);
-  const pages = pagesOf(d);
-  const [reads, setReads] = useState<LiveRead[] | null>(null);
-  const [reading, setReading] = useState(false);
-  const [readErr, setReadErr] = useState<string | null>(null);
-  const readShop = async () => {
-    setReading(true); setReadErr(null);
-    const r = await api.act<{ pages: LiveRead[] }>("live", { paths: pages.map((x) => x.path) });
-    setReading(false);
-    if (!r.ok) { setReadErr(r.error); return; }
-    setReads(r.result.pages);
-    // what was found is kept with the post: the Content library's card shows where it is
-    if (canEdit) {
-      const rec = publishedFrom(pages, r.result.pages, new Date().toISOString(), api.data.me);
-      if (rec || d.published) set({ ...d, published: rec });
-    }
-  };
-  const stateOf = (path: string): { word: string; live: boolean | null } => {
-    const r = reads?.find((x) => x.path === path);
-    if (r) return r.live ? { word: "Live on the shop", live: true } : { word: r.status ? `Not on the shop yet (${r.status === 200 ? "another page answers" : r.status})` : "The shop did not answer", live: false };
-    const was = d.published?.pages.find((x) => x.path === path);
-    return was ? { word: `Live on the shop${d.published?.at ? ` · read ${d.published.at.slice(0, 10)}` : ""}`, live: true } : { word: "Not read on the shop yet", live: null };
-  };
+  const many = views.length > 1;
+  const pageCount = views.reduce((n, v) => n + pagesOf(v).length, 0);
 
   return (
     <Box>
       <Box sx={{ mb: 2 }}>
         <SquareChoice value={part} onChange={setPart} options={[
-          { key: "pages", label: "Pages", count: pages.length },
+          { key: "pages", label: "Pages", count: pageCount },
           { key: "pictures", label: "Pictures", count: asks.length },
           { key: "more", label: "More posts" },
         ]} />
@@ -138,44 +125,12 @@ export function Publish({ api, d, set, cards }: { api: StudioApi; d: BlogDoc; se
 
       {part === "pages" && (
         <Box>
-          <Block first title="Where it lives" right={
-            <Button size="small" disabled={reading} onClick={() => void readShop()} startIcon={reading ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 16 }} />} sx={toolBtn}>Read the shop</Button>
-          }>
-            {reading && <LinearProgress sx={{ mb: 1, height: 3, borderRadius: 2 }} />}
-            <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", overflow: "hidden" }}>
-              {pages.map((pg, i) => {
-                const st = stateOf(pg.path);
-                return (
-                  <Box key={pg.key} sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 1, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
-                    <Box sx={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, ...(st.live ? { bgcolor: "#1b7a55" } : st.live === false ? { bgcolor: AMBER } : { border: "1.5px solid #9aa5ad" }) }} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontSize: "0.85rem", fontWeight: 650, color: INK }}>{pg.label}</Typography>
-                      <Typography sx={{ ...mono, fontSize: "0.74rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.path}</Typography>
-                    </Box>
-                    <Typography sx={{ fontSize: "0.76rem", color: st.live ? "#1b7a55" : st.live === false ? AMBER : MUTED, textAlign: "right", flexShrink: 0, maxWidth: 190 }}>{st.word}</Typography>
-                    {st.live && <Button size="small" component="a" href={`${SHOP}${pg.path}`} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />} sx={toolBtn}>Open</Button>}
-                  </Box>
-                );
-              })}
-            </Box>
-            {readErr && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", mt: 0.75 }}>{readErr} <Button size="small" onClick={() => void readShop()} sx={{ ...btn, color: "#c5221f", minWidth: 0, px: 0.5 }}>Try again</Button></Typography>}
-            <Hint>Read on www.apsoparts.com, never written: a page is live once Magento shows the blog&apos;s own article on it. What is found is kept with the post - its card in the Content library shows it.</Hint>
-          </Block>
-
-          <Block title="Copy for Magento">
-            {warnings.map((w) => <Typography key={w} sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>{w}</Typography>)}
-            {unstored > 0 && (
-              <Typography sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>
-                {media?.on
-                  ? <>{unstored === 1 ? "A picture is" : `${unstored} pictures are`} not in the hub&apos;s picture storage yet - <Box component="button" type="button" onClick={() => setPart("pictures")} sx={{ all: "unset", cursor: "pointer", textDecoration: "underline", fontWeight: 650 }}>store {unstored === 1 ? "it" : "them"}</Box> before the page goes live.</>
-                  : <>{fromHub === 1 ? "Its picture is" : `${fromHub} of its pictures are`} kept in the hub, which the shop&apos;s visitors cannot reach: upload {fromHub === 1 ? "it" : "them"} to Magento (Content &gt; Media Gallery) and put {fromHub === 1 ? "its" : "their"} shop address in place of the hub&apos;s before the page goes live.</>}
-              </Typography>
-            )}
-            <Hint mt={warnings.length ? 1 : 0}>The home lists the posts approved or live, and this one{cards === null ? " (the other posts are still being read)" : ""}.{stored.size ? " Its pictures are named at their address in the hub's picture storage." : ""}</Hint>
-            <Box sx={{ mt: 1.25 }}>
-              {blocks.map((b) => <PasteCard key={b.key} label={b.label} steps={b.steps} code={b.code} copied={done === b.key} onCopy={() => void copy(b.key, b.code)} />)}
-            </Box>
-          </Block>
+          {many && <Hint mt={0}>{views.length} languages, each with its own pages in its store view: {views.map((v) => `${v.language} ${v.store}`).join(" · ")}. The pictures are the same in each - stored once (Pictures).</Hint>}
+          {views.map((v, i) => (
+            <LangPages key={v.language} api={api} v={v} first={i === 0} many={many} open={many && v.language === d.language} own={i === 0} onHome={homes[i]} cards={cards}
+              origin={origin} stored={stored} media={media} canEdit={canEdit} onPictures={() => setPart("pictures")}
+              onRecord={(rec) => setIn(v.language, (cur) => ({ ...cur, published: rec }))} />
+          ))}
         </Box>
       )}
 
@@ -196,14 +151,14 @@ export function Publish({ api, d, set, cards }: { api: StudioApi; d: BlogDoc; se
           {media?.on && media.list.length > 0 && (
             <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", overflow: "hidden" }}>
               {media.list.map((x, i) => {
-                const own = postPictures(d).some((y) => y.url === x.url);
+                const mine = own.some((y) => y.url === x.url);
                 const fail = failed.find((f) => f.url === x.url);
                 return (
                   <Box key={x.url} sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.25, py: 1, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
                     <Box component="img" src={x.url} alt="" sx={{ width: 64, height: 42, objectFit: "cover", borderRadius: "4px", bgcolor: "#eef1f6", flexShrink: 0 }} />
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography sx={{ ...mono, fontSize: "0.76rem", color: INK, overflowWrap: "anywhere" }}>{x.file}</Typography>
-                      <Typography sx={{ fontSize: "0.72rem", color: fail ? "#c5221f" : MUTED }}>{fail ? `Not stored: ${fail.why}` : own ? "This post's" : "On the home: another post's"}</Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: fail ? "#c5221f" : MUTED }}>{fail ? `Not stored: ${fail.why}` : mine ? (many ? `This post's - in ${views.filter((v) => postPictures(v).some((y) => y.url === x.url)).map((v) => v.language).join(", ")}` : "This post's") : "On the home: another post's"}</Typography>
                     </Box>
                     {x.state === "there"
                       ? <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, color: "#1b7a55", fontSize: "0.76rem", fontWeight: 650 }}><CheckIcon sx={{ fontSize: 15 }} />Stored</Box>
@@ -220,11 +175,109 @@ export function Publish({ api, d, set, cards }: { api: StudioApi; d: BlogDoc; se
               <Button size="small" onClick={() => void storeAll(failed.map((f) => f.url))} sx={{ ...toolBtn, mt: 0.75 }}>Try again for {failed.length === 1 ? "it" : "those"}</Button>
             </Box>
           )}
-          <Hint mt={1}>Each picture gets a readable name from what it shows (Google reads it) and is stored once: the paste names it at its address in the hub&apos;s picture storage, open to the shop&apos;s visitors - nothing to upload in Magento.</Hint>
+          <Hint mt={1}>Each picture gets a readable name from what it shows (Google reads it) and is stored once: the paste names it at its address in the hub&apos;s picture storage, open to the shop&apos;s visitors - nothing to upload in Magento.{many ? " Every language's paste names the same files." : ""}</Hint>
         </Block>
       )}
 
       {part === "more" && <MorePosts api={api} />}
+    </Box>
+  );
+}
+
+/** One language's pages (cv17): where they live on the shop, read there, and the paste for each - in its store view. */
+function LangPages({ api, v, first, many, open, own, onHome, cards, origin, stored, media, canEdit, onPictures, onRecord }: {
+  api: StudioApi; v: BlogDoc; first: boolean; many: boolean; open: boolean; own: boolean; onHome: BlogCard[]; cards: BlogCard[] | null;
+  origin: string | undefined; stored: Map<string, string>; media: Media | null; canEdit: boolean;
+  onPictures: () => void; onRecord: (rec: Published | null) => void;
+}) {
+  const { done, copy } = useCopy();
+  const p = api.data.piece;
+  const warnings = postWarnings(v);
+  const o = { store: v.store, language: v.language, topics: topicsOf(onHome) };
+  const tail = many ? ` · ${v.language} ${v.store}` : "";
+
+  // the pictures this language's pages show (its own - the post's - and its home's cards), stored or not yet
+  const mine = useMemo(() => new Set([...postPictures(v), ...cardPictures(onHome)].map((x) => x.url)), [v, onHome]);
+  const unstoredHere = (media?.list ?? []).filter((x) => mine.has(x.url) && x.state !== "there").length;
+  const fromHub = hubPictures(v).length;
+  const unstored = media?.on ? unstoredHere : fromHub;
+
+  /* ── the pages, pasted - and read on the shop ── */
+  const blocks = useMemo(() => [
+    ...pastePost(v, { origin, due: p.dueDate }), pasteHome(onHome, { ...o, origin }), ...v.tags.map((t) => pasteTopic(onHome, { ...o, origin }, t)),
+  ].map((b) => ({ ...b, key: `${v.language}:${b.key}`, code: withStored(b.code, stored) })),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [v, onHome, origin, p.dueDate, stored]);
+  const pages = pagesOf(v);
+  const [reads, setReads] = useState<LiveRead[] | null>(null);
+  const [reading, setReading] = useState(false);
+  const [readErr, setReadErr] = useState<string | null>(null);
+  const readShop = async () => {
+    setReading(true); setReadErr(null);
+    const r = await api.act<{ pages: LiveRead[] }>("live", { paths: pages.map((x) => x.path) });
+    setReading(false);
+    if (!r.ok) { setReadErr(r.error); return; }
+    setReads(r.result.pages);
+    // what was found is kept with the post (with this language): the Content library's card shows where it is
+    if (canEdit) {
+      const rec = publishedFrom(pages, r.result.pages, new Date().toISOString(), api.data.me);
+      if (rec || v.published) onRecord(rec);
+    }
+  };
+  const stateOf = (path: string): { word: string; live: boolean | null } => {
+    const r = reads?.find((x) => x.path === path);
+    if (r) return r.live ? { word: "Live on the shop", live: true } : { word: r.status ? `Not on the shop yet (${r.status === 200 ? "another page answers" : r.status})` : "The shop did not answer", live: false };
+    const was = v.published?.pages.find((x) => x.path === path);
+    return was ? { word: `Live on the shop${v.published?.at ? ` · read ${v.published.at.slice(0, 10)}` : ""}`, live: true } : { word: "Not read on the shop yet", live: null };
+  };
+
+  return (
+    <Box sx={many ? { mt: first ? 1.5 : 2.5, p: { xs: 1, sm: 1.5 }, mx: { xs: -0.5, sm: 0 }, borderRadius: "10px", border: `1px solid ${open ? "#15223a" : HAIRLINE}`, bgcolor: "rgba(255,255,255,.6)" } : undefined}>
+      {many && (
+        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mb: 1.25 }}>
+          <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, color: INK }}>{LANGUAGE_NAME[v.language] ?? v.language}</Typography>
+          <Typography sx={{ ...mono, fontSize: "0.74rem", color: MUTED }}>{v.store}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{own ? "the post's own language" : open ? "the tab open" : ""}</Typography>
+        </Box>
+      )}
+      <Block first title={`Where it lives${tail}`} right={
+        <Button size="small" disabled={reading} onClick={() => void readShop()} startIcon={reading ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 16 }} />} sx={toolBtn}>Read the shop</Button>
+      }>
+        {reading && <LinearProgress sx={{ mb: 1, height: 3, borderRadius: 2 }} />}
+        <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", overflow: "hidden" }}>
+          {pages.map((pg, i) => {
+            const st = stateOf(pg.path);
+            return (
+              <Box key={pg.key} sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.5, py: 1, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff" }}>
+                <Box sx={{ width: 9, height: 9, borderRadius: "50%", flexShrink: 0, ...(st.live ? { bgcolor: "#1b7a55" } : st.live === false ? { bgcolor: AMBER } : { border: "1.5px solid #9aa5ad" }) }} />
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography sx={{ fontSize: "0.85rem", fontWeight: 650, color: INK }}>{pg.label}</Typography>
+                  <Typography sx={{ ...mono, fontSize: "0.74rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.path}</Typography>
+                </Box>
+                <Typography sx={{ fontSize: "0.76rem", color: st.live ? "#1b7a55" : st.live === false ? AMBER : MUTED, textAlign: "right", flexShrink: 0, maxWidth: 190 }}>{st.word}</Typography>
+                {st.live && <Button size="small" component="a" href={`${SHOP}${pg.path}`} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />} sx={toolBtn}>Open</Button>}
+              </Box>
+            );
+          })}
+        </Box>
+        {readErr && <Typography sx={{ fontSize: "0.8rem", color: "#c5221f", mt: 0.75 }}>{readErr} <Button size="small" onClick={() => void readShop()} sx={{ ...btn, color: "#c5221f", minWidth: 0, px: 0.5 }}>Try again</Button></Typography>}
+        {first && <Hint>Read on www.apsoparts.com, never written: a page is live once Magento shows the blog&apos;s own article on it. What is found is kept with the post - its card in the Content library shows it.</Hint>}
+      </Block>
+
+      <Block title={`Copy for Magento${tail}`}>
+        {warnings.map((w) => <Typography key={w} sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>{w}</Typography>)}
+        {unstored > 0 && (
+          <Typography sx={{ fontSize: "0.8rem", color: AMBER, mb: 0.5 }}>
+            {media?.on
+              ? <>{unstored === 1 ? "A picture is" : `${unstored} pictures are`} not in the hub&apos;s picture storage yet - <Box component="button" type="button" onClick={onPictures} sx={{ all: "unset", cursor: "pointer", textDecoration: "underline", fontWeight: 650 }}>store {unstored === 1 ? "it" : "them"}</Box> before the page goes live.</>
+              : <>{fromHub === 1 ? "Its picture is" : `${fromHub} of its pictures are`} kept in the hub, which the shop&apos;s visitors cannot reach: upload {fromHub === 1 ? "it" : "them"} to Magento (Content &gt; Media Gallery) and put {fromHub === 1 ? "its" : "their"} shop address in place of the hub&apos;s before the page goes live.</>}
+          </Typography>
+        )}
+        <Hint mt={warnings.length ? 1 : 0}>The home lists the posts approved or live{many ? ` in ${v.store}` : ""}, and this one{cards === null ? " (the other posts are still being read)" : ""}.{stored.size ? " Its pictures are named at their address in the hub's picture storage." : ""}</Hint>
+        <Box sx={{ mt: 1.25 }}>
+          {blocks.map((b) => <PasteCard key={b.key} label={many ? `${b.label} · ${v.language}` : b.label} steps={b.steps} code={b.code} copied={done === b.key} onCopy={() => void copy(b.key, b.code)} />)}
+        </Box>
+      </Block>
     </Box>
   );
 }

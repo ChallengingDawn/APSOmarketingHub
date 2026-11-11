@@ -19,24 +19,31 @@
 // ask - "start again" is the studio's own). A translation takes every part along: the lines under the pictures, what
 // they show, the author's role. Actions `pictures` / `store` (the post's pictures in the hub's picture storage, by
 // readable names) and `live` (each page of the post read on the shop) serve the last step.
+// cv17 (12.11.2026): every language of the post is a tab of its own (./langs.ts) - each task works on ONE language's post
+// (`input.lang`, the tab open; none: the post's own), a translation is made from the tab open into `input.language`, and
+// the whole answer - a translation too, every text of it, the author's role and the topics with it - is read against the
+// shop's word rules (./guard.ts guardOutline), its sources the post it is made from.
 
 import type { AiTask, KindDef, ServerAction, StudioCtx } from "../../contract";
 import { s } from "../../contract";
 import { addEvent, addPiece } from "@/lib/content/workflow";
 import { defaultReviewerOf } from "@/lib/content/people";
 import { shareCandidates } from "@/lib/content/sharing";
-import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogDoc, blogText, emptyBlog, newId, newSection, slugify, type BlogDoc } from "./model";
-import { guardAll, guardPost } from "./guard";
+import { LANGUAGE_NAME, LIMITS, addDays, batchPlan, blogText, emptyBlog, newId, newSection, slugify, type BlogDoc } from "./model";
+import { guardAll, guardOutline, guardPost } from "./guard";
+import { languagesOf, versionIn } from "./langs";
 import { livePaths, readPictureFiles, storePictureFiles } from "./publishServer";
 import { oneLine, partLabel, partText, sectionOf } from "./parts";
 import { blogCards } from "./posts";
 
-const docOf = (ctx: StudioCtx, raw: unknown) => blogDoc(raw, { language: ctx.piece.language, author: ctx.me.name, title: ctx.piece.title });
+const defaultsOf = (ctx: StudioCtx) => ({ language: ctx.piece.language, author: ctx.me.name, title: ctx.piece.title });
+/** The post a task works on (cv17): the language open in the studio (`input.lang`), else the post's own. */
+const docOf = (ctx: StudioCtx, raw: unknown, input: Record<string, unknown> = {}) => versionIn(raw, s(input.lang, 4) || null, defaultsOf(ctx));
 
 /** What the rules may take as given (./guard.ts): the brief, the to-do, the topic, the person's words, the post as it is. */
 const sourcesOf = (ctx: StudioCtx, raw: unknown, input: Record<string, unknown>) => {
   const b = ctx.brief;
-  const d = docOf(ctx, raw);
+  const d = docOf(ctx, raw, input);
   return [ctx.projectTitle, ctx.piece.title, b.goal, b.audience, b.message, b.keywords.join(" "), s(input.topic, 500), s(input.request, 2000),
     blogText(d), d.relatedProducts.map((p) => p.name).join(" ")].join("\n");
 };
@@ -152,7 +159,7 @@ ${FORMAT}
 
 ${RULES}`,
   user: (ctx, raw, input) => {
-    const d = docOf(ctx, raw);
+    const d = docOf(ctx, raw, input);
     const topic = s(input.topic, 500) || d.title || ctx.piece.title;
     const lang = s(input.language, 4).toUpperCase();
     const mode = WRITE_MODES[s(input.mode, 20)] ? s(input.mode, 20) : "";
@@ -173,25 +180,25 @@ ${RULES}`,
   },
   clean: (raw, doc, ctx, input) => {
     const r = (raw ?? {}) as Record<string, unknown>;
-    const src = sourcesOf(ctx, doc, input);
-    const said: string[] = [];
-    const k = (t: string) => { const x = guardPost(t, src); said.push(...x.said); return x.text; };
-    const title = within(k(s(r.title, 300)), LIMITS.title);
-    const sections = cleanSections(r.sections)
-      .map((x) => ({ ...x, heading: k(x.heading), body: k(x.body), quote: k(x.quote), image: { ...x.image, alt: k(x.image.alt), caption: k(x.image.caption) } }))
-      .filter((x) => x.heading || x.body);
-    const faq = cleanFaq(r.faq).map((f) => ({ ...f, q: k(f.q), a: k(f.a) })).filter((f) => f.q && f.a);
     const c = (r.cta ?? {}) as Record<string, unknown>;
-    const cta = guardAll({ title: s(c.title, 120), text: s(c.text, 300), label: s(c.label, 40) }, src);
-    said.push(...cta.said);
+    // every text of the answer under the shop's word rules - a translation's too, the author's role and the topics with
+    // them (cv17); its sources the post it is made from
+    const g = guardOutline({
+      title: s(r.title, 300), metaTitle: s(r.metaTitle, 200), metaDescription: s(r.metaDescription, 400), excerpt: s(r.excerpt, 800),
+      takeaways: (Array.isArray(r.takeaways) ? r.takeaways : []).map((t) => s(t, 200)),
+      sections: cleanSections(r.sections), faq: cleanFaq(r.faq),
+      cta: { title: s(c.title, 120), text: s(c.text, 300), label: s(c.label, 40) },
+      pictureAlt: s(r.pictureAlt, 200), heroCaption: s(r.heroCaption, 300), authorRole: s(r.authorRole, 120),
+      tags: (Array.isArray(r.tags) ? r.tags : []).map((t) => s(t, 40)),
+    }, sourcesOf(ctx, doc, input));
+    const x = g.x;
+    const title = within(x.title, LIMITS.title);
     return {
-      title, slug: slugify(title), metaTitle: within(k(s(r.metaTitle, 200)), LIMITS.metaTitle), metaDescription: within(k(s(r.metaDescription, 400)), LIMITS.metaDescription),
-      excerpt: within(k(s(r.excerpt, 800)), LIMITS.excerpt), sections, faq,
-      takeaways: (Array.isArray(r.takeaways) ? r.takeaways : []).map((t) => k(s(t, 200))).filter(Boolean).slice(0, 5),
-      tags: (Array.isArray(r.tags) ? r.tags : []).map((t) => s(t, 40)).filter(Boolean).slice(0, 4),
-      cta: cta.texts,
-      picture: s(r.picture, 1000), pictureAlt: k(s(r.pictureAlt, 200)), heroCaption: k(s(r.heroCaption, 300)), authorRole: s(r.authorRole, 120),
-      ...noteOf(said),
+      title, slug: slugify(title), metaTitle: within(x.metaTitle, LIMITS.metaTitle), metaDescription: within(x.metaDescription, LIMITS.metaDescription),
+      excerpt: within(x.excerpt, LIMITS.excerpt), sections: x.sections, faq: x.faq,
+      takeaways: x.takeaways.slice(0, 5), tags: x.tags.slice(0, 4), cta: x.cta,
+      picture: s(r.picture, 1000), pictureAlt: x.pictureAlt, heroCaption: x.heroCaption, authorRole: x.authorRole,
+      ...noteOf(g.said),
     };
   },
 };
@@ -220,7 +227,7 @@ ${FORMAT}
 
 ${RULES}`,
   user: (ctx, raw, input) => {
-    const d = docOf(ctx, raw);
+    const d = docOf(ctx, raw, input);
     const i = Math.max(0, Math.floor(Number(input.index) || 0));
     const sec = d.sections[i];
     const mode = SECTION_ASK[s(input.mode, 20)] ? s(input.mode, 20) : "write";
@@ -247,7 +254,7 @@ Answers are plain text (no markdown headings).
 ${RULES}`,
   // input.add: one or two questions the post's own questions do not cover yet (the studio adds them under those)
   user: (ctx, raw, input) => {
-    const d = docOf(ctx, raw);
+    const d = docOf(ctx, raw, input);
     const ask = input.add === true
       ? `Write ONE or TWO new questions the questions below do not cover yet. The questions the post has:\n${d.faq.map((f) => `- ${f.q}`).join("\n") || "(none)"}`
       : "Write 3 to 5 questions.";
@@ -278,7 +285,7 @@ ${FORMAT}
 
 ${RULES}`,
   user: (ctx, raw, input) => {
-    const d = docOf(ctx, raw);
+    const d = docOf(ctx, raw, input);
     const key = s(input.key, 80);
     const now = partText(d, key);
     if (now === null) throw new Error("That part is not in the post any more.");
@@ -319,7 +326,7 @@ the meta description (at most ${LIMITS.metaDescription} characters), the lead, a
 characters. In the post's language.
 
 ${RULES}`,
-  user: (ctx, raw) => { const d = docOf(ctx, raw); return `${context(ctx, d)}\n\n${postNow(d)}`; },
+  user: (ctx, raw, input) => { const d = docOf(ctx, raw, input); return `${context(ctx, d)}\n\n${postNow(d)}`; },
   clean: (raw, doc, ctx, input) => {
     const r = (raw ?? {}) as Record<string, unknown>;
     const g = guardAll({ metaTitle: s(r.metaTitle, 200), metaDescription: s(r.metaDescription, 400), excerpt: s(r.excerpt, 800) }, sourcesOf(ctx, doc, input));
@@ -355,7 +362,8 @@ export const blogKind: KindDef = {
   kind: "blog",
   channel: "blog",
   empty: (ctx) => emptyBlog({ title: ctx.piece.title, language: ctx.piece.language, author: ctx.me.name }),
-  toText: blogText,
+  // every language's words (cv17), each under its code when there is more than one - an older post: as before
+  toText: (doc) => { const ls = languagesOf(doc); return ls.map((l) => `${ls.length > 1 ? `[${l}]\n` : ""}${blogText(versionIn(doc, l))}`).join("\n\n"); },
   tasks: { outline, section, faq, meta, part },
   actions: {
     index, batch, ping: async () => ({ ok: true }),

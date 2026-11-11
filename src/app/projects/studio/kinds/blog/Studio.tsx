@@ -15,6 +15,12 @@
 // ask wins, "From: ..."), or fine-tuned; "Write it all again" has the Page builder's four ways; every AI text is read
 // against the shop's word rules on the server and the change's line says what was left out; a translation takes every
 // part along and its links follow the language; the last step is a wide publishing view (Publish.tsx).
+//
+// cv17 (12.11.2026) - the languages as tabs, as the newsletter and the social studio keep them: the post's own language is
+// its top level, each other language a version of its own (lib/.../blog/langs.ts). Tabs over the page switch languages;
+// "+ Language" (or "Translate this post into") translates every part into a new tab, read against the shop's word rules
+// on the server; a tab's x takes it out; the assistant's asks and every edit in a tab change that language only; the
+// pictures are the post's - made in any tab, they show in every language. An older post opens exactly as before.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -39,7 +45,6 @@ import {
 } from "@/lib/content/studio/kinds/blog/model";
 import { addFaq, addProduct, addSection, moveSection, oneLine, partLabel, partText, sectionOf, setPart } from "@/lib/content/studio/kinds/blog/parts";
 import { doPartAction, partActions, type PartAction } from "@/lib/content/studio/kinds/blog/elements";
-import { postFollowsStore } from "@/lib/content/studio/kinds/blog/publish";
 import { isNewest, startJob, type SlotJobs } from "@/lib/content/studio/kinds/page/pictureJobs";
 import type { WriteMode } from "../page/WriteAgain";
 import { makePicture, refinePicture } from "../../pictures";
@@ -52,18 +57,19 @@ import type { StudioApi } from "../../useStudio";
 import { EditFrame, type Device } from "./EditFrame";
 import { Outline } from "./Outline";
 import { setDocSafely } from "./safeSet";
-import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { addChange, versionLabel, versionOf, type StudioChange } from "@/lib/content/studio/kinds/blog/changes";
+import { languagesOf, liveLanguages, translatedLine, translatedView, versionIn, withVersion, withoutLanguage, type OutlineAnswer } from "@/lib/content/studio/kinds/blog/langs";
 import { BLUE, ChangesList, Hint, PictureSlot, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "./ui";
+import { PostLangTabs } from "./Langs";
 
 export const LANGS = ["DE", "FR", "IT", "EN", "NL", "PL"] as const;
 /** The page's width on a computer: the article's column and its contents at their real size, zoomed less. */
 const DESKTOP = 1040;
 
-type Outline = Pick<BlogDoc, "title" | "slug" | "metaTitle" | "metaDescription" | "excerpt" | "sections" | "faq" | "tags" | "takeaways"> & {
-  cta: { title: string; text: string; label: string }; picture: string; pictureAlt: string; heroCaption?: string; authorRole?: string;
-  /** what the shop's word rules left out (server: lib/content/studio/kinds/blog/guard.ts) */
-  note?: string;
-};
+/** The whole post as the AI answers it (lib/.../blog/langs.ts; `note`: what the shop's word rules left out). */
+type Outline = OutlineAnswer;
+/** A view of the post changed: a value, or a change of the open language's post as it is when it lands. */
+type SetView = (next: BlogDoc | ((cur: BlogDoc) => BlogDoc)) => void;
 /** What the change's line says of what the shop's word rules left out. */
 const ruled = (note?: string) => (note ? ` Left out by the shop's word rules: ${note}.` : "");
 type Work = { label: string; key: string | null; since: number } | null;
@@ -157,10 +163,10 @@ function Author({ api, d, set, canEdit }: { api: StudioApi; d: BlogDoc; set: (d:
  *  hub's picture panel: make it from the idea (prefilled), upload one, or pick one already made. */
 /** A picture made or uploaded lands up to 40 s later: on the post as it is then, never on an older copy. `from`: the words
  *  the ask started from - words typed in the box since are the person's and stay there. */
-function landPicture(api: StudioApi, d: BlogDoc, pkey: string, x: { url: string; prompt?: string | null; alt?: string | null }, from?: string) {
+// cv17: on the language open as it is then (its view: the picture's file is the post's - every language shows it)
+function landPicture(setV: SetView, pkey: string, x: { url: string; prompt?: string | null; alt?: string | null }, from?: string) {
   const sid = sectionOf(pkey);
-  api.setDoc((raw: unknown) => {
-    const cur = blogDoc(raw, { language: d.language, author: d.author, title: d.title });
+  setV((cur) => {
     const sec = sid ? cur.sections.find((y) => y.id === sid) : null;
     if (sid && !sec) return cur;
     const was = sec ? sec.image : cur.hero;
@@ -174,8 +180,8 @@ function landPicture(api: StudioApi, d: BlogDoc, pkey: string, x: { url: string;
 const ideaOf = (d: BlogDoc, s: BlogSection | null, pic: BlogDoc["hero"]) =>
   pic.prompt || (s ? `${s.heading}${d.title ? ` - for a blog article "${d.title}"` : ""}` : [d.title, d.excerpt].filter(Boolean).join(" - "));
 
-function Picture({ api, d, set, pkey, canEdit, making, error, onMake }: {
-  api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; pkey: string; canEdit: boolean;
+function Picture({ api, d, set, setV, pkey, canEdit, making, error, onMake }: {
+  api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; setV: SetView; pkey: string; canEdit: boolean;
   making: PictureMaking | null; error: string | null; onMake: (pkey: string, words: string, how: "make" | "tune") => void;
 }) {
   const p = api.data.piece;
@@ -188,7 +194,7 @@ function Picture({ api, d, set, pkey, canEdit, making, error, onMake }: {
     <Box>
       {/* the slot: the picture, Upload, Gallery, Remove - made from words in the box under it (cv16) */}
       <PictureSlot url={pic.url} alt={pic.alt} aspect={s ? "3:2" : "16:9"} suggestion={idea} projectId={p.projectId} pieceId={p.id} me={api.data.me} disabled={!canEdit}
-        tabs={["upload", "project", "mine"]} onPick={(x) => landPicture(api, d, pkey, x)}
+        tabs={["upload", "project", "mine"]} onPick={(x) => landPicture(setV, pkey, x)}
         onAlt={(alt) => put({ ...pic, alt })} onRemove={() => put({ ...pic, url: "" })} altLabel="What it shows (for Google)" />
       {canEdit && (
         <PictureWords words={idea} onWords={(w) => put({ ...pic, prompt: w })} hasPicture={!!pic.url} canTune={pic.url.startsWith("/api/content/picture/")}
@@ -201,14 +207,35 @@ function Picture({ api, d, set, pkey, canEdit, making, error, onMake }: {
 
 /* ── the studio ─────────────────────────────────────────────────────────────────────────────────────────────────── */
 
-export default function Studio({ api }: StudioProps) {
-  const p = api.data.piece;
-  const canEdit = api.data.access.canEdit;
-  const me = api.data.people.find((x) => x.username === api.data.me)?.name ?? api.data.me;
-  const d = useMemo(() => blogDoc(api.doc, { language: p.language, author: me, title: p.title }), [api.doc, p.language, p.title, me]);
+export default function Studio({ api: hub }: StudioProps) {
+  const p = hub.data.piece;
+  const canEdit = hub.data.access.canEdit;
+  const me = hub.data.people.find((x) => x.username === hub.data.me)?.name ?? hub.data.me;
+  const defaults = useMemo(() => ({ language: p.language, author: me, title: p.title }), [p.language, p.title, me]);
+  const defaultsRef = useRef(defaults);
+  defaultsRef.current = defaults;
+  // cv17: every language a tab of its own - the tab open is the post edited here (lib/.../blog/langs.ts)
+  const whole = useMemo(() => blogDoc(hub.doc, defaults), [hub.doc, defaults]);
+  const wholeRef = useRef(whole);
+  wholeRef.current = whole;
+  const langs = useMemo(() => languagesOf(whole), [whole]);
+  const main = langs[0];
+  const [tabWanted, setTab] = useState<string | null>(null);
+  const tab = tabWanted && langs.includes(tabWanted) ? tabWanted : main;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const d = useMemo(() => versionIn(whole, tab), [whole, tab]);
   const docRef = useRef(d);
   docRef.current = d;
-  const set = useCallback((next: BlogDoc) => api.setDoc(next), [api]);
+  /** One language's post changed, on the document as it is when it lands (the other languages as they are then). */
+  const setIn = useCallback((lang: string, fn: (cur: BlogDoc) => BlogDoc) => hub.setDoc((raw: unknown) => {
+    const cur = blogDoc(raw, defaultsRef.current);
+    return withVersion(cur, lang, fn(versionIn(cur, lang)));
+  }), [hub]);
+  const setV: SetView = useCallback((next: BlogDoc | ((cur: BlogDoc) => BlogDoc)) => setIn(tabRef.current, typeof next === "function" ? next : () => next), [setIn]);
+  const set = useCallback((next: BlogDoc) => setV(next), [setV]);
+  // the assistant works on the language open (the server reads that language's post: `lang`)
+  const api: StudioApi = useMemo(() => ({ ...hub, ai: <T,>(task: string, input: Record<string, unknown> = {}) => hub.ai<T>(task, { lang: tabRef.current, ...input }) }), [hub]);
 
   const [sel, setSel] = useState<string | null>(null);
   /** the pictures being made (by their part): each breathes in the page; the newest ask of a part wins (cv16) */
@@ -223,8 +250,9 @@ export default function Studio({ api }: StudioProps) {
   const [open, setOpen] = useState<string[]>([]);
   const [device, setDevice] = useState<Device>("desktop");
   const [work, setWork] = useState<Work>(null);
-  // what each change of this sitting replaced, for its Undo (the list itself is kept in the post: it survives a reload)
-  const befores = useRef(new Map<number, Partial<BlogDoc>>());
+  // what each change of this sitting replaced, for its Undo (the list itself is kept in the post: it survives a reload) -
+  // in its language (cv17); a translation: the whole post before it (a tab it made goes again)
+  const befores = useRef(new Map<number, { lang: string; patch?: Partial<BlogDoc>; whole?: BlogDoc }>());
   /** the language being made by a translation */
   const [tl, setTl] = useState<string | null>(null);
   const [cards, setCards] = useState<BlogCard[] | null>(null);
@@ -249,22 +277,29 @@ export default function Studio({ api }: StudioProps) {
 
   /** An answer laid over the post as it is now: listed in "Changes made here" (kept in the post), what it replaced kept for
    *  Undo in this sitting and, as a version saved just before, for going back after a reload. */
-  const lay = async (patch: Partial<BlogDoc>, text: string, lang?: string) => {
-    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString(), ...(lang ? { lang, from: docRef.current.language.toUpperCase() } : {}) };
+  // cv17: into the language open - only its own words change
+  const lay = async (patch: Partial<BlogDoc>, text: string) => {
+    const lang = tabRef.current;
+    const entry: StudioChange = { id: Date.now(), text, at: new Date().toISOString() };
     // kept quietly (09.11.2026): no line on the project's feed per AI change, the newest 20 kept, Versions names it
     await api.keepVersion?.(versionLabel(entry));
-    const cur = docRef.current;
+    const all = wholeRef.current;
+    const cur = versionIn(all, lang);
     const keys = Object.keys(patch) as (keyof BlogDoc)[];
-    befores.current.set(entry.id, Object.fromEntries(keys.map((k) => [k, cur[k]])) as Partial<BlogDoc>);
-    await setDocSafely(api, cur, { ...cur, ...patch, changes: addChange(cur.changes, entry) });
+    befores.current.set(entry.id, { lang, patch: Object.fromEntries(keys.map((k) => [k, cur[k]])) as Partial<BlogDoc> });
+    await setDocSafely(api, all, withVersion(all, lang, { ...cur, ...patch, changes: addChange(cur.changes, entry) }));
   };
   const undoMode = (c: StudioChange): "undo" | "back" | null => (befores.current.has(c.id) ? "undo" : versionOf(api.data.versions, c.id) ? "back" : null);
   const undo = async (c: StudioChange) => {
-    const cur = docRef.current;
+    const all = wholeRef.current;
     const before = befores.current.get(c.id);
     if (before) {
       befores.current.delete(c.id);
-      await setDocSafely(api, cur, { ...cur, ...before, changes: (cur.changes ?? []).filter((x) => x.id !== c.id) });
+      if (before.whole) { await setDocSafely(api, all, before.whole); return; }
+      // a language taken out since: nothing of it to bring back
+      if (!languagesOf(all).includes(before.lang)) return;
+      const cur = versionIn(all, before.lang);
+      await setDocSafely(api, all, withVersion(all, before.lang, { ...cur, ...before.patch, changes: (cur.changes ?? []).filter((x) => x.id !== c.id) }));
       return;
     }
     const v = versionOf(api.data.versions, c.id);
@@ -278,37 +313,68 @@ export default function Studio({ api }: StudioProps) {
     try { return await fn(); } finally { setWork(null); }
   };
 
-  /** The whole post written by the AI: from the brief, again (its ways - cv16), or translated. */
-  const write = (request: string, language?: string, mode?: "topic" | "directly" | "ask") => { if (language) setTl(language); return busyRun(language ? `Translating the post into ${LANGUAGE_NAME[language] ?? language}…` : mode === "topic" ? "Writing the post new from the topic…" : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
-    const ask = language ? `Translate the whole post into ${LANGUAGE_NAME[language] ?? language}, faithfully.${request ? ` ${request}` : ""}` : request;
+  /** The whole post (the language open) written by the AI: from the brief, or again (its ways - cv16). */
+  const write = (request: string, mode?: "topic" | "directly" | "ask") => busyRun(mode === "topic" ? "Writing the post new from the topic…" : docRef.current.sections.length ? "Writing the post again…" : "Writing the post from the brief - about a minute or two…", null, async () => {
     // the to-do's name in the bar is the topic while the post's own title is still "Untitled …"
     const topic = untitled(docRef.current.title) ? p.title : docRef.current.title;
-    const r = await api.ai<Outline>("outline", { topic, request: ask, ...(language ? { language } : {}), ...(mode && !language ? { mode } : {}) });
+    const r = await api.ai<Outline>("outline", { topic, request, ...(mode ? { mode } : {}) });
     if (!r.ok) return r.error;
     const x = r.result;
     if (!x.sections.length) return "No post came back - ask again.";
     const cur = docRef.current;
-    const lg = language ?? cur.language;
     const patch: Partial<BlogDoc> = {
-      title: x.title || cur.title, slug: language ? x.slug || slugify(x.title) : cur.slug && cur.slug !== slugify(cur.title) ? cur.slug : x.slug || cur.slug,
+      title: x.title || cur.title, slug: cur.slug && cur.slug !== slugify(cur.title) ? cur.slug : x.slug || cur.slug,
       metaTitle: x.metaTitle, metaDescription: x.metaDescription, excerpt: x.excerpt, takeaways: x.takeaways,
-      sections: keepPictures(x.sections, cur.sections, !!language), faq: x.faq.length ? x.faq : cur.faq,
-      tags: language || !cur.tags.length ? x.tags : cur.tags,
+      sections: keepPictures(x.sections, cur.sections), faq: x.faq.length ? x.faq : cur.faq,
+      tags: !cur.tags.length ? x.tags : cur.tags,
       cta: { ...cur.cta, title: x.cta.title, text: x.cta.text, label: x.cta.label },
-      hero: language
-        ? { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: x.pictureAlt || cur.hero.alt, caption: x.heroCaption || cur.hero.caption }
-        : { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: cur.hero.alt || x.pictureAlt },
-      ...(language ? { language: lg, store: storeOf(lg), authorRole: x.authorRole || cur.authorRole } : {}),
+      hero: { ...cur.hero, prompt: x.picture || cur.hero.prompt, alt: cur.hero.alt || x.pictureAlt },
     };
-    // a translation's links follow the language: /de-CH/... in the text, the band's button and the products become the new
-    // store view's (cv16 - the Page builder's "products and links follow the language")
-    const moved = language ? postFollowsStore({ excerpt: patch.excerpt ?? "", sections: patch.sections ?? [], faq: patch.faq ?? [], cta: { ...cur.cta, ...patch.cta }, relatedProducts: cur.relatedProducts }, cur.store, storeOf(lg)) : null;
-    await lay(moved ? { ...patch, ...moved } : patch, (language
-      ? `Translated into ${LANGUAGE_NAME[lg] ?? lg}: ${x.sections.length} sections, ${x.faq.length} questions, the pictures' words, store view ${storeOf(lg)} - its links and products follow it.`
-      : `${mode === "topic" ? "Written new from the topic" : mode === "directly" ? "Written again, better" : mode === "ask" ? "Written again as you asked" : "The post"}: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}`) + ruled(x.note), language);
+    await lay(patch, `${mode === "topic" ? "Written new from the topic" : mode === "directly" ? "Written again, better" : mode === "ask" ? "Written again as you asked" : "The post"}: ${x.sections.length} sections, ${x.takeaways.length} lines "in short", ${x.faq.length} questions, Google's texts and the band to the shop.${cur.hero.url ? "" : " Its picture: click the empty frame under the title."}${ruled(x.note)}`);
     setSel(null);
     return null;
-  }).finally(() => setTl(null)); };
+  });
+
+  /**
+   * The language open translated into another (cv17): a tab of its own - every part along (the server reads the answer
+   * against the shop's word rules), the pictures kept, its links and products in its store view. A language the post has
+   * already is made again from this one (its store view, its changes and its pages on the shop kept); this one stays.
+   * Undo (or Versions) brings the post back as it was before.
+   */
+  const translate = (to: string, request = "") => {
+    const from = tabRef.current;
+    const name = LANGUAGE_NAME[to] ?? to;
+    setTl(to);
+    return busyRun(`Translating the post into ${name} - a tab of its own…`, null, async () => {
+      const topic = untitled(docRef.current.title) ? p.title : docRef.current.title;
+      const r = await api.ai<Outline>("outline", { topic, request: `Translate the whole post into ${name}, faithfully.${request ? ` ${request}` : ""}`, language: to, lang: from });
+      if (!r.ok) return r.error;
+      if (!r.result.sections.length) return "No translation came back - ask again.";
+      const all = wholeRef.current;
+      const had = languagesOf(all).includes(to) ? versionIn(all, to) : null;
+      const view = translatedView(versionIn(all, from), r.result, to, had?.store);
+      const entry: StudioChange = { id: Date.now(), text: `${translatedLine(view, LANGUAGE_NAME)}${ruled(r.result.note)}`, at: new Date().toISOString(), lang: to, from };
+      await api.keepVersion?.(versionLabel(entry));
+      befores.current.set(entry.id, { lang: to, whole: all });
+      await setDocSafely(api, all, withVersion(all, to, { ...view, changes: addChange(had?.changes ?? [], entry), published: had?.published ?? null }));
+      setTab(to);
+      setSel(null);
+      return null;
+    }).finally(() => setTl(null));
+  };
+  /** "+ Language" / "Translate this post into": a language the post has already is made again only when asked twice. */
+  const askTranslate = (to: string) => {
+    if (langs.includes(to) && !window.confirm(`Translate this ${LANGUAGE_NAME[tab] ?? tab} post into ${LANGUAGE_NAME[to] ?? to} again? The ${to} post's words are replaced - Undo brings them back.`)) return;
+    void translate(to);
+  };
+  /** A language's tab taken out (the post's own stays) - kept in Versions first. */
+  const dropLanguage = (l: string) => {
+    if (l === main || !window.confirm(`Take the ${LANGUAGE_NAME[l] ?? l} post out? Its pages on the shop stay where they are. Versions keeps it.`)) return;
+    void api.keepVersion?.(`Before the ${l} post was taken out`);
+    hub.setDoc((raw: unknown) => withoutLanguage(raw, l, defaultsRef.current));
+    if (tabRef.current === l) setTab(main);
+    setSel(null);
+  };
 
   /** "Write it all again" (the Page builder's own choice, ../page/WriteAgain.tsx): its four ways. */
   const writeAgain = (mode: WriteMode, request?: string) => {
@@ -321,7 +387,7 @@ export default function Studio({ api }: StudioProps) {
       setSel(null);
       return;
     }
-    void write(request ?? "", undefined, mode === "better" ? "directly" : mode);
+    void write(request ?? "", mode === "better" ? "directly" : mode);
   };
 
   /** A picture made from words, or fine-tuned - the newest ask of a part is the one that lands (page/pictureJobs.ts). */
@@ -341,7 +407,7 @@ export default function Studio({ api }: StudioProps) {
     if (!isNewest(jobs.current, pkey, n)) return;
     setPics((m) => { const next = { ...m }; delete next[pkey]; return next; });
     if (!r.ok) { setPicErr((m) => ({ ...m, [pkey]: r.error })); return; }
-    landPicture(api, cur, pkey, { url: r.picture.url, alt: r.picture.alt, prompt: how === "tune" ? pic.prompt || words : words }, how === "tune" ? pic.prompt : words);
+    landPicture(setV, pkey, { url: r.picture.url, alt: r.picture.alt, prompt: how === "tune" ? pic.prompt || words : words }, how === "tune" ? pic.prompt : words);
   };
 
   /** Move / Duplicate / Take out from the label over the picked part (cv16, ../../../../lib/.../blog/elements.ts). */
@@ -353,7 +419,7 @@ export default function Studio({ api }: StudioProps) {
     }
     const r = doPartAction(cur, key, act);
     // on the post as it is this instant (the words just kept go first)
-    api.setDoc((raw: unknown) => doPartAction(blogDoc(raw, { language: p.language, author: me, title: p.title }), key, act).doc);
+    setV((now) => doPartAction(now, key, act).doc);
     setSel(r.key);
     if (r.key) setFocus({ key: r.key, at: Date.now() });
   };
@@ -404,8 +470,7 @@ export default function Studio({ api }: StudioProps) {
 
   /* ── the words edited in place ── */
   // on the document as it is this instant (a move or a removal may have just been made): never on an older copy
-  const commit = (key: string, text: string) => api.setDoc((raw: unknown) => {
-    const cur = blogDoc(raw, { language: p.language, author: me, title: p.title });
+  const commit = (key: string, text: string) => setV((cur) => {
     const next = setPart(cur, key, text);
     // the address follows the title while nobody set one of its own
     return key === "title" && (!cur.slug || cur.slug === slugify(cur.title)) ? { ...next, slug: slugify(next.title) } : next;
@@ -413,7 +478,8 @@ export default function Studio({ api }: StudioProps) {
 
   // named in the bar while the post is still "Untitled …": the page's title follows (one name, not two)
   useEffect(() => {
-    if (canEdit && untitled(d.title) && !untitled(p.title)) commit("title", p.title);
+    // the post's own language only (a tab of another language has its own title, translated)
+    if (canEdit && tabRef.current === main && untitled(d.title) && !untitled(p.title)) commit("title", p.title);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [p.title, canEdit]);
 
@@ -443,7 +509,7 @@ export default function Studio({ api }: StudioProps) {
         // the same words as the start card and the map's header (the flow standard)
         label: d.sections.length ? "Write it all again, better" : "Write the whole post with AI",
         // written again: every section kept and written better (Undo in the history); the other ways are in the map's header
-        run: async () => write("", undefined, d.sections.length ? "directly" : undefined),
+        run: async () => write("", d.sections.length ? "directly" : undefined),
       },
       // with nothing written yet, writing it is the one next step
       ...(d.sections.length ? [
@@ -451,7 +517,7 @@ export default function Studio({ api }: StudioProps) {
         { label: "Title and description for Google", run: meta },
       ] : []),
     ];
-    onAsk = (t) => write(t, undefined, docRef.current.sections.length ? "ask" : undefined);
+    onAsk = (t) => write(t, docRef.current.sections.length ? "ask" : undefined);
     placeholder = d.sections.length ? "Ask for a change to the whole post - e.g. add a section on storage, for buyers rather than engineers" : "What should the post say? Or ask the assistant to write it from the brief";
   } else if (words !== null && !sel.startsWith("prod:")) {
     // a product's name is the shop's: written by hand, never by the assistant
@@ -502,7 +568,7 @@ export default function Studio({ api }: StudioProps) {
   /* ── the picked part's own fields: under its row in the map (the flow standard) ── */
   const fields = (
     <Box>
-      {isPicture(sel) && <Picture api={api} d={d} set={set} pkey={sel!} canEdit={canEdit} making={pics[sel!] ?? null} error={picErr[sel!] || null} onMake={(k, w, how) => void makePic(k, w, how)} />}
+      {isPicture(sel) && <Picture api={api} d={d} set={set} setV={setV} pkey={sel!} canEdit={canEdit} making={pics[sel!] ?? null} error={picErr[sel!] || null} onMake={(k, w, how) => void makePic(k, w, how)} />}
       {sel === "tags" && <TopicEditor d={d} set={set} canEdit={canEdit} />}
       {sel === "author" && <Author api={api} d={d} set={set} canEdit={canEdit} />}
       {(sel === "prods" || sel?.startsWith("prod:")) && <Products d={d} set={set} canEdit={canEdit} picked={sel} onPick={(k) => setSel(k)} />}
@@ -541,8 +607,9 @@ export default function Studio({ api }: StudioProps) {
     <AssistantPanel quick={quick} enabled={enabled} onAsk={onAsk} placeholder={placeholder} top={top} inputRef={askRef}>
       {!sel && d.sections.length > 0 && (
         <Box sx={{ mt: 2.5, pt: 2, borderTop: `1px solid ${HAIRLINE}` }}>
-          <TranslateRow what="post" langs={LANGS} names={LANGUAGE_NAME} current={d.language} made={madeLanguages(d.changes, d.language)} busy={tl}
-            disabled={!enabled || (!!work && !tl)} onPick={(l) => void write("", l)} />
+          {/* cv17: a language not made yet becomes a tab of its own; one made (ticked) is made again from this one */}
+          <TranslateRow what="post" langs={LANGS} names={LANGUAGE_NAME} current={tab} made={langs.filter((l) => l !== tab)} busy={tl} tabs
+            disabled={!enabled || (!!work && !tl)} onPick={askTranslate} />
         </Box>
       )}
       <ChangesList changes={d.changes ?? []} mode={undoMode} onUndo={(c) => void undo(c)} disabled={!canEdit || !!work} />
@@ -556,6 +623,11 @@ export default function Studio({ api }: StudioProps) {
     }>
       <Box sx={{ p: 2.5, position: "relative" }}>
         {work && <Working label={work.label} since={work.since} />}
+        {/* cv17: the post's languages as tabs over the page - once there is something to translate */}
+        {(langs.length > 1 || d.sections.length > 0) && (
+          <PostLangTabs langs={langs} open={tab} names={LANGUAGE_NAME} all={[...LANGS]} live={liveLanguages(whole)} stores={Object.fromEntries(langs.map((l) => [l, versionIn(whole, l).store]))}
+            busy={tl} canAdd={canEdit && !!enabled && !work} onOpen={(l) => { setTab(l); setSel(null); }} onAdd={askTranslate} onDrop={canEdit ? dropLanguage : undefined} />
+        )}
         <EditFrame html={html} device={device} width={DESKTOP} title="The blog post" texts={(k) => partText(docRef.current, k)} oneLine={oneLine}
           selected={sel} onSelect={(k) => setSel(k)} onCommit={commit} readOnly={!canEdit} focus={focus} editKey={editKey} busy={work ? work.key ?? "*" : picBusy}
           rich={richOf} redMarks linkSearch={linkSearch} label={(k) => partLabel(docRef.current, k)} onAskAi={enabled && onAsk ? () => askRef.current?.focus() : undefined}
@@ -570,7 +642,9 @@ export default function Studio({ api }: StudioProps) {
     <Box sx={{ p: 1.5, mb: 1.25, borderRadius: "10px", bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, boxShadow: "0 6px 18px rgba(31,45,78,.08)" }}>
       <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK }}>What are you making?</Typography>
       <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1 }}>A post for the shop&apos;s blog, from the project&apos;s brief - in</Typography>
-      <SquareChoice value={d.language} onChange={(l: string) => set({ ...d, language: l, store: storeOf(l) })} options={LANGS.map((l) => ({ key: l, label: l }))} />
+      {/* the post's own language - while it has no other (cv17: a tab is made by translating) */}
+      {langs.length === 1 ? <SquareChoice value={d.language} onChange={(l: string) => set({ ...d, language: l, store: storeOf(l) })} options={LANGS.map((l) => ({ key: l, label: l }))} />
+        : <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK }}>{LANGUAGE_NAME[d.language] ?? d.language} · {d.store}</Typography>}
       <Button fullWidth variant="contained" disableElevation disabled={!enabled} startIcon={<AutoAwesomeOutlinedIcon />} onClick={() => void write("")} sx={{ ...mainBtn, mt: 1.25, minHeight: 38, height: "auto", py: 0.75, whiteSpace: "normal", lineHeight: 1.25 }}>Write the whole post with AI</Button>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.75, textAlign: "center" }}>or open a part below and write it yourself</Typography>
     </Box>
@@ -579,7 +653,7 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <StudioPanes id="blog4" buildWidth={300} assistWidth={330} wide={publishing}
-      build={<Outline api={api} d={d} set={set} sel={sel} cards={cards} onAddSection={newSection}
+      build={<Outline api={api} d={d} set={set} whole={whole} setIn={setIn} sel={sel} cards={cards} onAddSection={newSection}
         onPick={(key) => pick(key, true)} fields={fields} start={start} onWriteAll={writeAll} busy={work ? work.key ?? "all" : null} onStep={(s) => setPublishing(s === "publish")} />}
       preview={preview}
       assist={assist}
