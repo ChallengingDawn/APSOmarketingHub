@@ -257,8 +257,17 @@ const MARKETING_NAV: Record<string, NavSection["items"]> = {
     { group: "Make", label: "Newsletter", href: "/projects/make/newsletter", icon: <MailOutlineIcon fontSize="small" /> },
     { group: "Make", label: "Banner", href: "/projects/make/banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },
     { group: "Make", label: "Video", href: "/projects/make/video", icon: <MovieOutlinedIcon fontSize="small" /> },
-    { group: "Library", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
-    { group: "Library", label: "Content Library", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
+    // the content library, one page per kind (SARCLA 11.11.2026: "one page per type of content, and content should really
+    // display, and in one click back to edit") - lib/content/library.ts LIBRARY_KINDS; then the pictures, and every text
+    // and version (the older Content Library page, /library, kept as it is)
+    { group: "Content library", label: "Pages", href: "/projects/library/pages", icon: <WebOutlinedIcon fontSize="small" /> },
+    { group: "Content library", label: "Banners", href: "/projects/library/banners", icon: <ViewDayOutlinedIcon fontSize="small" /> },
+    { group: "Content library", label: "Blog posts", href: "/projects/library/blog", icon: <ArticleIcon fontSize="small" /> },
+    { group: "Content library", label: "Newsletters", href: "/projects/library/newsletters", icon: <MailOutlineIcon fontSize="small" /> },
+    { group: "Content library", label: "Social posts", href: "/projects/library/social", icon: <ShareOutlinedIcon fontSize="small" /> },
+    { group: "Content library", label: "Videos", href: "/projects/library/videos", icon: <MovieOutlinedIcon fontSize="small" /> },
+    { group: "Content library", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
+    { group: "Content library", label: "Texts & versions", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
     { group: "How we write", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
     { group: "How we write", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
   ],
