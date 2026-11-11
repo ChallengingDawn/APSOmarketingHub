@@ -128,8 +128,9 @@ export function cleanDoc(raw: unknown, fallback: Size): DesignDocument | null {
       src: typeof b.src === "string" && b.src ? b.src : null,
       scrim: num(b.scrim, 0, 100, 0),
     },
-    // keys a save set to null are dropped - the canvas reads "missing", not null
-    nodes: nodes.map((n) => Object.fromEntries(Object.entries(n).filter(([, v]) => v !== null && v !== undefined)) as DesignNode),
+    // keys a save set to null are dropped - the canvas reads "missing", not null; a picture's alt text (cv17) kept as words
+    nodes: nodes.map((n) => Object.fromEntries(Object.entries(n).filter(([k, v]) => v !== null && v !== undefined && (k !== "alt" || typeof v === "string"))
+      .map(([k, v]) => [k, k === "alt" ? (v as string).replace(/\s+/g, " ").trim().slice(0, MAX_ALT) : v]).filter(([k, v]) => k !== "alt" || v)) as DesignNode),
   };
 }
 
@@ -342,6 +343,72 @@ export const usesKeyWords = (doc: DesignDocument) => doc.nodes.some((n) => n.kin
 /** The pictures a design shows (their addresses), for the checks and the exports. */
 export function pictures(doc: DesignDocument): string[] {
   return [doc.background.src, ...doc.nodes.filter((n) => n.kind === "image").map((n) => n.src)].filter((x): x is string => !!x);
+}
+
+/* ── a picture's alt text (cv17) ───────────────────────────────────────────────────────────────────────────────── */
+
+// SARCLA 11.11.2026 ("continue" - what cv16 left open): a picture on the post says what it shows, for people who cannot see
+// it - the Page builder's "What it shows (alt text)". Optional, on the picture's own node (`alt`; the canvas keeps a node's
+// keys as they are), the same in every format of its page; a language version carries its own (model.ts translateItems).
+// LinkedIn, Instagram and Facebook each take an alt text per picture posted: the downloads hand it over beside the files.
+
+/** The words a picture's alt text keeps at most (the Page builder's field: 140). */
+export const MAX_ALT = 140;
+/** A picture node with its alt text - the canvas's node schema does not name it; the studio's documents carry it. */
+export type AltNode = DesignNode & { alt?: string };
+/** A node's alt text ("" when it has none). */
+export const altOf = (n: DesignNode | null | undefined): string => {
+  const a = (n as AltNode | null | undefined)?.alt;
+  return typeof a === "string" ? a.trim() : "";
+};
+
+/** The design with one picture's alt text set (or taken away: ""), on that picture in every format of its page. */
+export function withAlt(d: SocialDesign, page: number, id: string, alt: string): SocialDesign {
+  const text = alt.replace(/\s+/g, " ").trim().slice(0, MAX_ALT);
+  const put = (n: DesignNode): DesignNode => {
+    if (n.id !== id) return n;
+    const { alt: _old, ...rest } = n as AltNode;
+    return (text ? { ...rest, alt: text } : rest) as DesignNode;
+  };
+  return {
+    ...d,
+    pages: d.pages.map((p, i) => (i !== page ? p : {
+      ...p,
+      by: Object.fromEntries(Object.entries(p.by).map(([f, doc]) => [f, doc ? { ...doc, nodes: doc.nodes.map(put) } : doc])) as DesignPage["by"],
+    })),
+  };
+}
+
+/** The alt texts of a page's pictures, top to bottom (a picture without one says nothing). */
+export function pageAlts(doc: DesignDocument): string[] {
+  return [...doc.nodes].filter((n) => n.kind === "image" && !n.hidden && altOf(n)).sort((a, b) => a.y - b.y || a.x - b.x).map((n) => altOf(n));
+}
+
+const pad2 = (i: number) => String(i + 1).padStart(2, "0");
+/** The file a page is saved as: "<stem>-square-1080x1080-01.png" (the number only for a post of several pages). */
+export const pageFileName = (stem: string, f: FormatKey, s: Size, i: number, pages: number, ext = "png") =>
+  `${stem}-${f}-${s.w}x${s.h}${pages > 1 ? `-${pad2(i)}` : ""}.${ext}`;
+
+/**
+ * The alt text of each picture saved, beside the files (cv17): one line a file - its name, then what its pictures show and
+ * the words on it, ready to paste into the network's alt text field. null when no picture has an alt text (a post made
+ * before, or one without them: its downloads stay as they were).
+ */
+export function altSidecar(d: SocialDesign, formats: readonly FormatKey[], stem: string, ext = "png"): string | null {
+  const alts = d.pages.map((p) => pageAlts(pageIn(d, p, d.formats[0])));
+  if (!alts.some((a) => a.length)) return null;
+  const lines = ["What each picture shows (alt text) - paste it into the network's alt text field when you post.", ""];
+  for (const f of formats) {
+    for (const [i, p] of d.pages.entries()) {
+      const doc = pageIn(d, p, f);
+      const own = pageAlts(doc);
+      const said = (own.length ? own : alts[i]).join(" ");
+      const words = pageWords(doc).join(" / ");
+      const line = [said && !/[.!?]$/.test(said) ? `${said}.` : said, words ? `The words on it: ${words}` : ""].filter(Boolean).join(" ");
+      if (line) lines.push(`${pageFileName(stem, f, sizeOf(f, d), i, d.pages.length, ext)}: ${line}`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /** A picture kept as bytes (data:) instead of an address - a design never stores one (an SVG drawn by code is fine). */

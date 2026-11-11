@@ -14,7 +14,8 @@
 //               page is
 //   newsletter  sent to HubSpot as a draft (doc.hubspot)
 //   social      marked as posted (doc.published)
-//   blog, video the hub writes them nowhere: marked Live on the board (the status event's when and who)
+//   blog, video the hub writes them nowhere: marked Live on the board (the status event's when and who); a video's
+//               exports per language for the render machine are said too (cv17, doc.exports: "Exported · DE, FR")
 // OFFICIAL = live on production: a page written into production's store views, a banner on such a page, a social post
 // marked posted, any piece the team moved to Live.
 
@@ -276,6 +277,18 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
     // its language versions too (cv16: every language a tab of its own, exported a file each)
     languages = uniq([upperLang(d.language) || upperLang(row.language), ...(Array.isArray(d.langs) ? d.langs.map(upperLang) : [])].filter(Boolean));
     official = status === "live";
+    // cv17: each export of a language for the render machine, recorded by the studio (doc.exports, newest first) -
+    // "Exported · DE, FR" with the newest one's when and who; the board's mark stays beside it
+    const ex = (Array.isArray(d.exports) ? d.exports.filter(isObj) : [])
+      .map((x) => ({ at: iso(x.at), lang: /^[a-z]{2}$/i.test(str(x.lang, 8)) ? str(x.lang, 8).toUpperCase() : "", by: str(x.by, 255) }))
+      .filter((x) => x.at && x.lang)
+      .sort((a, b) => b.at.localeCompare(a.at));
+    if (ex.length) {
+      const rank = (l: string) => (languages.includes(l) ? languages.indexOf(l) : languages.length);
+      const done = uniq(ex.map((x) => x.lang)).sort((a, b) => rank(a) - rank(b));
+      if (marked) where.push(marked);
+      where.push({ kind: "marked", label: `Exported · ${done.join(", ")}`, at: ex[0].at, by: ex[0].by || null, links: [] });
+    }
   }
   // the board's mark, when nothing else says where it went
   if (marked && !where.length) where = [marked];
@@ -436,7 +449,10 @@ export function libraryQuery(admin: boolean): string {
                                  FROM jsonb_array_elements(${arr("d.doc -> 'scenes'")}) x)
                              + CASE WHEN jsonb_array_length(${arr("d.doc -> 'scenes'")}) = 0 THEN 0
                                     WHEN d.doc #>> '{endCard,bars}' = '3' THEN 3 ELSE 2 END),
-                  'langs', CASE WHEN jsonb_typeof(d.doc -> 'langs') = 'object' THEN (SELECT jsonb_agg(k) FROM jsonb_object_keys(d.doc -> 'langs') k) END)
+                  'langs', CASE WHEN jsonb_typeof(d.doc -> 'langs') = 'object' THEN (SELECT jsonb_agg(k) FROM jsonb_object_keys(d.doc -> 'langs') k) END,
+                  -- cv17: its exports per language (when, which, who - the file's name is not read)
+                  'exports', CASE WHEN jsonb_typeof(d.doc -> 'exports') = 'array' THEN (SELECT jsonb_agg(jsonb_build_object('at', x -> 'at', 'lang', x -> 'lang', 'by', x -> 'by'))
+                    FROM jsonb_array_elements(d.doc -> 'exports') x WHERE jsonb_typeof(x) = 'object') END)
               ELSE '{}'::jsonb END AS doc,
             substring((CASE d.kind
               WHEN 'page' THEN COALESCE(d.doc -> 'fields', '{}'::jsonb)::text || ' ' || COALESCE(d.doc -> 'changes', '[]'::jsonb)::text

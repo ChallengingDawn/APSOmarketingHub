@@ -3,8 +3,9 @@
 // download"). What exists: the story for the render machine (the "export" read - its checks first), as its last step
 // gives it; the MP4 is made from it on the render laptop (the hub cannot - no Chromium on its servers). cv16 (11.11.2026):
 // one file a language - the film's own first, then each of its versions, each in the film's own format.
+// cv17: each file saved here is recorded in the film too (model.ts withExport), as the last step's are.
 
-import { FORMATS, cleanVideo, languagesOf, type Format, type VideoSpec } from "@/lib/content/studio/kinds/video/model";
+import { FORMATS, cleanVideo, filmPrint, languagesOf, withExport, type Format, type VideoSpec } from "@/lib/content/studio/kinds/video/model";
 import { fileStem, saveFile, type DownloadsOf } from "../../frame";
 
 export const downloads: DownloadsOf = (api) => {
@@ -20,7 +21,9 @@ export const downloads: DownloadsOf = (api) => {
       const r = await api.act<{ spec: VideoSpec | null; issues: { level: string; text: string }[] }>("export", { format, lang });
       if (!r.ok) return r.error;
       if (!r.result.spec) return `Not yet: ${r.result.issues.filter((x) => x.level === "stop").map((x) => x.text).join(" ")}`;
-      saveFile(JSON.stringify(r.result.spec, null, 2), `${fileStem(api.data.piece.title)}${many ? `-${lang.toLowerCase()}` : ""}-${format.replace(":", "x")}.json`, "application/json");
+      const name = `${fileStem(api.data.piece.title)}${many ? `-${lang.toLowerCase()}` : ""}-${format.replace(":", "x")}.json`;
+      saveFile(JSON.stringify(r.result.spec, null, 2), name, "application/json");
+      if (api.data.access.canEdit) api.setDoc((cur: unknown) => withExport(cur, { at: new Date().toISOString(), lang, by: api.data.me, file: name, format, print: filmPrint(film, lang, format) }));
       return "Saved - the render laptop makes the MP4 from it (the film's last step has the command).";
     },
   });

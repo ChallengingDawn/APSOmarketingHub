@@ -8,6 +8,7 @@
 //   translate  (cv16) every part of the post into another language: the captions, the first comment, the link's words, the
 //              words on every page in every format - its own tab from then on
 // and one action, "export": the whole post as a text to copy. Nothing is posted anywhere - publishing is not connected.
+// cv17: a second action, "counterpart" - a language version's link found in its language (the Page builder's relinkOf).
 // cv16 (SARCLA 11.11.2026: "compare the evolution of this page to the other content types and improve them"): every text the
 // AI writes goes through the shop's word rules before it lands (./guard.ts - a sentence with a price, a discount, a stock or
 // delivery promise or a certificate nobody named is taken out, and said); a task asked from a language's tab (input.lang)
@@ -28,6 +29,8 @@ import {
   DESIGN_SCHEMA, STYLE_GUIDE, TEMPLATE_CATALOGUE, WORDS_ANSWER_SCHEMA, WORDS_STYLES, cleanDesign, cleanWordsAnswer, describePage, type WordsStyle,
 } from "./canvasAi";
 import { FORMATS, isFormat, pageIn, pageWords, type FormatKey } from "./design";
+import { askDoc, linkAnswer, linkAsk } from "./relink";
+import { relinkOf } from "../page/shop";
 
 const MANNER: Record<Network, string> = {
   linkedin: "LinkedIn: 80-160 words, short paragraphs with a blank line between them. The FIRST line is the hook and must work alone before \"…see more\" (about 210 characters, often less on a phone): a concrete observation, a number we really have, or a situation from the reader's day. End with a light question or a pointer a peer would answer.",
@@ -270,7 +273,7 @@ export const socialKind: KindDef = {
       system: `${RULES}
 
 # THIS TASK: THE WHOLE POST INTO ANOTHER LANGUAGE
-You are given every text of the post by id: its caption for each network ("net.linkedin", "net.instagram", "net.facebook"), LinkedIn's first comment ("comment"), the words before its link ("link.label") and the words on its design ("t.<n>": a headline, a small line, a button, a list - one point per line). Answer EVERY id with its translation.
+You are given every text of the post by id: its caption for each network ("net.linkedin", "net.instagram", "net.facebook"), LinkedIn's first comment ("comment"), the words before its link ("link.label"), the words on its design ("t.<n>": a headline, a small line, a button, a list - one point per line) and what its pictures show ("a.<n>": a picture's alt text for people who cannot see it - plain words, no stars). Answer EVERY id with its translation.
 - Translate the meaning for engineers and buyers in that country: natural, the shop's own terms (Dichtung = joint d'etancheite = guarnizione = seal), each network's manner kept, the length roughly the same - a design's words stay as short as they are.
 - Key words between *stars* stay between stars (the same idea marked); line breaks stay where they are.
 - Hashtags inside a text stay as they are. Product names, brand names (APSOparts, Angst+Pfister, DirectCUT), norms, units and material codes (NBR, EPDM, FKM) stay as they are.
@@ -298,5 +301,19 @@ You are given every text of the post by id: its caption for each network ("net.l
   actions: {
     /** The whole post as one text, ready to copy - nothing is sent anywhere. */
     export: async (ctx, doc) => ({ text: exportPack(doc, ctx.piece.title) }),
+    /**
+     * cv17: a language version's link in its own language - the same page of the shop, found the Page builder's way (its
+     * relinkOf: the page read once, its hreflang links give the page in that language). Reads only; nothing is written.
+     * { url: the address found, or null (the shop has none - the version keeps its link), store: where it was looked for }.
+     */
+    counterpart: async (_ctx, _doc, input) => {
+      const a = linkAsk(typeof input.url === "string" ? input.url.slice(0, 1000) : "", isLangCode(input.lang) ? input.lang : null);
+      if (!a) return { url: null, store: null, searched: false };
+      try {
+        return { url: linkAnswer(a, await relinkOf(askDoc(a), a.store)), store: a.store, searched: true };
+      } catch {
+        return { url: null, store: a.store, searched: true, error: "The shop could not be read just now - try again in a moment." };
+      }
+    },
   },
 };

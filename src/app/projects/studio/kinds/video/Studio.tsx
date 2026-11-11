@@ -18,6 +18,8 @@
 //   - a scene's own "Write it again with AI" box; "Write it all again" in four ways (./WriteAgain.tsx)
 //   - a picture made from your own words, the newest ask wins (./PictureAsk.tsx)
 //   - the film's languages, a tab each over the film (./Languages.tsx); the last step exports each language as its file
+// cv17 (SARCLA 11.11.2026: "continue"): each export is recorded in the film (model.ts ExportRecord - when, which language,
+// who, the file); the last step shows each language's last one (./Exported.tsx), the library's card "Exported · DE, FR"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -43,8 +45,8 @@ import { seconds } from "@/lib/content/studio/kinds/video/engine/timeline";
 import { plain } from "@/lib/content/studio/kinds/video/engine/text";
 import {
   cleanVideo, dropLanguage, END_FIELDS, featureScene, FORMAT_INFO, FORMATS, inLanguage, KIND_INFO, languagesOf, MAX_SCENES, newScene, SCENE_KINDS, segments, setLangLine, totalFrames,
-  untranslated, validate, wordsPrint,
-  type CopyKey, type FilmLength, type Format, type Issue, type Scene, type SceneKind, type VideoDoc, type VideoSpec,
+  untranslated, validate, withExport, wordsPrint, filmPrint,
+  type CopyKey, type ExportRecord, type FilmLength, type Format, type Issue, type Scene, type SceneKind, type VideoDoc, type VideoSpec,
 } from "@/lib/content/studio/kinds/video/model";
 import type { AiAnswer } from "@/lib/content/studio/kinds/video/ai";
 import { AssistantPanel, PINK, btn, mainBtn, Pane, StudioPanes } from "../../parts";
@@ -56,6 +58,7 @@ import { WordField } from "./ui";
 import { EndPanel, ScenePanel, Shows } from "./ScenePanel";
 import type { Done } from "./AiBox";
 import { ElementPop } from "./ElementPop";
+import Exported from "./Exported";
 import { LanguageBar, LanguageTabs } from "./Languages";
 import { FILM_WROTE, FilmWriteAgain, type FilmWriteMode } from "./WriteAgain";
 import { PartPicker } from "./ui";
@@ -115,8 +118,10 @@ function AddScene({ onAdd, disabled, after }: { onAdd: (k: SceneKind) => void; d
 /** One language's file in the last step (cv16): made, refused (in plain words), or being made. */
 type ExportRow = { lang: string; state: "waiting" | "making" | "done" | "refused"; file?: string; why?: string };
 
-function ExportView({ film, issues, onBack, onFormat, onExport, exporting, msg, rows, disabled }: {
+function ExportView({ film, issues, onBack, onFormat, onExport, exporting, msg, rows, disabled, me, people }: {
   film: VideoDoc; issues: Issue[]; onBack: () => void; onFormat: (f: Format) => void; onExport: (langs: string[]) => void; exporting: boolean; msg: string | null; rows: ExportRow[]; disabled: boolean;
+  /** cv17: who is here, and the people's names - for each language's last export */
+  me: string; people: readonly { username: string; name: string }[];
 }) {
   const langs = languagesOf(film);
   const [pick, setPick] = useState<string[]>(langs);
@@ -185,6 +190,8 @@ function ExportView({ film, issues, onBack, onFormat, onExport, exporting, msg, 
         </Box>
       )}
       {stops.length > 0 && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 0.75 }}>Fix what is in red first - the film never shows it.</Typography>}
+      {/* cv17: each language's last export, as recorded in the film (when, who, the file; "changed since") */}
+      {!exporting && <Exported film={film} me={me} people={people} />}
       {msg && <Typography sx={{ mt: 1.25, fontSize: "0.8rem", color: "#7f4f0b", bgcolor: "#fff8ec", p: 1, borderRadius: "8px" }}>{msg}</Typography>}
 
       {file && (
@@ -510,6 +517,7 @@ export default function Studio({ api }: StudioProps) {
     const many = languagesOf(film).length > 1;
     const keep = rows.filter((r) => r.state === "done" && !list.includes(r.lang));
     let cur: ExportRow[] = [...keep, ...list.map((lang): ExportRow => ({ lang, state: "waiting" }))];
+    const made: ExportRecord[] = [];
     const put = (lang: string, p: Partial<ExportRow>) => { cur = cur.map((r) => (r.lang === lang ? { ...r, ...p } : r)); setRows(cur); };
     setRows(cur);
     for (const lang of list) {
@@ -520,8 +528,11 @@ export default function Studio({ api }: StudioProps) {
       const name = `${slug(api.data.piece.title)}${many ? `-${lang.toLowerCase()}` : ""}-${film.format.replace(":", "x")}.json`;
       download(name, r.result.spec);
       put(lang, { state: "done", file: name });
+      made.push({ at: new Date().toISOString(), lang, by: api.data.me, file: name, format: film.format, print: filmPrint(film, lang, film.format) });
     }
     setExporting(false);
+    // cv17: each export recorded in the film - the last step and the library's card say when, which language, who
+    if (canEdit && made.length) edit((d) => made.reduce<VideoDoc>((x, rec) => withExport(x, rec), d));
   };
 
   const stops = issues.filter((x) => x.level === "stop");
@@ -749,7 +760,7 @@ export default function Studio({ api }: StudioProps) {
           {step === "export" ? (
             <Box sx={{ height: "100%", overflowY: "auto" }}>
               <ExportView film={film} issues={issues} onBack={() => setStep("map")} onFormat={(f) => canEdit && edit((d) => ({ ...d, format: f }))} onExport={(l) => void exportFilm(l)}
-                exporting={exporting} msg={exportMsg} rows={rows} disabled={!canEdit} />
+                exporting={exporting} msg={exportMsg} rows={rows} disabled={!canEdit} me={api.data.me} people={api.data.people} />
             </Box>
           ) : map}
         </Pane>

@@ -6,7 +6,9 @@
 //               LOOK (colour, size, alignment) -> ASK AI (its own box: the change lands at once, with the Undo of exactly
 //               that) -> Take it out · Duplicate · Forward / Back
 //   a picture   the Page builder's own picture popup (page/pops.tsx PicturePop): This picture (made from the words in its
-//               box NOW, "From: …" while it is made, the newest ask wins) · Gallery · Products · Fine-tune
+//               box NOW, "From: …" while it is made, the newest ask wins) · Gallery · Products · Fine-tune; cv17: its
+//               "What it shows (alt text)" - kept on the picture in every format, translated with the post, handed over
+//               beside the downloads (design.ts altSidecar) and in the texts to copy
 // The canvas's label's "Ask AI" puts the cursor in THIS popup's AI box (page/barAi.ts AI_BOX_ATTR), never the whole post's.
 // The element's full properties (font, effects, arrange) stay in its row of the map.
 
@@ -30,7 +32,7 @@ import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import type { DesignNode } from "@/lib/design-document";
 import { plainText } from "@/lib/editor/richText";
 import { AI_BOX_ATTR } from "@/lib/content/studio/kinds/page/barAi";
-import { C } from "@/lib/content/studio/kinds/social/design";
+import { C, MAX_ALT, altOf, withAlt, type AltNode } from "@/lib/content/studio/kinds/social/design";
 import { leftOutLine } from "@/lib/content/studio/kinds/social/ai";
 import { aspectFor } from "@/lib/content/studio/kinds/social/canvasAi";
 import { PicturePop, PopCard } from "../page/pops";
@@ -219,14 +221,26 @@ export default function ElementPop({ ctx, node, name, nodes, onClose }: { ctx: S
   const pic = isPictureNode(node);
   const m = ai.making[node.id];
   const err = ai.slotError[node.id];
+  // cv17: what the picture shows (its alt text) - on the picture in every format of the page; the canvas gets it too, so
+  // the next change made on the canvas keeps it. A language's tab: that version's own alt text (translated with the rest).
+  const setAlt = (alt: string) => {
+    const text = alt.replace(/\s+/g, " ").trim().slice(0, MAX_ALT);
+    if (text === altOf(node)) return;
+    ctx.set((d) => ({ ...d, design: withAlt(d.design, ctx.pageIx, node.id, text) }));
+    ctx.canvas.current?.commit((all) => all.map((n) => {
+      if (n.id !== node.id) return n;
+      const { alt: _old, ...rest } = n as AltNode;
+      return (text ? { ...rest, alt: text } : rest) as DesignNode;
+    }));
+  };
   return (
     <>
-      <PicturePop kicker={kicker} title={pic ? "Picture" : "Picture frame - no picture yet"} api={ctx.api} store={storeFor(ctx.lang ?? ctx.mainLang)}
-        aspect={aspectFor(node.width ?? 1, node.height ?? 1)} url={pic ? node.src ?? "" : ""} alt="" noAlt
+      <PicturePop key={node.id} kicker={kicker} title={pic ? "Picture" : "Picture frame - no picture yet"} api={ctx.api} store={storeFor(ctx.lang ?? ctx.mainLang)}
+        aspect={aspectFor(node.width ?? 1, node.height ?? 1)} url={pic ? node.src ?? "" : ""} alt={altOf(node)} noAlt={!pic}
         idea={ai.ideaFor(node.id)} making={m ? { state: "making", label: m.label, idea: m.idea ?? undefined } : err ? { state: "error", error: err } : null}
         canEdit={ctx.canEdit && !node.locked} canMake={!!ctx.api.data.ai}
         onMake={(idea) => void ai.makeFor(node.id, idea)} onIdea={(v) => ai.setIdea(node.id, v)}
-        onUpload={() => file.current?.click()} onPick={(p) => void ai.pickFor(node.id, p)} onAlt={() => undefined}
+        onUpload={() => file.current?.click()} onPick={(p) => void ai.pickFor(node.id, p)} onAlt={setAlt}
         onRemove={pic ? () => ai.removeFrom(node.id) : undefined}
         onRefine={pic && ctx.api.data.ai ? (ask) => ai.refineFor(node.id, ask) : null}
         onClose={onClose} />
