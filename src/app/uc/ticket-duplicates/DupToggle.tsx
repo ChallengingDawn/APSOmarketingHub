@@ -20,7 +20,7 @@ import type { DupCounts } from "@/app/api/uc/ticket-duplicates/counts/route";
 
 const SIDES = [
   { key: "tickets", href: "/uc/ticket-duplicates", label: "Tickets", note: "Back Office: the same request twice, the same order", left: "open", icon: <ConfirmationNumberOutlinedIcon /> },
-  { key: "companies", href: "/uc/ticket-duplicates/companies", label: "Companies", note: "The same customer number, name and postcode, website", left: "to decide", icon: <DomainOutlinedIcon /> },
+  { key: "companies", href: "/uc/ticket-duplicates/companies", label: "Companies", note: "The same customer number, name and postcode, website; the country", left: "to decide", icon: <DomainOutlinedIcon /> },
   { key: "contacts", href: "/uc/ticket-duplicates/contacts", label: "Contacts", note: "Shop accounts without a company, linked by a click", left: "without a company", icon: <PersonOutlineOutlinedIcon /> },
   { key: "performis", href: "/uc/ticket-duplicates/performis", label: "Performis", note: "One company, several customer numbers: the new titles", left: "companies to rename", icon: <DriveFileRenameOutlineOutlinedIcon /> },
 ] as const;

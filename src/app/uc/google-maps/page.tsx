@@ -1,9 +1,10 @@
 "use client";
 
-// COMPANY DATA > Google Maps link (SARCLA 10.11.2026: "gmaps query - create a complete sub app, for the moment with only
-// GMAPS query inside"). Replaces the workflow "SARCLA | GMAPS QUERY WITH CODE": every company without a Google Maps link
-// gets one made of its name and address, by the hub. Reads /api/uc/company-maps (src/lib/companyMaps). The sub app's
-// first page; more company jobs join it on the side panel (UC_SECTIONS "Company data" in hubApps.ts).
+// APSOMAPS > Google Maps link (SARCLA 10.11.2026: "gmaps query - create a complete sub app, for the moment with only GMAPS
+// query inside"; named APSOMaps on 11.11.2026: "instead of company data call it APSOMaps"). Replaces the workflow
+// "SARCLA | GMAPS QUERY WITH CODE": every company without a Google Maps link gets one made of its name and address, by
+// the hub. Reads /api/uc/company-maps (src/lib/companyMaps). The sub app's page (UC_SECTIONS "APSOMaps", slug
+// company-data, in hubApps.ts).
 
 import { useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -135,7 +136,7 @@ function MapsLink() {
 export default function GoogleMapsPage() {
   return (
     <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }}>
-      <PageHeader title="Company data" subtitle="Google Maps link: each company's address as a link to Google Maps, written by the hub" />
+      <PageHeader title="APSOMaps" subtitle="Google Maps link: each company's address as a link to Google Maps, written by the hub" />
       <MapsLink />
     </Box>
   );

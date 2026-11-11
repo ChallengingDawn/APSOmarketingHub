@@ -1,4 +1,4 @@
-// COMPANY DATA > Country - the rule, pure (the engine in engine.ts). Replaces the HubSpot workflow "SARCLA | REGION TO
+// DUPLICATES & MERGES > Companies > Country - the rule, pure (the engine in engine.ts). Replaces the HubSpot workflow "SARCLA | REGION TO
 // COUNTRY CUSTOM" (3500481774, secret COMPANYSEG), SARCLA 11.11.2026: a company with a country and no country_custom gets
 // country_custom, HubSpot's country dropdown (254 values, value = label) that the regions, phones and duplicates read.
 //
