@@ -5,6 +5,10 @@ import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
 import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
 import { SEALING_DEFINITIONS, actionsCaption, leadingRefs, matchesQuery, rankBy } from "../src/lib/apHub/sealingRules";
+import {
+  LIST_PAGE, NO_COMPOUND_NAME, PRIORITY_STATUSES, STATUS_NAME, approvalCandidates, canMove, candidateKey, commercialCandidates, compoundsKept, familyCandidates, isPriorityStatus,
+  listAskOf, nextStatuses, openCards, overviewCandidates, pagesOf, priorityKeyOf, reviewCandidates,
+} from "../src/lib/apHub/sealingRules";
 import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
 import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
 
@@ -433,4 +437,139 @@ test("sealing: the pilot's search, its cards' caption, the references named, its
   assert.ok(SEALING_DEFINITIONS.every((d) => d.text.length > 60));
   assert.match(SEALING_DEFINITIONS[1].text, /never an average of margins/);
   assert.match(SEALING_DEFINITIONS[3].text, /Kalrez and Evolast treated as FFKM/);
+});
+
+test("sealing: every commercial priority ranked, the three kinds in turn, each with a stable key", () => {
+  const compounds = [
+    { key: "Kalrez 6375", name: "Kalrez 6375", rev: 4_100_000, gp: 4_100_000 * 0.325, margin: 0.325 },
+    { key: "DW EPDM 70.503-00", name: "DW EPDM 70.503-00", rev: 3_030_000, gp: 3_030_000 * 0.565, margin: 0.565 },
+    { key: "FKM 75.16-04", name: "FKM 75.16-04", rev: 2_730_000, gp: 2_730_000 * 0.629, margin: 0.629 },
+    { key: "No info", name: "No info", rev: 9_000_000, gp: 900_000, margin: 0.1 },
+  ];
+  const pairs: CompoundCustomer[] = [
+    { compound: "DW EPDM 70.503-00", customer: "1", customerName: "Elfo", rev: 122_900, gp: 122_900 * 0.24 },
+    { compound: "FKM 75.16-04", customer: "2", customerName: "Huba", rev: 200_000, gp: 200_000 * 0.711 },
+    { compound: "FKM 75.16-04", customer: "3", customerName: "Hilti", rev: 150_000, gp: 150_000 * 0.257 },
+    { compound: "Kalrez 6375", customer: "4", customerName: "Sonceboz", rev: 900_000, gp: 900_000 * 0.12 },
+    { compound: "No info", customer: "5", customerName: "Big", rev: 5_000_000, gp: 0 },
+  ];
+  const all = commercialCandidates(compounds, pairs);
+  // margin, growth, spread, then the second of each that has one
+  assert.deepEqual(all.map((p) => p.kind), ["margin", "growth", "spread", "margin", "growth", "margin", "growth"]);
+  // the most gross profit at stake first: Sonceboz (32.5 - 12.0) x 900k
+  assert.equal(all[0].id, "margin|4@Kalrez 6375|below-compound-margin");
+  assert.equal(all[1].id, "growth|FKM 75.16-04|high-margin-1m");
+  assert.equal(all[2].id, "spread|FKM 75.16-04|account-spread");
+  assert.equal(new Set(all.map((p) => p.id)).size, all.length, "every key once");
+  assert.ok(all.every((p) => p.compound !== "No info"), "an unnamed compound is never a priority");
+  // the same figures, the same keys
+  assert.deepEqual(commercialCandidates(compounds, pairs).map((p) => p.id), all.map((p) => p.id));
+  // the three of the overview are still the first of each kind, without their keys
+  const three = priorities(compounds, pairs);
+  assert.deepEqual(three.map((p) => p.kind), ["margin", "growth", "spread"]);
+  assert.ok(three.every((p) => p.id === undefined));
+  assert.equal(candidateKey("profit", "customer:7", "negative-margin"), "profit|customer:7|negative-margin");
+});
+
+test("sealing: each block's cards ranked - the pilot's three first, then the losses and the low margins in turn", () => {
+  const rows = [
+    { key: "A", name: "Big AG", rev: 1_000_000, margin: 0.35 },
+    { key: "B", name: "Thin GmbH", rev: 400_000, margin: 0.12 },
+    { key: "C", name: "Loss SA", rev: 300_000, margin: -0.03 },
+    { key: "D", name: "Thinner", rev: 100_000, margin: 0.05 },
+    { key: "E", name: "Loss two", rev: 50_000, margin: -0.2 },
+  ];
+  const c = reviewCandidates("customers", rows, 2_000_000, "FKM 75.16-04");
+  assert.deepEqual(c.slice(0, 3).map((x) => x.kind), ["profit", "retain", "compare"]);
+  assert.deepEqual(c.slice(0, 3).map((x) => x.title), reviewActions("customers", rows, 2_000_000, "FKM 75.16-04").map((x) => x.title));
+  assert.deepEqual(c.map((x) => x.id), [
+    "profit|customer:B|low-margin", "retain|customer:A|concentration", "compare|compound:FKM 75.16-04|compound-comparison",
+    "profit|customer:C|negative-margin", "profit|customer:D|low-margin", "profit|customer:E|negative-margin",
+  ]);
+  const loss = c.find((x) => x.id === "profit|customer:C|negative-margin")!;
+  assert.equal(loss.title, "Explain the loss on Loss SA");
+  assert.ok(Math.abs(loss.effect - 9_000) < 1e-6, "back to break-even: the loss itself");
+  assert.deepEqual(reviewCandidates("articles", [], 0), []);
+
+  const ov = overviewCandidates({
+    commercial: [{ kind: "growth", compound: "X", title: "g", evidence: "", effect: 0, effectLabel: "", id: "growth|X|high-margin-1m" }],
+    customers: rows, total: 2_000_000, noApprovalRev: 1_600_000,
+    families: [{ key: "FKM", name: "FKM", rev: 900_000, margin: 0.4 }, { key: "Unclassified", name: "Unclassified", rev: 950_000, margin: 0.2 }],
+  });
+  assert.deepEqual(ov.map((x) => x.id), [
+    "growth|X|high-margin-1m", "profit|customer:C|negative-margin", "retain|customer:A|concentration", "capture|approvals:none|revenue-without-approval",
+    "portfolio|family:FKM|portfolio-review", "profit|customer:E|negative-margin",
+  ]);
+  assert.match(ov[3].evidence, /^80\.0% of the net revenue \(€1\.60m\) has no approval written/);
+
+  const fam = familyCandidates([{ kind: "growth", compound: "FKM 75.16-04", title: "g", evidence: "", effect: 0, effectLabel: "", id: "growth|FKM 75.16-04|high-margin-1m" }], "NBR", [{ name: "NBR 70", rev: 10 }]);
+  assert.deepEqual(fam.map((x) => x.id), ["portfolio|family:NBR|portfolio-review"]);
+
+  const ap = approvalCandidates([{ name: "FDA", rev: 30 }, { name: "KTW", rev: 0 }, { name: "WRAS", rev: 50 }], 70, 100);
+  assert.deepEqual(ap.map((x) => x.id), [
+    "capture|approvals|explicit-fields", "validate|approvals|commercial-relevance", "interpret|approvals|no-double-count",
+    "capture|approvals:none|revenue-without-approval", "validate|ref:WRAS|reference-relevance", "validate|ref:FDA|reference-relevance",
+  ]);
+});
+
+test("sealing: a card's status - accepted, in progress, done, refused - and three open at a time", () => {
+  assert.deepEqual(nextStatuses(null), ["accepted", "refused"]);
+  assert.deepEqual(nextStatuses("accepted"), ["in_progress", "done", null]);
+  assert.deepEqual(nextStatuses("in_progress"), ["done", "accepted"]);
+  assert.deepEqual(nextStatuses("done"), ["in_progress"]);
+  assert.deepEqual(nextStatuses("refused"), [null]);
+  assert.equal(canMove(null, "accepted"), true);
+  assert.equal(canMove(null, "done"), false, "a proposed card is accepted before it is done");
+  assert.equal(canMove("refused", "accepted"), false, "a refused card comes back proposed first");
+  assert.equal(canMove("accepted", "accepted"), false, "no move to where it is");
+  assert.equal(canMove("done", "in_progress"), true);
+  assert.ok(PRIORITY_STATUSES.every((s) => isPriorityStatus(s)));
+  assert.equal(isPriorityStatus("closed"), false);
+  assert.equal(STATUS_NAME.in_progress, "In progress");
+
+  const cards = ["a", "b", "c", "d", "e"].map((id) => ({ id }));
+  let o = openCards(cards, {});
+  assert.deepEqual(o.shown.map((c) => c.id), ["a", "b", "c"]);
+  assert.equal(o.waiting, 2);
+  // a refused card leaves and the next comes in; an accepted one keeps its place; a done one leaves too
+  o = openCards(cards, { b: "refused", a: "accepted", c: "done" });
+  assert.deepEqual(o.shown.map((c) => c.id), ["a", "d", "e"]);
+  assert.deepEqual(o.refused.map((c) => c.id), ["b"]);
+  assert.deepEqual(o.done.map((c) => c.id), ["c"]);
+  assert.equal(o.waiting, 0);
+  assert.deepEqual(openCards([{ id: undefined }], { x: "refused" }).shown.length, 1, "a card with no key is always proposed");
+
+  // a card's key as the request gives it: its three parts within the columns' widths
+  assert.deepEqual(priorityKeyOf("profit", "customer:7", "negative-margin"), { kind: "profit", entity: "customer:7", rule: "negative-margin", id: "profit|customer:7|negative-margin" });
+  assert.equal(priorityKeyOf("delete", "x", "y"), null);
+  assert.equal(priorityKeyOf("profit", "x".repeat(401), "y"), null);
+  assert.equal(priorityKeyOf("profit", "x", "DROP TABLE"), null);
+  assert.equal(priorityKeyOf("profit", 7, "low-margin"), null);
+});
+
+test("sealing: a whole list a page at a time - the request kept within bounds, the compounds a list keeps, its pages", () => {
+  const a = listAskOf(new URLSearchParams("kind=customer&by=gp&q=%20hilti%20&offset=60&limit=30"));
+  assert.deepEqual(a, { kind: "customer", by: "gp", q: "hilti", offset: 60, limit: 30, family: null, unresolved: false });
+  assert.equal(listAskOf(new URLSearchParams("kind=bu")), null);
+  assert.equal(listAskOf(new URLSearchParams("")), null);
+  const b = listAskOf(new URLSearchParams("kind=article&by=x&offset=-5&limit=5000&family=FKM&unresolved=1"))!;
+  assert.equal(b.by, "rev");
+  assert.equal(b.offset, 0);
+  assert.equal(b.limit, 100, "a page holds 100 rows at most");
+  assert.equal(b.family, "FKM");
+  assert.equal(b.unresolved, true);
+  assert.equal(listAskOf(new URLSearchParams("kind=approval&limit=abc"))!.limit, LIST_PAGE);
+  assert.equal(listAskOf(new URLSearchParams(`kind=compound&q=${"x".repeat(300)}`))!.q.length, 100);
+
+  const all = ["FKM 75.16-04", "Kalrez 6375", "No info", "", "EPDM 70.10-02", "Drawing : 12"];
+  assert.deepEqual(compoundsKept(all, { kind: "compound", family: null, unresolved: false }), ["FKM 75.16-04", "Kalrez 6375", "EPDM 70.10-02"]);
+  assert.equal(compoundsKept(all, { kind: "compound", family: null, unresolved: true }), null);
+  assert.equal(compoundsKept(all, { kind: "article", family: null, unresolved: false }), null);
+  assert.deepEqual(compoundsKept(all, { kind: "article", family: "FFKM", unresolved: false }), ["Kalrez 6375"]);
+  assert.deepEqual(compoundsKept(all, { kind: "article", family: NO_COMPOUND_NAME, unresolved: false }), ["No info", "", "Drawing : 12"]);
+
+  assert.deepEqual(pagesOf(7626, 0), { pages: 255, page: 0 });
+  assert.deepEqual(pagesOf(7626, 7620), { pages: 255, page: 254 });
+  assert.deepEqual(pagesOf(30, 0), { pages: 1, page: 0 });
+  assert.deepEqual(pagesOf(0, 90), { pages: 1, page: 0 });
 });

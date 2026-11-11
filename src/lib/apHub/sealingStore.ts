@@ -8,8 +8,8 @@
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import {
-  approvalKinds, approvalRefs, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
-  type CompoundCustomer, type DetailKind, type Figure, type KeyMonth, type Priority, type SealingRow,
+  approvalKinds, approvalRefs, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
+  type CompoundCustomer, type DetailKind, type ListAsk, type ListKind, type Figure, type KeyMonth, type Priority, type SealingRow,
 } from "./sealingRules";
 
 const TABLE = "apsomh_ap_sealing";
@@ -148,6 +148,8 @@ export type SealingView = {
     customer1: number | null; prevCustomer1: number | null; article1: number | null; prevArticle1: number | null;
   };
   priorities: Priority[];
+  /** every commercial priority the figures hold, ranked, each with its stable key - the overview takes the open ones */
+  candidates: Priority[];
   /** the compound entries that name none ("No info", "Unknown", "TBD", a drawing) - the pilot's unresolved entries */
   unresolved: Figure[];
   /** the net revenue of the approval texts naming each reference the pilot ranks (FDA, WRAS ...) - they overlap */
@@ -368,6 +370,7 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
       article1: topShare(artNow, 1, now.rev), prevArticle1: prevAll ? topShare(artBefore, 1, before.rev) : null,
     },
     priorities: priorities(named, pairs),
+    candidates: commercialCandidates(named, pairs),
     unresolved: withPrev(compNow.filter((c) => noCompound(c.name)), compBefore.filter((c) => noCompound(c.name))),
     approvalRefs: approvalRefs(appr),
     approvalKinds: approvalKinds(appr),
@@ -446,6 +449,72 @@ export async function readSealingDetail(f: SealingFilter, kind: DetailKind, key:
     rows: rows.map((r) => {
       const rr = Number(r.rev), g = Number(r.gp);
       return { key: r.key, name: r.name || r.key, rev: rr, gp: g, margin: rr ? g / rr : 0, bus: list(r.bus).join(", "), compound: r.compound ?? "" };
+    }),
+  };
+}
+
+/* -- a whole list a page at a time: "All" in a ranking, the All tabs (SARCLA 11.11.2026: "pagination at 30") ------- */
+
+export type ListRow = Figure & { compound: string };
+export type SealingList = { kind: ListKind; total: number; offset: number; limit: number; rows: ListRow[] };
+
+/** The column a list is of, and its rows' names - never a value from the request. */
+const LIST: Record<ListKind, { key: KeyCol; name: NameCol }> = {
+  customer: { key: "customer", name: "customer_name" },
+  article: { key: "article", name: "article_text" },
+  compound: { key: "compound", name: "compound" },
+  approval: { key: "approval", name: "approval" },
+};
+/** Ranked by revenue or by gross profit - the order from this list only, the key breaking a tie. */
+const LIST_ORDER = { rev: "SUM(rev) DESC", gp: "SUM(gp) DESC" } as const;
+
+/**
+ * One page of every customer, article, compound or approval of the period and the filters: ranked by revenue or gross
+ * profit, found by a search over the key and the name (an article's compound too), a family's compounds only, the
+ * unnamed compounds and the empty approvals left out as the pages show them - with the same keys a year earlier, and
+ * how many there are in all. Every value from the request is a bound parameter.
+ */
+export async function readSealingList(f: SealingFilter, a: ListAsk): Promise<SealingList> {
+  await ensureSealingTable();
+  const L = LIST[a.kind];
+  const w = where(f, f.from, f.to);
+  const vals: unknown[] = [...w.vals];
+  let extra = "";
+  if (a.kind === "compound" || a.kind === "article") {
+    const all = (await query<{ compound: string }>(`SELECT DISTINCT compound FROM ${TABLE} WHERE ${w.sql}`, w.vals)).rows.map((r) => r.compound);
+    const keep = compoundsKept(all, a);
+    if (keep) { vals.push(keep); extra += ` AND compound = ANY($${vals.length})`; }
+  }
+  if (a.kind === "approval") {
+    const empty = (await query<{ approval: string }>(`SELECT DISTINCT approval FROM ${TABLE} WHERE ${w.sql}`, w.vals)).rows.map((r) => r.approval).filter((x) => noApproval(x));
+    if (empty.length) { vals.push(empty); extra += ` AND approval <> ALL($${vals.length})`; }
+  }
+  let having = "";
+  const q = a.q.trim().toLowerCase();
+  if (q) {
+    vals.push(q);
+    const words = a.kind === "article" ? `${L.key} || ' ' || COALESCE(MAX(${L.name}), '') || ' ' || COALESCE(MAX(compound), '')` : `${L.key} || ' ' || COALESCE(MAX(${L.name}), '')`;
+    having = ` HAVING strpos(lower(${words}), $${vals.length}) > 0`;
+  }
+  const base = `FROM ${TABLE} WHERE ${w.sql}${extra} GROUP BY ${L.key}${having}`;
+  const total = Number((await query<{ n: string }>(`SELECT COUNT(*) AS n FROM (SELECT 1 ${base}) x`, vals)).rows[0]?.n ?? 0);
+  const page = await query<{ key: string; name: string | null; rev: string; gp: string; compound: string | null }>(
+    `SELECT ${L.key} AS key, MAX(${L.name}) AS name, SUM(rev) AS rev, SUM(gp) AS gp, MAX(compound) AS compound ${base}
+      ORDER BY ${LIST_ORDER[a.by]}, ${L.key} LIMIT $${vals.length + 1} OFFSET $${vals.length + 2}`,
+    [...vals, a.limit, a.offset],
+  );
+  const keys = page.rows.map((r) => r.key);
+  // the same keys a year earlier - all of each key's invoices then
+  const wb = where(f, yearBefore(f.from), yearBefore(f.to));
+  const before = keys.length ? new Map((await query<{ key: string; rev: string; gp: string }>(
+    `SELECT ${L.key} AS key, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${wb.sql} AND ${L.key} = ANY($${wb.vals.length + 1}) GROUP BY ${L.key}`,
+    [...wb.vals, keys],
+  )).rows.map((r) => [r.key, { rev: Number(r.rev), gp: Number(r.gp) }])) : new Map<string, { rev: number; gp: number }>();
+  return {
+    kind: a.kind, total, offset: a.offset, limit: a.limit,
+    rows: page.rows.map((r) => {
+      const rev = Number(r.rev), gp = Number(r.gp), b = before.get(r.key);
+      return { key: r.key, name: r.name || r.key, rev, gp, margin: rev ? gp / rev : 0, prev: b?.rev ?? 0, prevGp: b?.gp ?? 0, compound: r.compound ?? "" };
     }),
   };
 }
