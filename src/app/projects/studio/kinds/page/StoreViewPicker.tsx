@@ -16,6 +16,12 @@
 //   its id         Magento's store id the write puts in store_id - "id ?" where the hub does not know it (never guessed)
 //   one action     "Own words" (split it off: a copy of its language's page, then its own) / "Same words" (join it back)
 // A click on a ticked row opens its page; on another, ticks it.
+// Content v13 (SARCLA 11.11.2026: "store view also broken: once it's selected I can't deselect it completely - the check
+// is still there, can't take it out"): a version's own store view (fr-CH for the French page) was held ticked and greyed,
+// and left out of "All of a language" / "All of a country" - so a language never came off completely; and every tick was
+// greyed while a translation ran. Now every tick comes off (lib/content/studio/kinds/page/untick.ts) - only the page's own
+// store view stays, and says why; a language's last store view takes its page with it, asked first; while a run goes only
+// the languages the page does not have yet wait.
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -27,7 +33,8 @@ import CallSplitIcon from "@mui/icons-material/CallSplit";
 import CheckIcon from "@mui/icons-material/Check";
 import MergeIcon from "@mui/icons-material/Merge";
 import { AMBER, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
-import { langName, leadOf, shopCountries, storeKnown, storeState, viewName, viewsOf, versionOfStore, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
+import { langName, leadOf, mainView, shopCountries, storeKnown, storeState, viewName, viewsOf, versionOfStore, type PageDoc, type StoreGroup } from "@/lib/content/studio/kinds/page/model";
+import { tickLock } from "@/lib/content/studio/kinds/page/untick";
 import { SHOP_COUNTRIES, SHOP_LANGUAGES, planSummary, viewsOfCountry, viewsOfLanguage, type MakeStep } from "@/lib/content/studio/kinds/page/makeViews";
 import type { Presence } from "@/lib/content/studio/kinds/page/shop";
 import { PINK, mainBtn } from "../../parts";
@@ -146,15 +153,17 @@ export function StoreViewPicker({ anchor, onClose, ...rest }: {
   return (
     <Popover open={!!anchor} anchorEl={anchor} onClose={onClose} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} transformOrigin={{ vertical: "top", horizontal: "left" }}
       slotProps={{ paper: { sx: { mt: 0.75, borderRadius: "8px", width: 1000, maxWidth: "calc(100vw - 32px)", maxHeight: "calc(100vh - 120px)", boxShadow: "0 18px 50px rgba(21,34,58,.18)" } } }}>
-      <StoreViewPanel {...rest} onPick={(k) => { onClose(); rest.onPick(k); }} />
+      <StoreViewPanel {...rest} onPick={(k) => { onClose(); rest.onPick(k); }} onShow={rest.onPick} />
     </Popover>
   );
 }
 
 /** The panel itself: a header, the quick ticks, the websites, and the foot - the plan for new languages and its one button,
  * the run's progress, or how it works. */
-export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicked = [] }: {
+export function StoreViewPanel({ d, lang, onPick, onShow, groups, presence, initialPicked = [] }: {
   d: PageDoc; lang: string; onPick: (k: string) => void; groups: StoreGroup[]; presence: Record<string, Presence>;
+  /** shows another store view, the panel staying open (the one shown was moved or removed by an untick) */
+  onShow?: (k: string) => void;
   /** ticked as it opens - store views of languages the page does not have yet (a static check draws the plan's foot) */
   initialPicked?: string[];
 }) {
@@ -172,22 +181,38 @@ export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicke
   // a store view the run made drops out of the plan's ticks
   const coveredKey = covered.join();
   useEffect(() => { setPicked((p) => p.filter((k) => !versionOfStore(d, k))); }, [coveredKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const main = mainView(d);
   const isOn = (k: string) => !!versionOfStore(d, k) || picked.includes(k);
-  /** ticks a set on or off: the page's languages at once, the others for the plan */
+  /** why a tick can't change now: the page's own store view; a language the page has not yet while a run goes */
+  const lockOf = (k: string) => tickLock(d, k, running);
+  /** ticks a set on or off: the page's languages at once (off: any store view but the page's own - a language's last one
+   * takes its page, asked first), the others for the plan */
   const flip = (set: string[], on: boolean) => {
-    if (!mv || running) return;
+    if (!mv) return;
     setSaid(null);
-    const now = set.filter((k) => haveLangs.has(k.slice(0, 2)));
-    const later = set.filter((k) => !haveLangs.has(k.slice(0, 2)));
-    for (const k of now) { if (isOn(k) !== on && !storeState(d, k).own) { const m = mv.tick(k, on); if (m) setSaid(m); } }
+    const free = set.filter((k) => !lockOf(k));
+    if (!free.length) { const why = set.map(lockOf).find(Boolean); if (why) setSaid(why); return; }
+    const now = free.filter((k) => haveLangs.has(k.slice(0, 2)));
+    const later = free.filter((k) => !haveLangs.has(k.slice(0, 2)));
+    if (on) { for (const k of now) { if (!isOn(k)) { const m = mv.tick(k, true); if (m) setSaid(m); } } }
+    else {
+      const off = now.filter((k) => !!versionOfStore(d, k));
+      if (off.length) {
+        const r = mv.untick(off);
+        if (r.said) setSaid(r.said);
+        // the store view shown moved with its version, or went: show where it is now (once the studio has the new page)
+        const next = r.moved[lang] ?? (r.dropped.includes(lang) ? main : null);
+        if (next && onShow) setTimeout(() => onShow(next), 80);
+      }
+    }
     setPicked((p) => (on ? [...new Set([...p, ...later])] : p.filter((k) => !later.includes(k))));
   };
   const steps = mv && picked.length ? mv.plan(picked) : [];
   const tickOf = (k: string) => {
     if (!canTick) return null;
-    const st = storeState(d, k);
-    if (st.own) return { on: true, disabled: true, tip: st.lead ? `The ${langName(k)} page is shown in ${k} - it always goes there` : `${k} has its own words - "Same words" puts it back in the ${langName(k)} page`, toggle: () => undefined };
-    return { on: isOn(k), disabled: running, toggle: () => flip([k], !isOn(k)) };
+    const lock = lockOf(k);
+    if (k === main) return { on: true, disabled: true, tip: lock ?? undefined, toggle: () => undefined };
+    return { on: isOn(k), disabled: !!lock, tip: lock ?? undefined, toggle: () => flip([k], !isOn(k)) };
   };
   const actOf = (k: string) => {
     if (!canTick || running) return null;
@@ -206,21 +231,21 @@ export function StoreViewPanel({ d, lang, onPick, groups, presence, initialPicke
       </Box>
       {canTick && (
         <Box sx={{ px: 2, pt: 1.1, pb: 0.25, display: "grid", gap: 0.75 }}>
-          <QuickTicks label="All of a language" disabled={running} isOn={isOn} onToggle={flip}
-            items={langs.map((l) => ({ key: l.lang, label: l.name, set: viewsOfLanguage(l.lang, all).filter((k) => !storeState(d, k).own) }))} />
-          <QuickTicks label="All of a country" disabled={running} isOn={isOn} onToggle={flip}
-            items={SHOP_COUNTRIES.map((c) => ({ key: c.cc, label: c.name, set: viewsOfCountry(c.cc, all).filter((k) => !storeState(d, k).own) }))} />
+          <QuickTicks label="All of a language" disabled={false} isOn={isOn} onToggle={flip}
+            items={langs.map((l) => ({ key: l.lang, label: l.name, set: viewsOfLanguage(l.lang, all).filter((k) => k !== main) }))} />
+          <QuickTicks label="All of a country" disabled={false} isOn={isOn} onToggle={flip}
+            items={SHOP_COUNTRIES.map((c) => ({ key: c.cc, label: c.name, set: viewsOfCountry(c.cc, all).filter((k) => k !== main) }))} />
         </Box>
       )}
       <Box sx={{ p: 1.25, columnCount: { xs: 1, sm: 3 }, columnGap: "10px" }}>
         {countries.map((g) => {
-          const free = g.stores.filter((k) => !storeState(d, k).own);
+          const free = g.stores.filter((k) => k !== main);
           const on = free.length > 0 && free.every(isOn);
           const part = !on && free.some(isOn);
           return (
             <Box key={g.key} sx={{ breakInside: "avoid", mb: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", p: 0.5, bgcolor: "#fff" }}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, px: canTick ? 0.75 : 1, pt: 0.5, pb: 0.25 }}>
-                {canTick && <Tick on={on} part={part} disabled={running || !free.length} label={`Tick all of ${g.country}${g.currency ? ` ${g.currency}` : ""}`} onClick={() => flip(free, !on)} />}
+                {canTick && <Tick on={on} part={part} disabled={!free.length || free.every((k) => !!lockOf(k))} label={`${on ? "Untick" : "Tick"} all of ${g.country}${g.currency ? ` ${g.currency}` : ""}`} onClick={() => flip(free, !on)} />}
                 <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>
                   {g.country}{g.currency ? <Box component="span" sx={{ color: g.currency === "EUR" && g.country === "Switzerland" ? BLUE : MUTED }}> {g.currency}</Box> : null}
                 </Typography>
