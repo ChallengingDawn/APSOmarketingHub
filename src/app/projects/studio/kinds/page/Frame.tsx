@@ -169,12 +169,17 @@ function sectionBlock(d: Document, heading: string): Element | null {
 // first, for its fonts). With the same weight the still page won: a click on a module's button fell through to the block
 // around it and opened the module's settings, never its button (Content v12, SARCLA 10.11.2026: "on some bento I cannot
 // edit the button").
+//
+// Content v13b (SARCLA 11.11.2026: "now I can't also click some elements like the sub text and the button"): only the
+// page's CONTENT's links answer. Written for the whole page, the shop's own menu answered too - its dropdowns are hidden
+// by their opacity, not taken away, so an invisible menu lay over the top of the page and took every click on the first
+// block's small line, its line and its button.
 
 const SELECT_CSS = `[data-apx-hover]{outline:2px solid rgba(36,89,209,.9)!important;outline-offset:2px!important;cursor:pointer!important}
 [data-apx-sel]{outline:2px solid #c22c6e!important;outline-offset:2px!important}
 [data-apx-selblock]:not([data-apx-sel]){outline:1px dashed rgba(194,44,110,.55)!important;outline-offset:-1px!important}
 [data-apx-editing]{outline:2px solid #c22c6e!important;outline-offset:4px!important;cursor:text!important;background:rgba(194,44,110,.05)!important;-webkit-user-modify:read-write}
-html a,html button,html summary,html label,html [role=button],html [data-apx-f],html [data-apx-b]{pointer-events:auto!important}
+:is(#maincontent,#apx-root) :is(a,button,summary,label,[role=button],[data-apx-f],[data-apx-b]){pointer-events:auto!important}
 mark[data-apx-left]{background:#ffe1dc!important;color:#b3261e!important;outline:2px solid #d80901;outline-offset:1px;border-radius:2px;padding:0 2px}
 [data-apx-addel]{position:absolute;left:0;right:0;height:36px;margin-top:-18px;z-index:2147483000;pointer-events:auto!important;cursor:pointer}
 [data-apx-addel]::after{content:"";position:absolute;left:24px;right:24px;top:17px;height:2px;background:#c22c6e;opacity:0;transition:opacity .15s}

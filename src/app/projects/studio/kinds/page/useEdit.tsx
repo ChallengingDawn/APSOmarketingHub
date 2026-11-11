@@ -15,11 +15,11 @@ import { removeRow, moveRow, moduleKeyOf, newPageRows, moduleFieldEdit, moduleFi
 import { SPLITS, setLook, type Fields } from "@/lib/content/studio/kinds/page/fields";
 import type { PageChange, PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { kindOf, moduleId, moduleOfChange, type ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
-import { BUTTON_LOOK_KEY, SPLIT_GRID, TEXT_LOOK_KEY, buttonLookOf, canSplit, splitOf, textLookOf, withSplit, type ButtonField, type LookField } from "@/lib/content/studio/kinds/page/modules/looks";
+import { BUTTON_LOOK_KEY, SPLIT_GRID, TEXT_LOOK_KEY, TILES_LOOK_KEY, buttonLookOf, canSplit, splitOf, textLookOf, withSplit, type ButtonField, type LookField } from "@/lib/content/studio/kinds/page/modules/looks";
 import { FAMILY_WORDS, blockFamily, compatibleModules, compatibleWithBlock, familyOf, moduleFromBlock, switchModule, type SwitchOption } from "@/lib/content/studio/kinds/page/modules/switch";
 import { moduleDef } from "@/lib/content/studio/kinds/page/modules/registry";
 import {
-  fieldPatchOf, groundOfField, groundsOfLook, lookOfShopRules, packLook, textLookOfField, withShopLook,
+  cleanButtonLook, fieldPatchOf, groundOfField, groundsOfLook, lookOfShopRules, packLook, textLookOfField, unpackLook, withShopLook,
   type ButtonLook, type TextLook,
 } from "@/lib/content/studio/kinds/page/style";
 import { applyElementEdit, lookCss, lookOf as elementRules } from "./edits";
@@ -160,7 +160,17 @@ export function useEdit(c: EditCtx) {
         title: "The tiles' button", label: hit.words, max: 40,
         onLabel: (v) => { const at = moduleAt(hit.key); const next = at ? moduleFieldEdit(at.m, hit.field, v) : null; if (at && next) at.put(next, `Changed the ${name}'s tile button`); },
         leads: "It leads to the page of the tile it stands on - a tile's product or category is chosen in the module's settings. Every tile of this module says these words.",
-        grounds: groundsOfLook(p.look?.ground), fallback: "red",
+        // Content v13b (SARCLA 11.11.2026: "some buttons still don't have button options"): its look, every tile's alike
+        look: cleanButtonLook(unpackLook(hit.m.settings.extra[TILES_LOOK_KEY])),
+        onLook: (next: ButtonLook, label: string) => {
+          const at = moduleAt(hit.key);
+          if (!at) return;
+          const extra = { ...at.m.settings.extra };
+          const packed = packLook(next);
+          if (packed) extra[TILES_LOOK_KEY] = packed; else delete extra[TILES_LOOK_KEY];
+          at.put({ ...at.m, settings: { ...at.m.settings, extra } }, label);
+        },
+        grounds: groundsOfLook(p.look?.ground), fallback: "petrol",
         hint: "Kept in the module's settings - empty, it says the shop's own words again.",
       };
     }

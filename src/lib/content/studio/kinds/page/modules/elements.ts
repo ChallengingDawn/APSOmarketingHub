@@ -25,7 +25,7 @@ import { packLook } from "../style";
 import { ADDS_MAX, ADD_MAX, ADD_NAME, addId } from "./adds";
 import { pictureAddress, shopAddress } from "./address";
 import { wordsFor } from "./kit";
-import { BUTTON_LOOK_KEY, TEXT_LOOK_KEY, isLookKey } from "./looks";
+import { BUTTON_LOOK_KEY, TEXT_LOOK_KEY, TILES_LOOK_KEY, isLookKey } from "./looks";
 import { fieldOf, hasField, moduleDef } from "./registry";
 import { tileWordsOf } from "./tilewords";
 import type { AddKind, Added, Card, ModuleRef, ModuleSettings } from "./types";
@@ -256,6 +256,8 @@ export function withPartPicture(m: ModuleRef, part: string, pic: { url: string; 
 export function partLookKey(part: string): string | null {
   if (part in TEXT_LOOK_KEY) return TEXT_LOOK_KEY[part as keyof typeof TEXT_LOOK_KEY];
   if (part in BUTTON_LOOK_KEY) return BUTTON_LOOK_KEY[part as keyof typeof BUTTON_LOOK_KEY];
+  // the tiles' button: one look for every tile's (Content v13b)
+  if (/^words\./.test(part)) return TILES_LOOK_KEY;
   return null;
 }
 /** A part's look as kept (packed) - "" when it has none or cannot have one. */
@@ -277,7 +279,7 @@ export function withPartLook(m: ModuleRef, part: string, packed: string): Module
 /** Can this part take a look (colour, size... of its words; style, colour... of its button)? */
 export function lookKind(m: ModuleRef, part: string): "text" | "button" | null {
   if (part === "title" || part === "eyebrow" || part === "text") return "text";
-  if (part === "link" || part === "link2") return "button";
+  if (part === "link" || part === "link2" || /^words\./.test(part)) return "button";
   const ad = AD.exec(part);
   const a = ad ? (m.settings.adds ?? []).find((x) => x.id === ad[1]) : null;
   return a ? (a.kind === "button" ? "button" : a.kind === "picture" ? null : "text") : null;

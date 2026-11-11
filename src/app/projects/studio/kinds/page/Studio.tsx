@@ -1787,10 +1787,10 @@ export default function Studio({ api }: StudioProps) {
         <ButtonPop key={key} kicker={kick} title={info.label} label={info.words} max={info.max || 60} api={api} store={d.store} canEdit={canEdit} stores={pageStores}
           onLabel={(v) => putPart(mod, (x) => withPartWords(x, field, v), once(key, `Changed the ${name}'s ${info.label.toLowerCase()}`))}
           url={tile ? undefined : info.url ?? ""} onUrl={tile ? undefined : (v) => putPart(mod, (x) => withPartUrl(x, field, v), `Changed where the ${name}'s ${info.label.toLowerCase()} goes`)}
-          leads={tile ? "It leads to the page of the tile it stands on - a tile's product or category is chosen in the block's settings. Every tile of this block says these words." : undefined}
+          leads={tile ? "Each tile's button leads to that tile's own product or category (chosen in the block's settings). Every tile of this block says these words and takes the look set here." : undefined}
           look={look === "button" ? cleanButtonLook(unpackLook(partLook(m, field))) : undefined}
           onLook={look === "button" ? (next, label) => { putPart(mod, (x) => withPartLook(x, field, packLook(next)), label); } : undefined}
-          grounds={grounds} fallback={field === "link" ? "red" : "petrol"} arrowDefault={field === "link"}
+          grounds={grounds} fallback={field === "link" ? "red" : "petrol"} arrowDefault={field === "link" || tile}
           ai={ai ? (ask) => ai(ask) : null} onRemove={out} onClose={() => { justAdded.current = null; closePop(); }}
           hint={tile ? "Kept in the block's settings - empty, it says the shop's own words again." : undefined} />
       ) };
