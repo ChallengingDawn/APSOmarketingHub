@@ -6,6 +6,8 @@
 // element's own properties (font, colour, effects, arrange - the editor's sections, here instead of a floating window:
 // SARCLA 08.11, "the window needs to be movable, so it doesn't appear in front of the design"). A new post starts with
 // "Write the whole post with AI"; at the foot, always in reach, the LAST STEP · Publish and the Export.
+// cv16 (the Page builder's points 2 and 4): "Write it all again" in four ways (From the topic / Directly / Ask / Start
+// again - every page and caption, one Undo), and a page's own "Write it again with AI" in its menu (./WriteAgain.tsx).
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -38,6 +40,7 @@ import { T } from "./look";
 import { templatePage } from "./actions";
 import { headlineNode, headlineOf, isEmptyFrame, isLogoNode, isPictureNode } from "./useDesignAi";
 import ExportMenu from "./ExportMenu";
+import { WriteAllAgain, WritePageAgain } from "./WriteAgain";
 import type { StudioCtx } from "./Studio";
 
 /* ── the elements ── */
@@ -108,6 +111,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
   const d = ctx.doc.design;
   const ai = ctx.ai;
   const [menu, setMenu] = useState<{ el: HTMLElement; i: number } | null>(null);
+  const [again, setAgain] = useState<{ el: HTMLElement; i: number } | null>(null);
   const [shape, setShape] = useState<"one" | "carousel">(d.pages.length > 1 ? "carousel" : "one");
   const nodes = ctx.live?.nodes ?? [];
   const headlineId = headlineIdOf(nodes);
@@ -168,11 +172,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
       {/* the map's head */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2, pt: 1.75, pb: 1, flexShrink: 0 }}>
         <Typography component="h2" sx={{ flex: 1, fontSize: "0.72rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.ink3 }}>Build</Typography>
-        {!fresh && ctx.canEdit && ctx.api.data.ai && (
-          <Box component="button" type="button" disabled={!!ai.working} onClick={() => void writeAll(d.pages.length > 1 ? "carousel" : "one")} sx={{ all: "unset", cursor: ai.working ? "default" : "pointer", fontSize: "0.76rem", fontWeight: 650, color: ai.working ? T.ink3 : PINK, "&:hover": { textDecoration: ai.working ? "none" : "underline" } }}>
-            Write it all again
-          </Box>
-        )}
+        {!fresh && ctx.canEdit && <WriteAllAgain ctx={ctx} />}
       </Box>
 
       <Box ref={scroller} sx={{ flex: 1, minHeight: 0, overflowY: "auto", px: 1.25, pb: 2, "&::-webkit-scrollbar": { width: 8 }, "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(17,24,39,.12)", borderRadius: 4 } }}>
@@ -259,6 +259,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
       </Box>
 
       <Menu anchorEl={menu?.el ?? null} open={!!menu} onClose={() => setMenu(null)} slotProps={{ paper: { sx: { borderRadius: "10px", minWidth: 190 } } }}>
+        <MenuItem disabled={!ctx.api.data.ai} onClick={() => { const m = menu!; setMenu(null); if (m.i !== ctx.pageIx) ctx.goPage(m.i); setAgain(m); }} sx={{ color: PINK, gap: 1, "& svg": { fontSize: 17 } }}><AutoAwesomeOutlinedIcon />Write it again with AI…</MenuItem>
         <MenuItem onClick={() => act(() => { const i = menu!.i; ctx.set((x) => ({ ...x, design: insertPage(x.design, i + 1, clonePage(x.design.pages[i])) })); ctx.goPage(i + 1); })}>Duplicate</MenuItem>
         <MenuItem disabled={!menu || menu.i === 0} onClick={() => act(() => { const i = menu!.i; ctx.set((x) => ({ ...x, design: movePage(x.design, i, i - 1) })); ctx.goPage(i - 1); })}>Move up</MenuItem>
         <MenuItem disabled={!menu || menu.i >= d.pages.length - 1} onClick={() => act(() => { const i = menu!.i; ctx.set((x) => ({ ...x, design: movePage(x.design, i, i + 1) })); ctx.goPage(i + 1); })}>Move down</MenuItem>
@@ -269,6 +270,7 @@ export default function PostMap({ ctx, host, onPublish, onGallery }: {
           ctx.reload();
         })} sx={{ color: "#b42318" }}>Delete the page</MenuItem>
       </Menu>
+      <WritePageAgain ctx={ctx} index={again?.i ?? null} anchor={again?.el ?? null} onClose={() => setAgain(null)} />
     </Box>
   );
 }

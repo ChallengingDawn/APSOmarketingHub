@@ -17,6 +17,12 @@
 // Why the tools stay a rail and not the map: they ADD to the post (a template, words, a picture, the logo) or set the
 // board (size, colour) - they are not parts of it. The map shows what the post IS; the rail what can be put on it.
 // Every change saves itself (api.setDoc, small ops); pictures are kept by their address, never their bytes.
+//
+// cv16 (SARCLA 11.11.2026: "compare the evolution of this page [the Page builder] to the other content types' generators,
+// and improve them"): a click on a text or a picture of the post opens ITS popup beside it (./ElementPop.tsx - words, look,
+// its own Ask AI with Undo; a picture's This picture / Gallery / Products / Fine-tune); every language version of the post
+// is a tab of its own (./Langs.tsx) - the studio then shows and changes that language's words (model.ts viewOf / putView)
+// and every AI task works in it.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -36,7 +42,7 @@ import { whenFontsReady } from "@/app/editor/designRender";
 import type { DesignDocument } from "@/lib/design-document";
 import { canonicalDesign } from "@/lib/design-document";
 import { listItems } from "@/lib/content/studio/kinds/social/slides";
-import { normalizeSocial, slidesOf, type Slide, type SocialDoc } from "@/lib/content/studio/kinds/social/model";
+import { normalizeSocial, putView, slidesOf, viewOf, type Slide, type SocialDoc } from "@/lib/content/studio/kinds/social/model";
 import {
   PALETTE, insertPage, isInlinePicture, pageIn, setPageDoc, withFormat, type FormatKey, type SocialDesign,
 } from "@/lib/content/studio/kinds/social/design";
@@ -117,9 +123,17 @@ function storable(d: DesignDocument): DesignDocument {
 }
 
 export type StudioCtx = {
+  /** The studio's api - its AI asks carry the language tab (input.lang) so the server works on that version. */
   api: StudioProps["api"];
+  /** The post as the open language tab shows it (the main language: the post itself). */
   doc: SocialDoc;
   set: (fn: (d: SocialDoc) => SocialDoc) => void;
+  /** cv16: the open language tab (null: the to-do's own language), the main language's code, and the whole post. */
+  lang: string | null;
+  mainLang: string;
+  full: SocialDoc;
+  setFull: (fn: (d: SocialDoc) => SocialDoc) => void;
+  goLang: (l: string | null) => void;
   canvas: React.MutableRefObject<CanvasApi | null>;
   mf: MeasureFor;
   fmt: FormatKey;
@@ -137,10 +151,26 @@ export type StudioCtx = {
   ai: DesignAi;
 };
 
-export default function Studio({ api }: StudioProps) {
-  const doc = useMemo(() => normalizeSocial(api.doc), [api.doc]);
-  const { setDoc } = api;
-  const set = useCallback((fn: (d: SocialDoc) => SocialDoc) => setDoc((cur: unknown) => fn(normalizeSocial(cur))), [setDoc]);
+export default function Studio({ api: hubApi }: StudioProps) {
+  const full = useMemo(() => normalizeSocial(hubApi.doc), [hubApi.doc]);
+  const mainLang = (hubApi.data.piece.language ?? "").slice(0, 2).toUpperCase();
+  // the language tab: a version's own words over the post's settings (model.ts viewOf / putView)
+  const [langWanted, setLangWanted] = useState<string | null>(null);
+  const lang = langWanted && full.langs[langWanted] ? langWanted : null;
+  const langRef = useRef(lang);
+  langRef.current = lang;
+  const doc = useMemo(() => viewOf(full, lang), [full, lang]);
+  const { setDoc } = hubApi;
+  const set = useCallback((fn: (d: SocialDoc) => SocialDoc) => setDoc((cur: unknown) => {
+    const f = normalizeSocial(cur);
+    const l = langRef.current;
+    return putView(f, l, fn(viewOf(f, l)));
+  }), [setDoc]);
+  const setFull = useCallback((fn: (d: SocialDoc) => SocialDoc) => setDoc((cur: unknown) => fn(normalizeSocial(cur))), [setDoc]);
+  // every AI ask from a language tab works on that language's version and writes in it
+  const api = useMemo<StudioProps["api"]>(() => (lang
+    ? { ...hubApi, ai: ((task: string, input: Record<string, unknown> = {}) => hubApi.ai(task, { ...input, lang })) as StudioProps["api"]["ai"] }
+    : hubApi), [hubApi, lang]);
   const mf = useMeasureFor();
   const canEdit = api.data.access.canEdit;
   const canvas = useRef<CanvasApi | null>(null);
@@ -197,7 +227,7 @@ export default function Studio({ api }: StudioProps) {
   }, [mf, doc, canEdit, set]);
 
   // the canvas holds one page in one format; a new key = a new canvas on that page
-  const key = page ? `${fmt}:${page.id}:${epoch}` : "";
+  const key = page ? `${lang ?? "main"}:${fmt}:${page.id}:${epoch}` : "";
   const initial = useRef<{ key: string; doc: DesignDocument | null }>({ key: "", doc: null });
   if (page && initial.current.key !== key) initial.current = { key, doc: pageIn(doc.design, page, fmt) };
 
@@ -235,6 +265,7 @@ export default function Studio({ api }: StudioProps) {
     setEpoch((e) => e + 1);
   }, [set]);
   const goPage = useCallback((i: number) => { setPage(i); }, []);
+  const goLang = useCallback((l: string | null) => { setLangWanted(l); setSelection([]); setEpoch((e) => e + 1); }, []);
   const reload = useCallback(() => setEpoch((e) => e + 1), []);
   const storeImage = useCallback(async (data: Blob, name: string) => {
     const file = data instanceof File ? data : new File([data], name, { type: data.type || "image/png" });
@@ -251,7 +282,7 @@ export default function Studio({ api }: StudioProps) {
   }
 
   const ctx: StudioCtx = {
-    api, doc, set, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit, ai,
+    api, doc, set, lang, mainLang, full, setFull, goLang, canvas, mf, fmt, goFormat, pageIx, goPage, reload, live, selection, canEdit, ai,
     openPanel: (p) => setPanel(p),
   };
   ctxRef.current = ctx;
@@ -260,15 +291,18 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <Box ref={rootRef} sx={{
-      height: `calc(100vh - ${top}px)`, display: "grid", overflow: "hidden", bgcolor: T.stage,
-      gridTemplateColumns: `${RAIL_W}px ${leftW}px minmax(0, 1fr) ${ASSIST_W}px`, transition: "grid-template-columns .22s cubic-bezier(.2,.8,.2,1)",
+      height: { xs: "auto", md: `calc(100vh - ${top}px)` }, display: { xs: "flex", md: "grid" }, flexDirection: "column", overflow: { xs: "visible", md: "hidden" }, bgcolor: T.stage,
+      // cv16 (the Page builder's point 7): on the last step the assistant folds away - each caption has its own Ask AI there
+      gridTemplateColumns: `${RAIL_W}px ${leftW}px minmax(0, 1fr) ${panel === "publish" ? 0 : ASSIST_W}px`, transition: "grid-template-columns .22s cubic-bezier(.2,.8,.2,1)",
+      // cv16: on a phone the studio stacks - the tools in a row, the post on its stage, then the map (or the tool, or
+      // Publish), then the assistant; the element popups work there too
     }}>
       {/* the tools */}
-      <Box component="nav" aria-label="Tools" sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: "column", alignItems: "stretch", py: 1, gap: 0.25, zIndex: 3 }}>
+      <Box component="nav" aria-label="Tools" sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, display: "flex", flexDirection: { xs: "row", md: "column" }, overflowX: { xs: "auto", md: "visible" }, alignItems: "stretch", py: 1, gap: 0.25, zIndex: 3, order: { xs: 0, md: 0 }, borderBottom: { xs: `1px solid ${T.line}`, md: "none" } }}>
         {TOOLS.map((p) => {
           const on = panel === p.key;
           return (
-            <Box key={p.key} sx={{ mx: 1 }}>
+            <Box key={p.key} sx={{ mx: { xs: 0.25, md: 1 }, minWidth: { xs: 68, md: 0 } }}>
               <Box component="button" type="button" aria-pressed={on} onClick={() => setPanel(on ? null : p.key)} sx={{
                 all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", py: 0.9, borderRadius: "8px", display: "flex", flexDirection: "column", alignItems: "center", gap: 0.4,
                 color: on ? T.ink : T.ink2, bgcolor: on ? T.hover : "transparent",
@@ -284,7 +318,7 @@ export default function Studio({ api }: StudioProps) {
       </Box>
 
       {/* the left pane: the map - or a tool, or the last step, each with its way back */}
-      <Box sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, overflow: "hidden", minWidth: 0, position: "relative", zIndex: 2, display: "flex", flexDirection: "column" }}>
+      <Box sx={{ bgcolor: "#fff", borderRight: `1px solid ${T.line}`, overflow: "hidden", minWidth: 0, position: "relative", zIndex: 2, display: "flex", flexDirection: "column", order: { xs: 2, md: 0 }, height: { xs: "78vh", md: "auto" }, borderTop: { xs: `1px solid ${T.line}`, md: "none" } }}>
         <Box sx={{ display: panel ? "none" : "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <PostMap ctx={ctx} host={host} onPublish={() => setPanel("publish")} onGallery={setGallery} />
         </Box>
@@ -293,7 +327,7 @@ export default function Studio({ api }: StudioProps) {
             <BackRow label={panel === "publish" ? "The post" : "Build"} onClick={() => setPanel(null)} right={panel === "publish"
               ? <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: T.accent, pr: 0.75 }}>Last step · Publish</Typography>
               : undefined} />
-            <Box sx={{ flex: 1, minHeight: 0, width: leftW }}>
+            <Box sx={{ flex: 1, minHeight: 0, width: { xs: "100%", md: leftW } }}>
               {panel === "templates" && <TemplatesPanel ctx={ctx} />}
               {panel === "text" && <TextPanel ctx={ctx} />}
               {panel === "pictures" && <PicturesPanel ctx={ctx} />}
@@ -307,7 +341,7 @@ export default function Studio({ api }: StudioProps) {
       </Box>
 
       {/* the stage */}
-      <Box sx={{ minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+      <Box sx={{ minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", position: "relative", order: { xs: 1, md: 0 }, height: { xs: "74vh", md: "auto" }, flexShrink: 0 }}>
         <CanvasBar ctx={ctx} hist={hist} zoom={zoom} />
         <Box sx={{
           flex: 1, minHeight: 0, position: "relative",
@@ -345,7 +379,8 @@ export default function Studio({ api }: StudioProps) {
 
       {/* the assistant */}
       <Box component="aside" aria-label="Assistant" sx={{
-        minWidth: 0, minHeight: 0, bgcolor: "#fff", borderLeft: `1px solid ${T.line}`, zIndex: 2, display: "flex", flexDirection: "column",
+        minWidth: 0, minHeight: { xs: 380, md: 0 }, bgcolor: "#fff", borderLeft: `1px solid ${T.line}`, zIndex: 2, display: { xs: panel === "publish" ? "none" : "flex", md: "flex" }, flexDirection: "column", order: { xs: 3, md: 0 },
+        overflow: "hidden", visibility: panel === "publish" ? "hidden" : "visible",
         "& > *": { borderRadius: "0 !important", border: "0 !important", boxShadow: "none !important", bgcolor: "#fff !important" },
       }}>
         <Assistant ctx={ctx} inputRef={askBox} />

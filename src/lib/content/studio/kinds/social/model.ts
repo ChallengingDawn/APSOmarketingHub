@@ -84,7 +84,27 @@ export type SocialDoc = {
   published: Published | null;
   /** "Changes made here", newest first (at most MAX_LOG). */
   log: LogEntry[];
+  /** cv16: the post in other languages than the to-do's own, by language code ("FR") - each a tab of its own. */
+  langs: Record<string, LangVersion>;
 };
+
+/**
+ * One language version of the post (cv16, the Page builder's point 6: "every language version is a tab of its own; a
+ * translation takes EVERY part along"). Its own words - each network's caption, the first comment, the hashtags, the
+ * link's words and address (the link follows the language: its own shop address there) and the design with every page's
+ * words in every format. The networks it goes to, the formats, the day, the approval and "posted" stay the post's.
+ */
+export type LangVersion = {
+  networks: Record<Network, string>;
+  firstComment: string;
+  hashtags: string[];
+  link: { url: string; label: string };
+  design: SocialDesign;
+  /** "translate": the AI translated the main language's post; "copy": the main language's words, to write by hand */
+  made: "translate" | "copy";
+  at: string;
+};
+export const isLangCode = (v: unknown): v is string => typeof v === "string" && /^[A-Z]{2}$/.test(v);
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 const str = (v: unknown, max = 4000) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -136,6 +156,7 @@ export function emptySocial(o: { contentType?: string | null; dueDate?: string |
     formats: { linkedin: ["square"], instagram: ["square"], facebook: ["square"] },
     published: null,
     log: [],
+    langs: {},
   };
 }
 
@@ -179,7 +200,128 @@ export function normalizeSocial(raw: unknown): SocialDoc {
       versionId: Number.isInteger(e.versionId) ? (e.versionId as number) : null,
       undone: e.undone === true,
     })).filter((e) => e.id && e.label) : [],
+    langs: langsOf(d.langs),
   };
+}
+
+/** The language versions kept: a language code each, every part whole. */
+function langsOf(raw: unknown): Record<string, LangVersion> {
+  const out: Record<string, LangVersion> = {};
+  if (!isObj(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    if (!isLangCode(k) || !isObj(v)) continue;
+    const n = isObj(v.networks) ? v.networks : {};
+    const l = isObj(v.link) ? v.link : {};
+    out[k] = {
+      networks: { linkedin: str(n.linkedin, NETWORK.linkedin.max + 2000), instagram: str(n.instagram, NETWORK.instagram.max + 2000), facebook: str(n.facebook, NETWORK.facebook.max + 2000) },
+      firstComment: str(v.firstComment, 1250),
+      hashtags: Array.isArray(v.hashtags) ? v.hashtags.map(cleanTag).filter(Boolean).slice(0, 30) : [],
+      link: { url: str(l.url, 1000).trim(), label: str(l.label, 120) },
+      design: normalizeDesign(v.design),
+      made: v.made === "copy" ? "copy" : "translate",
+      at: str(v.at, 40),
+    };
+  }
+  return out;
+}
+
+/** The post as one language shows it: the main language (the to-do's), or a version's own words over the post's settings. */
+export function viewOf(d: SocialDoc, lang: string | null | undefined): SocialDoc {
+  const v = lang ? d.langs[lang] : undefined;
+  if (!v) return d;
+  const networks = {} as SocialDoc["networks"];
+  for (const n of NETWORKS) networks[n] = { ...d.networks[n], text: v.networks[n] };
+  return { ...d, networks, firstComment: v.firstComment, hashtags: v.hashtags, link: { ...d.link, url: v.link.url, label: v.link.label }, design: v.design };
+}
+
+/** A change made in a language's view put back: its words into its version, the post's settings into the post. */
+export function putView(d: SocialDoc, lang: string | null | undefined, view: SocialDoc): SocialDoc {
+  const v = lang ? d.langs[lang] : undefined;
+  if (!v) return view;
+  const networks = {} as SocialDoc["networks"];
+  for (const n of NETWORKS) networks[n] = { on: view.networks[n].on, tags: view.networks[n].tags, text: d.networks[n].text };
+  const own: LangVersion = {
+    ...v,
+    networks: { linkedin: view.networks.linkedin.text, instagram: view.networks.instagram.text, facebook: view.networks.facebook.text },
+    firstComment: view.firstComment, hashtags: view.hashtags, link: { url: view.link.url, label: view.link.label }, design: view.design,
+  };
+  return {
+    ...view,
+    networks, firstComment: d.firstComment, hashtags: d.hashtags, link: { ...d.link, inComment: view.link.inComment }, design: d.design,
+    langs: { ...view.langs, [lang as string]: own },
+  };
+}
+
+/* ── a translation (cv16): every part of the post goes along ── */
+
+export type LangItem = { id: string; text: string };
+
+/** Every words of the post to translate, by id: the captions, the first comment, the link's words, and each different
+ * text on the design (a text that shows in several formats or pages is translated once). */
+export function translateItems(d: SocialDoc): LangItem[] {
+  const out: LangItem[] = [];
+  for (const n of NETWORKS) if (d.networks[n].text.trim()) out.push({ id: `net.${n}`, text: d.networks[n].text });
+  if (d.firstComment.trim()) out.push({ id: "comment", text: d.firstComment });
+  if (d.link.label.trim()) out.push({ id: "link.label", text: d.link.label });
+  const seen = new Map<string, string>();
+  for (const p of d.design.pages) {
+    for (const doc of Object.values(p.by)) {
+      for (const node of doc?.nodes ?? []) {
+        const t = node.kind === "text" ? node.text ?? "" : "";
+        if (!/\p{L}{2,}/u.test(t) || seen.has(t)) continue;
+        const id = `t.${seen.size + 1}`;
+        seen.set(t, id);
+        out.push({ id, text: t });
+      }
+    }
+  }
+  return out;
+}
+
+/** The post in another language from its translated words (by the ids of translateItems): every caption, the first
+ * comment, the link's words, every text on every page in every format. A word not translated stays as it was (`missing`).
+ * The link's address is the main one until the version is given its own. */
+export function translatedVersion(d: SocialDoc, items: LangItem[], at: string): { version: LangVersion; missing: number } {
+  const by = new Map(items.filter((x) => x.text.trim()).map((x) => [x.id, x.text]));
+  const source = translateItems(d);
+  const missing = source.filter((x) => !by.has(x.id)).length;
+  const textOf = new Map(source.filter((x) => x.id.startsWith("t.")).map((x) => [x.text, by.get(x.id) ?? x.text]));
+  const design: SocialDesign = {
+    ...d.design,
+    pages: d.design.pages.map((p) => {
+      const pby: typeof p.by = {};
+      for (const [f, doc] of Object.entries(p.by)) {
+        if (!doc) continue;
+        pby[f as FormatKey] = { ...doc, nodes: doc.nodes.map((n) => (n.kind === "text" && textOf.has(n.text ?? "") ? { ...n, text: textOf.get(n.text ?? "") } : n)) };
+      }
+      return { ...p, by: pby };
+    }),
+  };
+  const net = (n: Network) => by.get(`net.${n}`) ?? d.networks[n].text;
+  return {
+    version: {
+      networks: { linkedin: net("linkedin"), instagram: net("instagram"), facebook: net("facebook") },
+      firstComment: by.get("comment") ?? d.firstComment,
+      hashtags: [...d.hashtags],
+      link: { url: d.link.url, label: by.get("link.label") ?? d.link.label },
+      design, made: "translate", at,
+    },
+    missing,
+  };
+}
+
+/** The main language's post as a version to write by hand (no AI). */
+export function copiedVersion(d: SocialDoc, at: string): LangVersion {
+  return {
+    networks: { linkedin: d.networks.linkedin.text, instagram: d.networks.instagram.text, facebook: d.networks.facebook.text },
+    firstComment: d.firstComment, hashtags: [...d.hashtags], link: { url: d.link.url, label: d.link.label }, design: d.design, made: "copy", at,
+  };
+}
+
+/** The shop's address of a link, when it is one: its language ("de" of /de-CH/...). */
+export function linkLanguage(url: string): string | null {
+  const m = /^(?:https?:\/\/(?:www|acc)\.apsoparts\.com)?\/([a-z]{2})-[A-Za-z]{2,3}(?:\/|$)/i.exec(url.trim());
+  return m ? m[1].toUpperCase() : null;
 }
 
 /** The design, the formats per network (each one the design has), and whether it went out. */
@@ -265,8 +407,11 @@ export const enabled = (d: SocialDoc): Network[] => NETWORKS.filter((k) => d.net
 export const slidesOf = (d: SocialDoc): Slide[] => (d.media.kind === "carousel" ? d.media.slides : d.media.kind === "card" ? [d.media.card] : []);
 
 /** Everything worth a look before it is posted, per network, in plain sentences. */
-export function checks(d: SocialDoc): { network: Network | null; text: string }[] {
+export function checks(d: SocialDoc, lang?: string | null): { network: Network | null; text: string }[] {
   const out: { network: Network | null; text: string }[] = [];
+  // cv16: the link follows the language - a French post never sends its readers to the German shop
+  const ll = linkLanguage(d.link.url);
+  if (lang && ll && ll !== lang.toUpperCase()) out.push({ network: null, text: `The link goes to the ${ll} shop - give this ${lang.toUpperCase()} version its own address.` });
   for (const n of enabled(d)) {
     const spec = NETWORK[n];
     const p = d.networks[n];
