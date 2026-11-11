@@ -258,6 +258,9 @@ ${row ? `
 }
 
 /* ── duo: two products, large, side by side ──────────────────────────── */
+// Content v13 (SARCLA 11.11.2026, screenshot 27: PN794 cut out on the card, PB794 a hard grey square beside it): each
+// photo is one rounded tile filled by the shop's photo - a white photo a white tile, a grey one a grey tile - never a
+// blend that only hides white backgrounds.
 
 function duo(m: ModuleRef, o: Opts) {
   const s = m.settings;
@@ -268,9 +271,8 @@ function duo(m: ModuleRef, o: Opts) {
 @@ .am-dc{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:8px;min-height:310px;padding:20px 28px 20px 16px;border-radius:24px;
   background:linear-gradient(150deg,#fff 0%,#fff 45%,#f1f5f7 100%);box-shadow:0 18px 40px -30px rgba(27,58,75,.6),inset 0 0 0 1px #edf0f2}
 @@ .am-dp{position:relative;display:block;align-self:stretch;min-height:240px}
-@@ .am-dp{background:radial-gradient(circle closest-side,#f2f5f6 0%,#ecf0f2 80%,rgba(236,240,242,0) 100%)}
-${PHOTO_IMG(".am-dp", "6%")}
-@@ .am-dc:hover .am-dp img{transform:scale(1.05) rotate(-2deg)}
+@@ .am-dp img{position:absolute;top:50%;left:50%;translate:-50% -50%;height:88%;width:auto;max-width:88%;aspect-ratio:1;object-fit:cover;border-radius:20px;background:#fff;box-shadow:0 14px 30px -24px rgba(27,58,75,.55),0 0 0 1px #e8edf0;filter:brightness(1.03) contrast(1.04);transition:transform .35s}
+@@ .am-dc:hover .am-dp img{transform:scale(1.04)}
 @@ .am-dt{display:flex;flex-direction:column;align-items:flex-start;min-width:0}
 @@ .am-dk{font:600 12px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:var(--red)}
 @@ .am-dn{display:block;margin-top:8px;font:600 clamp(19px,1.7vw,23px)/1.18 var(--head);color:var(--ink)!important;overflow-wrap:break-word}
