@@ -325,6 +325,26 @@ export async function setAsidePageIdeas(): Promise<{ env: Env; path: string }[]>
   return r.rows.filter((x) => { const k = `${x.env} ${x.path}`; if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
+/**
+ * ONE NEW PAGE PER PAGE (SARCLA 11.11.2026: "you should not have multiple optimizations to create a new page - this should
+ * be only one; on the current page they could have multiple optimizations"): once, a page's new landing pages beyond its
+ * first are set aside - dropped, so "Bring back" still finds them. The one kept: one a person approved or sent, else the
+ * best ranked (ICE), else the newest. Returns how many were set aside.
+ */
+export const ONE_NEW_PAGE_BY = "set aside: one new page per page (11.11.2026)";
+export async function setAsideExtraNewPages(): Promise<number> {
+  await ensureStudioSchema();
+  const r = await query<{ id: string }>(
+    `WITH ranked AS (
+       SELECT id, status, row_number() OVER (PARTITION BY env, path ORDER BY (status <> 'proposed') DESC,
+              (COALESCE(impact, 0) * COALESCE(confidence, 0))::float / GREATEST(COALESCE(effort, 1), 1) DESC, created_at DESC) AS k
+         FROM apsomh_convert_ideas WHERE content_type = 'landing-page' AND status <> 'dropped')
+     UPDATE apsomh_convert_ideas i SET status = 'dropped', decided_by = $1, decided_at = now()
+       FROM ranked WHERE i.id = ranked.id AND ranked.k > 1 AND ranked.status = 'proposed'
+     RETURNING i.id`, [ONE_NEW_PAGE_BY]);
+  return r.rows.length;
+}
+
 /** How many optimizations each page has (Pages' rows): waiting for a yes or no, approved or sent, and of those per block. */
 export async function optimizationsOn(env: Env, paths: string[]): Promise<Record<string, { waiting: number; approved: number; blocks: number }>> {
   if (!paths.length) return {};
@@ -425,6 +445,11 @@ export async function editVersion(versionId: string, input: unknown, by: string)
 
 export const AI_PER_DAY = 150;
 let spent = { day: "", n: 0 };
+/** How many times the AI may still be asked today on this hub (the night and hourly batches keep some for people). */
+export function aiLeft(): number {
+  const day = new Date().toISOString().slice(0, 10);
+  return spent.day === day ? Math.max(0, AI_PER_DAY - spent.n) : AI_PER_DAY;
+}
 function spend(): boolean {
   const day = new Date().toISOString().slice(0, 10);
   if (spent.day !== day) spent = { day, n: 0 };
@@ -575,9 +600,9 @@ export type BlockFocus = { key?: string; name: string; selector: string; about: 
  * write, not a change of this one, so it needs no version on this page.
  */
 const LANDING_SYSTEM = `You are the SEO and conversion specialist of a B2B web shop. Google shows THIS page for searches it
-answers badly - the numbers below say how often it was shown, how few clicked, and the searches. Propose 2 to 4 NEW
-LANDING PAGES the shop should have, each for one group of those searches - one clearly different search intent each.
-For each one:
+answers badly - the numbers below say how often it was shown, how few clicked, and the searches. Propose exactly ONE NEW
+LANDING PAGE the shop should have: for the biggest group of those searches (one search intent - the page this page's
+searchers miss most). Of it:
 - title: the new page's H1, under 10 words
 - why: the searches it is for, with their numbers, and why this page does not answer them
 - change: what the new page holds - its opening line, the shop's ranges and products that answer the search (only ones
@@ -585,15 +610,17 @@ For each one:
   category) and from it (into the products)
 - expect: more clicks from Google on those searches, and what buyers do next
 - type: always landing-page; target: empty
-Rank them by the size of their searches - the biggest leads. A short reading first: which searches Google shows the page
-for, and what the page lacks for them. When the numbers name no search, propose from the page's own subject and say in
-why that the searches are to be checked.`;
+A short reading first: which searches Google shows the page for, and what the page lacks for them. When the numbers name
+no search, propose from the page's own subject and say in why that the searches are to be checked.`;
 
 export async function proposeIdeas(env: Env, path: string, numbers: Numbers | null, by: string, drawn: string[] | null = null, block: BlockFocus | null = null, landing = false): Promise<AiResult<Idea[]>> {
+  // one new page per page: a page that has its new page already gets no other
+  const work = await pageWork(env, path);
+  if (landing && work.ideas.some((i) => i.contentType === "landing-page" && i.status !== "dropped")) return { ok: false, error: "This page has its new page already - drop it first for another one." };
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   const o = pageOutline(page);
-  const existing = (await pageWork(env, path)).ideas.map((i) => `- ${i.title} (${i.status})`).join("\n");
+  const existing = work.ideas.map((i) => `- ${i.title} (${i.status})`).join("\n");
   const system = landing ? `${LANDING_SYSTEM}
 
 ${SHOP_FACTS}
@@ -637,7 +664,7 @@ ${existing ? `\nIDEAS ALREADY ON THIS PAGE (do not repeat them):\n${existing}` :
                  ON CONFLICT (env, path) DO UPDATE SET text = EXCLUDED.text, by_whom = EXCLUDED.by_whom, at = now()`, [env, path, reading, by]);
   }
   const out: Idea[] = [];
-  for (const i of (r.data.ideas ?? []).slice(0, 5)) {
+  for (const i of (r.data.ideas ?? []).slice(0, landing ? 1 : 5)) {
     if (!i.title?.trim()) continue;
     // a new landing page is one by nature; a block's optimizations are the block's type (the slider a banner, the
     // newsletter band the newsletter) - the AI's own type only for a page's optimizations

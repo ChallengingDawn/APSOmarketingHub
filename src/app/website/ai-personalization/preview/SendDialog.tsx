@@ -30,9 +30,9 @@ type Addable = {
 };
 
 
-export function SendDialog({ open, onClose, onSend, env, path, versions, busy, error }: {
+export function SendDialog({ open, onClose, onSend, env, path, versions, landing = false, busy, error }: {
   open: boolean; onClose: () => void; onSend: (c: SendChoice) => void;
-  env: string; path: string; versions: number; busy: boolean; error: string | null;
+  env: string; path: string; versions: number; landing?: boolean; busy: boolean; error: string | null;
 }) {
   const [mode, setMode] = useState<"new" | "add">("new");
   const [projects, setProjects] = useState<Addable[] | null>(null);
@@ -64,7 +64,9 @@ export function SendDialog({ open, onClose, onSend, env, path, versions, busy, e
       <DialogTitle sx={{ fontWeight: 800, color: INK }}>Send to Content</DialogTitle>
       <DialogContent sx={{ display: "grid", gap: 1.75 }}>
         <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.45 }}>
-          {versions > 1
+          {landing
+            ? <>The new page goes to Content as an <b>SEO landing page</b> with its brief - Content writes it there.</>
+            : versions > 1
             ? <>All <b>{versions} versions</b> go to Content as the page&apos;s A/B versions - which one is tested, and the test itself, are decided there.</>
             : <>The version goes to Content&apos;s Page builder, where it is built and tested.</>}
         </Typography>

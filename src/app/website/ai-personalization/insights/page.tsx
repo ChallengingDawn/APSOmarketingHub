@@ -21,6 +21,7 @@ import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import TrackChangesOutlinedIcon from "@mui/icons-material/TrackChangesOutlined";
@@ -316,7 +317,7 @@ export default function ConvertInsights() {
             {type !== "all" && ` · ${CHANGE_TYPES.find((t) => t.key === type)?.about}`}
             {type === "landing-page" || type === "banner" || type === "newsletter"
               ? " · the AI makes a new batch of this type within the hour whenever fewer than 3 wait for a decision (once a day)"
-              : <>{" · "}the AI reads the pages losing buyers every night, 5 at a time, while fewer than 30 wait for a decision · {lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
+              : <>{" · "}the AI keeps 100 block optimizations ready - up to 10 pages an hour, the pages losing buyers first · {lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
           </Typography>
         </GlassCard>
 
@@ -349,18 +350,22 @@ export default function ConvertInsights() {
       <PageHeader title="Insights" subtitle="What the AI proposes to change on the shop, by type of content - see it on the page, then send it to Content"
         rightSlot={
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* SARCLA 10.11.2026: "put a disclaimer on Insights: product pages are deactivated for the moment, as cart and my
+                account - not sent [the] token on dotSource['s] hard-coded pages"; 11.11.2026: "put this a small message on
+                top right before the date switcher" */}
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "flex-start", maxWidth: 440, px: 1.25, py: 0.6, borderRadius: "8px", bgcolor: "rgba(183,121,31,.08)", border: "1px solid rgba(183,121,31,.25)" }}>
+              <InfoOutlinedIcon sx={{ fontSize: 15, color: "#b7791f", mt: "2px" }} />
+              <Typography sx={{ fontSize: "0.72rem", color: INK, lineHeight: 1.4 }}>
+                For the moment the AI proposes no optimization on <b>product pages</b>, the <b>cart</b> or <b>My account</b>: dotSource codes those
+                pages in the shop&apos;s theme, and the hub has no access to change them yet. Home, category and content pages get block
+                optimizations - a block of the page and 3 or 4 modules to replace it.
+              </Typography>
+            </Box>
             <WindowPicker />
             {held.stale && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>
           </Box>
         } />
-      {/* SARCLA 10.11.2026: "put a disclaimer on Insights: product pages are deactivated for the moment, as cart and my
-          account - not sent [the] token on dotSource['s] hard-coded pages" */}
-      <Notice tone="warn">
-        For the moment the AI proposes no optimization on <b>product pages</b>, the <b>cart</b> or <b>My account</b>: dotSource codes those
-        pages in the shop&apos;s theme, and the hub has no access to change them yet. Home, category and content pages get block
-        optimizations - a block of the page and 3 or 4 modules to replace it.
-      </Notice>
       {body}
     </Box>
   );

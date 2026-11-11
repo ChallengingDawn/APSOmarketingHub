@@ -679,7 +679,8 @@ function ConvertPreview() {
   const seoHeld = useHeld<SeoData>(seoUrl, [seoUrl]);
   const seo = seoHeld.result?.state === "ok" ? seoHeld.result.data : null;
   const numbers = path ? withSeo(numbersFor(problems, path), seo, path) : null;
-  const ideasBody = () => ({ action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}), ...(seoMode ? { landing: true } : {}) });
+  // the new page (Google's searches) or the page's own block optimizations - "Find more optimizations" always asks for these
+  const ideasBody = (landing = seoMode) => ({ action: "ideas", env, path, numbers, ...(block ? { block: block.key } : {}), ...(landing ? { landing: true } : {}) });
 
   const clicksUrl = path ? `/api/website/ai-personalization/clicks?env=${env}&path=${encodeURIComponent(path)}&dev=${clickDev}&n=${clickTick}` : null;
   const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
@@ -689,7 +690,8 @@ function ConvertPreview() {
 
   const ideas = d?.ideas ?? [];
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
-  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped").map((i, k) => [i.id, k + 1])), [ranked]);
+  // the numbers on the page are the slider's: this page's own optimizations (a new page is not one of them)
+  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped" && !isLanding(i)).map((i, k) => [i.id, k + 1])), [ranked]);
   const spots: Spots = useMemo(() => ({
     list: showSpots ? ranked.filter((i) => i.status !== "dropped" && i.target).map((i) => ({ n: numberOf.get(i.id)!, sel: i.target!, lead: numberOf.get(i.id) === 1 && i.source === "ai", title: i.title })) : [],
     focus: spotFocus,
@@ -700,7 +702,7 @@ function ConvertPreview() {
     return m;
   }, [d]);
   const idea = ideas.find((i) => i.id === ideaSel) ?? null;
-  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped")[n - 1]; if (i) { setCompare(false); select(i.id); } };
+  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped" && !isLanding(x))[n - 1]; if (i) { setCompare(false); select(i.id); } };
   const versions = idea ? versionsOf.get(idea.id) ?? [] : [];
   const version = versions.find((v) => v.letter === letterSel) ?? versions[0] ?? null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
@@ -851,9 +853,12 @@ function ConvertPreview() {
     const data = r.data;
     const pg = data.page;
     // a new landing page changes nothing on THIS page (SARCLA 10.11.2026: "I don't understand this optimization, it
-    // changes nothing"): it is not one of the page's optimizations - they are listed apart, from Google's view only
-    const live = ranked.filter((i) => i.status !== "dropped" && (seoMode || !isLanding(i)));
-    const newPages = seoMode ? [] : ranked.filter((i) => i.status !== "dropped" && isLanding(i));
+    // changes nothing"): it is not one of the page's optimizations. THE PAGE OR A NEW PAGE, split (SARCLA 11.11.2026: "you
+    // should split between new page and optimization of the current page; not multiple optimizations to create a new
+    // page - only one; on the current page they could have multiple"): the slider holds the page's own optimizations,
+    // the new page is one, on its own side
+    const live = ranked.filter((i) => i.status !== "dropped" && !isLanding(i));
+    const newPage = ranked.find((i) => i.status !== "dropped" && isLanding(i)) ?? null;
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
     // ONE optimization's versions side by side, framed on its block, until one is picked (SARCLA 10.11.2026: "3 or 4
     // versions" against the block as it is); a block of the shop's optimizations side by side as before
@@ -924,6 +929,11 @@ function ConvertPreview() {
         <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
           <Box sx={{ display: "flex", gap: 1, rowGap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
             <Button size="small" component={Link} href={`${CONVERT}/insights`} startIcon={<ArrowBackRoundedIcon />} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Insights</Button>
+            {(newPage || seoMode) && !block && (
+              <SquareChoice<"page" | "new"> value={landing || (seoMode && !idea) ? "new" : "page"}
+                onChange={(k) => { setCompare(false); if (k === "new") { if (newPage) router.push(`${href(path, newPage.id)}&seo=1`); else router.push(`${href(path, null)}&seo=1`); } else visit(live[0]?.id ?? null); }}
+                options={[{ key: "page", label: "This page's optimizations", count: live.length }, { key: "new", label: "A new page", count: newPage ? 1 : 0 }]} />
+            )}
             <Box sx={{ flex: 1 }} />
             {idea && data.canEdit && st !== "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "dropped" })} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Drop</Button>}
             {idea && data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ ...btn, fontWeight: 600 }}>Bring back</Button>}
@@ -940,7 +950,7 @@ function ConvertPreview() {
               </Tooltip>
             )}
             {idea && <SendDialog open={sendOpen} onClose={() => setSendOpen(false)} onSend={(c) => void send(c)} env={data.env} path={data.path}
-              versions={versions.length} busy={busy === "send"} error={sendErr} />}
+              versions={versions.length} landing={landing} busy={busy === "send"} error={sendErr} />}
           </Box>
           <OptimizationSlider items={idea && pos >= 0 ? live : []} at={pos} onGo={(k) => step(k - pos)}>
             <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>
@@ -973,12 +983,12 @@ function ConvertPreview() {
         )}
 
         {/* no optimization yet (from Google's view: no new landing page yet): the page, and the AI's button */}
-        {(seoMode ? !idea && !live.some((i) => isLanding(i)) : live.length === 0) && pg.status === 200 && (
+        {(seoMode || landing ? !newPage && !(idea && !landing) : live.length === 0) && pg.status === 200 && (
           <GlassCard sx={{ display: "grid", gap: 1.25, justifyItems: "start" }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page's blocks and their clicks, and building 3-4 versions of each block it picks"} - about a minute` : seoMode ? "No new landing page proposed from this page yet" : productPage ? "Product pages come later" : "No optimization on this page yet"}</Typography>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page's blocks and their clicks, and building 3-4 versions of each block it picks"} - about a minute` : seoMode ? "No new page proposed from this page's Google searches yet" : productPage ? "Product pages come later" : "No optimization on this page yet"}</Typography>
             {!seoMode && productPage && busy !== "ideas" && <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.45 }}>A product page&apos;s layout is the theme&apos;s code, so the AI proposes no optimization here for now. Home, category and content pages get block optimizations: a block of the page and 3-4 modules to replace it.</Typography>}
             {busy === "ideas" && <LinearProgress sx={{ width: "100%", height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />}
-            {data.canEdit && (seoMode || !productPage) && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find landing pages" : "Find optimizations"}</AiButton>}
+            {data.canEdit && (seoMode || !productPage) && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find the new page" : "Find optimizations"}</AiButton>}
             {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand, under More.</Typography>}
           </GlassCard>
         )}
@@ -1076,21 +1086,6 @@ function ConvertPreview() {
           )}
         </Box>
 
-        {/* new landing pages proposed from this page's Google searches: not changes of this page - Content writes them */}
-        {newPages.length > 0 && (
-          <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
-            <CardTitle icon={<SearchIcon />} tint="purple" title={`New pages proposed from this page's Google searches · ${newPages.length}`} note="They change nothing on this page: each is a NEW page for Content to write" />
-            <Box sx={{ display: "grid", gap: 0.5, mt: 1 }}>
-              {newPages.map((i) => (
-                <Box key={i.id} component="button" type="button" onClick={() => router.push(`${href(path, i.id)}&seo=1`)}
-                  sx={{ all: "unset", cursor: "pointer", fontSize: "0.84rem", color: ACCENT, fontWeight: 600, "&:hover": { textDecoration: "underline" } }}>
-                  {i.title}
-                </Box>
-              ))}
-            </Box>
-          </GlassCard>
-        )}
-
         {/* everything else, folded */}
         <Box component="details" sx={{ px: 0.5, "& > summary": { cursor: "pointer", fontSize: "0.84rem", fontWeight: 700, color: MUTED, py: 0.5 } }}>
           <summary>More - every optimization of this page, the version&apos;s code and revisions, the clicks, what the AI reads</summary>
@@ -1098,7 +1093,7 @@ function ConvertPreview() {
             <GlassCard sx={{ p: { xs: 1.5, md: 1.75 } }}>
               <CardTitle icon={<TipsAndUpdatesOutlinedIcon />} tint="amber" title="More optimizations for this page" note={`${live.length} in the slider at the top${block ? ` - of the ${block.name.toLowerCase()}` : ""}; a new one joins it`} />
               <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", mt: 1.25 }}>
-                {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", ideasBody())}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
+                {data.canEdit && live.length > 0 && <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", ideasBody(false))}>{busy === "ideas" ? "The AI is reading…" : "Find more optimizations"}</AiButton>}
                 {data.canEdit && block && live.some((i) => !(versionsOf.get(i.id)?.length)) && (
                   <Button size="small" variant="outlined" disabled={!!making || !!busy} onClick={() => void makeAll()} startIcon={making ? <CircularProgress size={13} /> : <AutoFixHighOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...btn, fontWeight: 600 }}>
                     {making ? `Writing version ${Math.min(making.done + 1, making.of)} of ${making.of}…` : "A version of each, side by side"}
