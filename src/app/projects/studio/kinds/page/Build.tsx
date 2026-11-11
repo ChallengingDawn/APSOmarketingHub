@@ -240,8 +240,9 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>
             {isWinner ? (doc.published ? "Published on the shop" : "Publish on the shop") : "To Magento"}
           </Typography>
-          {abPart}
-          {isWinner ? <WinnerPublish api={api} doc={doc} {...won} /> : <ToMagento api={api} doc={doc} d={d} setView={(v) => setView(v)} canEdit={canEdit} lang={lang} />}
+          {/* the A/B test's plan: above a winner's publish; in the publishing view's A/B test section (Content v14) */}
+          {isWinner && abPart}
+          {isWinner ? <WinnerPublish api={api} doc={doc} {...won} /> : <ToMagento api={api} doc={doc} d={d} setView={(v) => setView(v)} canEdit={canEdit} lang={lang} abPart={abPart} />}
         </Box>
       </Pane>
     );

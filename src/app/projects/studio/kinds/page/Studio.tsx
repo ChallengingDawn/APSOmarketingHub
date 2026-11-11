@@ -2097,7 +2097,7 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <MakeViewsProvider value={makeViews}>
-      <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
+      <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist} wide={step === "publish"} railLabel="Assistant"
         // the left: the page's blocks only (Content v8) - a module's settings, a block's look, a text's words open on the page
         build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           fill={fill} busy={busyHere} canAi={aiHere} inserts={inserts} onPickPage={() => setPicking(true)} removeInsert={removeInsert}
