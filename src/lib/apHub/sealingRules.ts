@@ -446,6 +446,76 @@ export function familyFigures(compounds: Figure[]): FamilyFigure[] {
   }));
 }
 
+/* -- the pilot's rankings and their controls (index.html chart, controls, detailView) ------------------------------ */
+
+/** What a ranking ranks by - the pilot's "Rank by revenue / gross profit". */
+export type RankBy = "rev" | "gp";
+
+/**
+ * The pilot's ranking: by net revenue or gross profit, the largest first (the name breaks a tie), the first `n` -
+ * 0 all ("All entries"). The scatter takes the first ten of the same ranking, so its numbers match the list.
+ */
+export function rankBy<T extends { label: string; rev: number; gp: number }>(rows: T[], by: RankBy, n = 0): T[] {
+  const out = [...rows].sort((a, b) => (by === "gp" ? b.gp - a.gp : b.rev - a.rev) || a.label.localeCompare(b.label));
+  return n > 0 ? out.slice(0, n) : out;
+}
+
+/** The pilot's search: the name and the identifier, any case ("Search customers or identifiers…"). */
+export function matchesQuery(name: string, id: string, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !q || `${name} ${id}`.toLowerCase().includes(q);
+}
+
+/** The caption of the customers' and articles' cards (revision.js analysis): one business unit chosen names it. */
+export function actionsCaption(bus: string[]): string {
+  return bus.length === 1 ? `${bus[0]} · account review priorities` : "Commercial priorities";
+}
+
+/** "FDA, WRAS and NSF appear in some texts" - the references with revenue, the largest first, the first `n`. */
+export function leadingRefs(refs: { name: string; rev: number }[], n = 3): string[] {
+  return refs.filter((r) => r.rev > 0).sort((a, b) => b.rev - a.rev).slice(0, n).map((r) => r.name);
+}
+
+/**
+ * The pilot's "Definitions & source notes" (index.html, with revision.js's pending scope, material grouping and
+ * opportunity scenarios) - in the words of the hub's figures: the ERP's invoices, read each morning, not the pilot's
+ * top-30 extracts.
+ */
+export const SEALING_DEFINITIONS: { title: string; text: string }[] = [
+  {
+    title: "Period and population",
+    text: "Every view reads the months chosen in the Filters - the year so far when none is chosen - against the same months a year earlier where the figures hold them. The population is every business unit's sealing invoices (profit centre DT) from the ERP's BI model, read each morning. The views overlap: customers, articles, compounds and approvals are the same invoices seen from different sides and must not be added together.",
+  },
+  {
+    title: "Revenue and margin",
+    text: "Revenue is the invoices' net revenue in EUR. Gross profit is the ERP's: the net revenue less the cost of the goods. Every margin is weighted - Σ gross profit / Σ net revenue - never an average of margins.",
+  },
+  {
+    title: "Compound treatment",
+    text: "Compounds are shown as written on the article; no names are merged. \"No info\", \"Unknown\", \"TBD\", an empty field and drawing descriptions are unresolved entries: they are left out of the named ranking and of the material families, and Materials & compounds can include them.",
+  },
+  {
+    title: "Material grouping",
+    text: "Families are derived from the compound's name, with Kalrez and Evolast treated as FFKM; HNBR, FKM (FPM), EPDM, NBR, VMQ (silicone) and PTFE by their letters. Unrecognised names stay Unclassified.",
+  },
+  {
+    title: "Accounts and approvals",
+    text: "Customer numbers remain separate even when two accounts carry the same name. Approvals are the texts written on the articles - not validated certification data. Their indicative categories come from keywords and need review. A text naming several references counts in each reference's card, so the references overlap; in the categories each text counts once.",
+  },
+  {
+    title: "Opportunity scenarios",
+    text: "+5 percentage points of margin and +10% revenue are illustrative sensitivities, not forecasts or agreed targets. Gross-profit impacts use the period's figures and current margins. Product mix, costs, demand and capacity must be validated.",
+  },
+  {
+    title: "Recommendations",
+    text: "Recommendations are review actions found in these figures. Without targets or market potential, the review cannot establish lost share, business-unit underperformance or causation.",
+  },
+  {
+    title: "Pending scope decisions",
+    text: "No customer is excluded from any view. The pilot noted a possible future exclusion of Sonceboz Motion Boncourt SA and a second, unidentified one (\"DMI\"); neither is applied here.",
+  },
+];
+
 /* -- the pilot's drawer: one customer, article or compound and what it is made of -------------------------------- */
 
 /** What the detail window can open: a customer's articles, an article's customers, a compound's customers. */
