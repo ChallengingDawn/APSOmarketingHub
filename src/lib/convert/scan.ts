@@ -175,8 +175,9 @@ async function blocksSwitch(): Promise<string[]> {
  * OPTIMIZATIONS READY TO GO (SARCLA 10.11.2026: "give much more optimization, at least 50 to start"; 11.11.2026: "we
  * should have even more ready to go optimizations"): while fewer than 100 block optimizations wait for a yes or no, every
  * hour up to 10 more pages are read - the problem pages first (most add-to-carts missed), then the others with the most
- * views; no product page, no page with a block optimization open, each page once a day. It stops while the day's AI has
- * AI_KEEP asks left, so people's own clicks always get their answer.
+ * views; no product page, no page with a block optimization open, each page once a day. Every store view's home page is
+ * read even past the target. It stops while the day's AI has AI_KEEP asks left, so people's own clicks always get their
+ * answer.
  */
 export const BLOCK_TARGET = 100;
 export const FILL_PER_HOUR = 10;
@@ -184,7 +185,9 @@ export const AI_KEEP = 40;
 async function fillUp(): Promise<string[]> {
   await query(TOPUP_SCHEMA);
   const waiting = Number((await query<{ n: string }>(`SELECT count(*) AS n FROM apsomh_convert_ideas WHERE status = 'proposed' AND scope = 'block'`)).rows[0]?.n ?? 0);
-  if (waiting >= BLOCK_TARGET || aiLeft() <= AI_KEEP) return [];
+  // the target holds the other pages back, never a store view's home page (SARCLA 11.11.2026: "you have a lot of
+  // optimizations in [de-CH], in the other locales you don't" - the first run after the switch reached 102 at de-DE's)
+  if (aiLeft() <= AI_KEEP) return [];
   const to = isoDay(Date.now() - 86_400_000);
   const from = isoDay(Date.parse(to) - 27 * 86_400_000);
   const data = await buildProblems(from, to);
@@ -199,7 +202,9 @@ async function fillUp(): Promise<string[]> {
   let done = 0;
   let made = 0;
   for (const p of pages) {
-    if (done >= FILL_PER_HOUR || waiting + made >= BLOCK_TARGET || aiLeft() <= AI_KEEP) break;
+    if (done >= FILL_PER_HOUR || aiLeft() <= AI_KEEP) break;
+    // the home pages come first (spreadStores): past the target only they are read
+    if (waiting + made >= BLOCK_TARGET && classify(p.path).kind !== "home") break;
     const work = await pageWork("prod", p.path);
     if (work.ideas.some((i) => i.scope === "block" && i.status !== "dropped")) continue;
     const key = `fill:${p.path}`.slice(0, 300);
