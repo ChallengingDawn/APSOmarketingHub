@@ -26,8 +26,9 @@ const VIEWS: PubVersion[] = [
 ];
 const RECORDS: WrittenRecord[] = ["en-INT", "en-CH", "en-CH/eur", "de-CH", "de-DE", "fr-CH", "pl-PL"].map((s) => rec(s));
 
-test("the sections: Pages first, then Pictures, A/B test, Setup", () => {
-  assert.deepEqual(PUB_SECTIONS.map((s) => s.key), ["pages", "pictures", "ab", "setup"]);
+test("the sections: Pages first, then Pictures and A/B test - Setup is in Pages since v14b", () => {
+  assert.deepEqual(PUB_SECTIONS.map((s) => s.key), ["pages", "pictures", "ab"]);
+  assert.deepEqual(PUB_SECTIONS.map((s) => s.label), ["Pages", "Pictures", "A/B test"]);
 });
 
 test("a row per language: its links on each shop, changed since or as published, when", () => {
@@ -91,7 +92,7 @@ test("Update all: nothing changed says so; what holds every write (the review, t
   assert.match(updateAllOf(same, "acc", { all: false, accLive: true }).why ?? "", /Nothing changed since the publish on ACC/);
   const held = updateAllOf(pageRows(VIEWS, RECORDS), "acc", { all: false, accLive: true, held: "2 pictures are not in ACC's media yet." });
   assert.equal(held.why, "2 pictures are not in ACC's media yet.");
-  assert.equal(updateAllOf(pageRows([VIEWS[5]], []), "acc", { all: true, accLive: true }).why, "No page can be written - see Setup.");
+  assert.equal(updateAllOf(pageRows([VIEWS[5]], []), "acc", { all: true, accLive: true }).why, "No page can be written - see Where it goes.");
   assert.equal(progressLine("German · 2 store views", "ACC", 2, 6), "Writing German · 2 store views into ACC · 2 of 6…");
 });
 

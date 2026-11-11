@@ -26,6 +26,7 @@
 
 import type { Change } from "./versions";
 import { applyToCms } from "./ship";
+import { answerSaid } from "./magentoSaid";
 
 export type MagentoEnv = "acc" | "prod";
 export type Answer = { status: number; text: string };
@@ -56,7 +57,7 @@ async function call<T>(m: MagentoRequest, method: "GET" | "POST" | "PUT", store:
   let j: unknown = null;
   try { j = JSON.parse(a.text); } catch { /* not JSON */ }
   if (a.status < 200 || a.status >= 300) {
-    const msg = j && typeof j === "object" && "message" in j ? String((j as { message: unknown }).message) : a.text.slice(0, 160);
+    const msg = j && typeof j === "object" && "message" in j ? String((j as { message: unknown }).message) : answerSaid(a.text);
     const params = j && typeof j === "object" && "parameters" in j ? (j as { parameters: unknown }).parameters : null;
     const said = params && typeof params === "object" && !Array.isArray(params)
       ? msg.replace(/%(\w+)/g, (all, k: string) => String((params as Record<string, unknown>)[k] ?? all)) : msg;

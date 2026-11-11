@@ -11,7 +11,7 @@ const csp = [
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   // ...and our HubSpot portal's files: a newsletter started from one of our e-mails keeps its pictures (08.11.2026)
-  "img-src 'self' data: blob: https://www.apsoparts.com https://26492587.fs1.hubspotusercontent-eu1.net",
+  "img-src 'self' data: blob: https://www.apsoparts.com https://26492587.fs1.hubspotusercontent-eu1.net https://dss0ijjcuug27.cloudfront.net",
   "font-src 'self' data:",
   "connect-src 'self'",
   // our e-mails' web versions, shown as they went out in the newsletter studio's "Our e-mails" (08.11.2026)

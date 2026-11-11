@@ -23,6 +23,7 @@ import {
   type Backup, type Backups, type MagentoRequest, type PagePlan, type SharedPlan, type SharedWritten, type StoreRef, type Target, type Want, type Written,
 } from "./cmsPage";
 import { magentoFetch } from "./magentoHttp";
+import { answerSaid } from "./magentoSaid";
 import { shopPage } from "./studio";
 import { magentoKeys } from "@/lib/doc/config";
 import { STORE_VIEWS, storeCodeOf, storeViewOf } from "@/lib/content/studio/kinds/page/storeViews";
@@ -131,7 +132,7 @@ async function magento<T>(env: Env, path: string, init: { method?: string; body?
   let body: unknown = null;
   try { body = JSON.parse(text); } catch { /* not JSON */ }
   if (res.status < 200 || res.status >= 300) {
-    const said = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : text.slice(0, 160);
+    const said = body && typeof body === "object" && "message" in body ? String((body as { message: unknown }).message) : answerSaid(text);
     throw new ConvertError(`Magento (${ENVS[env].label}) answered ${res.status}: ${said}`, 502);
   }
   return body as T;
