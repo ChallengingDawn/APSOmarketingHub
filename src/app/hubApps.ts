@@ -252,6 +252,7 @@ export const UC_SECTIONS: WebsiteSection[] = [
       { name: "September Push", note: "One-shot: September order intake push", href: "/uc/sept-push", icon: "target", ...PINK },
       { name: "Marc CH Push", note: "One-shot: reactivation batch 1", href: "/uc/marc-push", icon: "route", ...PURPLE },
       { name: "Nancy CH Push", note: "One-shot: reactivation batch 2", href: "/uc/nancy-push", icon: "route", ...TEAL },
+      { name: "Kalrez 6221/6230", note: "One-shot: discontinued - call the Swiss buyers, offer evolast", href: "/uc/kalrez-switch", icon: "sync", ...AMBER },
     ],
   },
 ];
