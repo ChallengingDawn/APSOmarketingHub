@@ -17,6 +17,7 @@ import {
 } from "../page/model";
 import { ENV_LABEL } from "../page/env";
 import { shopOrder, storeKey } from "../page/storeViews";
+import { BLOCK_LABEL, type NewsletterDoc } from "./model";
 
 /** The shop's address - the newsletter's readers open it. */
 export const SHOP_BASE = "https://www.apsoparts.com";
@@ -214,4 +215,30 @@ export function linkNote(url: string, language: string | null | undefined, rows:
   if (other) return { tone: "warn", line: `This address is in ${store} - the newsletter is in ${langName(want)} (${want})` };
   if (!row) return null;
   return stateIn(row.last, store, key);
+}
+
+/** Every link of the newsletter, named as its outline names the block ("Story 2", "Products · product 3"). */
+export function linksOf(d: NewsletterDoc): { where: string; url: string }[] {
+  const out: { where: string; url: string }[] = [];
+  const seen: Record<string, number> = {};
+  for (const b of d.blocks) {
+    const n = (seen[b.kind] = (seen[b.kind] ?? 0) + 1);
+    const name = `${BLOCK_LABEL[b.kind]}${d.blocks.filter((x) => x.kind === b.kind).length > 1 ? ` ${n}` : ""}`;
+    if (b.kind === "hero" || b.kind === "cta") out.push({ where: name, url: b.button.url });
+    else if (b.kind === "article") out.push({ where: name, url: b.link.url });
+    else if (b.kind === "banner") out.push({ where: name, url: b.url });
+    else if (b.kind === "products") b.items.forEach((x, i) => out.push({ where: `${name} · product ${i + 1}`, url: x.url }));
+  }
+  return out.filter((x) => x.url.trim());
+}
+
+/** What "Before it goes out" says of the links: an ACC address, another language's store view, a page of the Page
+ * builder not on the shop yet (the last needs the pages read). */
+export function linkIssues(d: NewsletterDoc, rows: readonly PageLinkRow[] | null): { tone: Tone; text: string }[] {
+  const out: { tone: Tone; text: string }[] = [];
+  for (const l of linksOf(d)) {
+    const n = linkNote(l.url, d.language, rows);
+    if (n && (n.tone === "warn" || n.tone === "bad")) out.push({ tone: n.tone, text: `${l.where}: ${n.line}` });
+  }
+  return out;
 }

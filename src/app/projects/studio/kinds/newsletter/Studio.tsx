@@ -60,7 +60,8 @@ import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } 
 import { BLUE, ChangesList, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "../blog/ui";
 import { BlockTools, Gallery, Layouts, Outline, made } from "./Blocks";
 import { OurEmails, type Learned } from "./OurEmails";
-import { usePageLinks } from "./PagePick";
+import { ReadPagesOnShow, usePageLinks } from "./PagePick";
+import { linkIssues } from "@/lib/content/studio/kinds/newsletter/pageLinks";
 
 const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" }, { key: "FR", label: "French" }, { key: "IT", label: "Italian" }, { key: "EN", label: "English" }, { key: "NL", label: "Dutch" }, { key: "PL", label: "Polish" }];
 
@@ -276,13 +277,16 @@ export default function Studio({ api }: StudioProps) {
   const frameW = device === "mobile" ? 390 : 680;
 
   /* ── the way out (under the blocks) ── */
+  // the links too (11.11.2026): an ACC address, another language's store view, a Page builder page not on the shop yet
+  const before = [...issues.map((c) => ({ bad: c.level === "bad", text: c.text })), ...linkIssues(d, pageLinks.rows).map((x) => ({ bad: x.tone === "bad", text: x.text }))];
   const out = (
     <Box sx={{ display: "grid", gap: 1 }}>
-      {issues.length > 0 ? (
+      {canEdit && <ReadPagesOnShow load={pageLinks.load} />}
+      {before.length > 0 ? (
         <Box sx={{ p: 1.25, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f0d6a8" }}>
           <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#7f4f0b", mb: 0.5 }}>Before it goes out</Typography>
-          {issues.map((c, i) => (
-            <Box key={i} sx={{ display: "flex", gap: 0.75, alignItems: "flex-start", fontSize: "0.8rem", color: c.level === "bad" ? "#8f1d1b" : "#7f4f0b", py: 0.25 }}>
+          {before.map((c, i) => (
+            <Box key={i} sx={{ display: "flex", gap: 0.75, alignItems: "flex-start", fontSize: "0.8rem", color: c.bad ? "#8f1d1b" : "#7f4f0b", py: 0.25 }}>
               <WarningAmberOutlinedIcon sx={{ fontSize: 16, mt: "1px" }} />{c.text}
             </Box>
           ))}

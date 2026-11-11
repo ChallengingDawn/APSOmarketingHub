@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { PGlite } from "@electric-sql/pglite";
 import { pageDoc, type MagentoRecord } from "../src/lib/content/studio/kinds/page/model";
+import { emptyNewsletter, newBlock, type Block } from "../src/lib/content/studio/kinds/newsletter/model";
 import {
-  SHOP_BASE, lastWrites, linkFor, linkNote, newsletterStore, pageAddress, pageLinkRow, pageLinkRows, pageLinksQuery, pickerOrder, publishedIn, stateIn,
-  storesLine, whereLine, type PageLinkRow, type PageLinksDbRow,
+  SHOP_BASE, lastWrites, linkFor, linkIssues, linkNote, linksOf, newsletterStore, pageAddress, pageLinkRow, pageLinkRows, pageLinksQuery, pickerOrder,
+  publishedIn, stateIn, storesLine, whereLine, type PageLinkRow, type PageLinksDbRow,
 } from "../src/lib/content/studio/kinds/newsletter/pageLinks";
 
 // SARCLA 11.11.2026: "with these new pages (one Magento page per store view, same URL key), how do we generate the link
@@ -112,6 +113,26 @@ test("what is said under a link field: an ACC address, another language's store 
   assert.equal(linkNote("https://www.apsoparts.com/de-DE/o-ringe.html", "DE", rows), null);
   assert.equal(linkNote("https://www.apsoparts.com/de-CH/eur/o-ringe.html", "DE", null), null, "the Swiss shop in EUR is German too");
   assert.equal(linkNote("https://example.com/x", "DE", rows), null);
+});
+
+test("'Before it goes out' names each link that is not ready: an ACC address, another language, a page not on the shop yet", () => {
+  const d = emptyNewsletter("FR");
+  const blocks = d.blocks.map((b, i) => {
+    if (b.kind === "hero") return { ...b, button: { ...b.button, url: "https://www.apsoparts.com/fr-CH/joints-alimentaires" } };
+    if (b.kind === "article" && i === 2) return { ...b, link: { ...b.link, url: "https://acc.apsoparts.com/fr-CH/joints-alimentaires" } };
+    if (b.kind === "article") return { ...b, link: { ...b.link, url: "https://www.apsoparts.com/de-CH/dichtungen-lebensmittel" } };
+    return b;
+  });
+  const nl = { ...d, blocks: [...blocks, { ...(newBlock("products", "p1", "FR") as Extract<Block, { kind: "products" }>), items: [{ name: "x", text: "", imageUrl: "", url: "" }, { name: "y", text: "", imageUrl: "", url: "https://www.apsoparts.com/fr-CH/o-rings.html" }, { name: "z", text: "", imageUrl: "", url: "" }] }] };
+  assert.deepEqual(linksOf(nl).map((l) => l.where), ["Lead story", "Story 1", "Story 2", "Call to action", "Products · product 2"]);
+  // the pages not read yet: what needs no page is said already
+  assert.deepEqual(linkIssues(nl, null).map((x) => `${x.tone} ${x.text}`), [
+    "bad Story 1: An ACC address - readers cannot open it. Use the shop's address (www.apsoparts.com)",
+    "warn Story 2: This address is in de-CH - the newsletter is in French (fr-CH)",
+  ]);
+  // read: the French page is only on ACC
+  assert.deepEqual(linkIssues(nl, [row()]).map((x) => x.text)[0], "Lead story: Only on ACC - not on the shop yet. Publish it to production first");
+  assert.equal(linkIssues(nl, [row()]).length, 3);
 });
 
 test("only new pages with a URL key are listed; the ones the newsletter can link come first", () => {

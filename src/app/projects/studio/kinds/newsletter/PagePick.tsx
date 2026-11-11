@@ -80,7 +80,7 @@ export function PageList({ pages, language, onPick, onClose }: { pages: PageLink
   const words = q.trim().toLowerCase();
   const rows = words ? all.filter((r) => `${r.title} ${r.project} ${r.todo} ${Object.values(r.views).map((v) => `${v.title} ${v.key}`).join(" ")}`.toLowerCase().includes(words)) : all;
   return (
-    <Box sx={{ width: 420, maxWidth: "calc(100vw - 32px)", display: "flex", flexDirection: "column", maxHeight: 520 }}>
+    <Box sx={{ width: 420, maxWidth: "calc(100vw - 32px)", display: "flex", flexDirection: "column", maxHeight: "min(640px, calc(100vh - 32px))" }}>
       <Box sx={{ px: 1.75, pt: 1.5, pb: 1.25, borderBottom: `1px solid ${HAIRLINE}` }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           <Typography sx={{ flex: 1, fontSize: "0.92rem", fontWeight: 700, color: INK }}>A page from the Page builder</Typography>
@@ -133,22 +133,31 @@ export function PageList({ pages, language, onPick, onClose }: { pages: PageLink
   );
 }
 
+/** Reads the Page builder's pages once it is shown (the last step's "Before it goes out" says which links are not on the
+ * shop yet). */
+export function ReadPagesOnShow({ load }: { load: () => void }) {
+  useEffect(() => { load(); }, [load]);
+  return null;
+}
+
 /** The button under a link field, its list, and what is said of the address the field holds. */
 export function PagePick({ pages, language, value, onPick }: { pages: PageLinks; language: string; value: string; onPick: (url: string) => void }) {
   const [el, setEl] = useState<HTMLElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
   // an address of the shop in the field: the pages are read, to say whether a page picked before is on the shop yet
   const shop = /apsoparts\.com\//i.test(value);
   const { load } = pages;
   useEffect(() => { if (shop) load(); }, [shop, load]);
   const note = linkNote(value, language, pages.rows);
   return (
-    <Box sx={{ mt: -0.75, mb: 1.25 }}>
-      <Button size="small" startIcon={<WebOutlinedIcon sx={{ fontSize: "16px !important" }} />} aria-haspopup="dialog" onClick={(e) => { setEl(e.currentTarget); load(); }} sx={pickBtn}>
+    <Box ref={boxRef} sx={{ mt: -0.75, mb: 1.25 }}>
+      <Button size="small" startIcon={<WebOutlinedIcon sx={{ fontSize: "16px !important" }} />} aria-haspopup="dialog" onClick={(e) => { setEl(boxRef.current ?? e.currentTarget); load(); }} sx={pickBtn}>
         A page from the Page builder
       </Button>
       {note && <StateLine tone={note.tone} line={note.line} />}
-      <Popover open={!!el} anchorEl={el} onClose={() => setEl(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} transformOrigin={{ vertical: "top", horizontal: "left" }}
-        slotProps={{ paper: { sx: { borderRadius: "8px", overflow: "hidden" } } }}>
+      {/* beside the build column, over the e-mail: the field it fills stays in view */}
+      <Popover open={!!el} anchorEl={el} onClose={() => setEl(null)} anchorOrigin={{ vertical: "center", horizontal: "right" }} transformOrigin={{ vertical: "center", horizontal: "left" }}
+        slotProps={{ paper: { sx: { borderRadius: "8px", overflow: "hidden", ml: 3, boxShadow: "0 4px 10px rgba(26,58,76,.08), 0 16px 40px rgba(26,58,76,.16)" } } }}>
         <PageList pages={pages} language={language} onClose={() => setEl(null)} onPick={(url) => { onPick(url); setEl(null); }} />
       </Popover>
     </Box>
