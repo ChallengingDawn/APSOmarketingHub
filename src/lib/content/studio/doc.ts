@@ -186,3 +186,71 @@ export function applyWithRoot<T>(doc: T, ops: Op[]): T {
   for (const o of ops) cur = o.op === "set" && o.path.length === 1 && o.path[0] === "$root" ? (clone(o.value) as T) : applyOps(cur, [o]);
   return cur;
 }
+
+/* ── a list too heavy for one request: light first, its texts after (studio safeSet.ts) ─────────────────────────────── */
+
+/** A light value written first, and the whole one it stands for. */
+export type LightPair = { path: Path; light: unknown; whole: unknown };
+
+/** The same value with every long text emptied. */
+export function lightOf(v: unknown, long = 600): unknown {
+  if (typeof v === "string") return v.length > long ? "" : v;
+  if (Array.isArray(v)) return v.map((x) => lightOf(x, long));
+  if (isObj(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, lightOf(x, long)]));
+  return v;
+}
+
+/**
+ * The document to write first when a change puts a heavy list or object in (an item over `heavy` bytes would be one
+ * request over the firewall's 8 KB): each such value with its long texts emptied - and the pairs that give them back
+ * (restoreLight). null: nothing heavy, `next` goes as it is.
+ */
+export function lightFirst(cur: unknown, next: unknown, heavy = 5_500): { first: unknown; pairs: LightPair[] } | null {
+  const ops = diffOps(cur, next);
+  const isHeavy = (o: Op) => o.op === "set" && !!o.value && typeof o.value === "object" && new TextEncoder().encode(JSON.stringify(o.value)).length > heavy;
+  if (!ops.some(isHeavy)) return null;
+  const pairs: LightPair[] = [];
+  const first = applyWithRoot(cur, ops.map((o) => {
+    if (!isHeavy(o) || o.op !== "set") return o;
+    const light = lightOf(o.value);
+    pairs.push({ path: o.path, light, whole: o.value });
+    return { ...o, value: light };
+  }));
+  return { first, pairs };
+}
+
+/**
+ * The document as it is NOW with each light value given back its whole texts - wherever it stands now, never the
+ * document the change was made on. SARCLA 11.11.2026 ("A/B testing ... doesn't switch version on Content"): the second
+ * write used to be that whole document, so a version opened while the first write was saving was swapped back, and a
+ * version opened from the light document kept its module's HTML empty. Opening a version moves its list (versions ->
+ * changes), so the light value is looked for anywhere in the document; one changed since is left as it is.
+ */
+export function restoreLight<T>(now: T, pairs: LightPair[]): T {
+  let cur = now;
+  const elsewhere = new Map<string, unknown>();
+  for (const p of pairs) {
+    const k = JSON.stringify(p.light);
+    if (k === JSON.stringify(p.whole)) continue;
+    // where it was written, still as written: given back there
+    if (p.path.length && JSON.stringify(at(cur, p.path)) === k) { cur = applyOps(cur, [{ op: "set", path: p.path, value: p.whole }]); continue; }
+    elsewhere.set(k, p.whole);
+  }
+  if (!elsewhere.size) return cur;
+  // moved meanwhile (a version opened: its list went from `versions` to `changes`): found where it stands now
+  const lengths = new Set([...elsewhere.keys()].map((k) => k.length));
+  const walk = (v: unknown): unknown => {
+    if (!v || typeof v !== "object") return v;
+    const s = JSON.stringify(v);
+    if (lengths.has(s.length) && elsewhere.has(s)) return clone(elsewhere.get(s));
+    let moved = false;
+    if (Array.isArray(v)) {
+      const out = v.map((x) => { const y = walk(x); if (y !== x) moved = true; return y; });
+      return moved ? out : v;
+    }
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) { const y = walk(x); if (y !== x) moved = true; out[k] = y; }
+    return moved ? out : v;
+  };
+  return walk(cur) as T;
+}

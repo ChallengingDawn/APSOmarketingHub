@@ -42,6 +42,7 @@ import {
 import { ADD_CSS, renderNewPage } from "@/lib/content/studio/kinds/page/newpage";
 import { FRAME_CSS, framePage } from "@/lib/content/studio/kinds/page/frame";
 import { PART_NAME, partOfPath } from "@/lib/content/studio/kinds/page/outline";
+import { drawVersion, letterOf, otherVersion } from "@/lib/content/studio/kinds/page/versionDraw";
 import type { InsertOut, Presence, PreviewOut } from "@/lib/content/studio/kinds/page/shop";
 import type { Located } from "@/lib/content/studio/kinds/page/shopParts";
 import { PINK, btn } from "../../parts";
@@ -52,7 +53,8 @@ import { StoreViewPicker } from "./StoreViewPicker";
 
 export type View = "before" | "after" | "both";
 type Side = "before" | "after";
-type Held = { key: string; out: PreviewOut } | null;
+/** a picture of the page from the server; `letter`: the version open when it was asked (Content v14) */
+type Held = { key: string; out: PreviewOut; letter?: string } | null;
 
 const BLUE = "#2459d1";
 
@@ -66,10 +68,13 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
   const isNew = d.source === "new";
   const keys: Record<Side, string> = {
     before: JSON.stringify([lang, d.env, d.path]),
-    after: JSON.stringify([lang, d.source, d.env, d.path, d.changes, d.texts, d.inserts]),
+    // the open version's letter last (plan/usePlan.ts servedOf reads the changes at [4]): a version opened is asked
+    // for even when its changes are the same as the one before (a copy just made)
+    after: JSON.stringify([lang, d.source, d.env, d.path, d.changes, d.texts, d.inserts, d.letter || "A"]),
   };
   const want: Side[] = isNew ? [] : view === "both" ? ["before", "after"] : [view];
   const saved = api.save === "saved";
+  const letter = letterOf(d);
 
   useEffect(() => {
     if (!d.path || !saved || isNew) return;
@@ -84,7 +89,7 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
         const out = await fetch(`/api/content/studio/page/${pieceId}/preview?side=${side}&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}${api.looking ? `&version=${api.looking}` : ""}`)
           .then((r) => r.json() as Promise<PreviewOut>)
           .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }));
-        if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out } }));
+        if (asked.current[side] === key) setHeld((h) => ({ ...h, [side]: { key, out, letter } }));
         setBusy((b) => ({ ...b, [side]: false }));
       }, 350));
     }
@@ -95,7 +100,43 @@ export function usePagePreview(api: StudioApi, d: PageDoc, lang: string, view: V
   // a language switched: what was shown belongs to the other one
   useEffect(() => { setHeld({ before: null, after: null }); }, [lang]);
 
-  return { held, busy, readAgain: () => setFresh((n) => n + 1), want, fresh };
+  // Content v14 (SARCLA 11.11.2026: "A/B testing ... doesn't switch version on Content"): a page with versions keeps the
+  // page as the shop serves it (the "before" picture), so a version opened is drawn at once from it - its own changes laid
+  // over the page, never over the picture of the version before (whose module stands in the block's place) - until the
+  // server's picture of it comes back (../../../../lib/content/studio/kinds/page/versionDraw.ts)
+  const many = !isNew && !!d.path && d.versions.length > 1 && !api.looking;
+  const baseKey = `${keys.before}|${fresh}`;
+  const [base, setBase] = useState<{ key: string; html: string } | null>(null);
+  const heldBefore = held.before;
+  useEffect(() => {
+    if (!many || base?.key === baseKey) return;
+    if (heldBefore?.out.ok && heldBefore.key === baseKey) { setBase({ key: baseKey, html: heldBefore.out.html }); return; }
+    let gone = false;
+    void fetch(`/api/content/studio/page/${pieceId}/preview?side=before&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}`)
+      .then((r) => r.json() as Promise<PreviewOut>)
+      .then((out) => { if (!gone && out.ok) setBase({ key: baseKey, html: out.html }); })
+      .catch(() => undefined);
+    return () => { gone = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [many, baseKey, heldBefore?.key]);
+  const heldAfter = held.after;
+  const atOnce = useMemo((): Held => {
+    if (!many || !heldAfter?.out.ok || !otherVersion(heldAfter.letter, d) || !base || base.key !== baseKey) return null;
+    try {
+      const v = drawVersion(base.html, d);
+      // keyed as the server's picture of these changes would be (plan/usePlan.ts servedOf reads them back): the module
+      // drawn here is not drawn over it again
+      return { key: `${keys.after}|at-once`, out: { ...heldAfter.out, html: v.html, hits: v.hits, body: v.body, problems: v.problems }, letter };
+    } catch { return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [many, heldAfter, base, baseKey, keys.after, letter]);
+
+  return {
+    held: atOnce ? { ...held, after: atOnce } : held,
+    // the version drawn here is shown as it is, not greyed while the server's picture of it is asked for
+    busy: atOnce ? { ...busy, after: false } : busy,
+    readAgain: () => setFresh((n) => n + 1), want, fresh,
+  };
 }
 
 /** A new page's frame: its store's own page, once per store view; the page itself is drawn into it as it is typed. */
