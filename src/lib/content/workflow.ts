@@ -11,11 +11,12 @@
 import { query } from "@/lib/db/client";
 import { ensureSharing, share, shareCandidates } from "@/lib/content/sharing";
 import { defaultReviewerOf } from "@/lib/content/people";
-import { isPieceStatus, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
+import { STAGE_LABEL, isPieceStatus, stageOf, type PieceStatus, type Stage } from "@/lib/content/pieceRules";
 import { CONTENT_BY_KEY } from "@/lib/content/contentTypes";
 import { markerOf } from "@/lib/convert/handoff";
 import { pieceKindFromConvert } from "@/lib/content/convertPiece";
 import { classify } from "@/lib/convert/model";
+import { pagesOf, type ProjectPage } from "@/lib/content/convertTodo";
 
 export type Brief = {
   goal: string;
@@ -86,6 +87,9 @@ export function ensureWorkflow(): Promise<void> {
     await query(`ALTER TABLE apsomh_content ADD COLUMN IF NOT EXISTS piece_id INTEGER`);
     // a piece IS a to-do (08.11.2026): its Action plan sub-action, the row of apsomh_kpi_tasks that carries its ticket
     await query(`ALTER TABLE apsomh_content_pieces ADD COLUMN IF NOT EXISTS task_id INTEGER`);
+    // a to-do's own brief (SARCLA 10.11.2026: a page added from AI testing & personalization to a project that is there
+    // already) - it carries that page's marker, read before the project's (lib/content/convertTodo.ts)
+    await query(`ALTER TABLE apsomh_content_pieces ADD COLUMN IF NOT EXISTS brief TEXT`);
     await query(`
       CREATE TABLE IF NOT EXISTS apsomh_content_events (
         id SERIAL PRIMARY KEY,
@@ -241,17 +245,34 @@ export async function setSource(projectId: number, source: string | null): Promi
 export async function addPiece(p: {
   projectId: number; contentType: string | null; language: string | null; title: string | null;
   writer: string | null; reviewer: string | null; dueDate: string | null; by: string;
+  /** the to-do's own brief - a page added from AI testing & personalization carries its marker here */
+  brief?: string | null;
 }): Promise<Piece> {
   await ensureWorkflow();
   const r = await query<{ id: number }>(
-    `INSERT INTO apsomh_content_pieces (project_id, content_type, language, title, writer, reviewer, due_date, sort, created_by)
+    `INSERT INTO apsomh_content_pieces (project_id, content_type, language, title, writer, reviewer, due_date, sort, created_by, brief)
      VALUES ($1, $2, $3, $4, $5, $6, $7::date,
-             COALESCE((SELECT MAX(sort) + 1 FROM apsomh_content_pieces WHERE project_id = $1), 0), $8)
+             COALESCE((SELECT MAX(sort) + 1 FROM apsomh_content_pieces WHERE project_id = $1), 0), $8, $9)
      RETURNING id`,
-    [p.projectId, p.contentType, p.language, p.title?.trim() || pieceTitle(p.contentType, p.language), p.writer, p.reviewer, p.dueDate, p.by],
+    [p.projectId, p.contentType, p.language, p.title?.trim() || pieceTitle(p.contentType, p.language), p.writer, p.reviewer, p.dueDate, p.by, p.brief ?? null],
   );
   await touch(p.projectId);
   return (await getPiece(r.rows[0].id))!;
+}
+
+/** A to-do's own brief (its page's marker), or null - read apart from the to-do, so the project's page never carries it. */
+export async function pieceBrief(pieceId: number): Promise<string | null> {
+  await ensureWorkflow();
+  const r = await query<{ brief: string | null }>(`SELECT brief FROM apsomh_content_pieces WHERE id = $1`, [pieceId]);
+  return r.rows[0]?.brief ?? null;
+}
+
+/** The to-dos of a project that have notes of their own (a page added from AI testing & personalization), with them. */
+export async function pieceBriefs(projectId: number): Promise<{ id: number; brief: string | null }[]> {
+  await ensureWorkflow();
+  const r = await query<{ id: number; brief: string | null }>(
+    `SELECT id, brief FROM apsomh_content_pieces WHERE project_id = $1 AND brief IS NOT NULL ORDER BY sort, id`, [projectId]);
+  return r.rows;
 }
 
 export async function updatePiece(pieceId: number, patch: Partial<{
@@ -473,4 +494,52 @@ export async function projectHead(id: number): Promise<{
     project: { id: r.id, title: r.title, brief: r.brief, createdBy: r.created_by, contentType: r.content_type, dueDate: r.due_iso, status: r.status },
     comments: c.rows.map((x) => ({ id: x.id, author: x.author, body: x.body, createdAt: new Date(x.created_at).toISOString() })),
   };
+}
+
+/** A project a person may add a page to (AI testing & personalization's "Add to a project", SARCLA 10.11.2026). */
+export type AddableProject = {
+  id: number;
+  title: string;
+  stage: Stage;
+  stageLabel: string;
+  owner: string | null;
+  ownerName: string | null;
+  /** how this person may change it: their own, shared with them to edit, or an admin's way into every project */
+  role: "owner" | "editor" | "admin";
+  updatedAt: string;
+  /** the shop's pages it holds already: the project's own (pieceId null) and each to-do's */
+  pages: ProjectPage[];
+};
+
+/**
+ * The projects this person may add a to-do to - the work route's own rule (sharing.ts accessFor: the owner, an editor, an
+ * admin), never an archived or deleted one: their own first, then the newest. Database only, no HubSpot.
+ */
+export async function addableProjects(me: Me): Promise<AddableProject[]> {
+  await ensureWorkflow();
+  const editor = "EXISTS (SELECT 1 FROM apsomh_content_project_members x WHERE x.project_id = p.id AND x.username = $1 AND x.role = 'editor')";
+  const may = me.role === "admin" ? "TRUE" : `(p.created_by = $1 OR ${editor})`;
+  const r = await query<{
+    id: number; title: string; brief: string | null; created_by: string | null; owner_name: string | null; updated_at: Date; editor: boolean;
+    statuses: string[] | null; marked: { id: number; brief: string | null }[] | null;
+  }>(
+    `SELECT p.id, p.title, p.brief, p.created_by, ou.full_name AS owner_name, p.updated_at, ${editor} AS editor,
+            (SELECT ARRAY_AGG(pc.status) FROM apsomh_content_pieces pc WHERE pc.project_id = p.id) AS statuses,
+            (SELECT JSON_AGG(JSON_BUILD_OBJECT('id', pc.id, 'brief', pc.brief) ORDER BY pc.sort, pc.id)
+               FROM apsomh_content_pieces pc WHERE pc.project_id = p.id AND pc.brief IS NOT NULL) AS marked
+       FROM apsomh_content_projects p
+       LEFT JOIN apsomh_users ou ON ou.username = p.created_by
+      WHERE p.status <> 'archived' AND p.deleted_at IS NULL AND ${may}
+      ORDER BY (p.created_by = $1) DESC, p.updated_at DESC
+      LIMIT 200`,
+    [me.username],
+  );
+  return r.rows.map((p) => {
+    const stage = stageOf((p.statuses ?? []).map((x) => (isPieceStatus(x) ? x : "todo")));
+    return {
+      id: p.id, title: p.title, stage, stageLabel: STAGE_LABEL[stage], owner: p.created_by, ownerName: p.owner_name || p.created_by,
+      role: p.created_by === me.username ? "owner" : p.editor ? "editor" : "admin",
+      updatedAt: new Date(p.updated_at).toISOString(), pages: pagesOf(p.brief, p.marked ?? []),
+    };
+  });
 }

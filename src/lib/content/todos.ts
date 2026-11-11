@@ -162,21 +162,23 @@ export async function movePlace(projectId: number, planItem: number | null): Pro
   queuePlanSync("content project placed in the plan");
 }
 
+const NO_PLACE = "Give the project its place in the action plan first - its to-dos' tickets sit under that action.";
+const NOT_DG = "Only a to-do under an action led by Digital Growth, or a Digital Growth person's, takes a Scroll to Sale ticket.";
+
 /** Why this to-do may not take a ticket now, or null. */
 async function ticketRefusal(projectId: number, todoId: number): Promise<string | null> {
   const [t, action] = await Promise.all([todoOf(projectId, todoId), planActionOf(projectId)]);
   if (!t) return "That to-do is not in this project.";
-  if (!action) return "Give the project its place in the action plan first - its to-dos' tickets sit under that action.";
-  if (!takesTicket(action, t.ownerName)) return "Only a to-do under an action led by Digital Growth, or a Digital Growth person's, takes a Scroll to Sale ticket.";
+  if (!action) return NO_PLACE;
+  if (!takesTicket(action, t.ownerName)) return NOT_DG;
   if ((await taskTickets()).some((x) => x.task === todoId)) return "This to-do has its ticket - unlink it first to give it another.";
   return null;
 }
 
-/** The ticket form for a to-do, filled from its action (as the plan fills it) and from the to-do itself. */
-export async function ticketDraft(projectId: number, todoId: number) {
-  const refused = await ticketRefusal(projectId, todoId);
-  if (refused) return { ok: false as const, error: refused };
-  const [t, action, form, items] = await Promise.all([todoOf(projectId, todoId), planActionOf(projectId), s2sForm(), planItems()]);
+/** The ticket form, filled from the project's action (as the plan fills it) and from the to-do: its name, owner, go-live
+ *  date and stage; `open` the hub page its "Open it" line points to. */
+async function draftOf(projectId: number, t: { title: string; owner: string; due: string | null; stage: string | null }, open: string) {
+  const [action, form, items] = await Promise.all([planActionOf(projectId), s2sForm(), planItems()]);
   const options = Object.fromEntries(form.fields.filter((f) => f.options).map((f) => [f.name, f.options!]));
   const ready = await planInHubspot().then(() => true, () => false);
   const fields = form.fields
@@ -187,16 +189,59 @@ export async function ticketDraft(projectId: number, todoId: number) {
     });
   const values: Record<string, string> = action ? ticketFromAction(action, items, options) : {};
   if (!ready) for (const k of PLAN_FIELDS) delete values[k];
-  values.subject = t!.title;
-  if (/^\d+$/.test(t!.owner)) values.hubspot_owner_id = t!.owner;
-  if (t!.due) values.mkt_golive_date = t!.due;
-  values.hs_pipeline_stage = t!.stage || IDEA;
-  values.content = [values.content, `Open it: ${hubPublicUrl()}/projects/${projectId}`].filter(Boolean).join("\n\n");
+  values.subject = t.title;
+  if (/^\d+$/.test(t.owner)) values.hubspot_owner_id = t.owner;
+  if (t.due) values.mkt_golive_date = t.due;
+  values.hs_pipeline_stage = t.stage || IDEA;
+  values.content = [values.content, `Open it: ${hubPublicUrl()}${open}`].filter(Boolean).join("\n\n");
   return {
-    ok: true as const,
     form: { fields, stages: form.stages.map((s) => ({ value: s.value, label: s.label })), owners: form.owners.map((o) => ({ value: o.id, label: o.name })), teams: form.teams },
     values,
   };
+}
+
+/** The ticket form for a to-do, filled from its action (as the plan fills it) and from the to-do itself. */
+export async function ticketDraft(projectId: number, todoId: number, open = `/projects/${projectId}`) {
+  const refused = await ticketRefusal(projectId, todoId);
+  if (refused) return { ok: false as const, error: refused };
+  const t = await todoOf(projectId, todoId);
+  if (!t) return { ok: false as const, error: "That to-do is not in this project." };
+  return { ok: true as const, ...(await draftOf(projectId, t, open)) };
+}
+
+/**
+ * The ticket a to-do about to be made will take, checked BEFORE it is made (a page added from AI testing &
+ * personalization, SARCLA 10.11.2026: "associate to the current one + the ticket") - the rules of the to-do's own ticket
+ * buttons, so a refusal leaves the project as it was. A ticket to link must be one of From Scroll to Sale; one to make
+ * must have what HubSpot requires, from the project's action and the person (HubSpot is read here, nothing written).
+ */
+export async function todoTicketCheck(projectId: number, t: { title: string; writer: string | null }, ask: { link: string } | { create: true }): Promise<string | null> {
+  const action = await planActionOf(projectId);
+  if (!action) return NO_PLACE;
+  const own = await ownerFields(t.writer);
+  if (!takesTicket(action, own.ownerName)) return NOT_DG;
+  if ("link" in ask) {
+    const found = await readTickets([ask.link]);
+    return found.length ? null : `Ticket ${ask.link} is not a ticket of From Scroll to Sale.`;
+  }
+  const { values } = await draftOf(projectId, { title: t.title, owner: own.owner, due: null, stage: IDEA }, `/projects/${projectId}`);
+  const missing = missingRequired(values);
+  return missing.length
+    ? `The ticket cannot be made from here - still to fill in: ${missing.join(", ")}. Add the page without a ticket, then make the ticket from its to-do.`
+    : null;
+}
+
+/** A new to-do's ticket: an existing one linked, or one made from its action - `open` the page its "Open it" line points to. */
+export async function giveTodoTicket(projectId: number, todoId: number | null, ask: { link: string } | { create: true }, by: string, open?: string): Promise<{ ok: true; id: string; url: string; made: boolean } | { ok: false; error: string }> {
+  if (!todoId) return { ok: false, error: "The to-do is still being set up - give it its ticket from the to-do in a moment." };
+  if ("link" in ask) {
+    const r = await linkTodoTicket(projectId, todoId, ask.link, by);
+    return r.ok ? { ok: true, id: ask.link, url: ticketUrl(ask.link), made: false } : r;
+  }
+  const d = await ticketDraft(projectId, todoId, open);
+  if (!d.ok) return d;
+  const r = await createTodoTicket(projectId, todoId, d.values, by);
+  return r.ok ? { ...r, made: true } : r;
 }
 
 export async function createTodoTicket(projectId: number, todoId: number, values: Record<string, string>, by: string): Promise<{ ok: true; id: string; url: string } | { ok: false; error: string }> {

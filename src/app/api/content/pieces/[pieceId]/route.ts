@@ -13,7 +13,7 @@ import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { brandSystemPrompt, readBrain } from "@/lib/brain";
 import { accessFor, shareCandidates } from "@/lib/content/sharing";
 import { defaultReviewerOf } from "@/lib/content/people";
-import { addEvent, getPiece, projectBrief, projectHead } from "@/lib/content/workflow";
+import { addEvent, getPiece, pieceBrief, projectBrief, projectHead } from "@/lib/content/workflow";
 import { cleanOps } from "@/lib/content/studio/doc";
 import { studioKindOf } from "@/lib/content/studio/kinds";
 import { KIND_DEFS } from "@/lib/content/studio/registry";
@@ -49,9 +49,10 @@ async function open(rawId: string) {
   if (!access) return { error: fail("No such to-do.", 404) } as const;
   const kind = studioKindOf(piece.contentType);
   if (!kind) return { error: fail("This kind of to-do has no studio of its own - it opens in Create Studio.", 400) } as const;
-  const [head, brief] = await Promise.all([projectHead(piece.projectId), projectBrief(piece.projectId)]);
+  // the to-do's own notes too: a page added to the project carries its marker there, read before the project's
+  const [head, brief, own] = await Promise.all([projectHead(piece.projectId), projectBrief(piece.projectId), pieceBrief(piece.id)]);
   const ctx: StudioCtx = {
-    projectId: piece.projectId, pieceId: piece.id, projectTitle: head?.project.title ?? "", projectNotes: head?.project.brief ?? null, brief: brief.brief, piece,
+    projectId: piece.projectId, pieceId: piece.id, projectTitle: head?.project.title ?? "", projectNotes: head?.project.brief ?? null, pieceNotes: own, brief: brief.brief, piece,
     me: { username: me.username, name: me.full_name || me.username, email: me.email, admin: me.role === "admin" }, canEdit: access.canEdit,
   };
   return { me, piece, access, kind, def: KIND_DEFS[kind], ctx, head } as const;
