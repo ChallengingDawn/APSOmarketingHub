@@ -26,6 +26,7 @@ import EventRepeatOutlinedIcon from "@mui/icons-material/EventRepeatOutlined";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
 import { GLC, LATE_CATS, lateCat, type OtdFilter } from "@/lib/reporting/otdRules";
 import type { CustomerRow, StoredLine } from "@/lib/reporting/otdLines";
+import { PagedBars } from "./OtdPaged";
 
 /** what the page's frame gives: the months, the month counted by, the filters */
 export type CustomerQuery = { from: string; to: string; axis: "promised" | "delivered"; filter: OtdFilter; yms: string[] };
@@ -198,8 +199,8 @@ function CustomerDetail({ q, c }: { q: CustomerQuery; c: string }) {
         ]} />
       </ChartBox>
       <Box sx={TWO}>
-        <ChartBox title="Late lines per supplier" hint="GLC = no supplier in the ERP: cut to size and made in house">
-          <BarList rows={v.suppliers} format={n0} labelWidth={200} emptyMessage="No late line." />
+        <ChartBox title="Late lines per supplier" hint="GLC = no supplier in the ERP: cut to size and made in house · every supplier with a late line, 10 a page">
+          <PagedBars rows={v.suppliers} format={n0} emptyMessage="No late line." />
         </ChartBox>
         <ChartBox title="Late lines per product group" hint="the nightly article master's main group">
           <BarList rows={v.groups} format={n0} labelWidth={200} emptyMessage="No late line." />
@@ -239,12 +240,12 @@ function summarize(d: Detail, q: CustomerQuery) {
     const g = grp.get(l.group || "No product group") ?? [0, 0]; g[0]++; if (isLate) g[1]++; grp.set(l.group || "No product group", g);
   }
   for (const o of orders.values()) o.lines.sort((a, b) => Number(a.line) - Number(b.line));
-  const bars = (m: Map<string, [number, number]>) => [...m].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).slice(0, 12)
+  const bars = (m: Map<string, [number, number]>, n = 12) => [...m].filter(([, v]) => v[1] > 0).sort((a, b) => b[1][1] - a[1][1]).slice(0, n)
     .map(([label, v]) => ({ label, value: v[1], secondary: `of ${int(v[0])} lines · ${pct(onTime(v[0], v[1]))} on time` }));
   const orderList = [...orders.values()];
   return {
     n, late, days, over10, months, mandant: [...mandants].sort().join(" + "),
     orders: orderList, lateOrders: orderList.filter((o) => o.late > 0).length,
-    articles: [...arts.values()], suppliers: bars(sup), groups: bars(grp),
+    articles: [...arts.values()], suppliers: bars(sup, Infinity), groups: bars(grp),
   };
 }
