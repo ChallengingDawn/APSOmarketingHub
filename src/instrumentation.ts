@@ -102,6 +102,16 @@ export async function register() {
     // COMPANY_DUPLICATES=off stops it. SARCLA, 10.11.2026.
     const { startCompanyDuplicates } = await import("./lib/companyDuplicates/engine");
     startCompanyDuplicates();
+    // The DUPS app's last workflows (SARCLA 10.11.2026), each writing only in Live with its workflow switched off:
+    // Duplicates & merges > Contacts > By e-mail domain - a contact without a company linked to its domain's company
+    // (src/lib/contactLink, shadow first; CONTACT_LINK=off), > Name letters - broken letters in names repaired
+    // (src/lib/contactNames; CONTACT_NAMES=off); Company data > Google Maps link (src/lib/companyMaps; COMPANY_MAPS=off).
+    const { startContactLink } = await import("./lib/contactLink/engine");
+    startContactLink();
+    const { startContactNames } = await import("./lib/contactNames/engine");
+    startContactNames();
+    const { startCompanyMaps } = await import("./lib/companyMaps/engine");
+    startCompanyMaps();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
     // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
     const { startTicketValue } = await import("./lib/ticketValue/engine");
