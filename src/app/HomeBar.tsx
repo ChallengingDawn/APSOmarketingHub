@@ -120,6 +120,9 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   // the two hubs, for the people of Angst+Pfister only - cross-user or cross-admin (access.ts Cross), never an admin
   // without the mark (SARCLA 10.11.2026 on Bernd seeing it: "only cross people"); a preview follows the person previewed
   const twoHubs = (viewed ? viewed.cross ?? null : myCross) !== null;
+  // ... but never on the Action plan's own pages - APSOparts' plan, open to a cross-admin since 11.11 (SARCLA 11.11.2026,
+  // seen live on the plan: "no toggle inside of action plan")
+  const showSwitch = twoHubs && !plan;
   const planShut = planClosedTo(viewed ? viewed.cross ?? null : myCross);
   const mayOpen = (href: string) => {
     const path = href.split("?")[0];
@@ -192,12 +195,12 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [room, setRoom] = useState(false);
   useIsoLayoutEffect(() => {
-    if (!twoHubs) return;
+    if (!showSwitch) return;
     const check = () => { const el = wrapRef.current; if (el) setRoom(el.getBoundingClientRect().left >= SWITCH_ROOM); };
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
-  }, [twoHubs]);
+  }, [showSwitch]);
   const hubSwitch = (
     <Box role="group" aria-label="Hub" sx={{
       ...glass, borderRadius: "22px", p: 0.75, gap: 0.5, flexShrink: 0,
@@ -340,7 +343,7 @@ export function HomeBar({ on, plan = false, hub = "apsoparts" }: {
       </Box>
     </Box>
   );
-  if (!twoHubs) return bar;
+  if (!showSwitch) return bar;
   // the bar keeps the whole width; the switch hangs in the margin on its left (or sits above it, a narrow window)
   return (
     <Box ref={wrapRef} sx={{ position: "relative", zIndex: 5 }}>
