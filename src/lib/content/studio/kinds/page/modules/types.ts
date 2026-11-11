@@ -99,6 +99,8 @@ export type Opts = {
   picture?: (url: string) => string;
   /** the store view the page is drawn for (Content v10, SARCLA point 9): its links go there - else the module's own */
   store?: string;
+  /** Content v12: its headline is the page's H1 (the page's own hero was taken out - ../blocklist.ts h1ModuleOf) */
+  h1?: boolean;
 };
 
 /** A module drawn: its inner HTML and its CSS, every rule written `@@ ...` (the registry puts the module's class there). */

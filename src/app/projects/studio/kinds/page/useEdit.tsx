@@ -217,6 +217,8 @@ export function useEdit(c: EditCtx) {
   const optionsFor = (r: BlockRow): { options: SwitchOption[]; keeps: string } | null => {
     const cur = c.view();
     if (c.isNew && r.kind === "block") {
+      // the page's hero: every hero module, its title (the H1), line, button and picture kept (Content v12)
+      if (r.key === "hero") return { options: compatibleWithBlock(cur.fields, r.key, cur.store), keeps: "its title (the page's H1), its line, its button and its picture" };
       const fam = blockFamily(r.key);
       if (!fam) return null;
       return { options: compatibleWithBlock(cur.fields, r.key, cur.store), keeps: FAMILY_WORDS[fam] };

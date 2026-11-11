@@ -30,8 +30,10 @@ export const ADD_CHOICES: { kind: NewBlock; name: string; note: string; Icon: ty
 export type AddAt = { at: number; anchor?: HTMLElement | null; pos?: { top: number; left: number } };
 
 /** The squared menu of blocks. `onPage` = the blocks the page has (a single one is moved, not added twice). */
-export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery }: {
+export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery, onHero }: {
   where: AddAt | null; onClose: () => void; onPick: (kind: NewBlock, at: number) => void; onPage: string[];
+  /** Content v12: the page's own hero taken out - put back at the top, as it was */
+  onHero?: () => void;
   /** the library opened for this place - the side bar's Modules tab since Content v7 (./modules/ModulesTab.tsx) */
   onGallery?: (at: number) => void;
 }) {
@@ -43,6 +45,18 @@ export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery }: {
       slotProps={{ paper: { sx: { p: 1.5, borderRadius: "10px", width: 420, maxWidth: "calc(100vw - 32px)", boxShadow: "0 18px 50px rgba(21,34,58,.22)" } } }}>
       <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, mb: 1, px: 0.25 }}>Add a block here</Typography>
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75 }}>
+        {onHero && (
+          <Box component="button" type="button" data-add="hero" onClick={() => { onHero(); onClose(); }} sx={{
+            all: "unset", boxSizing: "border-box", cursor: "pointer", gridColumn: "1 / -1", display: "flex", gap: 1, alignItems: "flex-start", p: 1.1, borderRadius: "6px",
+            border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", "&:hover": { borderColor: PINK, bgcolor: "rgba(194,44,110,.04)" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
+          }}>
+            <Box sx={{ width: 30, height: 30, flexShrink: 0, borderRadius: "6px", display: "grid", placeItems: "center", bgcolor: "rgba(194,44,110,.08)", color: PINK }}><VerticalSplitOutlinedIcon sx={{ fontSize: 18 }} /></Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>The page&apos;s hero</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>Back at the top as it was - its title is the page&apos;s H1 again</Typography>
+            </Box>
+          </Box>
+        )}
         {ADD_CHOICES.map(({ kind, name, note, Icon }) => {
           const has = kind !== "text" && onPage.includes(kind);
           return (

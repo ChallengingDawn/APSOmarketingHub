@@ -34,6 +34,9 @@ import { noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoC
 import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
 import { SHOP_LABEL, abStore, abTestHref, lastWrite, liveOn, type LivePage, type Since } from "@/lib/content/studio/kinds/page/published";
+import { h1ModuleOf } from "@/lib/content/studio/kinds/page/blocklist";
+import { moduleGap } from "@/lib/content/studio/kinds/page/modules/model";
+import { blockOrder } from "@/lib/content/studio/kinds/page/fields";
 import { PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish as HandOver } from "./Sections";
@@ -459,6 +462,12 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   const gateWhy = status.gate.why;
   return (
     <Box>
+      {/* Content v12: the page's hero taken out and no module in its place - the page would go without its H1 */}
+      {d.source === "new" && !blockOrder(d.fields).includes("hero") && (() => { const id = h1ModuleOf(d.fields); const pm = (d.fields.modules ?? []).find((x) => x.id === id); return !pm || !!moduleGap(pm.module); })() && (
+        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
+          <Typography sx={{ fontSize: "0.82rem", color: INK }}>This page has no H1: its hero was taken out and no finished module stands in its place - the first module carries the H1 once it is filled. Fill it, or put the page&apos;s hero back (the &quot;+&quot; between two blocks).</Typography>
+        </Box>
+      )}
       {gateWhy && (
         <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
           <Typography sx={{ fontSize: "0.82rem", color: INK }}>{gateWhy}</Typography>

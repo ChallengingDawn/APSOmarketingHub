@@ -34,7 +34,7 @@
 import { relinkModule } from "@/lib/content/studio/kinds/page/links";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
+  LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, heroBack, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
   duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, takeOutField, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
@@ -1500,7 +1500,9 @@ export default function Studio({ api }: StudioProps) {
       acts.push({ key: "dup", label: "Duplicate", icon: <ContentCopyOutlinedIcon />, run: () => dup(r), disabled: !r.copyable, tip: `A page has one ${r.name.toLowerCase()}` });
       acts.push({ key: "up", label: "Move up", icon: <ArrowUpwardIcon />, run: () => moveBy(r, -1), disabled: !r.movable || i <= (r.module ? 0 : 1) });
       acts.push({ key: "down", label: "Move down", icon: <ArrowDownwardIcon />, run: () => moveBy(r, 1), disabled: !r.movable || i >= rows.length - 1 });
-      acts.push({ key: "out", label: "Take it out", icon: <DeleteOutlineIcon />, run: () => removeRowAct(r), disabled: r.key === "hero", tip: "The hero stays - it holds the page's title", danger: true });
+      // Content v12 (SARCLA 10.11.2026: "also you should delete here if you want to replace by another hero"): the hero too -
+      // the first module then carries the page's H1; "+" > "The page's hero" brings it back
+      acts.push({ key: "out", label: "Take it out", icon: <DeleteOutlineIcon />, run: () => removeRowAct(r), danger: true });
     } else if (r.kind === "page") {
       acts.push({ key: "replace", label: "Replace it with a module", icon: <SwapHorizIcon />, run: () => replaceWithModule(r) });
       acts.push({ key: "hide", label: r.state === "hidden" ? "Show it again" : "Hide it on the page", icon: r.state === "hidden" ? <VisibilityOutlinedIcon /> : <VisibilityOffOutlinedIcon />, run: () => hideShop(r, r.state !== "hidden"), danger: r.state !== "hidden" });
@@ -1792,6 +1794,7 @@ export default function Studio({ api }: StudioProps) {
           onUseSeo={(s) => { setView({ ...d, fields: { ...d.fields, seo: { title: s.title, description: s.description, urlKey: isNew ? s.urlKey : d.fields.seo.urlKey } } }, "Kept the search engine fields"); setSeo(null); if (!isNew) setOpen("seo"); }} />} />}
       />
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)}
+        onHero={isNew && d.fields.noHero && canEdit ? () => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: heroBack(cur.fields) }, "Put the page's hero back"); } : undefined}
         onGallery={canEdit ? (at) => modules.openGallery({ how: "block", after: blockOrder(d.fields)[at - 1] ?? "", label: `block ${at}` }) : undefined} />
       <AddElementMenu place={addPlace} onClose={() => setAddPlace(null)} onInsert={insertAt} canAi={aiHere}
         onAskAi={(text, place) => { void designBlock(text, { place }).then((m) => { if (m) window.alert(m); }); }}

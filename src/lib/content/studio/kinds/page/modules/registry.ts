@@ -129,6 +129,11 @@ export function drawModule(m: ModuleRef, o: Opts = {}): { cls: string; css: stri
   try { r = d ? d.render(m, o) : { html: "", css: "" }; } finally { drawing.store = null; drawing.words = null; }
   // what a person changed on it (Content v10: its words' and buttons' looks, its questions open or closed, its split)
   if (d) r = withLooks(m, r);
-  const css = minifyCss(`${BASE}${r.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
+  // its headline as the page's H1 (Content v12: the page's own hero taken out) - its rules for h2 hold for the h1 too
+  if (o.h1) {
+    const h = /<h2(\s[^>]*)?>([\s\S]*?)<\/h2>/.exec(r.html);
+    if (h) r = { html: r.html.replace(h[0], `<h1${h[1] ?? ""}>${h[2]}</h1>`), css: r.css.replace(/(^|[\s,>}(])h2(?=[.:[{\s,)])/g, "$1:is(h1,h2)") };
+  }
+  const css = minifyCss(`${o.h1 ? BASE.replace(/:is\(h2,h3/g, ":is(h1,h2,h3") : BASE}${r.css}`.replace(/%GOCAT%/g, cssStr(w.goCat)).replace(/%GO%/g, cssStr(w.go))).split("@@").join(`.${cls}`);
   return { cls, css, html: r.html };
 }

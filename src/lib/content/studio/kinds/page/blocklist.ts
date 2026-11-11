@@ -156,7 +156,6 @@ export function removeRow(f: Fields, key: string): Fields {
     const id = key.slice(NP.length);
     return { ...f, modules: (f.modules ?? []).filter((m) => m.id !== id) };
   }
-  if (key === "hero") return f;
   const order = blockOrder(f);
   const i = order.indexOf(key);
   const prev = i > 0 ? order[i - 1] : "";
@@ -164,6 +163,20 @@ export function removeRow(f: Fields, key: string): Fields {
   const out = removeBlock(key.startsWith("sections.") ? pinGrounds(f) : f, key);
   if (!f.modules?.some((m) => m.after === key)) return out;
   return { ...out, modules: (out.modules ?? f.modules).map((m) => (m.after === key ? { ...m, after: prev } : m)) };
+}
+
+/**
+ * The module that carries the page's H1 when the page's own hero is taken out (Content v12, SARCLA 10.11.2026: "delete
+ * here if you want to replace by another hero"): the first hero module of the page, else its first module - null while
+ * the hero is there (its title is the H1), or no module is on the page (the last step warns then).
+ */
+export function h1ModuleOf(f: Fields): string | null {
+  if (blockOrder(f).includes("hero")) return null;
+  const mods = newPageRows(f).filter((r) => isModuleKey(r.key));
+  const ofKind = (r: BlockRow) => (f.modules ?? []).find((m) => moduleKeyOf(m.id) === r.key);
+  const hero = mods.find((r) => kindOf(ofKind(r)?.module.type ?? "").category === "heroes");
+  const first = hero ?? mods[0];
+  return first ? first.key.slice(NP.length) : null;
 }
 
 /** A copy of a row right after it (a text-and-picture block, a module) - its key, to select it; null when a page has

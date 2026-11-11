@@ -103,6 +103,11 @@ export function compatibleModules(m: ModuleRef): SwitchOption[] {
 
 /** The modules a new page's own block can become (its words carried in - moduleFromBlock). */
 export function compatibleWithBlock(f: Fields, key: string, store: string): SwitchOption[] {
+  // the page's hero (Content v12, SARCLA 10.11.2026: "replace by another hero"): every hero module of the library
+  if (key === "hero") return MODULES.filter((x) => x.category === "heroes").map((x) => {
+    const m = moduleFromBlock(f, key, x.id, store);
+    return { def: x, ...(m ? fitNote(x, m.settings) : { note: "", short: false }) };
+  });
   const fam = blockFamily(key);
   if (!fam) return [];
   const home = fam === "questions" ? "help" : fam === "story" ? "stories" : fam === "points" ? "trust" : "cta";
@@ -152,10 +157,19 @@ function featureOf(url: string, name: string, store: string): Card | null {
  * library - its words carried in; null when the block is not one of those. */
 export function moduleFromBlock(f: Fields, key: string, type: string, store: string): ModuleRef | null {
   const to = moduleDef(type);
-  if (!to || !blockFamily(key)) return null;
+  if (!to || !(blockFamily(key) || key === "hero")) return null;
   const base = newModule(to.id, store);
   const s: ModuleSettings = { ...base.settings };
-  if (key === "faq") {
+  if (key === "hero") {
+    // its title (the H1 then), its line, its button and its picture
+    const h = f.hero;
+    if (h.eyebrow.trim()) s.eyebrow = h.eyebrow.trim();
+    s.title = h.title.trim();
+    s.text = plainWords(h.sub);
+    if (h.button.label.trim()) s.link = { label: h.button.label.trim(), url: h.button.url };
+    const pic = featureOf(h.picture.url, h.picture.alt || h.title, store);
+    if (pic && hasField(to, "feature")) s.feature = pic;
+  } else if (key === "faq") {
     s.title = f.faqTitle.trim();
     s.faq = f.faq.filter((q) => q.q.trim()).map((q) => ({ q: q.q.trim(), a: plainWords(q.a) }));
     // all open stays all open (each closed opens on a click - the module's own way)
