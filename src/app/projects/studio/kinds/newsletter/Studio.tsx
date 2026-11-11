@@ -60,6 +60,7 @@ import { addChange, madeLanguages, versionLabel, versionOf, type StudioChange } 
 import { BLUE, ChangesList, TranslateRow, Working, shopPageSearch, toolBtn, useSettled } from "../blog/ui";
 import { BlockTools, Gallery, Layouts, Outline, made } from "./Blocks";
 import { OurEmails, type Learned } from "./OurEmails";
+import { usePageLinks } from "./PagePick";
 
 const LANGS: { key: string; label: string }[] = [{ key: "DE", label: "German" }, { key: "FR", label: "French" }, { key: "IT", label: "Italian" }, { key: "EN", label: "English" }, { key: "NL", label: "Dutch" }, { key: "PL", label: "Polish" }];
 
@@ -150,6 +151,8 @@ export default function Studio({ api }: StudioProps) {
   const askRef = useRef<HTMLTextAreaElement | null>(null);
   // a link's address: the shop's pages, found as it is typed (an e-mail carries the full address)
   const linkSearch = useMemo(() => shopPageSearch(), []);
+  // ... and the Page builder's new pages, picked under each link field - read once, when first wanted (11.11.2026)
+  const pageLinks = usePageLinks(api.act);
   /** the picture being made: it breathes in the e-mail */
   const [picBusy, setPicBusy] = useState<string | null>(null);
   // a block dragged in the e-mail itself (SARCLA 08.11.2026 "editing is very confusing" - it moved by arrows only there):
@@ -471,6 +474,7 @@ export default function Studio({ api }: StudioProps) {
   // the picked block's own fields: under its row in the map (the flow standard)
   const fields = block ? (
     <BlockTools b={block} picked={sel} disabled={!canEdit} where={{ projectId: p.projectId, pieceId: p.id, me: api.data.me }} onMaking={setPicBusy}
+      pages={pageLinks} language={d.language}
       patch={(id, f) => api.setDoc((cur: unknown) => { const n = asNewsletter(cur); return { ...n, blocks: n.blocks.map((x) => (x.id === id ? ({ ...x, ...f } as typeof x) : x)) }; })}
       set={(nb) => set({ ...docRef.current, blocks: docRef.current.blocks.map((x) => (x.id === nb.id ? nb : x)) })} />
   ) : null;
