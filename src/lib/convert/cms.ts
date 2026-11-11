@@ -12,6 +12,7 @@
 // dotSource as code instead.
 
 import { getPool, query } from "@/lib/db/client";
+import { updateStore } from "./cmsStore";
 import { isSandbox } from "@/lib/sandbox/mode";
 import { ENVS, type Env } from "./model";
 import { applyToCms, cmsTarget, type CmsApplied } from "./ship";
@@ -116,10 +117,11 @@ function connection(env: Env): MagentoRequest {
 }
 
 /** One call to Magento's REST API on that environment, all store views (rest/all). */
-async function magento<T>(env: Env, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+async function magento<T>(env: Env, path: string, init: { method?: string; body?: unknown; store?: string } = {}): Promise<T> {
   const a = auth(env);
   if (!a) throw new ConvertError(CMS_OFF, 503, [CREDS_VAR[env]]);
-  const url = `${ENVS[env].base}/rest/all/V1${path}`;
+  // an update through the page's own store view: production refuses PUT /rest/all (./cmsStore.ts)
+  const url = `${ENVS[env].base}/rest/${encodeURIComponent(init.store ?? "all")}/V1${path}`;
   const method = init.method ?? "GET";
   if (method !== "GET" && isSandbox()) throw new ConvertError("The sandbox never writes to Magento.", 403);
   // read leniently: ACC pads some chunk sizes ("C6C \r\n"), which fetch refuses (./magentoHttp.ts)
@@ -216,7 +218,7 @@ export async function cmsWrite(testId: string, env: Env, path: string, pageId: s
     [testId, env, path, plan.chosen, ident, page.title ?? null, JSON.stringify({ ...page, content: undefined }), before, content, by]);
   const backupId = String(b.rows[0].id);
   try {
-    await magento(env, `/cmsPage/${encodeURIComponent(plan.chosen)}`, { method: "PUT", body: { page: { ...page, content } } });
+    await magento(env, `/cmsPage/${encodeURIComponent(plan.chosen)}`, { method: "PUT", body: { page: { ...page, content } }, store: updateStore(page.store_id) });
     await query(`UPDATE apsomh_convert_cms_backups SET written = true WHERE id = $1`, [backupId]);
     await query(`INSERT INTO apsomh_convert_test_log (test_id, by_whom, action, detail) VALUES ($1, $2, 'written to Magento', $3)`,
       [testId, by, `${ENVS[env].label}: CMS page "${ident}" (${path}) - backup #${backupId}`]);
@@ -253,7 +255,7 @@ export async function cmsRestore(backupId: string, by: string): Promise<{ backup
     [b.test_id, b.env, b.path, b.page_id, b.identifier, page.title ?? null, JSON.stringify({ ...page, content: undefined }), now, b.content_before, by]);
   const id = String(nb.rows[0].id);
   try {
-    await magento(b.env, `/cmsPage/${encodeURIComponent(b.page_id)}`, { method: "PUT", body: { page: { ...page, content: b.content_before } } });
+    await magento(b.env, `/cmsPage/${encodeURIComponent(b.page_id)}`, { method: "PUT", body: { page: { ...page, content: b.content_before } }, store: updateStore(page.store_id) });
     await query(`UPDATE apsomh_convert_cms_backups SET written = true WHERE id = $1`, [id]);
     await query(`INSERT INTO apsomh_convert_test_log (test_id, by_whom, action, detail) VALUES ($1, $2, 'Magento page put back', $3)`,
       [b.test_id, by, `${ENVS[b.env].label}: CMS page "${b.identifier}" as it was before backup #${backupId}`]);

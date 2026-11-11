@@ -157,3 +157,15 @@ test("SEO landing page lists the landing pages to optimize - the hub's own first
   assert.equal(rows[1].shown, null, "an ACC page has none");
   assert.equal(rows[3].open, 1, "a new-page idea is not one of the page's own optimizations");
 });
+
+test("a CMS page's update goes through its own store view - production refuses /rest/all; a page of all or several store views stays on all", async () => {
+  const { updateStore } = await import("../src/lib/convert/cmsStore");
+  const { STORE_VIEWS } = await import("../src/lib/content/studio/kinds/page/storeViews");
+  const one = STORE_VIEWS.find((v) => v.id && v.code)!;
+  assert.equal(updateStore([one.id]), one.code);
+  assert.equal(updateStore(one.id), one.code);
+  assert.equal(updateStore([0]), "all");
+  assert.equal(updateStore([one.id, 99]), "all");
+  assert.equal(updateStore(undefined), "all");
+  assert.equal(updateStore([987654]), "all");
+});
