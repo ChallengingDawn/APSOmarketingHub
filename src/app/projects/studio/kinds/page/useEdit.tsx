@@ -329,7 +329,7 @@ export function useEdit(c: EditCtx) {
     };
   };
 
-  return { fieldLook, elementLook, moduleTextLook, moduleButton, moduleField, moduleTakeOut, optionsFor, switchRow, switchedBar, resizeFor, clearSwitched: () => setSwitched(null) };
+  return { fieldLook, elementLook, moduleTextLook, moduleButton, moduleField, moduleTakeOut, optionsFor, switchRow, switchedBar, resizeFor, moduleAt, clearSwitched: () => setSwitched(null) };
 }
 
 /** The grid of a module's two columns (lib .../modules/looks.ts SPLIT_GRID). */

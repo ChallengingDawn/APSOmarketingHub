@@ -54,7 +54,7 @@ import type { Change } from "@/lib/convert/versions";
 import { PINK, StudioPanes, btn, type QuickAsk } from "../../parts";
 import { useTimeline } from "../../frame";
 import { MakeViewsProvider, useMakeViews } from "./MakeViews";
-import { PICTURE_TUNES, makePicture, refinePicture, uploadPicture, type Picture } from "../../pictures";
+import { PICTURE_TUNES, PictureDialog, makePicture, refinePicture, uploadPicture, type Picture } from "../../pictures";
 import type { StudioProps } from "../../registry";
 import { AddBlockMenu, type AddAt } from "./AddBlock";
 import { AddElementMenu } from "./AddElement";
@@ -63,13 +63,18 @@ import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
 import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
-import { AskPop, BlockSettingsPop, ButtonPop, EditBar, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich, type BlockAiAnswer } from "./pops";
+import { AddPartMenu, AskPop, BlockSettingsPop, ButtonPop, CardPop, EditBar, PartPop, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich, type AiWords, type BlockAiAnswer } from "./pops";
+import { addOptions, addPart, addPicture, cardOfProduct, lookKind, partInfo, partLook, takeOutPart, withCard, withPartLook, withPartPicture, withPartUrl, withPartWords, type AddKey } from "@/lib/content/studio/kinds/page/modules/elements";
+import { groundsOfModule } from "@/lib/content/studio/kinds/page/modules/looks";
+import { fieldOf as specOf, moduleDef as libDef } from "@/lib/content/studio/kinds/page/modules/registry";
+import type { Card, ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
+import { findPart, partIn } from "./parts";
 import { useModuleAi } from "./modules/useModuleAi";
 import { SwitchList } from "./Switch";
 import { useEdit } from "./useEdit";
-import { buttonLookOfField, fieldButtonPatchOf, groundOfField } from "@/lib/content/studio/kinds/page/style";
+import { buttonLookOfField, cleanButtonLook, cleanTextLook, fieldButtonPatchOf, groundOfField, groundsOfLook, packLook, unpackLook } from "@/lib/content/studio/kinds/page/style";
 import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
-import type { AddPlace, Picked } from "./Frame";
+import type { AddPlace, PartHit, Picked } from "./Frame";
 import { checkChange } from "./guard";
 import { PagePicker, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
@@ -126,7 +131,7 @@ let entryId = 0;
 
 /** A popup open at the selection (Content v8): a text's editor, a picture's, or a block's settings (its row's key); Content
  * v10: the modules a block can become ("switch", its row's key). */
-type Pop = { kind: "text" | "picture" | "settings" | "switch" | "ask"; key: string };
+type Pop = { kind: "text" | "picture" | "settings" | "switch" | "ask" | "part"; key: string; part?: { mod: string; field: string } };
 
 /** A module's settings and the modules a block can become: as wide as a module of products' (Content v10, v11). */
 const MODULE_POP_WIDTH = 620;
@@ -391,6 +396,9 @@ export default function Studio({ api }: StudioProps) {
   /** what a click on an element opens: a text's editor, a picture's, a module's settings - a block itself: its bar only */
   const popFor = (p: Picked): Pop | null => {
     const k = p.key;
+    // Content v13 (SARCLA 11.11.2026: "allow editing per element"): an element of a module - its own popup; the module's
+    // own ground - the block's
+    if (p.part) return p.part.part ? { kind: "part", key: k, part: { mod: p.part.mod, field: p.part.part } } : { kind: "settings", key: p.part.mod };
     if (k.startsWith("f:")) {
       const path = k.slice(2);
       if (path.startsWith("seo.")) return null;
@@ -1263,6 +1271,13 @@ export default function Studio({ api }: StudioProps) {
   ];
 
   const onAsk = async (text: string): Promise<string | null> => {
+    // Content v13: one element of a module selected - that element alone, applied at once (its Undo in "Changes made here")
+    const pp = sel?.picked?.part;
+    if (pp?.part) {
+      const info = partNow(pp.mod, pp.part);
+      if (info?.kind === "item") return (await cardAi(pp.mod, pp.part, text)).error ?? null;
+      if (info && info.kind !== "picture") return (await partAi(pp.mod, pp.part, text)).error ?? null;
+    }
     if (sel && !sel.key.startsWith("i:")) {
       if (isNew) {
         // a picture selected: the ask changes THIS picture (or, with none there yet, says what it should show)
@@ -1447,7 +1462,14 @@ export default function Studio({ api }: StudioProps) {
   };
 
   /* the rows' acts */
-  const moveTo = (r: BlockRow, to: number) => setView({ ...d, fields: moveRow(d.fields, r.key, to) }, `Moved ${r.name.toLowerCase()}`);
+  // Content v13 (SARCLA 11.11.2026: "sometimes drag and drop on modules don't put it up"): from the page as it is now, and
+  // the moved block stays selected
+  const moveTo = (r: BlockRow, to: number) => {
+    const cur = viewOf(docRef.current, langRef.current);
+    setView({ ...cur, fields: moveRow(cur.fields, r.key, to) }, `Moved ${r.name.toLowerCase()}`);
+    setSelState({ key: selectionOfRow(r.key), picked: null });
+    setReveal((n) => n + 1);
+  };
   const moveBy = (r: BlockRow, by: -1 | 1) => setView({ ...d, fields: moveRowBy(d.fields, r.key, by) }, `Moved ${r.name.toLowerCase()} ${by < 0 ? "up" : "down"}`);
   const dup = (r: BlockRow) => {
     const res = duplicateRow(d.fields, r.key);
@@ -1537,6 +1559,282 @@ export default function Studio({ api }: StudioProps) {
   // a new page's module the AI or the shop fills from its settings: its block says so on the page too (Content v11)
   const npBusy = Object.fromEntries(Object.entries(modules.busy).filter(([k]) => isModuleKey(k)).map(([k, v]) => [k.slice(3), v]));
 
+  /* ── a module's elements, one by one (Content v13, SARCLA 11.11.2026, screenshot 25: "still confusing ... You should
+   *    allow editing per element, therefore also the AI per element, like a text, a button. I should be able to add
+   *    another button, take out elements. Both settings and ask AI go to block level - we need to dig into element also.
+   *    Allow element create inside of the block.") ──
+   * A click inside a module selects the element of it the click is in (./parts.ts, lib .../modules/elements.ts) - its
+   * headline, a button, a date, a point, a card of the shop, its picture, an element added - and opens THAT element's
+   * popup: its words, its look, its own Ask AI (applied at once, with Undo), Take it out. Its own ground is the block. */
+
+  /** the module a module's element in the page belongs to: a new page's ("np:<id>") or a change's ("c:<id>") */
+  const modOfRoot = (root: Element): { key: string; m: ModuleRef } | null => {
+    const sid = Array.from(root.classList).find((c) => /^apx-[a-z][a-z0-9]{2,11}$/.test(c))?.slice(4);
+    if (!sid) return null;
+    const v = viewOf(docRef.current, langRef.current);
+    const pm = (v.fields.modules ?? []).find((x) => x.module.settings.id === sid);
+    if (pm) return { key: moduleKeyOf(pm.id), m: pm.module };
+    for (const c of v.changes) { const m = moduleOfChange(c); if (m && m.settings.id === sid && c.id) return { key: `c:${c.id}`, m }; }
+    return null;
+  };
+  /** a click inside a module: the element of it, or the module itself on its own ground (a new page's: its block) */
+  const clickInModule = (target: Element): PartHit | null => {
+    const root = target.closest("[data-apx-module]");
+    if (!root || root.hasAttribute("data-apx-wait")) return null;
+    const mm = modOfRoot(root);
+    if (!mm) return null;
+    const hit = partIn(target, root, mm.m);
+    if (hit.part) return { el: hit.el, mod: mm.key, part: hit.part };
+    return { el: isNew ? root.closest("[data-apx-mod]") ?? root : root, mod: mm.key, part: null };
+  };
+  /** the module's root in the page */
+  const rootOfMod = (doc0: Document, mod: string): Element | null => {
+    const at = tools.moduleAt(mod);
+    if (!at) return null;
+    return Array.from(doc0.querySelectorAll(`.apx-${at.m.settings.id}`)).find((x) => x.hasAttribute("data-apx-module")) ?? null;
+  };
+  // an element asked for (just added, a row of the block's list): selected in the page once it shows there, its popup at it
+  const [seekPart, setSeekPart] = useState<{ nonce: number; find: (d: Document) => PartHit | null } | null>(null);
+  /** an element selected and its popup opened - at the block at once, at the element itself once the page shows it */
+  const focusPart = (mod: string, field: string) => {
+    const r = rowsRef.current.find((x) => x.key === mod);
+    setStep("page");
+    // a new page's block selected at once (the popup stands at it until its element shows); a page of the shop's
+    // module is found with the element (its preview comes back from the hub first)
+    if (isNew && r) setSelState({ key: mod, picked: null });
+    setPopState({ kind: "part", key: `part:${mod}|${field}`, part: { mod, field } });
+    if (modules.editing) modules.edit(null);
+    const t0 = Date.now();
+    setSeekPart((s0) => ({
+      nonce: (s0?.nonce ?? 0) + 1,
+      find: (doc0) => {
+        const root = rootOfMod(doc0, mod);
+        const at = tools.moduleAt(mod);
+        if (!root || !at) return null;
+        const el = findPart(root, at.m, field);
+        if (el) return { el, mod, part: field };
+        // not drawn (a date still empty): its popup stays at the block
+        return Date.now() - t0 > 1800 ? { el: isNew ? root.closest("[data-apx-mod]") ?? root : root, mod, part: field } : null;
+      },
+    }));
+  };
+  /** an element just added: its words selected in its popup, so typing writes over them */
+  const justAdded = useRef<string | null>(null);
+  /** one line in "Changes made here" per element edited in one popup (typing is many changes) */
+  const partEdited = useRef<string | null>(null);
+  useEffect(() => { partEdited.current = null; }, [pop?.key]);
+  const once = (key: string, label: string) => { if (partEdited.current === key) return undefined; partEdited.current = key; return label; };
+  /** the module at `mod` changed - `label`: its line in "Changes made here" (none: the same edit going on) */
+  const putPart = (mod: string, make: (m: ModuleRef) => ModuleRef | null, label?: string): boolean => {
+    const at = tools.moduleAt(mod);
+    const next = at ? make(at.m) : null;
+    if (!at || !next) return false;
+    at.put(next, label as string);
+    return true;
+  };
+  /** an element as it is now (its popup's words) */
+  const partNow = (mod: string, field: string) => { const at = tools.moduleAt(mod); return at ? partInfo(at.m, field) : null; };
+
+  /** "Take it out" on an element of a module: out at once, the line above the blocks with its Undo */
+  const takeOutAt = (mod: string, field: string): { label: string; run: () => void } | null => {
+    if (!canEdit) return null;
+    const at = tools.moduleAt(mod);
+    const t = at ? takeOutPart(at.m, field) : null;
+    if (!t) return null;
+    return {
+      label: t.label,
+      run: () => {
+        const mark = entryId;
+        const a = tools.moduleAt(mod);
+        const t2 = a ? takeOutPart(a.m, field) : null;
+        if (!a || !t2) return;
+        a.put(t2.module, t2.done);
+        setSel(null);
+        setWrote({ ok: true, text: `${t2.done}.`, undo: () => undoSince(mark) });
+      },
+    };
+  };
+
+  /**
+   * "Ask AI" on ONE element of a module: its words written again from the page (the `words` task - the shop's word rules
+   * run on them: no stock or delivery promise, no price), put into that element at once; its Undo takes back exactly that.
+   * A point or a question is written as its two lines (its title and its line, the question and its answer).
+   */
+  const partAi = async (mod: string, field: string, ask: string): Promise<AiWords> => {
+    if (!canAi) return { error: "The AI is not set up on this hub." };
+    const at = tools.moduleAt(mod);
+    const info = at ? partInfo(at.m, field) : null;
+    if (!at || !info) return { error: "That element is not on the page any more." };
+    const s0 = at.m.settings;
+    const pt = /^points\.(\d+)$/.exec(field);
+    const fq = /^faq\.(\d+)$/.exec(field);
+    const pair = pt ? { a: `points.${pt[1]}.title`, b: `points.${pt[1]}.text`, now: `${s0.points[Number(pt[1])]?.title ?? ""}\n${s0.points[Number(pt[1])]?.text ?? ""}`, how: "Keep it as two lines: the first its title, the second the line under it." }
+      : fq ? { a: `faq.${fq[1]}.q`, b: `faq.${fq[1]}.a`, now: `${s0.faq[Number(fq[1])]?.q ?? ""}\n${s0.faq[Number(fq[1])]?.a ?? ""}`, how: "Keep it as two lines: the first the question, the second its answer." } : null;
+    const name = kindOf(at.m.type).name;
+    const r = await api.ai<{ text: string; note?: string }>("words", {
+      lang: langRef.current, text: (pair ? pair.now : info.words).slice(0, 3000), request: `${ask || "Write it again: clearer and more useful for a buyer."}${pair ? ` ${pair.how}` : ""}`.slice(0, 1500),
+      tag: info.tag, block: `${name} - ${info.label}`.slice(0, 120),
+    });
+    if (!r.ok) return { error: r.error };
+    const text = (r.result.text ?? "").trim();
+    if (!text) return { error: "No words came back - ask again." };
+    const mark = entryId;
+    const before = docRef.current;
+    let done = false;
+    const label = `AI wrote the ${name.toLowerCase()}'s ${info.label.toLowerCase()}`;
+    if (pair) {
+      const [first, ...rest] = text.split(/\n+/).map((x) => x.trim()).filter(Boolean);
+      done = putPart(mod, (m) => { const a = withPartWords(m, pair.a, first ?? ""); return a && rest.length ? withPartWords(a, pair.b, rest.join(" ")) ?? a : a; });
+    } else done = putPart(mod, (m) => withPartWords(m, field, info.max ? text.slice(0, info.max) : text));
+    if (!done) return { error: "The AI's words could not go there." };
+    record(label, before, "ai", ask.slice(0, 160) || undefined);
+    const said = (r.result as { note?: string }).note;
+    return { undo: () => undoSince(mark), note: said ? `The AI wrote it - it is on the page. Taken out of it: ${said}.` : "The AI wrote it - it is on the page." };
+  };
+
+  /** one card of the shop: another product, WHOLE - its number, name, count, page (in the store view shown) and photo
+   * (Content v13 part 6, SARCLA 11.11.2026: "links have not updated when I select the specific product") */
+  const [cardBusy, setCardBusy] = useState<string | null>(null);
+  const cardInto = async (mod: string, field: string, p: { name: string; number: string; url: string; img: string }) => {
+    setCardBusy(`Reading ${p.number || p.name} on the shop…`);
+    const r = p.number ? await api.act<{ cards: Card[] }>("module_numbers", { store: langRef.current, text: p.number, count: 1 }) : null;
+    setCardBusy(null);
+    const card = (r?.ok ? r.result.cards[0] : null) ?? cardOfProduct(p);
+    if (!card) return;
+    putPart(mod, (m) => withCard(m, field, card), `Put ${card.name} on the ${kindOf(tools.moduleAt(mod)?.m.type ?? "").name.toLowerCase()}`);
+  };
+  /** "Ask AI" on a card: another of the shop's products here, chosen by the AI (never one of its own) */
+  const cardAi = async (mod: string, field: string, ask: string): Promise<AiWords> => {
+    if (!canAi) return { error: "The AI is not set up on this hub." };
+    const at = tools.moduleAt(mod);
+    const i = Number(/^items\.(\d+)$/.exec(field)?.[1] ?? -1);
+    const was = at?.m.settings.items[i];
+    if (!at || !was) return { error: "That card is not on the page any more." };
+    const store = langRef.current;
+    const c = await api.act<{ candidates: unknown[] }>("module_candidates", { store, url: at.m.settings.fill?.category ?? "" });
+    if (!c.ok) return { error: c.error };
+    if (!c.result.candidates.length) return { error: "There is nothing to choose from yet - pick another product by its name or number." };
+    const have = new Set(at.m.settings.items.map((x) => x.number).filter(Boolean));
+    const r = await api.ai<{ picks: string[]; why: string }>("module_fill", { lang: store, type: at.m.type, count: 3, ask: `${ask} - one product instead of ${was.name}`.slice(0, 400), category: "", candidates: c.result.candidates });
+    if (!r.ok) return { error: r.error };
+    const pick = r.result.picks.find((n) => !have.has(n));
+    if (!pick) return { error: "The AI found no other product that fits - say more about what it should show." };
+    const p = await api.act<{ cards: Card[] }>("module_picks", { store, numbers: [pick], count: 1 });
+    if (!p.ok || !p.result.cards[0]) return { error: p.ok ? "That product was not found on the shop." : p.error };
+    const mark = entryId;
+    const card = p.result.cards[0];
+    if (!putPart(mod, (m) => withCard(m, field, card), `AI put ${card.name} on the ${kindOf(at.m.type).name.toLowerCase()}`)) return { error: "That card is not on the page any more." };
+    return { undo: () => undoSince(mark), note: r.result.why || `The AI put ${card.name} here.` };
+  };
+
+  /** a picture chosen for an element (its picture, a point's, one added): put in, then selected */
+  const [partPic, setPartPic] = useState<{ mod: string; field: string } | null>(null);
+  const pictureInto = (mod: string, field: string, x: Picture) => {
+    const name = kindOf(tools.moduleAt(mod)?.m.type ?? "").name.toLowerCase();
+    if (field === "+add") {
+      const at = tools.moduleAt(mod);
+      const r = at ? addPicture(at.m, { url: x.url, alt: x.alt ?? x.name ?? "" }) : null;
+      if (!at || !r) return;
+      at.put(r.module, `Added a picture to the ${name}`);
+      focusPart(mod, r.part);
+      return;
+    }
+    if (putPart(mod, (m) => withPartPicture(m, field, { url: x.url, alt: x.alt ?? undefined, name: x.name, product: x.product ?? null }), x.product ? `Put ${x.alt || x.name || "a product"} on the ${name}` : `Changed the ${name}'s picture`)) focusPart(mod, field);
+  };
+
+  /** "Add" inside a block (its popup's Add, the "+" in the bar over it): the element there at once, selected, its popup open */
+  const [addIn, setAddIn] = useState<{ anchor: HTMLElement; mod: string } | null>(null);
+  const addInto = (mod: string, key: string) => {
+    const at = tools.moduleAt(mod);
+    if (!at || !canEdit) return;
+    const r = addPart(at.m, key as AddKey);
+    if (!r) return;
+    if ("pick" in r) { setPartPic({ mod, field: r.pick === "feature" ? "feature" : "+add" }); return; }
+    const what = addOptions(at.m).find((o) => o.key === key)?.label.toLowerCase() ?? "an element";
+    if (r.module !== at.m) at.put(r.module, `Added ${what} to the ${kindOf(at.m.type).name.toLowerCase()}`);
+    justAdded.current = r.part;
+    focusPart(mod, r.part);
+  };
+
+  /** an element's popup: its words (a text, a date, a cell), a button, a picture, a card of the shop, a point or a question */
+  const partPopup = (mod: string, field: string, kick: string): { node: React.ReactNode; at: "below" | "side"; width?: number } | null => {
+    const at = tools.moduleAt(mod);
+    const info = at ? partInfo(at.m, field) : null;
+    if (!at || !info) return null;
+    const m = at.m;
+    const name = kindOf(m.type).name.toLowerCase();
+    const key = `${mod}|${field}`;
+    const ai = aiHere ? (ask: string) => partAi(mod, field, ask) : null;
+    const out = takeOutAt(mod, field);
+    // the ground it stands on: the block's own, else what the page shows under it
+    const grounds = groundsOfModule(m) ?? groundsOfLook(sel?.picked?.look?.ground);
+    const look = lookKind(m, field);
+    const fresh = justAdded.current === field;
+    if (info.kind === "words" || info.kind === "cell") {
+      const put = (v: string) => putPart(mod, (x) => withPartWords(x, field, v), once(key, `Changed the ${name}'s ${info.label.toLowerCase()}`));
+      return { at: "below", width: 440, node: (
+        <TextPop key={key} kicker={kick} title={info.label} value={info.words} max={info.max || null} multiline={info.multiline} canEdit={canEdit} live selectAll={fresh}
+          onChange={put} onDone={(v) => { put(v); justAdded.current = null; closePop(); }} onClose={() => { justAdded.current = null; closePop(); }}
+          ai={ai ? (ask) => ai(ask) : null} onRemove={out}
+          textLook={look === "text" ? { value: cleanTextLook(unpackLook(partLook(m, field))), grounds, large: field === "title" || /^h[1-3]$/.test(info.tag),
+            set: (next, label) => { putPart(mod, (x) => withPartLook(x, field, packLook(next)), label); } } : null}
+          hint={field.startsWith("extra.") && !info.words ? "Empty, it is not on the page - type it and it shows." : field === "title" ? "==word== shows a word in the shop's red." : undefined} />
+      ) };
+    }
+    if (info.kind === "button") {
+      const tile = field.startsWith("words.");
+      return { at: "below", width: MODULE_POP_WIDTH, node: (
+        <ButtonPop key={key} kicker={kick} title={info.label} label={info.words} max={info.max || 60} api={api} store={d.store} canEdit={canEdit} stores={pageStores}
+          onLabel={(v) => putPart(mod, (x) => withPartWords(x, field, v), once(key, `Changed the ${name}'s ${info.label.toLowerCase()}`))}
+          url={tile ? undefined : info.url ?? ""} onUrl={tile ? undefined : (v) => putPart(mod, (x) => withPartUrl(x, field, v), `Changed where the ${name}'s ${info.label.toLowerCase()} goes`)}
+          leads={tile ? "It leads to the page of the tile it stands on - a tile's product or category is chosen in the block's settings. Every tile of this block says these words." : undefined}
+          look={look === "button" ? cleanButtonLook(unpackLook(partLook(m, field))) : undefined}
+          onLook={look === "button" ? (next, label) => { putPart(mod, (x) => withPartLook(x, field, packLook(next)), label); } : undefined}
+          grounds={grounds} fallback={field === "link" ? "red" : "petrol"} arrowDefault={field === "link"}
+          ai={ai ? (ask) => ai(ask) : null} onRemove={out} onClose={() => { justAdded.current = null; closePop(); }}
+          hint={tile ? "Kept in the block's settings - empty, it says the shop's own words again." : undefined} />
+      ) };
+    }
+    if (info.kind === "picture") {
+      const hub = !!info.img && info.img.includes("/api/content/picture/");
+      return { at: "below", width: 420, node: (
+        <PicturePop key={key} kicker={kick} title={info.label} api={api} store={d.store} aspect="16:9" url={info.img ?? ""} alt={info.words} idea="" making={null}
+          canEdit={canEdit} canMake={aiHere && imagesOn !== false} noAlt={field === "feature"}
+          onMake={(idea) => { void makePicture(idea, "16:9", { projectId: api.data.piece.projectId, pieceId: api.data.piece.id }).then((r) => { if (r.ok) pictureInto(mod, field, r.picture); else window.alert(r.error); }); }}
+          onIdea={() => undefined} onUpload={() => setPartPic({ mod, field })}
+          onPick={(x) => pictureInto(mod, field, x)}
+          onAlt={(alt) => { if (field !== "feature") putPart(mod, (x) => withPartWords(x, field, alt), `Wrote the ${name}'s picture's alt text`); }}
+          onRemove={out ? out.run : undefined}
+          onRefine={hub && aiHere && imagesOn !== false ? async (ask) => { const r = await refinePicture(info.img!, ask, "16:9", { projectId: api.data.piece.projectId, pieceId: api.data.piece.id }); if (!r.ok) return r.error; pictureInto(mod, field, r.picture); return null; } : null}
+          onClose={closePop} />
+      ) };
+    }
+    if (info.kind === "item" && info.card) {
+      return { at: "below", width: 480, node: (
+        <CardPop key={key} kicker={kick} card={info.card} store={langRef.current} canEdit={canEdit} busy={cardBusy}
+          onProducts={() => { const r = rowsRef.current.find((x) => x.key === mod); if (r) openSettings(r); }}
+          onPick={info.card.kind === "product" ? (p) => void cardInto(mod, field, p) : null}
+          ai={aiHere ? (ask) => cardAi(mod, field, ask) : null} onRemove={out} onClose={closePop} />
+      ) };
+    }
+    if (info.kind === "point" || info.kind === "question") {
+      const i = Number(field.split(".")[1]);
+      const def = libDef(m.type);
+      const spec = def ? specOf(def, "points") : undefined;
+      const s0 = m.settings;
+      const fields = info.kind === "point"
+        ? [{ key: "t", label: spec?.item?.title ?? "Title", value: s0.points[i]?.title ?? "", max: 80, sub: `points.${i}.title` }, { key: "x", label: spec?.item?.text ?? "Its line", value: s0.points[i]?.text ?? "", max: 240, multiline: true, sub: `points.${i}.text` }]
+        : [{ key: "q", label: "The question", value: s0.faq[i]?.q ?? "", max: 300, sub: `faq.${i}.q` }, { key: "a", label: "The answer", value: s0.faq[i]?.a ?? "", max: 1500, multiline: true, sub: `faq.${i}.a` }];
+      return { at: "below", width: 440, node: (
+        <PartPop key={key} kicker={kick} title={info.label} canEdit={canEdit} onClose={closePop} onRemove={out} ai={ai}
+          fields={fields.map((f) => ({ ...f, onChange: (v: string) => { putPart(mod, (x) => withPartWords(x, f.sub, v), once(`${key}.${f.key}`, `Changed the ${name}'s ${info.label.toLowerCase()}`)); } }))}
+          link={info.kind === "point" && spec?.links ? { api, store: d.store, value: s0.points[i]?.url ?? "", onChange: (v) => putPart(mod, (x) => withPartUrl(x, field, v), `Changed where the ${name}'s ${info.label.toLowerCase()} goes`) } : null}
+          picture={info.kind === "point" && spec?.pictures ? { url: s0.points[i]?.img ?? "", onChange: () => setPartPic({ mod, field }), onRemove: () => putPart(mod, (x) => withPartPicture(x, field, { url: "" }), `Took the ${name}'s picture out`) } : null} />
+      ) };
+    }
+    return null;
+  };
+
   /* "Take it out" where the selection is (Content v12, SARCLA 10.11.2026: "here on tile I cannot take out - also other small
    * elements, I should be able to delete them"): a tile, a question, a link, a small line, a button, a picture - a module's
    * part, a product of it; taken out at once, the line above the blocks with its Undo */
@@ -1551,6 +1849,7 @@ export default function Studio({ api }: StudioProps) {
       return { label: t.label, run: () => { const mark = entryId; const c = viewOf(docRef.current, langRef.current); const t2 = takeOutField(c.fields, path); if (!t2) return; setView({ ...c, fields: t2.fields }, t2.done); done(t2.done, mark); } };
     }
     const p = sel.picked;
+    if (p?.part?.part) return takeOutAt(p.part.mod, p.part.part);
     if (!p || !(k.startsWith("nt:") || p.frag)) return null;
     const m = tools.moduleTakeOut(p);
     return m ? { label: m.label, run: () => { const mark = entryId; m.run(); if (entryId > mark) done(m.label.replace(/^Take/, "Took"), mark); } } : null;
@@ -1561,14 +1860,16 @@ export default function Studio({ api }: StudioProps) {
   const popOfSel: Pop | null = !sel ? null : sel.picked ? popFor(sel.picked)
     : sel.key.startsWith("f:") && !sel.key.startsWith("f:seo.") ? (fieldKind(sel.key.slice(2)) === "picture" ? { kind: "picture", key: sel.key } : { kind: "text", key: sel.key }) : null;
   const lastPart = (label: string) => { const p = label.split(" · "); const t = p.length > 1 ? p.slice(1).join(" · ") : label; return t.charAt(0).toUpperCase() + t.slice(1); };
-  const elLabel = !sel || wholeRow ? "" : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? lastPart(fieldLabel(d.fields, sel.key.slice(2)))
+  const partSel = sel?.picked?.part?.part ? partNow(sel.picked.part.mod, sel.picked.part.part) : null;
+  const elLabel = !sel || wholeRow ? "" : partSel ? partSel.label : sel.key.startsWith("f:") || sel.key.startsWith("b:") ? lastPart(fieldLabel(d.fields, sel.key.slice(2)))
     : sel.key.startsWith("i:") ? "Banner" : sel.picked ? (sel.picked.tag === "img" ? "Picture" : /^h[1-6]$/.test(sel.picked.tag) || /^h[1-6]$/.test(sel.picked.box?.tag ?? "") ? "Heading" : sel.picked.text ? `“${sel.picked.text.slice(0, 24)}${sel.picked.text.length > 24 ? "…" : ""}”` : `<${sel.picked.tag}>`) : "";
   const bar = sel ? (
     <EditBar block={selRow ? { num: selRow.num, name: selRow.name, module: !!selRow.module } : null} label={elLabel && elLabel !== selRow?.name ? elLabel : null}
       onBlock={selRow && !wholeRow ? () => selectRow(selRow) : undefined}
-      edit={popOfSel && pop?.key !== popOfSel.key && canEdit ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : "Edit text", run: () => openPop(popOfSel) } : null}
+      edit={popOfSel && pop?.key !== popOfSel.key && canEdit && !(popOfSel.kind === "settings" && selRow) ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : popOfSel.kind === "part" ? "Edit" : "Edit text", run: () => openPop(popOfSel) } : null}
+      onAdd={canEdit && selRow?.module ? (el) => setAddIn({ anchor: el, mod: selRow.key }) : null}
       onSettings={selRow && !(pop?.kind === "settings" && pop.key === selRow.key) ? () => openSettings(selRow) : undefined}
-      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
+      onAi={aiHere ? (partSel && popOfSel ? () => openPop(popOfSel) : selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
   ) : undefined;
 
   /* the popup at the selection */
@@ -1579,6 +1880,7 @@ export default function Studio({ api }: StudioProps) {
     if (!pop) return null;
     const k = pop.key;
     const kick = selRow ? `Block ${selRow.num} · ${selRow.name}` : "The page";
+    if (pop.kind === "part" && pop.part) return partPopup(pop.part.mod, pop.part.field, kick);
     if (pop.kind === "text" && k.startsWith("f:")) {
       const path = k.slice(2);
       const kind = fieldKind(path);
@@ -1717,6 +2019,7 @@ export default function Studio({ api }: StudioProps) {
         // show) - Content v11, SARCLA 10.11.2026: "make the popup wider like the product"
         return { at: "side", width: MODULE_POP_WIDTH, node: (
           <ModulePanel key={modules.editing ?? k} ctl={modules} api={api} onBack={closePop} pageCategory={pageCategory} pop={{ num: r.num }} ai={aiHere ? { run: (ask) => askBlock(r.key, ask ?? "") } : null} stores={pageStores}
+            parts={{ onPart: (part) => focusPart(r.key, part), onAdd: (key) => addInto(r.key, key) }}
             onSwitch={canEdit ? (t) => tools.switchRow(r, t) : undefined} top={tools.switchedBar(r.key)} />
         ) };
       }
@@ -1793,7 +2096,7 @@ export default function Studio({ api }: StudioProps) {
             onShown: (f, why) => (f.key?.startsWith("mod:") ? modules.onShown(f.key, why) : plan.onShown(f, why)),
           }}
           onAct={isNew ? onAct : undefined} bar={bar} popup={popup} toTop={toTop}
-          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow) }}
+          blocks={{ onBlocks: !isNew && d.path ? setFound : undefined, seekRow, selectedBlock, onEditStart: () => openPop(null), resize: tools.resizeFor(sel?.key ?? null, selRowKey, wholeRow), inModule: clickInModule, seekPart }}
           strip={!isNew && d.path && !empty ? <VersionStrip view={d} docOrigin={lang === main ? doc.origin : null} canEdit={canEdit} busy={!!busy} onOpen={(l) => void openLetter(l)} onAdd={() => void addLetter()} onDrop={(l) => void dropLetter(l)} /> : undefined}
           adds={isNew && canEdit ? { onAdd: (at, pos) => setAddWhere({ at, pos }), onAddItem: addItemTo } : undefined}
           fold={{ ...fold, onBuild: () => toggleFold("build"), onAssist: () => toggleFold("assist") }}>
@@ -1812,6 +2115,9 @@ export default function Studio({ api }: StudioProps) {
       <AddBlockMenu where={addWhere} onClose={() => setAddWhere(null)} onPick={addBlockAt} onPage={blockOrder(d.fields)}
         onHero={isNew && d.fields.noHero && canEdit ? () => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: heroBack(cur.fields) }, "Put the page's hero back"); } : undefined}
         onGallery={canEdit ? (at) => modules.openGallery({ how: "block", after: blockOrder(d.fields)[at - 1] ?? "", label: `block ${at}` }) : undefined} />
+      <AddPartMenu anchor={addIn?.anchor ?? null} options={addIn ? (() => { const at = tools.moduleAt(addIn.mod); return at ? addOptions(at.m) : []; })() : []} onPick={(key) => { if (addIn) addInto(addIn.mod, key); }} onClose={() => setAddIn(null)} />
+      <PictureDialog open={!!partPic} onClose={() => setPartPic(null)} title="A picture for this block" projectId={api.data.piece.projectId} pieceId={api.data.piece.id}
+        tabs={["upload", "mine", "project", "make"]} start="mine" aspect="16:9" onPick={(x) => { if (partPic) pictureInto(partPic.mod, partPic.field, x); setPartPic(null); }} />
       <AddElementMenu place={addPlace} onClose={() => setAddPlace(null)} onInsert={insertAt} canAi={aiHere}
         onAskAi={(text, place) => { void designBlock(text, { place }).then((m) => { if (m) window.alert(m); }); }}
         onGallery={(place) => modules.openGallery({ how: "insert", selector: place.selector, where: place.where, label: place.label })} />

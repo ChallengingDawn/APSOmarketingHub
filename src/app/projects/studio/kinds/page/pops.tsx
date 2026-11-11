@@ -22,6 +22,9 @@ import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
 import InputBase from "@mui/material/InputBase";
 import LinearProgress from "@mui/material/LinearProgress";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
@@ -63,6 +66,8 @@ import { LinkInput, SHEEN_BG, sheen, type Making } from "./Fields";
 import { Choice } from "./ui";
 import { ButtonLookBox, MarkBtn, TextLookRow } from "./Look";
 import { SwitchList } from "./Switch";
+import { ProductPictures } from "../../productPictures";
+import type { Card } from "@/lib/content/studio/kinds/page/modules/types";
 import type { SwitchOption } from "@/lib/content/studio/kinds/page/modules/switch";
 
 const RED = "#c5221f";
@@ -142,10 +147,24 @@ function AskAi({ run, busy, placeholder = "Ask AI for this text…" }: { run: (a
   );
 }
 
+/** What the AI did, under its box - with the Undo of exactly that (Content v13: an element's words, applied at once). */
+function SaidLine({ tone, text, undo }: { tone: "ok" | "warn"; text: string; undo: (() => void) | null }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, mt: 0.75 }}>
+      <Typography sx={{ flex: 1, fontSize: "0.78rem", color: tone === "warn" ? AMBER : "#1b7a55", lineHeight: 1.4 }}>{text}</Typography>
+      {undo && <Button size="small" onClick={undo} sx={{ ...btn, px: 1, py: 0, minWidth: 0, color: PINK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", flexShrink: 0, fontSize: "0.76rem" }}>Undo</Button>}
+    </Box>
+  );
+}
+
 /* ── a text ───────────────────────────────────────────────────────────── */
 
 /** A colour or size set as a rule, named back ("#274e64" -> "petrol"). */
 function keyOf(map: Record<string, string>, v: string | undefined): string | undefined { return Object.entries(map).find(([, x]) => x === v)?.[0]; }
+
+/** What "Ask AI" on one text answered: its words for the box, or (Content v13: an element of a module) nothing - the AI
+ * put them on the page itself - with the Undo of exactly that; or what went wrong. */
+export type AiWords = { text?: string; error?: string; undo?: (() => void) | null; note?: string };
 
 /** What a text may carry: bold / italic, a list, a link (a new page's longer texts and a page of the shop's paragraphs). */
 export type Marks = { bold: boolean; list: boolean; link: boolean };
@@ -214,7 +233,7 @@ export type TextPopProps = {
   onDone: (v: string, html?: string, href?: string) => void;
   onClose: () => void;
   /** "Ask AI for this text": its answer (null = done, the words are in the box), or what went wrong */
-  ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
+  ai?: ((ask: string, now: string) => Promise<AiWords>) | null;
   /** Content v10: its look - colour, size, weight, italic, underline, alignment (a new page's field, a page of the shop's
    * element as its look change, a module's words in its settings) */
   textLook?: TextLookCtl | null;
@@ -230,15 +249,17 @@ export type TextPopProps = {
   note?: { value: string; onChange: (v: string) => void; max: number } | null;
   /** said under the box (where these words come from) */
   hint?: React.ReactNode;
+  /** Content v13: an element just added - its words selected, so typing writes over them */
+  selectAll?: boolean;
 };
 
-export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, onRemove, href, link, note, hint }: TextPopProps) {
+export function TextPop({ kicker, title, value, max, multiline, marks, rich, canEdit, live, onChange, onDone, onClose, ai, textLook, onHide, onRemove, href, link, note, hint, selectAll }: TextPopProps) {
   const [hrefDraft, setHrefDraft] = useState(href ?? "");
   useEffect(() => { setHrefDraft(href ?? ""); }, [href]);
   const hrefOut = href !== null && href !== undefined && hrefDraft.trim() && hrefDraft.trim() !== href ? hrefDraft.trim() : undefined;
   const [draft, setDraft] = useState(value);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<{ tone: "ok" | "warn"; text: string } | null>(null);
+  const [msg, setMsg] = useState<{ tone: "ok" | "warn"; text: string; undo?: (() => void) | null } | null>(null);
   const [linking, setLinking] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement | null>(null);
   const richBox = useRef<HTMLDivElement | null>(null);
@@ -247,7 +268,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
   // the words as the page has them now (the AI wrote them, an Undo) - while the person is not typing
   useEffect(() => { if (!typing.current) setDraft(value); }, [value]);
   useEffect(() => { if (rich !== undefined && rich !== null && richBox.current) richBox.current.innerHTML = rich; }, [rich]);
-  useEffect(() => { const t = setTimeout(() => (rich ? richBox.current : box.current)?.focus(), 40); return () => clearTimeout(t); }, [rich]);
+  useEffect(() => { const t = setTimeout(() => { const el = rich ? richBox.current : box.current; el?.focus(); if (selectAll && el && "select" in el) (el as HTMLTextAreaElement).select(); }, 40); return () => clearTimeout(t); }, [rich]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const put = (v: string) => {
@@ -314,7 +335,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
     if (r.text !== undefined) {
       if (rich && richBox.current) richBox.current.innerText = r.text; else setDraft(r.text);
       setMsg({ tone: "ok", text: live ? "The AI wrote it - it is on the page." : "The AI's words are in the box - Done puts them on the page." });
-    } else setMsg({ tone: "ok", text: "The AI wrote it - it is on the page." });
+    } else setMsg({ tone: "ok", text: r.note || "The AI wrote it - it is on the page.", undo: r.undo ?? null });
   };
 
   const count = rich ? null : draft.length;
@@ -380,7 +401,7 @@ export function TextPop({ kicker, title, value, max, multiline, marks, rich, can
         <TextField fullWidth size="small" label="Where the link goes" value={hrefDraft} disabled={!canEdit} onChange={(e) => setHrefDraft(e.target.value)} sx={{ ...field, mt: 1.25 }} />
       )}
       {canEdit && textLook && <TextLookRow value={tl} onChange={(next, label) => textLook.set(next, label)} grounds={textLook.grounds} large={textLook.large} />}
-      {msg && <Typography sx={{ fontSize: "0.78rem", color: msg.tone === "warn" ? AMBER : "#1b7a55", mt: 0.75, lineHeight: 1.4 }}>{msg.text}</Typography>}
+      {msg && <SaidLine tone={msg.tone} text={msg.text} undo={msg.undo ? () => { msg.undo?.(); setMsg({ tone: "ok", text: "Taken back." }); } : null} />}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} />}
     </PopCard>
   );
@@ -402,7 +423,7 @@ export type ButtonPopProps = {
   /** the ground it stands on ([] = not known), its colour while none is chosen, its arrow while not set */
   grounds: string[]; fallback: string; arrowDefault?: boolean;
   canEdit: boolean;
-  ai?: ((ask: string, now: string) => Promise<{ text?: string; error?: string }>) | null;
+  ai?: ((ask: string, now: string) => Promise<AiWords>) | null;
   onClose: () => void;
   hint?: React.ReactNode;
   /** Content v11: every store view the page goes to - the link as each of them sends its visitor */
@@ -416,6 +437,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
   const [draft, setDraft] = useState(label);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [said, setSaid] = useState<{ text: string; undo: (() => void) | null } | null>(null);
   const typing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => { if (!typing.current) setDraft(label); }, [label]);
@@ -430,11 +452,12 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
   const over = draft.length > max;
   const askAi = async (ask: string) => {
     if (!ai) return;
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setSaid(null);
     const r = await ai(ask, draft);
     setBusy(false);
     if (r.error) setMsg(r.error);
     else if (r.text !== undefined) put(r.text);
+    else setSaid({ text: r.note || "The AI wrote it - it is on the page.", undo: r.undo ?? null });
   };
   return (
     <PopCard kicker={kicker} title={title} onClose={() => { flush(); onClose(); }} maxBody="min(66vh, 620px)"
@@ -459,6 +482,7 @@ export function ButtonPop({ kicker, title = "Button", label, max, onLabel, url, 
       {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: -0.5, mb: 1, lineHeight: 1.4 }}>{hint}</Typography>}
       {canEdit && look && onLook && <ButtonLookBox value={look} onChange={onLook} grounds={grounds} fallback={fallback} arrowDefault={arrowDefault} />}
       {msg && <Typography sx={{ fontSize: "0.78rem", color: AMBER, mt: 0.75 }}>{msg}</Typography>}
+      {said && <SaidLine tone="ok" text={said.text} undo={said.undo ? () => { said.undo?.(); setSaid({ text: "Taken back.", undo: null }); } : null} />}
       {canEdit && ai && <AskAi run={(a) => void askAi(a)} busy={busy} placeholder="Ask AI for the button's words…" />}
     </PopCard>
   );
@@ -483,6 +507,8 @@ export type PicturePopProps = {
   onUpload: () => void;
   onPick: (p: Picture) => void;
   onAlt: (alt: string) => void;
+  /** Content v13: no alt text of its own here (a module's card picture: its name is the card's) */
+  noAlt?: boolean;
   onRemove?: () => void;
   /** a page of the shop's picture: hidden on the page */
   onHide?: (() => void) | null;
@@ -491,7 +517,7 @@ export type PicturePopProps = {
   onClose: () => void;
 };
 
-export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onHide, onRefine, onClose }: PicturePopProps) {
+export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, making, canEdit, canMake, onMake, onIdea, onUpload, onPick, onAlt, onRemove, onHide, onRefine, onClose, noAlt }: PicturePopProps) {
   const [tab, setTab] = useState<PicTab>("picture");
   const [ideaDraft, setIdeaDraft] = useState(idea ?? "");
   const [altDraft, setAltDraft] = useState(alt);
@@ -557,8 +583,8 @@ export function PicturePop({ kicker, title, api, store, aspect, url, alt, idea, 
             <TextField fullWidth multiline minRows={2} maxRows={5} size="small" label="What should the picture show?" value={ideaDraft} disabled={!canEdit} onChange={(e) => setIdeaDraft(e.target.value)}
               helperText={!canMake ? "Pictures cannot be made on this hub - upload one, or choose one already made." : "Make it uses these words - a picture, not a text in it."} sx={{ ...field, mt: 2 }} />
           )}
-          <TextField fullWidth size="small" label="What it shows (alt text)" value={altDraft} disabled={!canEdit} onChange={(e) => setAltDraft(e.target.value.slice(0, 140))} sx={{ ...field, mt: 2 }}
-            helperText={`${altDraft.length} / 140 · read by search engines and screen readers`} />
+          {!noAlt && <TextField fullWidth size="small" label="What it shows (alt text)" value={altDraft} disabled={!canEdit} onChange={(e) => setAltDraft(e.target.value.slice(0, 140))} sx={{ ...field, mt: 2 }}
+            helperText={`${altDraft.length} / 140 · read by search engines and screen readers`} />}
         </Box>
       )}
       {(tab === "gallery" || tab === "products") && (
@@ -806,8 +832,10 @@ export function ShopBlockPop({ row, look, onLook, hidden, onHide, onReplace, onA
  * The small dark bar over what is selected in the page (Content v8): the block it is in - a click selects the whole block -
  * and the element itself; then what can be done here: its editor (a text, a picture), the block's settings, the AI.
  */
-export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onRemove, onClose }: {
+export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onRemove, onClose, onAdd }: {
   block: { num: number; name: string; module: boolean } | null;
+  /** Content v13 (SARCLA 11.11.2026: "allow element create inside of the block"): "+" - an element added inside it */
+  onAdd?: ((el: HTMLElement) => void) | null;
   /** Content v12 (SARCLA 10.11.2026: "here on tile I cannot take out"): the part selected taken out - a tile, a question,
    * a small line, a button, a product of a module */
   onRemove?: { label: string; run: () => void } | null;
@@ -840,6 +868,7 @@ export function EditBar({ block, label, onBlock, edit, onSettings, onAi, onRemov
       {edit && <Button size="small" onClick={edit.run} sx={b}>{edit.label}</Button>}
       {onSettings && <Tooltip title="The block's settings"><Button size="small" onClick={onSettings} startIcon={<TuneIcon sx={{ fontSize: 15 }} />} sx={b}>Settings</Button></Tooltip>}
       {onAi && <Button size="small" onClick={onAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={b}>Ask AI</Button>}
+      {onAdd && <Tooltip title="Add inside this block: a button, a line, a headline..."><IconButton size="small" onClick={(e) => onAdd(e.currentTarget)} aria-label="Add inside this block" sx={{ color: "#fff", p: 0.4, borderRadius: "5px", bgcolor: PINK, mx: 0.25, "&:hover": { bgcolor: "#a3245c" } }}><AddIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
       {onRemove && <Tooltip title={`${onRemove.label} - Undo brings it back`}><IconButton size="small" onClick={onRemove.run} aria-label={onRemove.label} sx={{ color: "#ffb4a9", p: 0.45, "&:hover": { bgcolor: "rgba(255,255,255,.12)", color: "#fff" } }}><DeleteOutlineIcon sx={{ fontSize: 16 }} /></IconButton></Tooltip>}
       <IconButton size="small" onClick={onClose} aria-label="Unselect" sx={{ color: "rgba(255,255,255,.7)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
     </Box>
@@ -943,5 +972,165 @@ export function StoreLinks({ url, stores }: { url: string; stores: string[] }) {
         </Box>
       )}
     </Box>
+  );
+}
+
+/* ── Content v13: one element of a module, on its own (SARCLA 11.11.2026: "You should allow editing per element, therefore
+ *    also the AI per element ... take out elements ... allow element create inside of the block") ── */
+
+/** Words typed into a part's field: on the page as they are typed (a moment later), never under the caret. */
+function LiveField({ label, value, max, multiline, disabled, onChange, autoFocus }: { label: string; value: string; max: number; multiline?: boolean; disabled: boolean; onChange: (v: string) => void; autoFocus?: boolean }) {
+  const [draft, setDraft] = useState(value);
+  const typing = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => { if (!typing.current) setDraft(value); }, [value]);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  const put = (v: string) => {
+    setDraft(v);
+    typing.current = true;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { typing.current = false; onChange(v); }, 300);
+  };
+  const over = max > 0 && draft.length > max;
+  return (
+    <TextField fullWidth size="small" label={label} value={draft} disabled={disabled} multiline={multiline} minRows={multiline ? 2 : undefined} maxRows={multiline ? 8 : undefined} autoFocus={autoFocus}
+      onChange={(e) => put(e.target.value)} onBlur={() => { if (timer.current) { clearTimeout(timer.current); timer.current = null; typing.current = false; if (draft !== value) onChange(draft); } }}
+      helperText={max > 0 ? <Box component="span" sx={{ color: over ? RED : MUTED, fontWeight: over ? 700 : 500 }}>{over ? `${draft.length - max} too many` : `${draft.length} / ${max}`}</Box> : undefined}
+      sx={{ ...field, mt: 1.25, "& .MuiInputBase-root": { fontSize: "0.88rem" } }} />
+  );
+}
+
+/** "Ask AI" on one element: its question box, its answer applied at once with its Undo. */
+function PartAi({ ai, placeholder }: { ai: (ask: string) => Promise<AiWords>; placeholder: string }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ tone: "ok" | "warn"; text: string; undo: (() => void) | null } | null>(null);
+  const run = async (ask: string) => {
+    setBusy(true); setSaid(null);
+    const r = await ai(ask);
+    setBusy(false);
+    setSaid(r.error ? { tone: "warn", text: r.error, undo: null } : { tone: "ok", text: r.note || "The AI wrote it - it is on the page.", undo: r.undo ?? null });
+  };
+  return (
+    <>
+      {said && <SaidLine tone={said.tone} text={said.text} undo={said.undo ? () => { said.undo?.(); setSaid({ tone: "ok", text: "Taken back.", undo: null }); } : null} />}
+      <AskAi run={(a) => void run(a)} busy={busy} placeholder={placeholder} />
+    </>
+  );
+}
+
+/**
+ * A point, a tile, a teaser or a question of a module, on its own (Content v13): its words (each on the page as typed),
+ * its page and its picture where it has them, "Ask AI" for this one alone, "Take it out".
+ */
+export function PartPop({ kicker, title, fields, link, picture, ai, onRemove, onClose, canEdit, hint }: {
+  kicker: string; title: string;
+  fields: { key: string; label: string; value: string; max: number; multiline?: boolean; onChange: (v: string) => void }[];
+  link?: { api: StudioApi; store: string; value: string; onChange: (v: string) => void } | null;
+  picture?: { url: string; onChange: () => void; onRemove?: (() => void) | null } | null;
+  ai?: ((ask: string) => Promise<AiWords>) | null;
+  onRemove?: { label: string; run: () => void } | null;
+  onClose: () => void; canEdit: boolean; hint?: React.ReactNode;
+}) {
+  return (
+    <PopCard kicker={kicker} title={title} onClose={onClose} maxBody="min(64vh, 600px)"
+      foot={canEdit ? (
+        <>
+          {onRemove && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: "0.7rem", color: MUTED, mr: 0.5, display: { xs: "none", sm: "block" } }}>Shows in the page as you type</Typography>
+          <Button size="small" variant="contained" disableElevation onClick={onClose} sx={doneBtn}>Done</Button>
+        </>
+      ) : undefined}>
+      {fields.map((f, i) => <LiveField key={f.key} label={f.label} value={f.value} max={f.max} multiline={f.multiline} disabled={!canEdit} onChange={f.onChange} autoFocus={i === 0} />)}
+      {link && <Box sx={{ mt: 1.5 }}><LinkInput api={link.api} store={link.store} value={link.value} disabled={!canEdit} label="Its page of the shop" onChange={link.onChange} /></Box>}
+      {picture && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 1.5 }}>
+          <Box sx={{ width: 72, height: 54, borderRadius: "6px", overflow: "hidden", bgcolor: "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {picture.url ? <img src={picture.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : null}
+          </Box>
+          {canEdit && <Button size="small" onClick={picture.onChange} startIcon={<ImageOutlinedIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: PINK }}>{picture.url ? "Another picture" : "A picture"}</Button>}
+          {canEdit && picture.url && picture.onRemove && <Button size="small" onClick={picture.onRemove} sx={{ ...quiet, color: MUTED }}>Remove</Button>}
+        </Box>
+      )}
+      {hint && <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1, lineHeight: 1.4 }}>{hint}</Typography>}
+      {canEdit && ai && <PartAi ai={ai} placeholder="Ask AI for this one…" />}
+    </PopCard>
+  );
+}
+
+/** A shop's address as the person reads it: its path. */
+const pathOfShop = (u: string) => u.replace(/^https:\/\/(www|acc)\.apsoparts\.com/i, "");
+
+/**
+ * A product's or a category's card of a module (Content v13): it comes from the shop - its name, photo, count and page are
+ * the shop's, never typed. Another product picked here replaces the WHOLE card (part 6: "links have not updated when I
+ * select the specific product"); the module's products are changed in its settings; this card alone can go.
+ */
+export function CardPop({ kicker, card, store, canEdit, onProducts, onPick, ai, onRemove, onClose, busy }: {
+  kicker: string; card: Card; store: string; canEdit: boolean;
+  /** the block's settings, at its products */
+  onProducts: () => void;
+  /** another product of the shop on this card - the whole card (null: categories, chosen in the settings) */
+  onPick: ((p: { name: string; number: string; url: string; img: string }) => void) | null;
+  ai?: ((ask: string) => Promise<AiWords>) | null;
+  onRemove?: { label: string; run: () => void } | null;
+  onClose: () => void;
+  busy?: string | null;
+}) {
+  const [picking, setPicking] = useState(false);
+  const product = card.kind === "product";
+  return (
+    <PopCard kicker={kicker} title={product ? "A product from the shop" : "A category from the shop"} onClose={onClose} maxBody="min(66vh, 640px)"
+      foot={canEdit ? (
+        <>
+          {onRemove && <Button size="small" onClick={onRemove.run} startIcon={<DeleteOutlineIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, color: MUTED, "&:hover": { color: RED } }}>{onRemove.label}</Button>}
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" variant="contained" disableElevation onClick={onClose} sx={doneBtn}>Done</Button>
+        </>
+      ) : undefined}>
+      <Box sx={{ display: "flex", gap: 1.25, alignItems: "center" }}>
+        <Box sx={{ width: 64, height: 64, borderRadius: "8px", overflow: "hidden", bgcolor: product ? "#fff" : "#eef1f3", border: `1px solid ${HAIRLINE}`, flexShrink: 0 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {card.img ? <img src={card.img} alt="" style={{ width: "100%", height: "100%", objectFit: product ? "contain" : "cover", display: "block" }} /> : null}
+        </Box>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          {card.number && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#d80901", letterSpacing: ".06em" }}>{card.number}</Typography>}
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>{card.name}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: MUTED, overflowWrap: "anywhere" }}>{[card.meta, pathOfShop(card.url)].filter(Boolean).join(" · ")}</Typography>
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1.25, lineHeight: 1.45 }}>
+        It comes from the shop: its name, photo, {product ? "number, count" : "count"} and page are the shop&apos;s and change with it.
+      </Typography>
+      {canEdit && (
+        <Box sx={{ display: "flex", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
+          {onPick && <Button size="small" variant="outlined" onClick={() => setPicking((x) => !x)} sx={{ ...quiet, color: PINK, borderColor: "rgba(194,44,110,.35)" }}>Pick another product</Button>}
+          <Button size="small" variant="outlined" onClick={onProducts} startIcon={<TuneIcon sx={{ fontSize: 16 }} />} sx={{ ...quiet, borderColor: HAIRLINE }}>Change the {product ? "products" : "categories"}</Button>
+        </Box>
+      )}
+      {busy && <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}><CircularProgress size={14} sx={{ color: PINK }} /><Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{busy}</Typography></Box>}
+      {picking && onPick && (
+        <Box sx={{ mt: 1.25 }}>
+          <Typography sx={{ fontSize: "0.76rem", color: MUTED, mb: 0.75 }}>Its name, its product number (8 digits) or an article number (10 digits) - the whole card becomes that product: number, name, photo and page.</Typography>
+          <ProductPictures store={store} columns={3} onPick={(p) => { const pr = p.product; if (pr) { onPick({ name: p.alt || p.name || "", number: pr.number, url: pr.url, img: p.url }); setPicking(false); } }} />
+        </Box>
+      )}
+      {canEdit && ai && product && <PartAi ai={ai} placeholder="Ask AI for another product here…" />}
+    </PopCard>
+  );
+}
+
+/** "Add" inside a block (Content v13): what can be added there - its menu. */
+export function AddPartMenu({ anchor, options, onPick, onClose }: { anchor: HTMLElement | null; options: { key: string; label: string }[]; onPick: (key: string) => void; onClose: () => void }) {
+  return (
+    <Menu anchorEl={anchor} open={!!anchor} onClose={onClose} anchorOrigin={{ vertical: "bottom", horizontal: "left" }} transformOrigin={{ vertical: "top", horizontal: "left" }}
+      slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 220, boxShadow: "0 12px 32px rgba(21,34,58,.16)" } } }}>
+      {options.length ? options.map((o) => (
+        <MenuItem key={o.key} dense onClick={() => { onClose(); onPick(o.key); }} sx={{ fontSize: "0.86rem", color: INK, gap: 0.25 }}>
+          <ListItemIcon sx={{ minWidth: 28, color: PINK, "& svg": { fontSize: 18 } }}><AddIcon /></ListItemIcon>{o.label}
+        </MenuItem>
+      )) : <MenuItem dense disabled sx={{ fontSize: "0.84rem" }}>Nothing more fits in this block</MenuItem>}
+    </Menu>
   );
 }

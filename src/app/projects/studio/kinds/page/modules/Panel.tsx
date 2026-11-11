@@ -45,7 +45,11 @@ import { Field, Label, PINK, btn, field, mainBtn } from "../../../parts";
 import { PictureDialog } from "../../../pictures";
 import type { StudioApi } from "../../../useStudio";
 import { Choice, Hint } from "../ui";
-import { PopCard, StoreLinks } from "../pops";
+import { AddPartMenu, PopCard, StoreLinks } from "../pops";
+import { GroundPick } from "../Look";
+import { addOptions, partsOf, withPartPicture, type PartInfo } from "@/lib/content/studio/kinds/page/modules/elements";
+import { GROUNDS, groundOf, withGroundOf } from "@/lib/content/studio/kinds/page/modules/looks";
+import AddIcon from "@mui/icons-material/Add";
 import type { ModulesCtl } from "./useModules";
 import { ButtonLookBox } from "../Look";
 import { SwitchList } from "../Switch";
@@ -66,9 +70,12 @@ const FILLING = "Filling it from the shop…";
 /** What the AI did for a module, said under its button - with the Undo of what it did. */
 export type AiAnswer = { ok: boolean; text: string; undo: (() => void) | null };
 
-export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top, ai, stores }: {
+export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top, ai, stores, parts }: {
   /** Content v11: every store view the page goes to - its links as each of them sends its visitor */
   stores?: string[];
+  /** Content v13 (SARCLA 11.11.2026: "Both settings and ask AI go to block level - we need to dig into element also"): the
+   * block's own elements - each opened on its own on the page (its words, look, AI, take out) - and "Add" inside it */
+  parts?: { onPart: (part: string) => void; onAdd: (key: string) => void } | null;
   ctl: ModulesCtl; api: StudioApi; onBack: () => void;
   /** Content v11 (SARCLA 10.11.2026: "I can't see launch the AI to fill me the block"): "Fill it with AI" at the top - the
    * same as "Ask AI" on the module with no question (the studio's askBlock) */
@@ -96,6 +103,8 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
   const [ask, setAsk] = useState("");
   const [picking, setPicking] = useState<"within" | "picture" | null>(null);
   const [gallery, setGallery] = useState(false);
+  // Content v13: a picture under the block (its background)
+  const [groundPic, setGroundPic] = useState(false);
   const [aiSaid, setAiSaid] = useState<AiAnswer | null>(null);
   const [aiRunning, setAiRunning] = useState(false);
   const [following, setFollowing] = useState(false);
@@ -482,7 +491,17 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
         </>
       )}
 
-      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store} stores={stores} following={following}
+      {/* Content v13: the block's elements, each opened on its own on the page - and what can be added inside it */}
+      {parts && <BlockParts m={m} canEdit={ctl.canEdit} onPart={(part) => { flush(); parts.onPart(part); }} onAdd={(key) => { flush(); parts.onAdd(key); }} />}
+
+      {/* Content v13 (SARCLA 11.11.2026: "can not change the background of some block"): its ground */}
+      <Label>Background</Label>
+      <GroundPick color={groundOf(m).color} picture={groundOf(m).picture} disabled={!ctl.canEdit}
+        onColor={(c) => { const cur = mRef.current; if (cur) change(withGroundOf(cur, { color: c }), c ? `Gave the ${k.name.toLowerCase()} a ${GROUNDS.find((g) => g.key === c)?.label.toLowerCase() ?? c} background` : `Gave the ${k.name.toLowerCase()} the shop's own background`, true); }}
+        onPicture={() => setGroundPic(true)}
+        onPictureOut={() => { const cur = mRef.current; if (cur) change(withGroundOf(cur, { picture: null }), `Took the picture under the ${k.name.toLowerCase()} out`, true); }} />
+
+      <Fields def={k} m={m} set={set} canEdit={ctl.canEdit} store={ctl.store} stores={stores} following={following} blockOnly={!!parts}
         onRemovePicture={() => { const c = mRef.current; if (!c) return; const next = { ...c, settings: { ...c.settings, feature: null } }; checked.current.add(followSig(next)); change(next, "Took the picture out", true); }}
         onCategoryPhoto={() => setPicking(picking === "picture" ? null : "picture")} onGallery={() => setGallery(true)} />
       {picking === "picture" && <Box sx={{ mt: 1 }}><CategoryPicker api={api} store={ctl.store} busy={!!busy} useLabel="Its photo" onUse={(n) => { if (n) void pictureFrom(n); setPicking(null); }} /></Box>}
@@ -515,15 +534,28 @@ export function ModulePanel({ ctl, api, onBack, pageCategory, pop, onSwitch, top
       <Hint mt={1.5}>{k.from ? `From the ${k.from}. ` : ""}One element of the page with its own style - the shop&apos;s colours, font and width, finished on phones.</Hint>
       <PictureDialog open={gallery} onClose={() => setGallery(false)} title="A picture for the module" projectId={api.data.piece.projectId} pieceId={api.data.piece.id}
         tabs={["upload", "mine", "project", "make"]} start="mine" aspect="16:9"
-        onPick={(p) => set({ feature: personPicture({ kind: "category", name: s.feature?.name || s.title || "Bild", url: s.feature?.url || s.link.url || `https://www.apsoparts.com/${ctl.store.split("/")[0]}/`, img: p.url, meta: "", number: "", children: [] }) }, "Changed the picture", true)} />
+        onPick={(p) => {
+          // Content v13 (part 6): a product of the shop picked - the whole product on the module's card (its name, number,
+          // page and photo), never its photo alone
+          const cur = mRef.current;
+          const whole = cur && p.product ? withPartPicture(cur, "feature", { url: p.url, name: p.alt || p.name, product: p.product }) : null;
+          if (whole) { change(whole, `Put ${p.alt || p.name || "a product"} on the module`, true); return; }
+          set({ feature: personPicture({ kind: "category", name: s.feature?.name || s.title || "Bild", url: s.feature?.url || s.link.url || `https://www.apsoparts.com/${ctl.store.split("/")[0]}/`, img: p.url, meta: "", number: "", children: [] }) }, "Changed the picture", true);
+        }} />
+      <PictureDialog open={groundPic} onClose={() => setGroundPic(false)} title="A picture under the block" projectId={api.data.piece.projectId} pieceId={api.data.piece.id}
+        tabs={["upload", "mine", "project", "make"]} start="mine" aspect="16:9"
+        onPick={(p) => { const cur = mRef.current; if (cur) change(withGroundOf(cur, { picture: p.url }), `Put a picture under the ${k.name.toLowerCase()}`, true); }} />
     </PanelFrame>
   );
 }
 
 /* ── the module's fields, drawn from its settings schema ──────────────── */
 
-function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGallery, following = false, onRemovePicture }: {
+function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGallery, following = false, onRemovePicture, blockOnly = false }: {
   def: ModuleDef; m: ModuleRef; set: (patch: Partial<ModuleSettings>, label?: string, now?: boolean) => void; canEdit: boolean; store: string; stores?: string[];
+  /** Content v13: only what belongs to the block - its picture, its table, its choices; its words, buttons, points,
+   * questions and dates are its elements, each opened on its own on the page */
+  blockOnly?: boolean;
   onCategoryPhoto: () => void; onGallery: () => void;
   /** Content v12: its products' own picture being looked for */
   following?: boolean;
@@ -531,7 +563,7 @@ function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGaller
   onRemovePicture?: () => void;
 }) {
   const s = m.settings;
-  const words = def.fields.filter((f) => f.kind === "eyebrow" || f.kind === "title" || f.kind === "text");
+  const words = blockOnly ? [] : def.fields.filter((f) => f.kind === "eyebrow" || f.kind === "title" || f.kind === "text");
   const out: React.ReactNode[] = [];
   if (words.length) {
     out.push(<Label key="wl">Words</Label>);
@@ -545,6 +577,7 @@ function Fields({ def, m, set, canEdit, store, stores, onCategoryPhoto, onGaller
     }
   }
   for (const f of def.fields) {
+    if (blockOnly && (f.kind === "link" || f.kind === "link2" || f.kind === "points" || f.kind === "faq" || (f.kind === "extra" && !f.options))) continue;
     if (f.kind === "link" || f.kind === "link2") {
       out.push(<Label key={`${f.kind}l`}>{f.label ?? (f.kind === "link" ? "Button" : "Second button")}</Label>);
       out.push(<LinkFields key={f.kind} value={s[f.kind]} disabled={!canEdit} second={f.kind === "link2"} store={store} onChange={(v) => set({ [f.kind]: v } as Partial<ModuleSettings>, f.kind === "link" ? "Changed the link" : "Changed the second button")} />);
@@ -846,5 +879,45 @@ function TableEditor({ spec, table, canEdit, onChange }: { spec: Extract<FieldSp
       </Box>
       {canEdit && rows.length < (spec.maxRows ?? 20) && <Button size="small" onClick={() => onChange([...rows, Array.from({ length: cols }, () => "")], "Added a row")} sx={{ ...btn, mt: 1, color: PINK }}>+ A row</Button>}
     </>
+  );
+}
+
+/* ── Content v13: what is in the block, and Add ────────────────────────── */
+
+const PART_MARK: Record<PartInfo["kind"], string> = { words: "Words", button: "Button", picture: "Picture", item: "From the shop", point: "Item", question: "Question", cell: "Cell" };
+
+/**
+ * The block's elements, one row each (SARCLA 11.11.2026: "we need to dig into element also"): a click selects it in the
+ * page and opens its own popup there - its words, its look, its own Ask AI, Take it out. "Add" puts a button (a third, a
+ * fourth), a line, a small line above, a headline, a point / tile / question, a picture inside the block.
+ */
+function BlockParts({ m, canEdit, onPart, onAdd }: { m: ModuleRef; canEdit: boolean; onPart: (part: string) => void; onAdd: (key: string) => void }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const list = partsOf(m);
+  return (
+    <Box sx={{ mt: 1.5 }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+        <Label mt={0}>In this block · {list.length}</Label>
+        <Box sx={{ flex: 1 }} />
+        {canEdit && <Button size="small" startIcon={<AddIcon sx={{ fontSize: 16 }} />} onClick={(e) => setAnchor(e.currentTarget)}
+          sx={{ ...btn, px: 1, color: PINK, border: "1px solid rgba(194,44,110,.35)", borderRadius: "6px" }}>Add</Button>}
+      </Box>
+      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.4, mb: 0.75 }}>A click on one - here or on the page - opens it on its own: its words, its look, Ask AI, Take it out.</Typography>
+      {list.length ? (
+        <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden" }}>
+          {list.map((p, i) => (
+            <Box key={p.part} component="button" type="button" onClick={() => onPart(p.part)}
+              sx={{ all: "unset", boxSizing: "border-box", width: "100%", cursor: "pointer", display: "flex", alignItems: "center", gap: 1, px: 1, py: 0.6, borderTop: i ? `1px solid ${HAIRLINE}` : "none", bgcolor: "#fff",
+                "&:hover": { bgcolor: "rgba(194,44,110,.04)" }, "&:focus-visible": { boxShadow: `inset 0 0 0 2px ${PINK}` } }}>
+              <Typography component="span" sx={{ width: 118, flexShrink: 0, fontSize: "0.72rem", fontWeight: 700, color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.label}>{p.label}</Typography>
+              <Typography component="span" sx={{ flex: 1, minWidth: 0, fontSize: "0.8rem", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.words.replace(/==/g, "") || (p.kind === "picture" ? "A picture" : "")}</Typography>
+              <Typography component="span" sx={{ flexShrink: 0, fontSize: "0.62rem", fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase", color: PINK }}>{PART_MARK[p.kind]}</Typography>
+              <ChevronRightIcon sx={{ fontSize: 16, color: MUTED, flexShrink: 0 }} />
+            </Box>
+          ))}
+        </Box>
+      ) : <Hint mt={0}>Nothing written in it yet - Add puts something in, or Fill it with AI above.</Hint>}
+      <AddPartMenu anchor={anchor} options={addOptions(m)} onPick={onAdd} onClose={() => setAnchor(null)} />
+    </Box>
   );
 }

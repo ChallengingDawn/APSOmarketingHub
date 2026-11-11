@@ -21,6 +21,7 @@ import { emptyWords, libModule, withWords, wordsOfModule, type LibModule, type P
 import { factKeys, figuresOut } from "../plan/newpage";
 import { buttonSays, fillIn, looksEnglish, safeWords, wordsIn, type CleanCtx, type FillSpec } from "../plan/plan";
 import { fieldOf, moduleDef } from "./registry";
+import { isLookKey } from "./looks";
 import type { ModuleRef } from "./types";
 
 const B = "https://www.apsoparts.com";
@@ -149,7 +150,7 @@ export function nowWords(m: ModuleRef): Record<string, unknown> {
     eyebrow: w.eyebrow.slice(0, 80), title: w.title.slice(0, 160), text: w.text.slice(0, 600), button: w.button.slice(0, 40), button2: w.button2.slice(0, 40),
     points: w.points.slice(0, 8).map((p) => ({ title: p.title.slice(0, 80), text: p.text.slice(0, 160) })),
     faq: w.faq.slice(0, 6).map((q) => ({ q: q.q.slice(0, 160), a: q.a.slice(0, 300) })),
-    extras: Object.entries(s.extra ?? {}).filter(([k]) => !/^(look|split|open|reword)/.test(k)).slice(0, 6).map(([key, value]) => ({ key, value: String(value).slice(0, 60) })),
+    extras: Object.entries(s.extra ?? {}).filter(([k]) => !isLookKey(k)).slice(0, 6).map(([key, value]) => ({ key, value: String(value).slice(0, 60) })),
     table: (s.table ?? []).slice(0, 8).map((r) => r.slice(0, 6).map((c) => c.slice(0, 60))),
     ...(s.items.length ? { shows: s.items.slice(0, 8).map((c) => c.name.slice(0, 70)) } : {}),
     ...(s.feature?.name && s.items.length ? { picture: s.feature.name.slice(0, 60) } : {}),

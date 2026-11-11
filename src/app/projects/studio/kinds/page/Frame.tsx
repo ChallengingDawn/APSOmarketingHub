@@ -49,7 +49,14 @@ export type Picked = {
   /** Content v8: a page of the shop - the content block it is in (the Build list's row): its selector, or the change
    * that put it there */
   inBlock?: { selector: string; change: number | null; changeId?: string } | null;
+  /** Content v13: inside a module - the module ("np:<id>", "c:<change id>") and which of its elements it is (its
+   * headline, a button, a point, a card... - lib .../modules/elements.ts); null: the module's own ground, the block */
+  part?: { mod: string; part: string | null } | null;
 };
+
+/** What the studio says an element of a module is (Content v13) - kept by the element the frame selects. */
+export type PartHit = { el: Element; mod: string; part: string | null };
+const PARTS = new WeakMap<Element, { mod: string; part: string | null }>();
 
 /** A place between two elements of a page of the shop, where the "+" adds one (Content v6, SARCLA point 9: "we should
  * really be able to add elements"): the element it goes before or after, the words around it, how it looks there, a
@@ -105,6 +112,12 @@ export type SelectOpts = {
   onEditStart?: () => void;
   /** Content v10 (SARCLA point 5): what a drag resizes where the selection is - its handle drawn over the page */
   resize?: ResizeSpec | null;
+  /** Content v13 (SARCLA 11.11.2026: "allow editing per element"): a click inside a module - the element of the module it
+   * is (its headline, a button, a card...), or the module itself on its own ground; null: as any element */
+  inModule?: (target: Element) => PartHit | null;
+  /** an element of a module found in the page (one just added, a row of the block's list), selected with its popup -
+   * looked for until it shows (the page is drawn again first) */
+  seekPart?: { nonce: number; find: (d: Document) => PartHit | null } | null;
 };
 
 /** A page of the shop's section headings as the outline cuts it (headings a change put in are not sections). */
@@ -442,6 +455,11 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
     let el = t as Element | null;
     if (!el || el.nodeType !== 1) el = (t as Node | null)?.parentElement ?? null;
     if (!el) return null;
+    // Content v13: inside a module, the element of the module the click is in - or the module on its own ground
+    if (sel.current?.inModule && el.closest("[data-apx-module]") && !el.closest("[data-apx-wait]")) {
+      const hit = sel.current.inModule(el);
+      if (hit) { PARTS.set(hit.el, { mod: hit.mod, part: hit.part }); return hit.el; }
+    }
     if (sel.current?.mode === "field") {
       // a new page's module (Content v8, point 4): a click on one of its texts selects that text, elsewhere the module
       const mod = el.closest("[data-apx-mod]");
@@ -466,6 +484,7 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
         key: `nt:${inMod.getAttribute("data-apx-mod")}:${pathFrom(inMod, el).join(".")}`, selector: "", tag: el.tagName.toLowerCase(), text: text.slice(0, 4000),
         inner: clean.innerHTML.slice(0, 20_000), outer: clean.outerHTML.slice(0, 20_000), frag: null, host: null, editable: !!text && !el.querySelector("img,video,iframe,table"),
         href: el.closest("a")?.getAttribute("href") ?? undefined,
+        part: PARTS.get(el) ?? null,
         // Content v10: the ground it stands on, for the text popup's colours (a button: the ground around it)
         ...(() => { try { const win = el.ownerDocument.defaultView as (Window & typeof globalThis) | null; return win ? { look: lookOf(/^(A|BUTTON)$/.test(el.tagName) && el.parentElement ? el.parentElement : el, win) } : {}; } catch { return {}; } })(),
       };
@@ -493,6 +512,7 @@ export function Frame({ html, device, title, maxWidth, select, patch, toolbar, f
       section: sel.current?.mode === "element" && !ins ? sectionOf(el) : undefined,
       ...(sel.current?.mode === "element" && !ins ? lookAndBox(el) : {}),
       inBlock: sel.current?.mode === "element" && !ins ? blockAround(el) : null,
+      part: PARTS.get(el) ?? null,
     };
   };
 
@@ -941,6 +961,32 @@ ${SELECT_CSS}`;
     setTimeout(() => revealEl(el), 90);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [select?.seekRow?.nonce, loaded]);
+
+  // Content v13: an element of a module asked for (one just added, a row of the block's list) - found once the page shows
+  // it (a new page is drawn at once, a page of the shop once its preview came back), selected, its popup opened
+  const soughtPart = useRef(0);
+  useEffect(() => {
+    const sk = select?.seekPart;
+    if (!sk?.nonce || soughtPart.current === sk.nonce) return;
+    let tries = 0;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const look = () => {
+      if (soughtPart.current === sk.nonce) return;
+      const d = docOf();
+      const hit = d?.body ? sk.find(d) : null;
+      if (hit) {
+        soughtPart.current = sk.nonce;
+        PARTS.set(hit.el, { mod: hit.mod, part: hit.part });
+        sel.current?.onPick(pickedOf(hit.el));
+        setTimeout(() => revealEl(hit.el), 90);
+        return;
+      }
+      if (++tries < 40) t = setTimeout(look, 150);
+    };
+    look();
+    return () => { if (t) clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [select?.seekPart?.nonce, loaded, patch]);
 
   // a popup opened: the stage scrolls so that it is in view, whole when it fits (Content v8)
   const popBox = useRef<HTMLDivElement | null>(null);

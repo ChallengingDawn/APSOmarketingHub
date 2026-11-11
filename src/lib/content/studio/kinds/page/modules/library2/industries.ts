@@ -176,7 +176,7 @@ const indFeature = def({
 @@ .am-if-p{position:relative;margin:0;min-height:420px;background:var(--tile)}
 @@ .am-if-p img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 @@ .am-if-p.is-prod{background:#fff}
-@@ .am-if-p.is-prod img{inset:12%;width:76%;height:76%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(ellipse 72% 72% at 50% 50%,#000 64%,transparent 100%);mask-image:radial-gradient(ellipse 72% 72% at 50% 50%,#000 64%,transparent 100%)}
+@@ .am-if-p.is-prod img{inset:12%;width:76%;height:76%;object-fit:contain;mix-blend-mode:multiply;filter:brightness(1.05) contrast(1.07);-webkit-mask-image:radial-gradient(circle closest-side at 50% 50%,#000 70%,transparent 100%);mask-image:radial-gradient(circle closest-side at 50% 50%,#000 70%,transparent 100%)}
 @@ .am-if-p figcaption{position:absolute;left:20px;top:20px;padding:8px 14px;border-radius:10px;background:var(--red);font:600 12px/1.2 var(--head);letter-spacing:.12em;text-transform:uppercase;color:#fff}
 @@ .am-if-t{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;padding:44px 48px}
 @@ .am-if h2.am-h{font-size:clamp(26px,2.6vw,36px)!important;line-height:1.12!important}

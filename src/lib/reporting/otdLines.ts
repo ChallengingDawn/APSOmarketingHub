@@ -131,6 +131,69 @@ export function customerList(s: LineStore, f: LineFilter): CustomerRow[] {
     .sort((a, b) => b.late - a.late || b.n - a.n);
 }
 
+/* ── every supplier, and GLC's customers (SARCLA 11.11.2026) ───────────────────────────── */
+
+/** otdRules' networkdays on day numbers: the working days from a to b, both in (1 January 2020 was a Wednesday) */
+export function workdays(a: number, b: number): number {
+  let lo = a, hi = b, sign = 1;
+  if (hi < lo) { [lo, hi] = [hi, lo]; sign = -1; }
+  const days = hi - lo + 1;
+  let n = Math.floor(days / 7) * 5;
+  for (let d = lo + Math.floor(days / 7) * 7; d <= hi; d++) { const w = (d + 3) % 7; if (w !== 0 && w !== 6) n++; }
+  return sign * n;
+}
+/** a line's lead times as the cube counts them: promised (order to first confirmed), processing (order to shipment),
+ *  transport (shipment to the customer) and real (order to the customer), in working days */
+function leadsOf(r: Row): [number, number, number, number] {
+  const order = r[12], first = r[13], ship = r[15], at = r[16];
+  return [workdays(order >= 0 ? order : first, first), ship >= 0 && order >= 0 ? Math.max(0, workdays(order, ship) - 1) : 0,
+    ship >= 0 ? Math.max(0, workdays(ship, at) - 1) : 0, workdays(order >= 0 ? order : at, at)];
+}
+
+/** a supplier in the period: its lines, late, late days, more than 10 days late, and the four lead times summed */
+export type SupplierRow = { sup: string; n: number; late: number; days: number; over10: number; promised: number; proc: number; transport: number; real: number };
+/** every supplier of the lines the filter keeps - "" = GLC (no supplier in the ERP) - the most lines first */
+export function supplierList(s: LineStore, f: LineFilter): SupplierRow[] {
+  const by = new Map<number, SupplierRow>();
+  for (const r of pick(s, f)) {
+    let x = by.get(r[8]);
+    if (!x) by.set(r[8], (x = { sup: r[8] < 0 ? "" : s.sup[r[8]], n: 0, late: 0, days: 0, over10: 0, promised: 0, proc: 0, transport: 0, real: 0 }));
+    const [p, o, t, re] = leadsOf(r);
+    x.n++; x.promised += p; x.proc += o; x.transport += t; x.real += re;
+    if (r[18] > 0) { x.late++; x.days += r[18]; if (r[18] > 10) x.over10++; }
+  }
+  return [...by.values()].sort((a, b) => b.n - a.n);
+}
+
+/** GLC's kinds in the order of otdRules' GLC_KINDS: a leftover off the shelf, cut on the saw, the rest */
+const glcKind = (r: Row) => (r[11] === 1 ? 0 : r[11] === 2 ? 1 : 2);
+/** per GLC kind: [lines, late, late days, order to shipment summed, customers] */
+export type GlcKindRow = [number, number, number, number, number];
+/** a customer's GLC lines: per kind [lines, late, late days] */
+export type GlcCustomerRow = { c: string; name: string; owner: string; company: string; n: number; late: number; days: number; kinds: [number, number, number][] };
+/** GLC's lines (no supplier) the filter keeps: per kind, and every customer that received them */
+export function glcCustomers(s: LineStore, f: LineFilter): { kinds: GlcKindRow[]; customers: GlcCustomerRow[] } {
+  const kinds: GlcKindRow[] = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]];
+  const seen = [new Set<number>(), new Set<number>(), new Set<number>()];
+  const by = new Map<number, GlcCustomerRow>();
+  for (const r of pick(s, f)) {
+    if (r[8] !== -1) continue;
+    const k = glcKind(r), late = r[18] > 0, d = late ? r[18] : 0;
+    const t = kinds[k];
+    t[0]++; if (late) { t[1]++; t[2] += d; } t[3] += leadsOf(r)[1];
+    seen[k].add(r[0]);
+    let x = by.get(r[0]);
+    if (!x) {
+      const c = s.cust[r[0]], nm = s.names[c];
+      by.set(r[0], (x = { c, name: nm?.[0] ?? "", owner: nm?.[1] ?? "", company: r[4] ? "110" : "100", n: 0, late: 0, days: 0, kinds: [[0, 0, 0], [0, 0, 0], [0, 0, 0]] }));
+    }
+    x.n++; if (late) { x.late++; x.days += d; }
+    const xk = x.kinds[k]; xk[0]++; if (late) { xk[1]++; xk[2] += d; }
+  }
+  kinds.forEach((t, i) => { t[4] = seen[i].size; });
+  return { kinds, customers: [...by.values()].sort((a, b) => b.n - a.n) };
+}
+
 /** one customer's lines in the period, with what the pages name: its company and owner, each article's text and groups */
 export function customerLines(s: LineStore, f: LineFilter, customer: string): {
   c: string; name: string; owner: string; lines: StoredLine[]; info: Record<string, [string, string, string]>;
