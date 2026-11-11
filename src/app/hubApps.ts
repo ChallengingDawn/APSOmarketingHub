@@ -221,9 +221,10 @@ export const UC_SECTIONS: WebsiteSection[] = [
   {
     // the company jobs of the old HubSpot workflows, a sub app of their own (SARCLA 10.11.2026: "gmaps query - create a
     // complete sub app, for the moment with only GMAPS query inside"); each job its page on the side panel
-    slug: "company-data", name: "Company data", line: "Each company's data kept up by the hub: its Google Maps link", icon: "category", ...GREEN,
+    slug: "company-data", name: "Company data", line: "Each company's data kept up by the hub: its Google Maps link and its country", icon: "category", ...GREEN,
     pages: [
       { name: "Google Maps link", note: "Every company without a Google Maps link gets one from its name and address", href: "/uc/google-maps", icon: "map", ...GREEN },
+      { name: "Country", note: "Every company with a country gets it in HubSpot's country list (country_custom), which the regions and phones read", href: "/uc/company-country", icon: "globe", ...GREEN },
     ],
   },
   {
