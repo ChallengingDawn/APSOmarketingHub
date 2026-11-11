@@ -121,6 +121,8 @@ import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
 import { IN, inZero, type InDetail, type InRow } from "@/lib/reporting/boInbound";
 import { HIST, LATE, bands, both, byDate, histSum, medianWd, sumDMonths, within, type DMonth, type DeliveryKept } from "@/lib/reporting/boDelivery";
 import { PRICES_FROM, handRows, ownPriceCustomers, type PricesKept } from "@/lib/reporting/boPrices";
+import { STOP_REASONS, STOP_TARGET, personOf, reasonsRanked, stopShare, stoppedMonth, sumShare, sumStopped, type ReasonId } from "@/lib/reporting/boStopped";
+import { STOPPED_FILE } from "@/lib/reporting/boStoppedFile";
 import {
   LATE_BANDS, LEAD_BANDS, NO_SUPPLIER, OPEN_DUE_WD, OTHER_SUPPLIERS, addWd, keysOf, otdSum, pairOf, priceOf, priceSum, transitOf,
   type ErpLinesKept, type OtdCounts, type OtdPick, type PriceCounts,
@@ -307,7 +309,7 @@ export const BO_PAGES: PageDef[] = [
   { slug: "gqs", title: "GQS", line: "special tasks with the GQS team: how many, how long before sent, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green" },
   { slug: "otd", title: "OTD", line: "on time against the first confirmed date, counted from the ERP · the late lines · the delivery speed", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
   { slug: "autonomy", title: "Pass rate", line: "the pass rate and the manual price adjustments per mandant, counted from the ERP", icon: <VerifiedOutlinedIcon />, tint: "slate" },
-  { slug: "stopped", title: "Stopped orders", line: "the orders stopped and why - typed in", icon: <BlockOutlinedIcon />, tint: "amber" },
+  { slug: "stopped", title: "Stopped orders", line: "the eShop orders Performis stopped, why, per mandant and who released them", icon: <BlockOutlinedIcon />, tint: "amber" },
 ];
 const pageOf = (slug: Slug) => BO_PAGES.find((p) => p.slug === slug)!;
 const hrefOf = (slug: Slug) => `/reporting/back-office/${slug}`;
@@ -321,9 +323,18 @@ const fig = (label: string, value: string, a: number | null, b: number | null | 
 /** the typed figures of a series' row for the given months */
 const typedOf = (d: Data, key: string, yms: string[]) => yms.map((ym) => d.typed[key]?.[ym] ?? null);
 const meanOf = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x != null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
-const sumTyped = (d: Data, key: string, yms: string[]) => yms.reduce((s, ym) => s + (d.typed[key]?.[ym] ?? 0), 0);
-const stoppedShare = (d: Data, ym: string) => { const t = d.typed["stopped.transferred"]?.[ym], s = d.typed["stopped.stopped"]?.[ym]; return t && s != null ? s / t : null; };
 const doneYms = (f: Frame) => f.yms.slice(f.from, f.done);
+
+/* Stopped orders: the Back Office's evaluation of the stopped orders (lib/reporting/boStopped.ts), typed in after it */
+const stM = (d: Data, ym: string) => stoppedMonth(STOPPED_FILE, d.typed, ym);
+/** the period's months up to the last one with a figure */
+const stYms = (f: Frame, d: Data) => { const n = f.yms.map((ym) => !!stM(d, ym)).lastIndexOf(true) + 1; return f.yms.slice(0, n); };
+/** the period added up - or last year's same months */
+const stSum = (f: Frame, d: Data, prev = false) => sumStopped(stYms(f, d).map((ym) => stM(d, prev ? back(ym) : ym)));
+const STOP_ICON: Partial<Record<ReasonId, React.ReactNode>> = {
+  credit: <CreditCardOffOutlinedIcon sx={{ fontSize: 14 }} />, denomination: <BadgeOutlinedIcon sx={{ fontSize: 14 }} />, price: <SellOutlinedIcon sx={{ fontSize: 14 }} />,
+  head: <EditNoteOutlinedIcon sx={{ fontSize: 14 }} />, margin: <PercentOutlinedIcon sx={{ fontSize: 14 }} />, prepayment: <PaymentsOutlinedIcon sx={{ fontSize: 14 }} />,
+};
 
 /** The figures of a page - top right on the page, big in its BUC View panel; one kind of figure a row. */
 const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
@@ -391,14 +402,13 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
     ];
   },
   stopped: (f, d) => {
-    const st = sumTyped(d, "stopped.stopped", f.yms), tr = sumTyped(d, "stopped.transferred", f.yms);
-    const why = (row: string, label: string, icon: React.ReactNode) => {
-      const n = sumTyped(d, `stopped.${row}`, f.yms);
-      return fig(label, st ? n0(n) : "—", null, undefined, st && n ? `${pct(n / st)} of the stopped` : "typed in per month", icon, "amber");
-    };
+    const s = stSum(f, d), p = stSum(f, d, true);
+    const sh = sumShare(s), psh = sumShare(p);
+    // the share is the KPI (more orders, more stopped); then the count and the two first reasons, each against last year's same months
     return [
-      fig("Orders stopped", tr ? n0(st) : "—", null, undefined, tr ? `${pct(st / tr)} of the ${n0(tr)} transferred` : "not typed in yet", <BlockOutlinedIcon sx={{ fontSize: 14 }} />, "pink"),
-      why("credit", "Credit limit", <CreditCardOffOutlinedIcon sx={{ fontSize: 14 }} />), why("denomination", "Denomination", <BadgeOutlinedIcon sx={{ fontSize: 14 }} />), why("price", "Price missing", <SellOutlinedIcon sx={{ fontSize: 14 }} />),
+      fig("Share stopped", sh == null ? "—" : share(sh), sh, psh, s.transferred ? `of the ${n0(s.transferred)} orders transferred · target at most ${share(STOP_TARGET)}` : "no figure for this period", <BlockOutlinedIcon sx={{ fontSize: 14 }} />, "pink", true),
+      fig("Orders stopped", s.stoppedAll ? n0(s.stoppedAll) : "—", s.stoppedAll || null, p.stoppedAll || null, s.months ? `in ${s.months} month${s.months === 1 ? "" : "s"}` : "no figure for this period", <BlockOutlinedIcon sx={{ fontSize: 14 }} />, "amber", true),
+      ...reasonsRanked(s.reasons).slice(0, 2).map((r) => fig(r.label, n0(r.value), r.value, p.reasons[r.id] ?? null, s.stoppedAll ? `${pct(r.value / s.stoppedAll)} of the stopped` : "", STOP_ICON[r.id] ?? <BlockOutlinedIcon sx={{ fontSize: 14 }} />, "amber", true)),
     ];
   },
 };
@@ -3104,25 +3114,162 @@ export const CHARTS: ChartDef[] = [
   /* KPI autonomy > Manual prices - the shop's prices against the ERP's */
   ...prCharts(),
 
-  /* Stopped orders - typed in */
-  {
-    id: "stopped", page: "stopped", title: "Stopped orders, month by month", hint: () => "Of the Magento orders transferred to the Back Office, the share stopped",
-    figure: ({ f, d }) => { const v = meanOf(f.yms.slice(f.from, Math.max(f.done, f.from + 1)).map((ym) => stoppedShare(d, ym))); return v == null ? null : share(v); },
-    body: ({ f, d }) => {
-      const n = f.year === Number(d.current.slice(0, 4)) ? drawn(f) : f.yms.length;
-      const values = f.yms.slice(0, n).map((ym) => stoppedShare(d, ym)), compare = f.yms.slice(0, n).map((ym) => stoppedShare(d, back(ym)));
-      return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, n)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={share} />;
-    },
-  },
-  {
-    id: "stoppedWhy", page: "stopped", title: "Why orders are stopped", hint: ({ f }) => `${f.year} so far - the top reasons as typed in · the action planned on credit limits: review with the accounts the limits set`,
-    body: ({ f, d }) => {
-      const st = sumTyped(d, "stopped.stopped", f.yms);
-      const rows = [["credit", "Credit limit"], ["denomination", "Denomination"], ["price", "Price missing"]].map(([k, label]) => ({ label, value: sumTyped(d, `stopped.${k}`, f.yms) }));
-      return <BarList rows={rows.map((r) => ({ ...r, secondary: st ? `${pct(r.value / st)} of the stopped` : "" }))} format={(v) => int(v ?? 0)} labelWidth={160} emptyMessage="Nothing typed in for this year yet." />;
-    },
-  },
+  /* Stopped orders - the Back Office's evaluation of the stopped orders (lib/reporting/boStopped.ts) */
+  ...stoppedCharts(),
 ];
+
+/** Stopped orders: the share and the counts, why, per mandant, who released them, and the months as a table. */
+function stoppedCharts(): ChartDef[] {
+  const none = (f: Frame) => <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>{`No stopped orders for ${f.year} in the file yet.`}</Typography>;
+  const byOrder = (s: ReturnType<typeof stSum>) => (s.detailed ? null : <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>Counted order by order from January 2026 - the file has month totals only before.</Typography>);
+  const share0 = (n: number, of: number) => (of ? pct(n / of) : "");
+  return [
+    {
+      id: "stopped", page: "stopped", title: "Stopped orders, month by month", hint: () => `Of the eShop orders transferred to the ERP, the share Performis stopped · target at most ${share(STOP_TARGET)}`,
+      figure: ({ f, d }) => { const v = sumShare(stSum(f, d)); return v == null ? null : share(v); },
+      body: ({ f, d }) => {
+        const ys = stYms(f, d);
+        if (!ys.length) return none(f);
+        const values = ys.map((ym) => stopShare(stM(d, ym))), compare = ys.map((ym) => stopShare(stM(d, back(ym))));
+        return <MonthTrend values={values} compare={compare.some((x) => x != null) ? compare : null} labels={f.labels.slice(0, ys.length)} label={String(f.year)} compareLabel={String(f.year - 1)} fmt={share} target={STOP_TARGET} />;
+      },
+    },
+    {
+      id: "stoppedCounts", page: "stopped", title: "Orders transferred and stopped", hint: () => "Each month's eShop orders the ERP took over: those it let through and those it stopped",
+      figure: ({ f, d }) => { const s = stSum(f, d); return s.stoppedAll ? int(s.stoppedAll) : null; },
+      body: ({ f, d }) => {
+        const ys = stYms(f, d);
+        if (!ys.length) return none(f);
+        const data = ys.map((ym, i) => { const m = stM(d, ym); return { x: f.labels[i], stopped: m?.stopped ?? null, through: m && m.transferred != null && m.stopped != null ? m.transferred - m.stopped : null }; });
+        return <StackedColumns height={280} format={n0} data={data} parts={[{ key: "stopped", label: "Stopped" }, { key: "through", label: "Let through", color: DEEMPHASIS }]} />;
+      },
+    },
+    {
+      id: "stoppedWhy", page: "stopped", title: "Why orders are stopped", hint: ({ f }) => `${f.year}, the months in the file - the reasons ticked on the stopped orders; an order can have several, so the shares add up to more than 100 % · against ${f.year - 1}'s same months`,
+      figure: ({ f, d }) => reasonsRanked(stSum(f, d).reasons)[0]?.label ?? null,
+      body: ({ f, d }) => {
+        const s = stSum(f, d), p = stSum(f, d, true);
+        const rows = reasonsRanked(s.reasons);
+        if (!rows.length) return none(f);
+        return <BarList rows={rows.map((r) => ({ label: r.label, value: r.value, secondary: `${share0(r.value, s.stoppedAll)} of the stopped${p.reasons[r.id] ? ` · ${f.year - 1}: ${int(p.reasons[r.id]!)}` : ""}` }))} format={(v) => int(v ?? 0)} labelWidth={200} />;
+      },
+    },
+    {
+      id: "stoppedWhyMonths", page: "stopped", title: "The first reasons, month by month", hint: ({ f }) => `${f.year}'s five most frequent reasons, each month's stopped orders that had it`,
+      body: ({ f, d }) => {
+        const ys = stYms(f, d), top = reasonsRanked(stSum(f, d).reasons).slice(0, 5);
+        if (!ys.length || !top.length) return none(f);
+        return <MultiLine labels={f.labels.slice(0, ys.length)} series={top.map((r) => ({ key: r.id, label: r.label, values: ys.map((ym) => stM(d, ym)?.reasons[r.id] ?? null) }))} format={n0} />;
+      },
+    },
+    {
+      id: "stoppedPerOrder", page: "stopped", title: "How many reasons stopped each order", hint: () => "The stopped orders by the number of reasons ticked on them",
+      body: ({ f, d }) => {
+        const s = stSum(f, d);
+        if (!stYms(f, d).length) return none(f);
+        const empty = byOrder(s);
+        if (empty) return empty;
+        const rows = [["One reason", s.perOrder[0]], ["Two reasons", s.perOrder[1]], ["Three or more", s.perOrder[2]]] as const;
+        return <BarList rows={rows.map(([label, value]) => ({ label, value, secondary: `${share0(value, s.listed)} of the ${int(s.listed)} listed` }))} format={(v) => int(v ?? 0)} labelWidth={160} />;
+      },
+    },
+    {
+      id: "stoppedMandant", page: "stopped", title: "Stopped orders per mandant, month by month", hint: () => "Mandant 100 (APSOparts AG, Switzerland) and 110 (APSOparts GmbH, the EU) - the orders listed each month",
+      body: ({ f, d }) => {
+        const ys = stYms(f, d), s = stSum(f, d);
+        if (!ys.length) return none(f);
+        const empty = byOrder(s);
+        if (empty) return empty;
+        const data = ys.map((ym, i) => { const m = stM(d, ym)?.mandant; return { x: f.labels[i], m100: m ? m["100"] : null, m110: m ? m["110"] : null }; });
+        return <StackedColumns height={280} format={n0} data={data} parts={[{ key: "m100", label: "Mandant 100" }, { key: "m110", label: "Mandant 110" }]} />;
+      },
+    },
+    {
+      id: "stoppedMandantWhy", page: "stopped", title: "Why, per mandant", hint: () => "Each reason's stopped orders in mandant 100 and in mandant 110, and its share of that mandant's stopped orders",
+      body: ({ f, d }) => {
+        const s = stSum(f, d);
+        if (!stYms(f, d).length) return none(f);
+        const empty = byOrder(s);
+        if (empty) return empty;
+        type R = { label: string; a: number; b: number };
+        const rows: R[] = STOP_REASONS.map((r) => ({ label: r.label, a: s.byMandant["100"][r.id] ?? 0, b: s.byMandant["110"][r.id] ?? 0 })).filter((r) => r.a + r.b > 0);
+        const cols: Col<R>[] = [
+          { key: "a", head: "Mandant 100", cell: (r) => int(r.a), sort: (r) => r.a },
+          { key: "as", head: "Of its stopped", cell: (r) => share0(r.a, s.mandant["100"]), sort: (r) => (s.mandant["100"] ? r.a / s.mandant["100"] : 0) },
+          { key: "b", head: "Mandant 110", cell: (r) => int(r.b), sort: (r) => r.b },
+          { key: "bs", head: "Of its stopped", cell: (r) => share0(r.b, s.mandant["110"]), sort: (r) => (s.mandant["110"] ? r.b / s.mandant["110"] : 0) },
+        ];
+        return <FullTable first="Reason" cols={cols} rows={rows} total={{ label: "Orders stopped", a: s.mandant["100"], b: s.mandant["110"] }} initial="a" />;
+      },
+    },
+    {
+      id: "stoppedBy", page: "stopped", title: "Who released the stopped orders", hint: () => "The Back Office person who last changed each stopped order in the ERP",
+      body: ({ f, d }) => {
+        const s = stSum(f, d);
+        if (!stYms(f, d).length) return none(f);
+        const empty = byOrder(s);
+        if (empty) return empty;
+        const rows = Object.entries(s.handledBy).sort((a, b) => b[1] - a[1]).map(([who, n]) => ({ label: personOf(who), value: n, secondary: `${share0(n, s.listed)} of the stopped` }));
+        return <BarList rows={rows} format={(v) => int(v ?? 0)} labelWidth={180} />;
+      },
+    },
+    {
+      id: "stoppedResp", page: "stopped", title: "Who was responsible", hint: () => "From June 2026 the file names the person responsible for each stopped order",
+      body: ({ f, d }) => {
+        const s = stSum(f, d);
+        const rows = Object.entries(s.responsible).sort((a, b) => b[1] - a[1]).map(([who, n]) => ({ label: personOf(who), value: n }));
+        const of = rows.reduce((a, r) => a + r.value, 0);
+        if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>The file names who was responsible from June 2026 on.</Typography>;
+        return <BarList rows={rows.map((r) => ({ ...r, secondary: `${share0(r.value, of)} of the ${int(of)} with a name` }))} format={(v) => int(v ?? 0)} labelWidth={180} />;
+      },
+    },
+    {
+      id: "stoppedByMonths", page: "stopped", title: "Who released them, month by month", hint: () => "The stopped orders each person released, a month a column",
+      body: ({ f, d }) => {
+        const ys = stYms(f, d).filter((ym) => stM(d, ym)?.handledBy);
+        if (!ys.length) return stYms(f, d).length ? byOrder(stSum(f, d)) : none(f);
+        type R = { label: string; n: number[]; t: number };
+        const people = [...new Set(ys.flatMap((ym) => Object.keys(stM(d, ym)!.handledBy!)))];
+        const rows: R[] = people.map((who) => { const n = ys.map((ym) => stM(d, ym)!.handledBy![who] ?? 0); return { label: personOf(who), n, t: n.reduce((a, b) => a + b, 0) }; });
+        const cols: Col<R>[] = [
+          ...ys.map((ym, i) => ({ key: ym, head: MONTHS[Number(ym.slice(5, 7)) - 1], cell: (r: R) => (r.n[i] ? int(r.n[i]) : "—"), sort: (r: R) => r.n[i] })),
+          { key: "t", head: "Total", cell: (r: R) => int(r.t), sort: (r: R) => r.t },
+        ];
+        const tot = ys.map((_, i) => rows.reduce((a, r) => a + r.n[i], 0));
+        return <FullTable first="Person" cols={cols} rows={rows} total={{ label: "All", n: tot, t: tot.reduce((a, b) => a + b, 0) }} initial="t" />;
+      },
+    },
+    {
+      id: "stoppedMonths", page: "stopped", title: "Stopped orders, month by month - the table", hint: () => "Each month's orders transferred and stopped, the tickets per order the Back Office counted, and the first reason",
+      body: ({ f, d }) => {
+        const ys = stYms(f, d);
+        if (!ys.length) return none(f);
+        type R = { label: string; tr: number | null; st: number | null; sh: number | null; ti: number | null; first: string; from: string; note: string };
+        const rows: R[] = ys.map((ym, i) => {
+          const m = stM(d, ym);
+          const first = m ? reasonsRanked(m.reasons)[0] : undefined;
+          return { label: f.labels[i], tr: m?.transferred ?? null, st: m?.stopped ?? null, sh: stopShare(m), ti: m?.tickets != null && m.transferred ? m.tickets / m.transferred : null,
+            first: first ? `${first.label} (${int(first.value)})` : "—", from: !m ? "—" : m.from === "typed" ? "typed in" : "the file", note: m?.note ?? "" };
+        });
+        const cols: Col<R>[] = [
+          { key: "tr", head: "Transferred", cell: (r) => n0(r.tr), sort: (r) => r.tr ?? -1 },
+          { key: "st", head: "Stopped", cell: (r) => n0(r.st), sort: (r) => r.st ?? -1 },
+          { key: "sh", head: "Share stopped", tip: `target at most ${share(STOP_TARGET)}`, cell: (r) => share(r.sh), sort: (r) => r.sh ?? -1 },
+          { key: "ti", head: "Tickets per order", tip: "the Back Office's tickets against the orders transferred, as its overview counts them", cell: (r) => (r.ti == null ? "—" : r.ti.toFixed(2)), sort: (r) => r.ti ?? -1 },
+          { key: "first", head: "First reason", cell: (r) => r.first },
+          { key: "from", head: "From", cell: (r) => (r.note ? <span title={r.note}>{`${r.from} *`}</span> : r.from) },
+        ];
+        const s = stSum(f, d);
+        return (
+          <Box sx={{ display: "grid", gap: 1 }}>
+            <FullTable first="Month" cols={cols} rows={rows} natural total={{ label: periodOf(f), tr: s.transferred || null, st: s.stoppedAll || null, sh: sumShare(s), ti: s.tickets != null && s.ticketOrders ? s.tickets / s.ticketOrders : null, first: reasonsRanked(s.reasons)[0]?.label ?? "—", from: "", note: "" }} />
+            {rows.some((r) => r.note) && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>{`* ${rows.find((r) => r.note)!.note}`}</Typography>}
+          </Box>
+        );
+      },
+    },
+  ];
+}
 const chartKey = (c: ChartDef) => `bo-${c.page}:main:${c.id}`;
 /** by its key - a graph of "OTD & autonomy" (until 03.11.2026) by its id, now on KPI autonomy or Stopped orders */
 const chartByKey = (key: string) => CHARTS.find((c) => chartKey(c) === key) ?? CHARTS.find((c) => key === `bo-otd:main:${c.id}`);
@@ -3219,8 +3366,12 @@ const TABS: Record<Slug, TabDef[]> = {
     { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
   ],
   stopped: [
-    { id: "stopped", label: "Stopped orders", title: "Stopped orders", note: "the share of the orders transferred that was stopped, and why", icon: <BlockOutlinedIcon />, tint: "pink", charts: ["stopped", "stoppedWhy"] },
-    TYPE_IN,
+    { id: "stopped", label: "Stopped orders", title: "Stopped orders", note: `of the eShop orders transferred to the ERP, the share Performis stopped - target at most ${pct(STOP_TARGET)} - and why`, icon: <BlockOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["stopped", "stoppedCounts", "stoppedWhy"] },
+    { id: "why", label: "Why", title: "Why orders are stopped", note: "the reasons ticked on each stopped order, month by month - an order can have several", icon: <HelpOutlineIcon />, tint: "amber", unfiltered: true, charts: ["stoppedWhyMonths", "stoppedPerOrder"] },
+    { id: "mandant", label: "Per mandant", title: "Stopped orders per mandant", note: "mandant 100 (Switzerland) and 110 (the EU): how many were stopped, and why", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["stoppedMandant", "stoppedMandantWhy"] },
+    { id: "who", label: "Who releases them", title: "Who releases the stopped orders", note: "the Back Office person who changed each stopped order in the ERP, and from June 2026 who was responsible", icon: <GroupsOutlinedIcon />, tint: "purple", unfiltered: true, charts: ["stoppedBy", "stoppedResp", "stoppedByMonths"] },
+    { id: "months", label: "Month by month", title: "All the figures, month by month", note: "the orders transferred and stopped, the share, the tickets per order and the first reason", icon: <TableChartOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["stoppedMonths"] },
+    { ...TYPE_IN, note: "the months after the Back Office's file - a month typed in saves when you leave the field; a month in the file shows the file's figures" },
   ],
 };
 
@@ -3668,7 +3819,11 @@ export function BoAutonomyPage() {
   return <TypedPage slug="autonomy" note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): where each eShop order line's price came from - set by the ERP itself (the pass rate) or typed by hand (the manual prices). The Back Office's typed figures stay beside it.` : "The Back Office types each month in until the ERP's order lines come in. The biggest price changes are the shop's prices against the ERP's.")} />;
 }
 export function BoStoppedPage() {
-  return <TypedPage slug="stopped" warn="Stopped orders are on hold until we get the data - the stops happen in Performis after the shop has passed the order on, and neither the ERP's nightly file nor the shop keeps them. Until then these are the Back Office's own figures, not checked." note="Not in HubSpot - no order says it was stopped, or why - so the Back Office types each month in." />;
+  // SARCLA 11.11.2026: the Back Office's own evaluation ("Auswertung Aufgaben 2026") is the source - the stops happen in
+  // Performis after the shop has passed the order on, and neither the ERP's nightly file nor the shop keeps them
+  const last = Object.keys(STOPPED_FILE.months).sort().pop() ?? "";
+  return <TypedPage slug="stopped"
+    note={`From the Back Office's evaluation of the stopped orders ("${STOPPED_FILE.name}", read ${ddmm(STOPPED_FILE.read)}): 2025 as month totals, from January 2026 every stopped order - its reasons, its mandant, who released it - up to ${last ? `${MONTHS[Number(last.slice(5, 7)) - 1]} ${last.slice(0, 4)}` : "its last month"}. A month after the file is typed in on "Type in".`} />;
 }
 
 /* ── the BUC View: a panel per page ────────────────────────────────────── */
