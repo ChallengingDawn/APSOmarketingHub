@@ -4,7 +4,7 @@
 // opening at a block the hub found.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BLOCK, blockPage, blocksIn, clicksPerPart, nameOf, partName, partsWithClicks, shopPart, versionLabel, versionStep, weakBlock } from "../src/lib/convert/blockRules";
+import { BLOCK, blockPage, blocksIn, clicksPerPart, nameOf, partName, partsWithClicks, shopPart, spreadStores, versionLabel, versionStep, weakBlock } from "../src/lib/convert/blockRules";
 import { cleanPage, markFocus, previewCsp } from "../src/lib/convert/preview";
 import { pageDoc } from "../src/lib/content/studio/kinds/page/model";
 import { pageMap } from "../src/lib/content/studio/kinds/page/plan/places";
@@ -125,4 +125,35 @@ test("a YouTube video the preview may not load shows its own still picture with 
   assert.match(out, /<img src="https:\/\/i\.ytimg\.com\/vi\/TfCflmQYwhk\/hqdefault\.jpg"/);
   assert.match(previewCsp("https://www.apsoparts.com"), /img-src [^;]*https:\/\/i\.ytimg\.com/);
   assert.match(previewCsp("https://www.apsoparts.com"), /frame-src 'none'/);
+});
+
+test("the start batch reads every store view's home page first, then the store views in turn - de-CH no longer takes every place", () => {
+  const list = ["/de-CH/a.html", "/de-CH/b.html", "/de-CH/c.html", "/fr-CH/a.html", "/de-CH/", "/fr-CH/", "/en-CH/x.html", "/it-CH/"].map((path) => ({ path }));
+  const store = (p: string) => p.split("/")[1];
+  const home = (p: string) => /^\/[a-z]{2}-[A-Z]{2}\/$/.test(p);
+  assert.deepEqual(spreadStores(list, store, home).map((p) => p.path), [
+    "/de-CH/", "/fr-CH/", "/it-CH/",
+    "/de-CH/a.html", "/fr-CH/a.html", "/en-CH/x.html",
+    "/de-CH/b.html",
+    "/de-CH/c.html",
+  ]);
+  assert.deepEqual(spreadStores([], store, home), []);
+});
+
+test("SEO landing page lists the landing pages to optimize - the hub's own first, then the shop's content pages, never a product page", async () => {
+  const { landingRows } = await import("../src/lib/convert/landing");
+  const g = (path: string, kind: "cms" | "product" | "category", impressions: number, missed: number) => ({ path, url: `https://www.apsoparts.com${path}`, kind, clicks: 3, impressions, ctr: 3 / impressions, position: 8, typical: 0.02, missed, reasons: [], queries: [] });
+  const seo = { rows: [g("/de-CH/o-ring-guide", "cms", 900, 20), g("/de-CH/kalrez", "cms", 4000, 5), g("/de-CH/p/123.html", "product", 9000, 90), g("/de-CH/ours", "cms", 300, 1)] } as never;
+  const hub = [
+    { env: "prod" as const, store: "de-CH", path: "/de-CH/ours", url: "https://www.apsoparts.com/de-CH/ours", at: "2026-11-11T10:00:00Z", action: "created" as const, kind: "cms" as const, pieceId: 7, projectId: 3, title: "Our page" },
+    { env: "acc" as const, store: "en-CH", path: "/en-CH/ours", url: "https://acc.apsoparts.com/en-CH/ours", at: "2026-11-11T09:00:00Z", action: "created" as const, kind: "cms" as const, pieceId: 7, projectId: 3, title: "Our page" },
+  ];
+  const ideas = [{ env: "prod" as const, path: "/de-CH/kalrez", status: "proposed" as const, contentType: "page-refresh" as const }, { env: "prod" as const, path: "/de-CH/kalrez", status: "proposed" as const, contentType: "landing-page" as const }];
+  const rows = landingRows(hub, seo, ideas);
+  assert.deepEqual(rows.map((r) => `${r.ours ? "ours" : "shop"} ${r.env}${r.path}`), [
+    "ours prod/de-CH/ours", "ours acc/en-CH/ours", "shop prod/de-CH/o-ring-guide", "shop prod/de-CH/kalrez",
+  ]);
+  assert.equal(rows[0].shown, 300, "our production page carries its Google numbers");
+  assert.equal(rows[1].shown, null, "an ACC page has none");
+  assert.equal(rows[3].open, 1, "a new-page idea is not one of the page's own optimizations");
 });

@@ -1,11 +1,11 @@
 // APSOconvert > Pages: the shop's pages on production and ACC (src/lib/convert/pages.ts). GET the list (filters, a page
-// of 50) with the summary and each environment's last read; POST {env} reads that environment's sitemaps again - in the
+// of 50) with the summary and each environment's last read; GET ?published=1 the pages the hub itself published; POST {env} reads that environment's sitemaps again - in the
 // background, the page asks again until the read has finished. Reading needs the page's write level.
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv, isKind } from "@/lib/convert/model";
-import { isWhere, lastReads, listPages, pagesSummary, readShop } from "@/lib/convert/pages";
+import { hubPublished, isWhere, lastReads, listPages, pagesSummary, readShop } from "@/lib/convert/pages";
 import { optimizationsOn } from "@/lib/convert/studio";
 
 export const runtime = "nodejs";
@@ -24,6 +24,15 @@ export async function GET(req: NextRequest) {
   const store = sp.get("store");
   const page = Math.max(0, Math.min(10_000, Number.parseInt(sp.get("page") ?? "0", 10) || 0));
   try {
+    // ?published=1: the pages the hub itself put on the shop (Content's Page builder), with their optimizations
+    if (sp.get("published") === "1") {
+      const pages = await hubPublished();
+      const [prodWork, accWork] = await Promise.all([
+        optimizationsOn("prod", pages.filter((p) => p.env === "prod").map((p) => p.path)).catch(() => ({})),
+        optimizationsOn("acc", pages.filter((p) => p.env === "acc").map((p) => p.path)).catch(() => ({})),
+      ]);
+      return NextResponse.json({ configured: true, ok: true, data: { pages, work: { prod: prodWork, acc: accWork } } });
+    }
     const [reads, summary, list] = await Promise.all([
       lastReads(),
       pagesSummary(),

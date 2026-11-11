@@ -10,6 +10,7 @@
 import { getPool, query } from "@/lib/db/client";
 import { readPage } from "@/lib/directup/check";
 import { ENVS, classify, isKind, parseSitemap, sitemapList, sitemapName, type Env, type PageKind } from "./model";
+import { liveOn, type WrittenRecord } from "@/lib/content/studio/kinds/page/published";
 
 /** 4107261: the reading of the shop's pages - one copy of the hub at a time, the schedule and the button alike. */
 const LOCK = 4_107_261;
@@ -299,4 +300,34 @@ export function startConvertPages() {
   const timer = setInterval(() => void tick(), TICK_MS);
   timer.unref?.();
   setTimeout(() => void tick(), 4 * 60_000).unref?.();
+}
+
+/** A page the hub itself put on the shop: Content's Page builder wrote it into Magento (its last step, "To Magento"). */
+export type HubPage = {
+  env: Env; store: string; path: string; url: string; at: string; action: WrittenRecord["action"]; kind: PageKind;
+  pieceId: number; projectId: number; title: string;
+};
+
+/**
+ * PUBLISHED BY THE HUB (SARCLA 11.11.2026: "own pages should also be a tab, to measure only the pages that have been
+ * published via the hub"): every Page builder to-do's pages on production and ACC now - from its own record of what it
+ * wrote into Magento (the to-do's document, "magento", newest first: Content's published.ts liveOn - one per store view,
+ * the ones switched off left out). Read only; none when Content has never written a page.
+ */
+export async function hubPublished(): Promise<HubPage[]> {
+  const r = await query<{ piece_id: number; project_id: number; title: string; magento: unknown }>(
+    `SELECT d.piece_id, p.project_id, p.title, d.doc->'magento' AS magento
+       FROM apsomh_content_piece_docs d JOIN apsomh_content_pieces p ON p.id = d.piece_id
+      WHERE jsonb_typeof(d.doc->'magento') = 'array' AND jsonb_array_length(d.doc->'magento') > 0`,
+  ).catch(() => ({ rows: [] as { piece_id: number; project_id: number; title: string; magento: unknown }[] }));
+  const out: HubPage[] = [];
+  for (const row of r.rows) {
+    const records = (Array.isArray(row.magento) ? row.magento : []).filter((x): x is WrittenRecord => !!x && typeof x === "object" && (x.env === "acc" || x.env === "prod"));
+    for (const env of ["prod", "acc"] as const) {
+      for (const p of liveOn(records, env)) {
+        out.push({ env, store: p.store, path: p.path, url: p.url, at: p.at, action: p.action, kind: classify(p.path).kind, pieceId: Number(row.piece_id), projectId: Number(row.project_id), title: row.title });
+      }
+    }
+  }
+  return out.sort((a, b) => (a.env === b.env ? 0 : a.env === "prod" ? -1 : 1) || b.at.localeCompare(a.at));
 }
