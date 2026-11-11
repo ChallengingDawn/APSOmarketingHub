@@ -8,13 +8,13 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import Inventory2OutlinedIcon from "@mui/icons-material/Inventory2Outlined";
-import ContentCutOutlinedIcon from "@mui/icons-material/ContentCutOutlined";
-import PrecisionManufacturingOutlinedIcon from "@mui/icons-material/PrecisionManufacturingOutlined";
 import { LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
-import { MUTED, type Tint } from "@/app/uc/report/ui";
-import { ChartBox, FullTable, type Col } from "@/app/reporting/eso-benchmark/Figures";
-import { FigureCards, int, pct, type Fig } from "@/app/reporting/products/views/kit";
+import { MUTED } from "@/app/uc/report/ui";
+import { ChartBox, FullTable, TWO, type Col } from "@/app/reporting/eso-benchmark/Figures";
+import { int, pct } from "@/app/reporting/products/views/kit";
+import { StackedColumns } from "@/app/charts/StackedColumns";
+import { BarList } from "@/app/charts/BarList";
+import { SERIES } from "@/app/charts/palette";
 import { PagedBars, PosCell, RateCell } from "./OtdPaged";
 import { GLC_KINDS } from "@/lib/reporting/otdRules";
 import type { ArticleRow, GlcCustomerRow, GlcKindRow, SupplierRow } from "@/lib/reporting/otdLines";
@@ -70,10 +70,10 @@ export function SupplierLeads({ q, fallback }: { q: CustomerQuery; fallback: Rea
 
 /* ── GLC: each kind with its own icon, and the companies ───────────────────────────── */
 
-const KIND_LOOK: { label: string; icon: React.ReactNode; tint: Tint }[] = [
-  { label: "DirectCut: a whole leftover", icon: <Inventory2OutlinedIcon sx={{ fontSize: 14 }} />, tint: "green" },
-  { label: "DirectCut: cut on the saw", icon: <ContentCutOutlinedIcon sx={{ fontSize: 14 }} />, tint: "purple" },
-  { label: "Not a DirectCut order", icon: <PrecisionManufacturingOutlinedIcon sx={{ fontSize: 14 }} />, tint: "slate" },
+const KIND_LOOK: { label: string; short: string }[] = [
+  { label: "DirectCut: a whole leftover", short: "DirectCut leftover" },
+  { label: "DirectCut: cut on the saw", short: "DirectCut cut on the saw" },
+  { label: "Not a DirectCut order", short: "Not a DirectCut order" },
 ];
 
 export function GlcCompanies({ q }: { q: CustomerQuery }) {
@@ -87,9 +87,13 @@ export function GlcCompanies({ q }: { q: CustomerQuery }) {
   if (!list.length) return <ChartBox title="GLC: leftover, cut to size and the rest - and the companies" hint="DirectCut's orders by what it did">{NONE("No GLC line in these months with these filters.")}</ChartBox>;
   // how much of GLC DirectCut can tell at all: it knows only its own orders (the shop's cut articles, since autumn 2026)
   const glcAll = kinds.reduce((a, k) => a + k[0], 0), known = (kinds[0]?.[0] ?? 0) + (kinds[1]?.[0] ?? 0);
-  const figs: Fig[] = kinds.map((k, i) => ({
-    label: KIND_LOOK[i].label, value: `${pct(onTime(k[0], k[1]))} on time`, icon: KIND_LOOK[i].icon, tint: KIND_LOOK[i].tint,
-    sub: `${int(k[0])} lines · ${int(k[1])} late · ${int(k[4])} compan${k[4] === 1 ? "y" : "ies"} · ${days1(avg(k[3], k[0]))} to shipment`,
+  // the kinds as real graphs (SARCLA 11.11.2026: "put this as a real graph, not these small replicas"): on time and late of
+  // each kind side by side, and how many lines, companies and days to shipment each holds
+  const shown = kinds.map((k, i) => ({ k, i })).filter(({ k }) => k[0] > 0);
+  const stacks = shown.map(({ k, i }) => ({ x: KIND_LOOK[i].short, on: k[0] ? (k[0] - k[1]) / k[0] : null, late: k[0] ? k[1] / k[0] : null }));
+  const volume = shown.map(({ k, i }) => ({
+    label: KIND_LOOK[i].label, value: k[0],
+    secondary: `${pct(glcAll ? k[0] / glcAll : null)} of GLC · ${int(k[1])} late · ${int(k[4])} compan${k[4] === 1 ? "y" : "ies"} · ${days1(avg(k[3], k[0]))} to shipment`,
   }));
   type R = GlcCustomerRow & { label: string; rate: number | null };
   const rows: R[] = list.map((x) => ({ ...x, label: x.c, rate: onTime(x.n, x.late) }));
@@ -116,7 +120,18 @@ export function GlcCompanies({ q }: { q: CustomerQuery }) {
     <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
       <ChartBox title="GLC lines: what DirectCut did with them"
         hint={`GLC = the order lines whose article has no supplier: cut to size or made in house · DirectCut (the shop's cutting system, since autumn 2026) knows ${int(known)} of these ${int(glcAll)} GLC lines (${pct(glcAll ? known / glcAll : null)}): a whole leftover piece sent off the shelf, or a piece cut on the saw · "Not a DirectCut order" = every other GLC line - ordered before DirectCut, typed in by the Back Office or made in house - DirectCut cannot say what was done`}>
-        <FigureCards items={figs} />
+        <Box sx={TWO}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, mb: 0.5 }}>On time and late, kind by kind</Typography>
+            <StackedColumns ordinal xFormat={(x) => x} data={stacks}
+              parts={[{ key: "on", label: "On time", color: SERIES[2] }, { key: "late", label: "Late", color: "#c45a1c" }]}
+              format={pct} tickFormat={(v) => (v == null ? "" : `${Math.round(v * 100)}%`)} height={280} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, mb: 0.5 }}>How many lines, kind by kind</Typography>
+            <BarList rows={volume} format={(v) => (v == null ? "—" : int(v))} labelWidth={220} />
+          </Box>
+        </Box>
       </ChartBox>
       <ChartBox title={`The companies that received GLC lines, ${int(rows.length)}`} hint="each company's GLC lines per kind · a click opens the company on the Customers page: its figures, orders line by line and articles">
         <FullTable first="Customer" find="a customer or company" initial="n" rows={rows} cols={cols} onPick={open} />
