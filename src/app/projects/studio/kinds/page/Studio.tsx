@@ -37,7 +37,7 @@ import {
   LIMIT, addBlock, addItem, asWritten, blockOrder, fieldKind, fieldLabel, filledCount, getField, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
-  duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
+  duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, takeOutField, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
   type BlockRow, type FoundBlock,
 } from "@/lib/content/studio/kinds/page/blocklist";
 import { limitOf } from "@/lib/content/studio/kinds/page/fit";
@@ -1519,6 +1519,26 @@ export default function Studio({ api }: StudioProps) {
   // a new page's module the AI or the shop fills from its settings: its block says so on the page too (Content v11)
   const npBusy = Object.fromEntries(Object.entries(modules.busy).filter(([k]) => isModuleKey(k)).map(([k, v]) => [k.slice(3), v]));
 
+  /* "Take it out" where the selection is (Content v12, SARCLA 10.11.2026: "here on tile I cannot take out - also other small
+   * elements, I should be able to delete them"): a tile, a question, a link, a small line, a button, a picture - a module's
+   * part, a product of it; taken out at once, the line above the blocks with its Undo */
+  const takeOutHere = (): { label: string; run: () => void } | null => {
+    if (!sel || !canEdit) return null;
+    const k = sel.key;
+    const done = (text: string, mark: number) => { setSel(null); setWrote({ ok: true, text: `${text}.`, undo: () => undoSince(mark) }); };
+    if (isNew && (k.startsWith("f:") || k.startsWith("b:"))) {
+      const path = k.slice(2);
+      const t = takeOutField(viewOf(docRef.current, langRef.current).fields, path);
+      if (!t) return null;
+      return { label: t.label, run: () => { const mark = entryId; const c = viewOf(docRef.current, langRef.current); const t2 = takeOutField(c.fields, path); if (!t2) return; setView({ ...c, fields: t2.fields }, t2.done); done(t2.done, mark); } };
+    }
+    const p = sel.picked;
+    if (!p || !(k.startsWith("nt:") || p.frag)) return null;
+    const m = tools.moduleTakeOut(p);
+    return m ? { label: m.label, run: () => { const mark = entryId; m.run(); if (entryId > mark) done(m.label.replace(/^Take/, "Took"), mark); } } : null;
+  };
+  const outHere = takeOutHere();
+
   /* the bar over the selection */
   const popOfSel: Pop | null = !sel ? null : sel.picked ? popFor(sel.picked)
     : sel.key.startsWith("f:") && !sel.key.startsWith("f:seo.") ? (fieldKind(sel.key.slice(2)) === "picture" ? { kind: "picture", key: sel.key } : { kind: "text", key: sel.key }) : null;
@@ -1530,7 +1550,7 @@ export default function Studio({ api }: StudioProps) {
       onBlock={selRow && !wholeRow ? () => selectRow(selRow) : undefined}
       edit={popOfSel && pop?.key !== popOfSel.key && canEdit ? { label: popOfSel.kind === "picture" ? "Picture" : popOfSel.kind === "settings" ? "Settings" : "Edit text", run: () => openPop(popOfSel) } : null}
       onSettings={selRow && !(pop?.kind === "settings" && pop.key === selRow.key) ? () => openSettings(selRow) : undefined}
-      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onClose={() => onPick(null)} />
+      onAi={aiHere ? (selRow ? () => openPop({ kind: "ask", key: selRow.key }) : askAi) : undefined} onRemove={outHere} onClose={() => onPick(null)} />
   ) : undefined;
 
   /* the popup at the selection */
@@ -1551,7 +1571,7 @@ export default function Studio({ api }: StudioProps) {
         if (!l) return null;
         return { at: "below", width: 400, node: (
           <TextPop key={k} kicker={kick} title={title || "Link"} value={l.label} max={LIMIT.linkLabel} multiline={false} canEdit={canEdit} live
-            onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop}
+            onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop} onRemove={outHere}
             ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null}
             link={{ api, store: d.store, value: l.url, onChange: (v) => setFieldText(`${path}.url`, v), label: "The page" }}
             note={{ value: l.note, onChange: (v) => setFieldText(`${path}.note`, v), max: LIMIT.linkNote }} />
@@ -1564,7 +1584,7 @@ export default function Studio({ api }: StudioProps) {
           <ButtonPop key={k} kicker={kick} label={b.label} max={LIMIT.button} onLabel={(v) => setFieldText(`${path}.label`, v)} url={b.url} onUrl={(v) => setFieldText(`${path}.url`, v)} stores={pageStores}
             api={api} store={d.store} look={buttonLookOfField(d.fields.looks[path])} grounds={groundOfField(d.fields, path)} fallback="red" canEdit={canEdit}
             onLook={(next, label) => { const cur = viewOf(docRef.current, langRef.current); setView({ ...cur, fields: setLook(cur.fields, path, fieldButtonPatchOf(next)) }, label); }}
-            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} />
+            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} onClose={closePop} onRemove={outHere} />
         ) };
       }
       const value = (getField(d.fields, path) as string | undefined) ?? "";
@@ -1574,7 +1594,7 @@ export default function Studio({ api }: StudioProps) {
         <TextPop key={k} kicker={kick} title={title} value={value} max={limitOf(path) ?? null} multiline={long} marks={marks} canEdit={canEdit} live
           onChange={(v) => setFieldText(path, v)} onDone={(v) => { setFieldText(path, v); closePop(); }} onClose={closePop}
           ai={aiHere ? (ask) => aiField(path, ask) : null}
-          textLook={tools.fieldLook(path)} />
+          textLook={tools.fieldLook(path)} onRemove={outHere} />
       ) };
     }
     if (pop.kind === "text" && sel?.picked && sel.picked.key === k) {
@@ -1591,7 +1611,7 @@ export default function Studio({ api }: StudioProps) {
       const modHit = inMod ? tools.moduleField(p) : null;
       if (modBtn) {
         return { at: "below", width: MODULE_POP_WIDTH, node: (
-          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} />
+          <ButtonPop key={k} kicker={kick} {...modBtn} api={api} store={d.store} canEdit={canEdit} onClose={closePop} ai={aiHere ? (ask, now) => aiWords(p, ask, now) : null} stores={pageStores} onRemove={modBtn.leads ? null : outHere} />
         ) };
       }
       return { at: "below", width: 420, node: (
@@ -1600,6 +1620,7 @@ export default function Studio({ api }: StudioProps) {
           // Content v10 (point 2): its look - a page of the shop's own element (its look change), a module's words (its settings)
           textLook={inMod ? tools.moduleTextLook(p) : tools.elementLook(p)}
           onHide={!inMod ? () => { elEdit(p, { kind: "hide", on: true }); setSel(null); } : null}
+          onRemove={inMod ? outHere : null}
           href={!inMod && p.tag === "a" ? p.href ?? "" : null}
           onDone={(text, html, href) => {
             if (href) elEdit(p, { kind: "attr", name: "href", value: href });

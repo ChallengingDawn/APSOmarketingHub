@@ -11,7 +11,7 @@
 //                      share, a tile's span, a module's two columns
 
 import { useState } from "react";
-import { removeRow, moveRow, moduleKeyOf, newPageRows, moduleFieldEdit, moduleFieldLabel, moduleWordsAt, type BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
+import { removeRow, moveRow, moduleKeyOf, newPageRows, moduleFieldEdit, moduleFieldLabel, moduleWordsAt, takeOutOfModule, type BlockRow } from "@/lib/content/studio/kinds/page/blocklist";
 import { SPLITS, setLook, type Fields } from "@/lib/content/studio/kinds/page/fields";
 import type { PageChange, PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { kindOf, moduleId, moduleOfChange, type ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
@@ -190,6 +190,27 @@ export function useEdit(c: EditCtx) {
     };
   };
 
+  /** a module's part where the click landed, taken out (Content v12, SARCLA 10.11.2026: "other small elements, I should be
+   * able to delete them"): its small line, a line, a button, a date, a point, a question, a product - null where none */
+  const moduleTakeOut = (p: Picked): { label: string; run: () => void } | null => {
+    const key = moduleKeyOfPicked(p);
+    const at = key ? moduleAt(key) : null;
+    if (!key || !at) return null;
+    const hit = p.text.trim() ? moduleWordsAt(at.m, p.text, p.href ?? null) : null;
+    const t = takeOutOfModule(at.m, hit?.field ?? null, p.text);
+    if (!t) return null;
+    return {
+      label: t.label,
+      run: () => {
+        const a = moduleAt(key);
+        if (!a) return;
+        const h = p.text.trim() ? moduleWordsAt(a.m, p.text, p.href ?? null) : null;
+        const t2 = takeOutOfModule(a.m, h?.field ?? null, p.text);
+        if (t2) a.put(t2.module, t2.done);
+      },
+    };
+  };
+
   /* ── switching a block into another module (point 4) ─────────────────── */
 
   /** the modules a row can become, and what it keeps - null when it holds content no other module holds */
@@ -306,7 +327,7 @@ export function useEdit(c: EditCtx) {
     };
   };
 
-  return { fieldLook, elementLook, moduleTextLook, moduleButton, moduleField, optionsFor, switchRow, switchedBar, resizeFor, clearSwitched: () => setSwitched(null) };
+  return { fieldLook, elementLook, moduleTextLook, moduleButton, moduleField, moduleTakeOut, optionsFor, switchRow, switchedBar, resizeFor, clearSwitched: () => setSwitched(null) };
 }
 
 /** The grid of a module's two columns (lib .../modules/looks.ts SPLIT_GRID). */

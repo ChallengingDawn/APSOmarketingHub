@@ -427,3 +427,68 @@ export function moduleWordsEdit(m: ModuleRef, was: string, now: string, href?: s
   const module = moduleFieldEdit(m, at.field, now);
   return module ? { module, field: at.field } : null;
 }
+
+/* ── taking a small part out, on the page (Content v12, SARCLA 10.11.2026: "here on tile I cannot take out - also other
+ *    small elements, I should be able to delete them") ── */
+
+/** What "Take it out" does where a click landed: its words ("Take the tile out") and the page without it - null where
+ * nothing may go (the page's title: its H1). */
+export type TakeOut = { label: string; done: string; fields: Fields };
+
+/**
+ * A new page's part taken out: a tile, a question, a link of its lists (the whole item, an empty one too); a small line, a
+ * line under a title, a button, a picture (emptied - the block stays). Never the page's title (its H1).
+ */
+export function takeOutField(f: Fields, path: string): TakeOut | null {
+  const p = path.split(".");
+  const list = p[0] === "benefits" || p[0] === "faq" || p[0] === "links" ? p[0] : null;
+  if (list && p[1] && (f[list] as { id: string }[]).some((x) => x.id === p[1])) {
+    const name = list === "benefits" ? "tile" : list === "faq" ? "question" : "link";
+    const fields = { ...f, [list]: (f[list] as { id: string }[]).filter((x) => x.id !== p[1]), looks: Object.fromEntries(Object.entries(f.looks).filter(([k]) => !k.startsWith(`${list}.${p[1]}`))) } as Fields;
+    return { label: `Take the ${name} out`, done: `Took a ${name} out`, fields };
+  }
+  if (path === "hero.title") return null;
+  const last = p[p.length - 1];
+  const get = (obj: unknown, keys: string[]): unknown => keys.reduce<unknown>((o, k) => (o && typeof o === "object" ? (Array.isArray(o) ? o.find((x: { id?: string }) => x?.id === k) : (o as Record<string, unknown>)[k]) : undefined), obj);
+  const set = (value: unknown): Fields => {
+    const go = (cur: unknown, i: number): unknown => {
+      if (i === p.length) return value;
+      if (Array.isArray(cur)) return cur.map((x: { id?: string }) => (x?.id === p[i] ? go(x, i + 1) : x));
+      const o = (cur ?? {}) as Record<string, unknown>;
+      return { ...o, [p[i]]: go(o[p[i]], i + 1) };
+    };
+    return go(f, 0) as Fields;
+  };
+  const now = get(f, p);
+  if (now === undefined) return null;
+  if (last === "picture") return now && typeof now === "object" && (now as { url?: string }).url ? { label: "Take the picture out", done: "Took a picture out", fields: set({ ...(now as object), url: "" }) } : null;
+  if (last === "button") return now && typeof now === "object" && ((now as { label?: string }).label || (now as { url?: string }).url) ? { label: "Take the button out", done: "Took a button out", fields: set({ ...(now as object), label: "", url: "" }) } : null;
+  if (typeof now !== "string" || !now.trim()) return null;
+  const what = last === "eyebrow" ? "small line" : last === "sub" || last === "text" ? "line" : /Title$|^title$/.test(last) ? "heading" : "words";
+  return { label: `Take the ${what} out`, done: `Took a ${what} out`, fields: set("") };
+}
+
+/**
+ * A module's part taken out where it was clicked: its small line, its line under the title, a button, a date or a short
+ * setting, a point of its list, a question, one of its products or categories. Never its headline (a module stands on it).
+ */
+export function takeOutOfModule(m: ModuleRef, field: string | null, text = ""): { label: string; done: string; module: ModuleRef } | null {
+  const s = m.settings;
+  const set = (settings: ModuleRef["settings"]) => ({ ...m, settings });
+  const name = kindOf(m.type).name.toLowerCase();
+  if (field === "eyebrow" && s.eyebrow.trim()) return { label: "Take the small line out", done: `Took the ${name}'s small line out`, module: set({ ...s, eyebrow: "" }) };
+  if (field === "text" && s.text.trim()) return { label: "Take the line out", done: `Took the ${name}'s line out`, module: set({ ...s, text: "" }) };
+  if ((field === "link" || field === "link2") && (s[field].label.trim() || s[field].url)) return { label: "Take the button out", done: `Took the ${name}'s button out`, module: set({ ...s, [field]: { label: "", url: "" } }) };
+  const ex = field ? /^extra\.([\w-]+)$/.exec(field) : null;
+  if (ex && s.extra[ex[1]]) { const extra = { ...s.extra }; delete extra[ex[1]]; return { label: "Take it out", done: `Took the ${name}'s ${moduleFieldLabel(m, field!).toLowerCase()} out`, module: set({ ...s, extra }) }; }
+  const pt = field ? /^points\.(\d+)\./.exec(field) : null;
+  if (pt && s.points[Number(pt[1])]) return { label: "Take this point out", done: `Took a point of the ${name} out`, module: set({ ...s, points: s.points.filter((_, i) => i !== Number(pt[1])) }) };
+  const fq = field ? /^faq\.(\d+)\./.exec(field) : null;
+  if (fq && s.faq[Number(fq[1])]) return { label: "Take the question out", done: `Took a question of the ${name} out`, module: set({ ...s, faq: s.faq.filter((_, i) => i !== Number(fq[1])) }) };
+  // the shop's words: a product's or a category's name - that item out of the module
+  if (!field && text.trim()) {
+    const i = s.items.findIndex((c) => sameWords(text.split("\n")[0], c.name));
+    if (i >= 0) return { label: `Take this ${s.items[i].kind === "category" ? "category" : "product"} out`, done: `Took ${s.items[i].name} out of the ${name}`, module: set({ ...s, items: s.items.filter((_, k) => k !== i), fill: s.fill ? { ...s.fill, how: "hand" } : null }) };
+  }
+  return null;
+}
