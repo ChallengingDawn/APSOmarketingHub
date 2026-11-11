@@ -20,7 +20,7 @@ import { hubspotFetchJson } from "@/lib/integrations/hubspot";
 import { magentoConfigured } from "@/lib/doc/config";
 import { magentoGet } from "@/lib/doc/magento";
 import { notifyOrderStock } from "@/lib/searchbar/orderStock";
-import { magentoTs, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
+import { LINE_ARTICLES, lineNames, magentoTs, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder, type Props } from "./rules";
 
 export type Mode = "off" | "stage" | "active";
 const KV_MODE = "connectors:magento:mode";
@@ -251,8 +251,9 @@ const search = (obj: string, filters: object[], properties: string[], limit = 1)
  * mayNotCreate): an order the ERP has is the Compass sync's, and creating it makes a twin.
  */
 async function upsertOrder(props: Props, erpSince?: number): Promise<{ id: string } | { skipped: string }> {
+  // the line articles too: once the ERP linked the order, a shop line's name goes onto the ERP's line of the same article
   const all = (await search("orders", [{ propertyName: "hs_external_order_id", operator: "EQ", value: props.hs_external_order_id }],
-    ["order_order_number", "order_reconcile_state"], 10)).results ?? [];
+    ["order_order_number", "order_reconcile_state", ...LINE_ARTICLES], 10)).results ?? [];
   // the ERP split it: its deliveries carry the web number (an older load stamped them) - which
   // one would get the whole order's addresses and amounts is chance (11.10.2026: the old
   // connector wrote 10000057611's onto its .002), so none does
@@ -332,7 +333,8 @@ async function link(row: { entity_id: string; hs_order_id: string; customer_emai
 /** Put the shop's orders into the staging table - a changed order goes back to "to write". */
 async function stage(orders: MagentoOrder[]): Promise<void> {
   for (const o of orders) {
-    const props = provisionalProps(o, PIPE);
+    // the old connector's fields, and the shop's line names (rules.lineNames - new, 11.11.2026)
+    const props = { ...provisionalProps(o, PIPE), ...lineNames(o) };
     const updated = o.updated_at ? new Date(`${String(o.updated_at).replace(" ", "T")}Z`) : null;
     await q(
       `INSERT INTO apsomh_mg_stage
@@ -345,6 +347,11 @@ async function stage(orders: MagentoOrder[]): Promise<void> {
          customer_email=EXCLUDED.customer_email, customer_name=EXCLUDED.customer_name, mandant=EXCLUDED.mandant,
          skus=EXCLUDED.skus, payload=EXCLUDED.payload, last_seen=now(),
          sync_status = CASE WHEN apsomh_mg_stage.magento_updated_at IS DISTINCT FROM EXCLUDED.magento_updated_at
+                            THEN 'pending'
+                            -- an order written before the line names were kept gets them once (a read back reaches the
+                            -- week's orders, e.g. A26.676387's certificate request of 11.11.2026)
+                            WHEN apsomh_mg_stage.sync_status = 'ok'
+                             AND (apsomh_mg_stage.payload->>'order_line_01_text') IS DISTINCT FROM (EXCLUDED.payload->>'order_line_01_text')
                             THEN 'pending' ELSE apsomh_mg_stage.sync_status END`,
       [o.entity_id, o.increment_id === undefined || o.increment_id === null ? null : String(o.increment_id), updated,
         o.status ?? null, props.hs_currency_code ?? null, o.grand_total ?? null, o.customer_email ?? null,
@@ -696,7 +703,7 @@ export async function compareWithHubSpot(limit = 1500): Promise<Comparison> {
   for (let i = 0; i < staged.length; i += 100) {
     const chunk = staged.slice(i, i + 100);
     // the A-number and the state too: whether the ERP linked an order decides what the hub may write
-    const keys = [...new Set([...chunk.flatMap((r) => Object.keys(r.payload)), "order_order_number", "order_reconcile_state"])];
+    const keys = [...new Set([...chunk.flatMap((r) => Object.keys(r.payload)), "order_order_number", "order_reconcile_state", ...LINE_ARTICLES])];
     const held = byWebNumber(await ordersByWebNumber(chunk.map((r) => r.increment_id), keys));
     for (const r of chunk) {
       out.checked += 1;

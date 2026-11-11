@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ERP_OWNED_AFTER_LINK, erpLinked, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
+import { ERP_OWNED_AFTER_LINK, erpLinked, lineNames, mayNotCreate, orderSkus, provisionalProps, same, validate, writableProps, type MagentoOrder } from "../src/lib/connectors/magento/rules";
 import { erpOwned, fieldNames } from "../src/lib/connectors/magento/fields";
 import { provisionalProps as legacy } from "./fixtures/magentoLegacy";
 
@@ -100,6 +100,8 @@ test("What it writes lists every property the sync can set, and nothing it does 
   const r = rng(11102026);
   const seen = new Set<string>();
   for (let i = 0; i < 2000; i++) for (const k of Object.keys(provisionalProps(order(r, i), PIPE))) seen.add(k.replace(/^order_line_\d{2}_/, "order_line_NN_"));
+  // the line names, kept beside the old connector's mapping (rules.lineNames)
+  for (const k of Object.keys(lineNames({ items: [{ sku: "8001165332", name: "PTFE round bar natural (white) Ø 120 x 180 mm" }] }))) seen.add(k.replace(/^order_line_\d{2}_/, "order_line_NN_"));
   for (const k of seen) assert.ok(listed.has(k), `${k} is written but not on the page`);
   for (const k of listed) assert.ok(seen.has(k), `${k} is on the page but never written`);
   for (const k of ERP_OWNED_AFTER_LINK) assert.ok(erpOwned(k), `${k} should show as ERP-owned`);
@@ -136,4 +138,32 @@ test("a transferred order placed after the last ERP delivery is created - the ER
   assert.match(mayNotCreate(order("transferred", "2026-10-12T09:57:00Z"), now) ?? "", /left to the ERP/, "no delivery on record: left to the ERP");
   assert.match(mayNotCreate(order("canceled", "2026-10-12T09:57:00Z"), now, erpSince) ?? "", /left to the ERP/, "only transferred, never a cancelled order");
   assert.match(mayNotCreate({ hs_external_order_id: "1", hs_external_order_status: "transferred" }, now, erpSince) ?? "", /left to the ERP/, "no placing date: left to the ERP");
+});
+
+test("the shop's line names: numbered as the lines; on an order the ERP linked only onto its line of the same article (SARCLA 11.11.2026)", () => {
+  // A26.676387 (web 6000296968): the cut piece and the certificate fee, the fee's revenue-0 twin folded in
+  const o: MagentoOrder = {
+    increment_id: "6000296968", order_currency_code: "CHF", subtotal: 324.45, created_at: "2026-11-09 13:20:00", status: "processing", grand_total: 349.4,
+    items: [
+      { sku: "8001165332", name: "PTFE round bar natural (white) Ø 120 x 180 mm", qty_ordered: 2, row_total: 324.45 },
+      { sku: "8001133004", name: "", qty_ordered: 1, row_total: 0 },
+      { sku: "8001133004", name: "Konformitätserklärung  FDA / EG 1935", qty_ordered: 1, row_total: 25 },
+    ],
+  };
+  const props = { ...provisionalProps(o, PIPE), ...lineNames(o) };
+  assert.equal(props.order_line_01_article, "8001165332");
+  assert.equal(props.order_line_01_text, "PTFE round bar natural (white) Ø 120 x 180 mm");
+  assert.equal(props.order_line_02_text, "Konformitätserklärung FDA / EG 1935");
+  // a new or provisional order: the names go with the lines
+  assert.equal(writableProps(props, null).order_line_02_text, "Konformitätserklärung FDA / EG 1935");
+  // linked, the ERP's lines in another order: each name onto the ERP line of its article, nothing else of the lines
+  const w = writableProps(props, { order_reconcile_state: "erp_linked", order_line_01_article: "8001133004", order_line_02_article: "8001165332" });
+  assert.deepEqual(Object.keys(w).filter((k) => k.startsWith("order_line_")).sort(), ["order_line_01_text", "order_line_02_text"]);
+  assert.equal(w.order_line_02_text, "PTFE round bar natural (white) Ø 120 x 180 mm");
+  assert.equal(w.order_line_01_text, "Konformitätserklärung FDA / EG 1935");
+  // an article the ERP's order does not have: its name goes nowhere
+  const x = writableProps(props, { order_order_number: "A26.676387.000", order_line_01_article: "8001267963" });
+  assert.equal(Object.keys(x).some((k) => k.startsWith("order_line_")), false);
+  // no name in the shop: nothing written, never a blank
+  assert.deepEqual(lineNames({ items: [{ sku: "1", name: "  " }] }), {});
 });

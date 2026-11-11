@@ -7,7 +7,10 @@
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
-import { keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sumBy, topShare, yearBefore, type CompoundCustomer, type Figure, type KeyMonth, type Priority, type SealingRow } from "./sealingRules";
+import {
+  approvalKinds, approvalRefs, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
+  type CompoundCustomer, type DetailKind, type Figure, type KeyMonth, type Priority, type SealingRow,
+} from "./sealingRules";
 
 const TABLE = "apsomh_ap_sealing";
 let ready: Promise<void> | null = null;
@@ -138,10 +141,26 @@ export type SealingView = {
   noApprovalShare: number;
   /** the share of revenue whose article names no compound */
   noCompoundShare: number;
-  /** the share of the net revenue the 10 largest customers and articles carry - a year earlier: the 10 largest then */
-  concentration: { customers: number | null; prevCustomers: number | null; articles: number | null; prevArticles: number | null };
+  /** the share of the net revenue the 10 largest customers and articles carry - a year earlier: the 10 largest then;
+   *  customer1 / article1: the largest one's share (the pilot's concentration) */
+  concentration: {
+    customers: number | null; prevCustomers: number | null; articles: number | null; prevArticles: number | null;
+    customer1: number | null; prevCustomer1: number | null; article1: number | null; prevArticle1: number | null;
+  };
   priorities: Priority[];
+  /** the compound entries that name none ("No info", "Unknown", "TBD", a drawing) - the pilot's unresolved entries */
+  unresolved: Figure[];
+  /** the net revenue of the approval texts naming each reference the pilot ranks (FDA, WRAS ...) - they overlap */
+  approvalRefs: Figure[];
+  /** the pilot's indicative categories of the approval texts: none written, a datasheet, explicit references, other */
+  approvalKinds: Figure[];
+  /** the customers and the articles with a negative gross margin (net revenue above zero, gross profit below) - a year
+   *  earlier only when the whole of those months is in the figures */
+  negative: { customers: Negative; articles: Negative; prevCustomers: Negative | null; prevArticles: Negative | null };
 };
+
+/** How many, and their net revenue. */
+export type Negative = { count: number; rev: number };
 
 type Raw = { key: string; name: string | null; rev: string; gp: string };
 
@@ -222,6 +241,17 @@ async function monthFigures(f: SealingFilter, from: string, to: string, noComp: 
 
 const NO_MONTH: MonthRow = { rev: 0, gp: 0, customers: 0, articles: 0, noCompound: 0, noApproval: 0 };
 
+/** The customers or the articles whose gross margin is negative over the months, and their net revenue. */
+async function negativeOf(col: "customer" | "article", f: SealingFilter, from: string, to: string): Promise<Negative> {
+  const w = where(f, from, to);
+  const r = (await query<{ n: string; rev: string | null }>(
+    `SELECT COUNT(*) AS n, SUM(x.rev) AS rev FROM (SELECT SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} GROUP BY ${col}) x
+      WHERE x.rev > 0 AND x.gp < 0`,
+    w.vals,
+  )).rows[0];
+  return { count: Number(r?.n ?? 0), rev: Number(r?.rev ?? 0) };
+}
+
 export async function readSealing(f: SealingFilter): Promise<SealingView> {
   await ensureSealingTable();
   const prevFrom = yearBefore(f.from), prevTo = yearBefore(f.to);
@@ -295,6 +325,10 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   });
   // the 10 largest a year earlier only when the whole of those months is in the figures
   const prevAll = !!firstHeld && prevFrom >= firstHeld;
+  const [negCust, negArt, negCustBefore, negArtBefore] = await Promise.all([
+    negativeOf("customer", f, f.from, f.to), negativeOf("article", f, f.from, f.to),
+    prevAll ? negativeOf("customer", f, prevFrom, prevTo) : null, prevAll ? negativeOf("article", f, prevFrom, prevTo) : null,
+  ]);
 
   return {
     meta: {
@@ -324,13 +358,94 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
     compounds: withPrev(named, namedBefore),
     customers: withPrev(custNow, custBefore),
     articles: withPrev(artNow, artBefore).map((a) => ({ ...a, compound: artCompound.get(a.key) ?? "" })),
-    approvals: withPrev(appr.filter((a) => !noApproval(a.name)), apprBefore).slice(0, 60),
+    approvals: withPrev(appr.filter((a) => !noApproval(a.name)), apprBefore).slice(0, 200),
     noApprovalShare: now.rev ? noAppr / now.rev : 0,
     noCompoundShare: now.rev ? noComp / now.rev : 0,
     concentration: {
       customers: topShare(custNow, 10, now.rev), prevCustomers: prevAll ? topShare(custBefore, 10, before.rev) : null,
       articles: topShare(artNow, 10, now.rev), prevArticles: prevAll ? topShare(artBefore, 10, before.rev) : null,
+      customer1: topShare(custNow, 1, now.rev), prevCustomer1: prevAll ? topShare(custBefore, 1, before.rev) : null,
+      article1: topShare(artNow, 1, now.rev), prevArticle1: prevAll ? topShare(artBefore, 1, before.rev) : null,
     },
     priorities: priorities(named, pairs),
+    unresolved: withPrev(compNow.filter((c) => noCompound(c.name)), compBefore.filter((c) => noCompound(c.name))),
+    approvalRefs: approvalRefs(appr),
+    approvalKinds: approvalKinds(appr),
+    negative: { customers: negCust, articles: negArt, prevCustomers: negCustBefore, prevArticles: negArtBefore },
+  };
+}
+
+/* -- the API's filter, read the same way by both routes ----------------------------------------------------------- */
+
+/** The values of a repeated parameter, trimmed, each cut to the column's width. */
+const many = (p: URLSearchParams, key: string, width: number) =>
+  [...new Set(p.getAll(key).map((x) => x.trim().slice(0, width)).filter(Boolean))].slice(0, 40);
+
+/**
+ * ?from=YYYY-MM&to=YYYY-MM&bu=APCH&bu=APDE&channel=... - bu and channel (the selling organisation) may repeat, all of
+ * them when none. The months are kept within those the figures hold; without a period: the year so far, up to the last
+ * month the morning delivery carries.
+ */
+export async function sealingFilterOf(p: URLSearchParams): Promise<SealingFilter> {
+  await ensureSealingTable();
+  const held = (await query<{ first_month: string | null; last_month: string | null }>(
+    `SELECT first_month, last_month FROM ${TABLE}_meta WHERE id = 1`,
+  )).rows[0];
+  const { from, to } = sealingPeriod(
+    { from: p.get("from"), to: p.get("to") },
+    { first: held?.first_month ?? null, last: held?.last_month ?? null },
+    new Date().toISOString().slice(0, 7),
+  );
+  return { from, to, bus: many(p, "bu", 20), channels: many(p, "channel", 60) };
+}
+
+/* -- one customer, article or compound: the pilot's drawer ("Click an entry to inspect its available detail") ----- */
+
+/** A detail's row: an article of the customer, a customer of the article or of the compound. */
+export type DetailRow = Figure & { bus: string; compound: string };
+
+export type SealingDetail = {
+  kind: DetailKind; key: string; name: string; rev: number; gp: number; margin: number;
+  /** the business units that invoiced it; an article's compounds */
+  bus: string[]; compounds: string[];
+  /** how many articles (a customer) or customers (an article, a compound) - `rows` the 100 largest of them */
+  count: number;
+  rows: DetailRow[];
+};
+
+/** The column naming the one asked, the column it breaks down by, its rows' names - never a value from the request. */
+const DETAIL: Record<DetailKind, { match: "customer" | "article" | "compound"; by: "article" | "customer"; rowName: "article_text" | "customer_name"; own: "customer_name" | "article_text" | "compound" }> = {
+  customer: { match: "customer", by: "article", rowName: "article_text", own: "customer_name" },
+  article: { match: "article", by: "customer", rowName: "customer_name", own: "article_text" },
+  compound: { match: "compound", by: "customer", rowName: "customer_name", own: "compound" },
+};
+
+export async function readSealingDetail(f: SealingFilter, kind: DetailKind, key: string): Promise<SealingDetail> {
+  await ensureSealingTable();
+  const d = DETAIL[kind];
+  const w = where(f, f.from, f.to);
+  const vals = [...w.vals, key];
+  const at = `$${vals.length}`;
+  const head = (await query<{ name: string | null; rev: string | null; gp: string | null; n: string; bus: string[] | null; compounds: string[] | null }>(
+    `SELECT MAX(${d.own}) AS name, SUM(rev) AS rev, SUM(gp) AS gp, COUNT(DISTINCT ${d.by}) AS n,
+            array_agg(DISTINCT bu::text) AS bus, array_agg(DISTINCT compound::text) AS compounds
+       FROM ${TABLE} WHERE ${w.sql} AND ${d.match} = ${at}`,
+    vals,
+  )).rows[0];
+  const rows = (await query<{ key: string; name: string | null; rev: string; gp: string; bus: string[] | null; compound: string | null }>(
+    `SELECT ${d.by} AS key, MAX(${d.rowName}) AS name, SUM(rev) AS rev, SUM(gp) AS gp,
+            array_agg(DISTINCT bu::text) AS bus, MAX(compound) AS compound
+       FROM ${TABLE} WHERE ${w.sql} AND ${d.match} = ${at} GROUP BY ${d.by} ORDER BY SUM(rev) DESC LIMIT 100`,
+    vals,
+  )).rows;
+  const rev = Number(head?.rev ?? 0), gp = Number(head?.gp ?? 0);
+  const list = (a: string[] | null | undefined) => (a ?? []).filter(Boolean).sort();
+  return {
+    kind, key, name: head?.name || key, rev, gp, margin: rev ? gp / rev : 0,
+    bus: list(head?.bus), compounds: kind === "article" ? list(head?.compounds) : [], count: Number(head?.n ?? 0),
+    rows: rows.map((r) => {
+      const rr = Number(r.rev), g = Number(r.gp);
+      return { key: r.key, name: r.name || r.key, rev: rr, gp: g, margin: rr ? g / rr : 0, bus: list(r.bus).join(", "), compound: r.compound ?? "" };
+    }),
   };
 }
