@@ -9,6 +9,9 @@
 //   Links      every language's links, where they lead and whether the page is on the shop in its store view
 //   Pictures   the pictures kept in the hub, which a draft puts into HubSpot's files (named from what they show)
 // Drafts to HubSpot stay behind the admin's switch, as before.
+// cv17 (11.11.2026, "continue"): a language's draft made before is UPDATED in place (the same e-mail in HubSpot) while it
+// still is a draft there - "Update the draft"; sent, scheduled or deleted in HubSpot, a new one is made and its row says
+// why. A translated language's draft is made from the campaign's own e-mail in that language when HubSpot has it.
 
 import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -35,7 +38,7 @@ import { toolBtn } from "../blog/ui";
 import { StateLine, type PageLinks } from "./PagePick";
 
 type Push = { on: boolean; byEnv: boolean; admin: boolean };
-type Made = { done: boolean; why?: string; url?: string; emailId?: string; note?: string; sig?: string; at?: string };
+type Made = { done: boolean; why?: string; url?: string; emailId?: string; note?: string; sig?: string; at?: string; made?: "updated" | "new" };
 type Section = "emails" | "links" | "pictures";
 
 const when = (iso: string | null) => {
@@ -46,7 +49,7 @@ const when = (iso: string | null) => {
 
 function stateOf(r: DraftRow): { tone: "ok" | "warn" | "none"; line: string } {
   if (r.state === "same") return { tone: "ok", line: `Draft in HubSpot${r.at ? ` · ${when(r.at)}` : ""}` };
-  if (r.state === "changed") return { tone: "warn", line: `Changed since its draft${r.at ? ` of ${when(r.at)}` : ""} - make it again` };
+  if (r.state === "changed") return { tone: "warn", line: `Changed since its draft${r.at ? ` of ${when(r.at)}` : ""} - update it` };
   return { tone: "none", line: "Not in HubSpot yet" };
 }
 
@@ -73,13 +76,13 @@ export function Send({ api, pages, push, onPush, open, onOpen }: {
   /** Make the drafts of these languages, one after the other; each result said under its row. */
   const make = async (langs: string[]) => {
     setNote(null);
-    const out: { lang: string; ok: boolean }[] = [];
+    const out: { lang: string; ok: boolean; updated?: boolean }[] = [];
     for (let i = 0; i < langs.length; i++) {
       const lang = langs[i];
       setRun({ langs, i, lang });
       const r = await api.act<Made>("hubspot", { confirm: true, lang });
       const ok = r.ok && r.result.done;
-      out.push({ lang, ok });
+      out.push({ lang, ok, updated: r.ok && r.result.made === "updated" });
       if (ok && r.ok) {
         const m = r.result;
         api.setDoc((cur: unknown) => { const v = versionIn(cur, lang); return withVersion(cur, lang, { ...v, hubspot: { emailId: m.emailId, url: m.url, state: "draft", at: m.at ?? new Date().toISOString(), sig: m.sig } }); });
@@ -90,9 +93,23 @@ export function Send({ api, pages, push, onPush, open, onOpen }: {
     }
     setRun(null);
     const failed = retryLangs(out);
-    setNote(failed.length ? `${out.length - failed.length} of ${out.length} made - ${failed.join(", ")} refused (said under ${failed.length === 1 ? "it" : "each"}).` : `${out.length === 1 ? "The draft is" : `${out.length} drafts are`} in HubSpot - nothing is sent: a person checks ${out.length === 1 ? "it" : "each"} and schedules it there.`);
+    const updated = out.filter((x) => x.ok && x.updated).length;
+    const fresh = out.filter((x) => x.ok && !x.updated).length;
+    const done = [fresh ? `${fresh} made` : "", updated ? `${updated} updated` : ""].filter(Boolean).join(", ");
+    setNote(failed.length ? `${done || "None made"} - ${failed.join(", ")} refused (said under ${failed.length === 1 ? "it" : "each"}).` : `${out.length === 1 ? `The draft is ${updated ? "updated" : ""}`.trim() : `${out.length} drafts are`} in HubSpot${out.length > 1 ? ` (${done})` : ""} - nothing is sent: a person checks ${out.length === 1 ? "it" : "each"} and schedules it there.`);
   };
   const failed = Object.entries(results).filter(([, r]) => !r.ok).map(([l]) => l);
+  // the confirmation: which are made, which updated (a draft made before is updated in place - cv17)
+  const asked = (() => {
+    const ls = asking ?? [];
+    const update = ls.filter((l) => !!rows.find((x) => x.lang === l)?.emailId).length;
+    const verb = update === ls.length ? "Update" : update ? "Make or update" : "Make";
+    return {
+      update,
+      title: ls.length > 1 ? `${verb} ${ls.length} drafts in HubSpot?` : `${verb} the ${ls[0] ?? ""} draft in HubSpot?`,
+      go: ls.length > 1 ? `${verb} the drafts` : `${verb} the draft`,
+    };
+  })();
 
   return (
     <Box sx={{ display: "grid", gap: 1.25 }}>
@@ -152,7 +169,7 @@ export function Send({ api, pages, push, onPush, open, onOpen }: {
             )}
             <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", mt: 1 }}>
               {on && <Button size="small" disabled={!!run || !!r.blocked} onClick={() => setAsking([r.lang])} startIcon={res && !res.ok ? <RefreshIcon sx={{ fontSize: 15 }} /> : <SendOutlinedIcon sx={{ fontSize: 15 }} />} sx={{ ...toolBtn, height: 28, color: res && !res.ok ? "#8f1d1b" : INK }}>
-                {res && !res.ok ? "Try again" : r.state === "none" ? "Make the draft" : "Make it again"}
+                {res && !res.ok ? "Try again" : r.state === "none" ? "Make the draft" : "Update the draft"}
               </Button>}
               {r.url && <Button size="small" href={r.url} target="_blank" rel="noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />} sx={{ ...toolBtn, height: 28 }}>Open in HubSpot</Button>}
               <Button size="small" startIcon={<ContentCopyOutlinedIcon sx={{ fontSize: 14 }} />} sx={{ ...toolBtn, height: 28 }}
@@ -206,14 +223,15 @@ export function Send({ api, pages, push, onPush, open, onOpen }: {
       })}
 
       <Dialog open={!!asking} onClose={() => setAsking(null)} fullWidth maxWidth="xs">
-        <DialogTitle sx={{ fontWeight: 700 }}>{asking && asking.length > 1 ? `Make ${asking.length} drafts in HubSpot?` : `Make the ${asking?.[0] ?? ""} draft in HubSpot?`}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>{asked.title}</DialogTitle>
         <DialogContent>
-          {asking?.map((l) => { const r = rows.find((x) => x.lang === l); return <Typography key={l} sx={{ fontSize: "0.86rem", color: INK }}><b>{l}</b> · “{r?.subject || p.title}”{r?.state === "changed" ? " - a new draft; the older one stays in HubSpot" : ""}</Typography>; })}
+          {asking?.map((l) => { const r = rows.find((x) => x.lang === l); return <Typography key={l} sx={{ fontSize: "0.86rem", color: INK }}><b>{l}</b> · “{r?.subject || p.title}”{r?.emailId ? " - its draft is updated, the same e-mail in HubSpot" : " - a new draft"}</Typography>; })}
+          {asked.update > 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 1 }}>What was changed on {asked.update === 1 ? "that draft" : "those drafts"} in HubSpot is replaced by this e-mail. Sent, scheduled or deleted there: a new one is made, said why.</Typography>}
           <Typography sx={{ fontSize: "0.86rem", color: MUTED, mt: 1 }}>Nothing is sent to anybody: a person checks each draft and schedules it in HubSpot.</Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setAsking(null)} sx={btn}>Cancel</Button>
-          <Button variant="contained" disableElevation sx={mainBtn} onClick={() => { const l = asking ?? []; setAsking(null); void make(l); }}>{asking && asking.length > 1 ? "Make the drafts" : "Make the draft"}</Button>
+          <Button variant="contained" disableElevation sx={mainBtn} onClick={() => { const l = asking ?? []; setAsking(null); void make(l); }}>{asked.go}</Button>
         </DialogActions>
       </Dialog>
     </Box>

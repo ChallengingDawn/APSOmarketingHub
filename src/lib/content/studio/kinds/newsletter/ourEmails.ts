@@ -13,6 +13,8 @@ export type EmailVariant = {
   id: string; language: string; subject: string; date: string; sent: number;
   /** null when the e-mail's opens are not tracked (FR and IT show 0 opens on thousands sent) */
   openRate: number | null; clickRate: number | null; webUrl: string | null;
+  /** its language read from its name (DE_..., FR_...) - the proof that it is a campaign's version in that language (cv17) */
+  named?: boolean;
 };
 export type EmailGroup = { key: string; label: string; kind: "campaign" | "survey" | "other"; date: string; variants: EmailVariant[] };
 
@@ -40,7 +42,7 @@ export function groupEmails(rows: RawEmail[]): EmailGroup[] {
     };
     // the e-mail's own language when its name says it (DE_..., FR_...) - HubSpot marks some e-mails "en" whatever they are
     const named = LANG.exec(e.name ?? "")?.[1]?.toUpperCase();
-    if (named) v.language = named;
+    if (named) { v.language = named; v.named = true; }
     const key = keyOf(e.name ?? e.subject);
     const g = groups.get(key);
     if (g) { g.variants.push(v); if (v.date > g.date) g.date = v.date; }
@@ -298,19 +300,35 @@ export function fileNameOf(alt: string, id: string, ext: string): string {
 
 export type DraftBody = { body: Record<string, unknown>; changed: string[]; notes: string[] };
 
-/** The create-request for the draft: the source e-mail's content with the changed parts rewritten. */
-export function draftFrom(source: SourceEmail, doc: Pick<NewsletterDoc, "subject" | "preheader" | "language" | "blocks">, o: { name: string; uploaded: Record<string, string> }): DraftBody {
-  const content = JSON.parse(JSON.stringify(source.content ?? {})) as NonNullable<SourceEmail["content"]>;
+/** The e-mail a language's draft is made from when it is not the one the newsletter was started from (cv17): our e-mail
+ *  of the same campaign in that language, and where each part of the original is in it (./drafts.ts widgetMap). */
+export type DraftBase = { email: SourceEmail; map: Record<string, string> };
+
+/**
+ * The create-request for the draft: the source e-mail's content with the changed parts rewritten. With a `base` (cv17:
+ * the campaign's e-mail in the draft's own language), the draft is that e-mail - its look, footer and subscription
+ * settings - with the words written here put into its parts; a picture or a link not changed here since the original
+ * stays the base's own (that language's picture, its store view's address).
+ */
+export function draftFrom(source: SourceEmail, doc: Pick<NewsletterDoc, "subject" | "preheader" | "language" | "blocks">, o: { name: string; uploaded: Record<string, string>; base?: DraftBase }): DraftBody {
+  const frame = o.base?.email ?? source;
+  const content = JSON.parse(JSON.stringify(frame.content ?? {})) as NonNullable<SourceEmail["content"]>;
   const widgets = (content.widgets ?? {}) as Record<string, { body?: Record<string, unknown> }>;
+  const original = (source.content?.widgets ?? {}) as Record<string, { body?: Record<string, unknown> }>;
   const changed: string[] = [];
   const notes: string[] = [];
-  const body = (id: string | undefined) => (id && widgets[id]?.body ? widgets[id].body! : null);
+  /** the part of the draft a block's widget of the original is (itself, or its place in the base) */
+  const at = (id: string | undefined) => (id && o.base ? o.base.map[id] ?? undefined : id);
+  const body = (id: string | undefined) => { const w = at(id); return w && widgets[w]?.body ? widgets[w].body! : null; };
+  const was = (id: string | undefined) => (id && original[id]?.body ? original[id].body! : null);
   const used = new Set<string>();
   let added = 0;
+  let ownPictures = 0;
+  let ownLinks = 0;
   for (const b of doc.blocks) {
     const hs = b.hs;
     if (!hs) { if (b.kind !== "footer" && b.kind !== "divider" && b.kind !== "header") added += 1; continue; }
-    for (const w of [hs.text, hs.title, hs.image, hs.button]) if (w) used.add(w);
+    for (const w of [hs.text, hs.title, hs.image, hs.button]) { const m = at(w); if (m) used.add(m); }
     // the words (and a title read from the same widget, or its own)
     if (hs.text && (b.kind === "hero" || b.kind === "article" || b.kind === "text")) {
       const title = b.kind === "hero" ? (hs.title ? b.headline : "") : b.kind === "article" ? b.title : "";
@@ -330,7 +348,10 @@ export function draftFrom(source: SourceEmail, doc: Pick<NewsletterDoc, "subject
     if (hs.image && "imageUrl" in b) {
       const im = body(hs.image);
       const img = (im?.img ?? null) as { src?: string; alt?: string } | null;
-      if (im && img && b.imageUrl && b.imageUrl !== img.src) {
+      const first = ((was(hs.image)?.img ?? null) as { src?: string } | null)?.src;
+      // the base's own picture where the original's was not changed here (cv17)
+      if (o.base && im && img && b.imageUrl && b.imageUrl === first) { if (img.src !== first) ownPictures += 1; }
+      else if (im && img && b.imageUrl && b.imageUrl !== img.src) {
         const src = o.uploaded[b.imageUrl] ?? (/^https:\/\//.test(b.imageUrl) ? b.imageUrl : null);
         if (src) { im.img = { ...img, src, alt: ("imageAlt" in b && b.imageAlt) || img.alt || "" }; changed.push("a picture"); }
         else notes.push(`A picture could not go to HubSpot (${b.imageUrl.slice(0, 60)}) - the original one stays.`);
@@ -340,14 +361,21 @@ export function draftFrom(source: SourceEmail, doc: Pick<NewsletterDoc, "subject
     if (hs.button) {
       const link = b.kind === "hero" || b.kind === "cta" ? b.button : b.kind === "article" ? b.link : null;
       const bt = body(hs.button);
-      if (bt && link && (link.label !== bt.text || link.url !== bt.destination)) {
+      // the base's own address where the original's was not changed here (cv17: its store view)
+      const keepUrl = !!o.base && !!link && link.url === String(was(hs.button)?.destination ?? "");
+      if (keepUrl && bt && bt.destination !== was(hs.button)?.destination) ownLinks += 1;
+      if (bt && link && (link.label !== bt.text || (!keepUrl && link.url !== bt.destination))) {
         if (link.label) bt.text = link.label;
-        if (link.url) bt.destination = link.url;
+        if (link.url && !keepUrl) bt.destination = link.url;
         changed.push(`the button “${link.label.slice(0, 30)}”`);
       }
     }
   }
   if (added) notes.push(`${added} block${added === 1 ? "" : "s"} added in the studio ${added === 1 ? "is" : "are"} not in the draft - add ${added === 1 ? "it" : "them"} in HubSpot (the draft keeps the original's sections).`);
+  if (ownPictures || ownLinks) {
+    const L = (doc.language || "").toUpperCase();
+    notes.push(`Kept from the ${L} e-mail (not changed here): ${[ownPictures ? `${ownPictures} picture${ownPictures === 1 ? "" : "s"}` : "", ownLinks ? `${ownLinks} link${ownLinks === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ")}.`);
+  }
   // the original's parts no block points at any more (taken out in the studio) stay in the draft
   const left = Object.entries(widgets).filter(([id, w]) => {
     const p = String(w.body?.path ?? w.body?.module_id ?? "");
@@ -359,9 +387,9 @@ export function draftFrom(source: SourceEmail, doc: Pick<NewsletterDoc, "subject
   content.widgets = widgets;
   return {
     body: {
-      name: o.name.slice(0, 250), subject: doc.subject, language: (doc.language || source.language || "en").toLowerCase(), subcategory: "batch",
+      name: o.name.slice(0, 250), subject: doc.subject, language: (doc.language || frame.language || "en").toLowerCase(), subcategory: "batch",
       content: { templatePath: content.templatePath, styleSettings: content.styleSettings, flexAreas: content.flexAreas, widgets: content.widgets },
-      ...(source.from ? { from: source.from } : {}), ...(source.subscriptionDetails ? { subscriptionDetails: source.subscriptionDetails } : {}),
+      ...(frame.from ? { from: frame.from } : {}), ...(frame.subscriptionDetails ? { subscriptionDetails: frame.subscriptionDetails } : {}),
     },
     changed, notes,
   };

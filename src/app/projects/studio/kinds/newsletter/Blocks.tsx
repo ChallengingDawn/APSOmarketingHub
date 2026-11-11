@@ -5,10 +5,10 @@
 //               them the way out (the checks, the HTML, the HubSpot draft behind its admin switch)
 //   Gallery     the block types, each drawn as it looks in the e-mail
 //   Layouts     three to start from, drawn small (the words already written are carried over)
-//   BlockTools  what a picked block needs besides its words, on the right: its picture (made or uploaded), where its
-//               button goes, a story's picture side, the logo - the words themselves are edited in the e-mail; under each
-//               link "A page from the Page builder" (./PagePick.tsx, 11.11.2026): a new page's shop address in the
-//               newsletter's language store view
+//   BlockTools  what a picked block has besides its words, under its row: its picture, where its buttons go, the logo,
+//               each product - each a pointer that opens THAT element's card on the e-mail (./ElementPop.tsx: its picture
+//               made or uploaded, its link with "A page from the Page builder"), the one place it is edited (cv17); a
+//               story's picture side, which is the block's own
 
 import { useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -23,24 +23,26 @@ import Typography from "@mui/material/Typography";
 import AddIcon from "@mui/icons-material/Add";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import DashboardCustomizeOutlinedIcon from "@mui/icons-material/DashboardCustomizeOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import MarkEmailReadOutlinedIcon from "@mui/icons-material/MarkEmailReadOutlined";
 import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
+import ImageOutlinedIcon from "@mui/icons-material/ImageOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import {
-  BLOCK_HINT, BLOCK_LABEL, OUR_LOGO, TEMPLATES, blockOf, isOurLogo, newBlock, pictureIdea,
+  BLOCK_HINT, BLOCK_LABEL, OUR_LOGO, TEMPLATES, blockOf, isOurLogo, newBlock,
   type Block, type BlockKind, type NewsletterDoc,
 } from "@/lib/content/studio/kinds/newsletter/model";
-import { Field, Label, PINK, Pane, btn } from "../../parts";
-import { PicturePanel } from "../../pictures";
+import { linkNote } from "@/lib/content/studio/kinds/newsletter/pageLinks";
+import { PINK, Pane, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { StateMark } from "../blog/Outline";
-import { BLUE, Hint, PictureSlot, toolBtn, useFitHeight } from "../blog/ui";
-import { PagePick, type PageLinks } from "./PagePick";
+import { BLUE, Hint, toolBtn, useFitHeight } from "../blog/ui";
+import { StateLine, type PageLinks } from "./PagePick";
 import { BlockThumb, LayoutThumb } from "./thumbs";
 
 const GALLERY: BlockKind[] = ["hero", "article", "text", "banner", "products", "facts", "cta", "divider", "header", "footer"];
@@ -276,95 +278,97 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
   );
 }
 
-type Where = { projectId: number; pieceId: number; me: string };
+/** One thing the picked block has (its picture, where a button goes, a product), as the map shows it: a click opens THAT
+ *  element's card on the e-mail - the one place it is edited (cv17). Read-only: what it is, nothing to open. */
+function Pointer({ label, open, active, disabled, children }: { label: string; open: () => void; active: boolean; disabled: boolean; children: React.ReactNode }) {
+  return (
+    <Box component={disabled ? "div" : "button"} {...(disabled ? {} : { type: "button", onClick: open, "aria-label": `${label} - open its card on the e-mail` })}
+      sx={{
+        all: "unset", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 1, width: "100%", p: 0.75, mb: 0.75, borderRadius: "7px",
+        border: `1px solid ${active ? BLUE : HAIRLINE}`, bgcolor: active ? "rgba(36,89,209,.04)" : "#fff", cursor: disabled ? "default" : "pointer",
+        "&:hover": disabled ? {} : { borderColor: BLUE, bgcolor: "rgba(36,89,209,.03)" }, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: 1 },
+      }}>
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: active ? BLUE : MUTED, lineHeight: 1.5 }}>{label}</Typography>
+        {children}
+      </Box>
+      {!disabled && <ChevronRightIcon sx={{ fontSize: 18, color: active ? BLUE : "#a7b0bb", flexShrink: 0 }} />}
+    </Box>
+  );
+}
 
-/** What the picked block needs besides its words: its picture, where its button goes, a story's side, the logo. */
-export function BlockTools({ b, set, disabled, where, picked, patch, onMaking, pages, language = "EN" }: {
-  b: Block; set: (b: Block) => void; disabled: boolean; where: Where; picked: string | null;
-  /** fields changed on the block as it is when they land (a picture comes up to 40 s later) */
-  patch?: (id: string, p: Partial<Block>) => void;
-  onMaking?: (key: string | null) => void;
-  /** the Page builder's pages, for "A page from the Page builder" under each link (11.11.2026) */
+const mono = { fontSize: "0.76rem", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
+
+/** A picture as the map shows it: small, with what it shows - or the place still empty. */
+function Thumb({ url, alt, contain = false }: { url: string; alt: string; contain?: boolean }) {
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.25 }}>
+      <Box sx={{ width: 56, height: 38, flexShrink: 0, borderRadius: "4px", overflow: "hidden", border: url ? `1px solid ${HAIRLINE}` : "1px dashed #b9c3c9", bgcolor: url ? "#fff" : "#f7f9fa", display: "grid", placeItems: "center" }}>
+        {url ? <Box component="img" src={url} alt="" sx={{ width: "100%", height: "100%", objectFit: contain ? "contain" : "cover", display: "block" }} /> : <ImageOutlinedIcon sx={{ fontSize: 17, color: "#a7b0bb" }} />}
+      </Box>
+      <Typography sx={{ flex: 1, minWidth: 0, fontSize: "0.78rem", color: url ? (alt ? INK : "#b26a00") : "#b26a00", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+        {url ? alt || "No words for it yet - inboxes that block pictures show nothing" : "No picture yet - make or upload it in its card"}
+      </Typography>
+    </Box>
+  );
+}
+
+/**
+ * The picked block under its row: what it has besides its words - its picture, where its buttons go, the logo, each
+ * product - each a pointer to that element's card on the e-mail (cv17, SARCLA 11.11.2026 "continue": the fields here
+ * repeated the cards; now there is one place to edit). A story's picture side stays here: it is the block's, not an
+ * element's. A link says what is wrong with it (another store view, an ACC address) as the card does.
+ */
+export function BlockTools({ b, set, disabled, picked, onOpen, pages, language = "EN" }: {
+  b: Block; set: (b: Block) => void; disabled: boolean; picked: string | null;
+  /** an element's card opened on the e-mail: "<block id>:image", ":button", ":link", ":item<n>Image", ":logo" */
+  onOpen: (key: string) => void;
+  /** the Page builder's pages, for what a link's note says (11.11.2026) */
   pages?: PageLinks;
   /** the newsletter's language - a page is linked in its store view (fr -> fr-CH) */
   language?: string;
 }) {
-  const [otherLogo, setOtherLogo] = useState(false);
-  const pic = (aspect: "16:9" | "1:1" | "3:2") => {
-    if (!("imageUrl" in b)) return null;
+  const key = (field: string) => `${b.id}:${field}`;
+  const point = (field: string, label: string, body: React.ReactNode) => (
+    <Pointer key={field} label={label} open={() => onOpen(key(field))} active={picked === key(field)} disabled={disabled}>{body}</Pointer>
+  );
+  const pic = (label = "Its picture") => ("imageUrl" in b ? point("image", label, <Thumb url={b.imageUrl} alt={b.imageAlt} />) : null);
+  /** where a button (or a picture) leads, with what is said of it */
+  const goes = (url: string, words?: string) => {
+    const n = url ? linkNote(url, language, pages?.rows ?? null) : null;
     return (
-      <Box sx={{ mb: 1.25 }}>
-        <Label mt={0}>Its picture</Label>
-        <PictureSlot url={b.imageUrl} alt={b.imageAlt} aspect={aspect} suggestion={pictureIdea(b)} disabled={disabled} startOpen={picked === `${b.id}:image` || !b.imageUrl} {...where}
-          onMaking={(on) => onMaking?.(on ? `${b.id}:image` : null)}
-          onPick={(p) => { const f = { imageUrl: p.url, imageAlt: p.alt || b.imageAlt || (b.kind === "hero" ? b.headline : b.kind === "article" ? b.title : ""), imagePrompt: p.prompt ?? ("imagePrompt" in b ? b.imagePrompt : "") } as Partial<Block>; if (patch) patch(b.id, f); else set({ ...b, ...f } as Block); }}
-          onAlt={(alt) => set({ ...b, imageAlt: alt } as Block)} onRemove={() => set({ ...b, imageUrl: "" } as Block)} altLabel="What it shows (if pictures are off)" />
-      </Box>
+      <>
+        {words !== undefined && <Typography sx={{ fontSize: "0.8rem", fontWeight: 650, color: words ? INK : "#b26a00", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{words || "No button words - it does not show"}</Typography>}
+        <Typography sx={{ ...mono, color: url ? "#2459d1" : "#b26a00" }}>{url ? url.replace(/^https?:\/\//, "") : "No address yet"}</Typography>
+        {n && n.tone !== "ok" && <StateLine tone={n.tone} line={n.line} mt={0.25} />}
+      </>
     );
   };
-  // a link: typed, or a page of the Page builder picked under it - its shop address in the newsletter's store view
-  // (SARCLA 11.11.2026: "how do we generate the link for the correct page in the newsletter?")
-  const link = (label: string, value: string, put: (v: string) => void) => (
-    <>
-      <Field label={label} value={value} disabled={disabled} placeholder="https://www.apsoparts.com/…" onChange={(v) => put(v.trim())} />
-      {pages && !disabled && <PagePick pages={pages} language={language} value={value} onPick={put} />}
-    </>
-  );
+  const foot = <Hint mt={0.25}>{disabled ? "What it has - an editor changes it in its card on the e-mail." : "A click opens its card on the e-mail - its words, its picture, where it goes."}</Hint>;
   switch (b.kind) {
     case "header": {
       const ours = isOurLogo(b.logoUrl);
-      return (
-        <Box>
-          <Box sx={{ p: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", bgcolor: "#fff", mb: 1 }}>
-            <Box component="img" src={ours ? OUR_LOGO : b.logoUrl} alt="The logo" sx={{ display: "block", width: "100%", maxHeight: 80, objectFit: "contain" }} />
-          </Box>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED, mb: 1 }}>{ours ? "Our logo, as the e-mails we send from HubSpot carry it." : "Another logo, from the hub's Logos."}</Typography>
-          {!disabled && (
-            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-              {!ours && <Button size="small" onClick={() => set({ ...b, logoUrl: "" })} sx={toolBtn}>Back to our logo</Button>}
-              <Button size="small" onClick={() => setOtherLogo((v) => !v)} sx={toolBtn}>{otherLogo ? "Keep this one" : "Another logo…"}</Button>
-            </Box>
-          )}
-          {otherLogo && !disabled && (
-            <Box sx={{ mt: 1, border: `1px solid ${HAIRLINE}`, borderRadius: "8px", p: 1.25, bgcolor: "#fbfcfd" }}>
-              <PicturePanel tabs={["logos", "upload"]} start="logos" aspect="3:2" columns={3} {...where} onPick={(p) => { set({ ...b, logoUrl: p.url }); setOtherLogo(false); }} />
-              <Hint>A PNG or JPG: Outlook and Gmail do not show SVG.</Hint>
-            </Box>
-          )}
-        </Box>
-      );
+      return <>{point("logo", "The logo", <Thumb url={ours ? OUR_LOGO : b.logoUrl} alt={ours ? "Our logo, as the e-mails we send from HubSpot carry it" : "Another logo, from the hub's Logos"} contain />)}{foot}</>;
     }
-    case "hero": return <>{pic("16:9")}{link("Where the button goes", b.button.url, (v) => set({ ...b, button: { ...b.button, url: v } }))}</>;
+    case "hero": return <>{pic()}{point("button", "Its button", goes(b.button.url, b.button.label))}{foot}</>;
     case "article": return <>
       <Box sx={{ mb: 1.25 }}>
-        <SquareChoice label="Picture" value={b.layout ?? "stacked"} onChange={(layout) => set({ ...b, layout })}
+        <SquareChoice label="Picture" value={b.layout ?? "stacked"} onChange={(layout) => { if (!disabled) set({ ...b, layout }); }}
           options={[{ key: "stacked", label: "Above" }, { key: "left", label: "Left" }, { key: "right", label: "Right" }]} />
       </Box>
-      {pic(b.layout === "left" || b.layout === "right" ? "1:1" : "16:9")}
-      {link("Where its button goes", b.link.url, (v) => set({ ...b, link: { ...b.link, url: v } }))}
+      {pic()}
+      {point("link", "Its button", goes(b.link.url, b.link.label))}
+      {foot}
     </>;
     case "products": return <>
-      {b.items.map((x, i) => {
-        const up = (p: Partial<typeof x>) => set({ ...b, items: b.items.map((y, j) => (j === i ? { ...y, ...p } : y)) });
-        const on = picked === `${b.id}:item${i + 1}Image`;
-        return (
-          <Box key={i} sx={{ p: 1.25, pb: 0.25, mb: 1, borderRadius: "8px", border: `1px solid ${on ? BLUE : HAIRLINE}`, bgcolor: "#fbfcfd" }}>
-            <Label mt={0}>Product {i + 1}{x.name ? ` · ${x.name}` : ""}</Label>
-            <Box sx={{ mb: 1 }}>
-              <PictureSlot url={x.imageUrl} alt={x.name} aspect="1:1" startOpen={on} suggestion={x.name ? `${x.name} - ${x.text}` : undefined} disabled={disabled} {...where}
-                onPick={(p) => up({ imageUrl: p.url })} onRemove={() => up({ imageUrl: "" })} />
-            </Box>
-            {link("Its page on the shop", x.url, (v) => up({ url: v }))}
-          </Box>
-        );
-      })}
+      {b.items.map((x, i) => point(`item${i + 1}Image`, `Product ${i + 1}${x.name ? ` · ${x.name}` : ""}`, <><Thumb url={x.imageUrl} alt={x.name} />{goes(x.url)}</>))}
+      {foot}
     </>;
-    case "banner": return <>{pic("16:9")}{link("Where it leads", b.url, (v) => set({ ...b, url: v }))}<Hint>600 px wide - a Banner to-do of this project can make it too.</Hint></>;
+    case "banner": return <>{point("image", "Its picture and where it leads", <><Thumb url={b.imageUrl} alt={b.imageAlt} />{goes(b.url)}</>)}<Hint>600 px wide - a Banner to-do of this project can make it too.</Hint></>;
     case "text": return <Hint mt={0}>Its words are edited in the e-mail, as they look: pick words and B in the label over them (Ctrl+B) makes them bold; Enter starts a new paragraph.</Hint>;
     case "facts": return <Hint mt={0}>The shop&apos;s facts, from the brand brain. Change a word in the e-mail - never invent a figure.</Hint>;
-    case "cta": return link("Where the button goes", b.button.url, (v) => set({ ...b, button: { ...b.button, url: v } }));
+    case "cta": return <>{point("button", "Its button", goes(b.button.url, b.button.label))}{foot}</>;
     case "divider": return <Hint mt={0}>A thin line between two blocks.</Hint>;
     case "footer": return <Hint mt={0}>Our footer, as our e-mails have it: support, LinkedIn, masthead, privacy and the unsubscribe link (HubSpot fills in the reader&apos;s address). Its first line is edited in the e-mail.</Hint>;
   }
 }
-
