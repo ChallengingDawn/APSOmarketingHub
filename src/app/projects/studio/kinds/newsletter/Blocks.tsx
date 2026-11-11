@@ -121,7 +121,7 @@ export function made(d: NewsletterDoc, k: BlockKind, layout?: "stacked" | "left"
   return nb.kind === "article" && layout ? { ...nb, layout } : nb;
 }
 
-export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out, fields, startCard, onWrite, busy }: {
+export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout, out, fields, startCard, onWrite, busy, step: stepIn, onStep }: {
   d: NewsletterDoc; set: (d: NewsletterDoc) => void; sel: string | null; onPick: (id: string | null) => void; canEdit: boolean;
   /** opens the gallery at a place */
   onAdd: (el: HTMLElement, at: number) => void;
@@ -136,12 +136,16 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
   onWrite?: () => void;
   /** the block the assistant is writing ("all": the whole e-mail) */
   busy?: string | null;
+  /** cv16: the step shown, held by the studio (the last step is a publishing view - the assistant folds away) */
+  step?: "blocks" | "out"; onStep?: (s: "blocks" | "out") => void;
 }) {
   const [drag, setDrag] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const [start, setStart] = useState<HTMLElement | null>(null);
   const [layouts, setLayouts] = useState<HTMLElement | null>(null);
-  const [step, setStep] = useState<"blocks" | "out">("blocks");
+  const [stepOwn, setStepOwn] = useState<"blocks" | "out">("blocks");
+  const step = stepIn ?? stepOwn;
+  const setStep = (s: "blocks" | "out") => { setStepOwn(s); onStep?.(s); };
   const addRef = useRef<HTMLButtonElement | null>(null);
   // the map scrolls inside the left pane and the last step stands at its foot, at any height
   const fit = useFitHeight(14, step);
@@ -161,7 +165,8 @@ export function Outline({ d, set, sel, onPick, canEdit, onAdd, onOurs, onLayout,
         <Box sx={{ p: 2 }}>
           <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("blocks")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The e-mail</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
-          <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Send it out</Typography>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 0.25, letterSpacing: "-0.01em" }}>Send it out</Typography>
+          <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 1.5 }}>One HubSpot draft per language - a person checks each and schedules it in HubSpot.</Typography>
           {out}
         </Box>
       </Pane>
