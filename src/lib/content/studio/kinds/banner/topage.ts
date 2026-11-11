@@ -99,3 +99,31 @@ export const bannerOn = (changes: unknown, pieceId: number): boolean =>
 /** The hub's own pictures in a page's HTML as full addresses (a page drawn outside the hub reads them from the hub). */
 export const hubPicturesAbsolute = (html: string, origin: string) =>
   html.replace(/(["'(\s])\/api\/content\/picture\//g, `$1${origin.replace(/\/+$/, "")}/api/content/picture/`);
+
+/* ── cv16: the banner changed after it was put on pages - "Update all" (11.11.2026) ── */
+
+/** Where an earlier change stands the banner: the slider, the top of the content, or after a block. */
+export function whereOfChange(c: { selector?: unknown; where?: unknown }): PageWhere {
+  if (c.selector === SLIDER_SELECTOR) return "slider";
+  if (c.selector === MAIN_SELECTOR && c.where === "prepend") return "top";
+  return "after";
+}
+
+/** The banner's change on a page with its new pictures, link and alt text - at the same place, with the same id (and
+ * whatever else the page studio keeps on it). */
+export function refreshedChange(old: PageChange, b: Omit<BannerOnPage, "where">): PageChange {
+  // (a change that is not an insert or a replace is not the banner's: it goes in again at the top)
+  if (old.op !== "insert" && old.op !== "replace") return bannerChange({ ...b, where: "top" });
+  const m = bannerModule({ ...b, where: whereOfChange(old) });
+  const note = `Banner from the banner studio: ${m.settings.title.slice(0, 80) || "a picture"}`;
+  return { ...old, html: renderModule(m), module: m as unknown as PageModuleRef, note };
+}
+
+/** A short print of how the banner is drawn for pages (its two pictures' markup): the same print = the pictures on the
+ * pages are this banner as it is now. */
+export function lookPrint(...parts: string[]): string {
+  let h = 5381;
+  const s = parts.join("\u0001");
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return `${(h >>> 0).toString(36)}-${s.length.toString(36)}`;
+}

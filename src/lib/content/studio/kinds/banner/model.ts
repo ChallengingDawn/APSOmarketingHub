@@ -143,6 +143,18 @@ export type BannerDoc = {
   headColor: HeadColor;
   language: string;
   notes: string;
+  /** cv16: what its picture should show - "Make it" / "Make another" make it from these words (empty = from its words) */
+  idea?: string;
+  /** cv16: the banner as last drawn for the shop's pages (1920 x 600 and 1080 x 900, kept in the hub): its print, so the
+   * studio knows when the pages carry an older look ("Update all"), and the library shows the banner as drawn */
+  shot?: Shot;
+};
+export type Shot = { print: string; desktop: string; phone: string; at: string };
+const HUB_PIC = /^\/api\/content\/picture\/\d{1,12}-[A-Za-z0-9_-]{4,40}$/;
+const shotOf = (v: unknown): Shot | null => {
+  const o = isObj(v) ? v : null;
+  if (!o || typeof o.desktop !== "string" || !HUB_PIC.test(o.desktop)) return null;
+  return { print: str(o.print, 80), desktop: o.desktop, phone: typeof o.phone === "string" && HUB_PIC.test(o.phone) ? o.phone : "", at: str(o.at, 40) };
 };
 
 const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.slice(0, max) : "");
@@ -206,6 +218,9 @@ export function normalizeBanner(raw: unknown): BannerDoc {
     headColor: isHeadColor(d.headColor) ? d.headColor : "auto",
     language: typeof d.language === "string" && d.language ? d.language.toUpperCase().slice(0, 5) : base.language,
     notes: str(d.notes, 20000),
+    // cv16: kept only when set - every banner made before opens as it was
+    ...(typeof d.idea === "string" && d.idea.trim() ? { idea: str(d.idea, 600) } : {}),
+    ...(shotOf(d.shot) ? { shot: shotOf(d.shot)! } : {}),
   };
 }
 

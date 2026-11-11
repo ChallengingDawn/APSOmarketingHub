@@ -28,7 +28,7 @@ import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { placeChecks } from "@/lib/content/studio/kinds/banner/checks";
 import { ON_PAGE, wordsFor, type BannerDoc } from "@/lib/content/studio/kinds/banner/model";
-import { WHERE_LABEL, type PageWhere } from "@/lib/content/studio/kinds/banner/topage";
+import { WHERE_LABEL, lookPrint, type PageWhere } from "@/lib/content/studio/kinds/banner/topage";
 import { stillMarkup } from "@/lib/content/studio/kinds/banner/render";
 import { PINK, btn, field, mainBtn } from "../../parts";
 import { uploadPicture } from "../../pictures";
@@ -39,6 +39,7 @@ import { CheckLines } from "./Output";
 import type { Pages } from "./Place";
 import { fileName, htmlToPng } from "./png";
 import { Scaled } from "./ui";
+import { OnPages } from "./Pages";
 
 type Row = { store: string; kind: string; name: string; path: string; env: "prod" | "acc"; convert: { status: string } | null };
 type Places = { slider: boolean; blocks: { selector: string; name: string; text: string }[]; kind: string; url: string; todo: { id: number; title: string } | null };
@@ -63,8 +64,10 @@ function RowChoice({ on, title, sub, onClick, disabled }: { on: boolean; title: 
   );
 }
 
-export default function ToPageView({ api, doc, prefix, title, font, pages, onBack, onShowPage }: {
+export default function ToPageView({ api, doc, set, prefix, title, font, pages, onBack, onShowPage }: {
   api: StudioApi; doc: BannerDoc; prefix: string; title: string; font: string | null; pages: Pages;
+  /** cv16: the banner's document - the look it drew for pages is kept on it (doc.shot: "Update all", the library) */
+  set?: (fn: (d: BannerDoc) => BannerDoc) => void;
   onBack: () => void;
   /** the page to-do with the banner in it, shown in the middle */
   onShowPage: (pageId: number) => void;
@@ -156,6 +159,9 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
       if (!r.ok) throw new Error(r.error);
       setStage(null);
       setDone(r.result);
+      // cv16: the look the pages now carry (./Pages.tsx compares it with the banner as it is)
+      const shot = { print: lookPrint(desk.css, desk.html, phone.css, phone.html), desktop: pics.desktop, phone: pics.phone, at: new Date().toISOString() };
+      set?.((d) => ({ ...d, shot }));
       await pages.reload();
       onShowPage(r.result.pieceId);
     } catch (e) {
@@ -167,6 +173,8 @@ export default function ToPageView({ api, doc, prefix, title, font, pages, onBac
   const busy = !!stage;
   return (
     <StepView back="The banner" onBack={onBack} name="Put it on a page">
+      {/* cv16: the pages it is on already - brought up to date at once ("Update all") */}
+      {set && <OnPages api={api} doc={doc} set={set} prefix={prefix} title={title} font={font} pages={pages} onShowPage={onShowPage} />}
       {/* 1. which page */}
       <Typography sx={label}>1 · Which page</Typography>
       {page ? (

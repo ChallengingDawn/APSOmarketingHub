@@ -28,7 +28,13 @@ import type { Op } from "../../doc";
 import { emptyPage, pageDoc, shopUrl, type PageChange } from "../page/model";
 import { findPages, readShopPage } from "../page/shop";
 import { placesIn } from "./pagePlaces";
-import { bannerChange, bannerOn, changeIdFor, withBanner, type PageWhere } from "./topage";
+import { bannerChange, bannerOn, changeIdFor, refreshedChange, withBanner, type PageWhere } from "./topage";
+import { guardCopy, guardVariants, knownText } from "./guard";
+import { bannerPictureWords } from "./media";
+import { getAsset } from "@/lib/content/assets";
+import { contentAddress, contentFileOf, contentMediaState } from "../page/contentMedia";
+import { storePictures } from "../page/pictureStore";
+import type { MediaFile } from "../page/media";
 import { COPY_SCHEMA, VARIANTS_SCHEMA, cleanCopy, cleanVariants, sizesBrief } from "./ai";
 import { PAGE_PLACES, PRESET, bannerText, emptyBanner, isPreset, normalizeBanner, roomiest, type BannerDoc } from "./model";
 import { insertsOf, isWhere, placeOps, unplaceOp } from "./place";
@@ -46,7 +52,7 @@ const RULES = [
 
 const langOf = (code: string) => LANGUAGE_BY_CODE[code.toUpperCase()]?.instruction ?? code;
 
-function context(ctx: StudioCtx, d: BannerDoc): string {
+function context(ctx: StudioCtx, d: BannerDoc, withWords = true): string {
   const b = ctx.brief;
   const c = d.content;
   return [
@@ -59,18 +65,40 @@ function context(ctx: StudioCtx, d: BannerDoc): string {
     "The places this banner is used in, and their room:",
     sizesBrief(d),
     "",
-    "Its words now:",
-    `- eyebrow: ${c.eyebrow || "(empty)"}`,
-    `- headline: ${c.headline || "(empty)"}`,
-    `- changing words: ${c.rotatingWords.length ? c.rotatingWords.join(" / ") : "(none)"}`,
-    `- line: ${c.line || "(empty)"}`,
-    `- button: ${c.button.label || "(empty)"}${c.button.url ? ` (goes to ${c.button.url})` : ""}`,
+    // cv16 "Write it all again > From the topic": its words left out of the question
+    ...(withWords ? [
+      "Its words now:",
+      `- eyebrow: ${c.eyebrow || "(empty)"}`,
+      `- headline: ${c.headline || "(empty)"}`,
+      `- changing words: ${c.rotatingWords.length ? c.rotatingWords.join(" / ") : "(none)"}`,
+      `- line: ${c.line || "(empty)"}`,
+      `- button: ${c.button.label || "(empty)"}${c.button.url ? ` (goes to ${c.button.url})` : ""}`,
+    ] : [`Its button goes to: ${c.button.url || "(nowhere yet)"}`]),
     d.content.image.label ? `- the photo shows: ${d.content.image.label}` : d.content.image.fit === "product" && d.content.image.alt ? `- the picture is the shop's product: ${d.content.image.alt}` : "",
     d.notes.trim() ? `\nNotes on this banner: ${d.notes.trim().slice(0, 1500)}` : "",
   ].filter((x) => x !== "").join("\n");
 }
 
 const ask = (input: Record<string, unknown>) => (typeof input.ask === "string" && input.ask.trim() ? `\n\nWhat the person asks: ${input.ask.trim().slice(0, 1200)}` : "");
+
+/* ── cv16 (11.11.2026, SARCLA: "compare the evolution of this page to the other content types and improve them") ── */
+
+/** "Write it all again" as the Page builder's (its WriteAgain): from the topic (the banner's words left out of the
+ * question), directly (better, nothing asked), or as asked (the ask itself). */
+type WriteMode = "topic" | "better" | "ask";
+const modeOf = (input: Record<string, unknown>): WriteMode | null => (input.mode === "topic" || input.mode === "better" || input.mode === "ask" ? input.mode : null);
+const MODE_TELL: Record<WriteMode, string> = {
+  topic: "Write the banner FRESH from the project and the brief - its words now are left out on purpose; do not try to guess them.",
+  better: "Write the banner's words again, better: the same message, clearer and sharper, shorter where it helps. Keep its angle.",
+  ask: "Write the banner's words again with what the person asks below.",
+};
+/** What the person gave - a certificate named there may stay in the AI's words (./guard.ts). */
+const knownOf = (ctx: StudioCtx, d: BannerDoc, input: Record<string, unknown>) => {
+  const b = ctx.brief;
+  const c = d.content;
+  return knownText([ctx.projectTitle, ctx.piece.title, b.goal, b.audience, b.message, b.keywords.join(", "), d.notes, c.eyebrow, c.headline, c.rotatingWords.join(" "), c.line, c.button.label,
+    typeof input.ask === "string" ? input.ask : ""]);
+};
 
 /* ── put it in a page ─────────────────────────────────────────────────── */
 
@@ -202,6 +230,50 @@ const toPage = async (ctx: StudioCtx, _doc: unknown, input: Record<string, unkno
   };
 };
 
+/** cv16: the banner's own hub pictures stored in the hub's picture storage (the Page builder's: a public address, a
+ * readable name from the picture's words) - "Copy the paste block" names them there (./media.ts). */
+const storeMedia = async (ctx: StudioCtx, doc: unknown) => {
+  if (!ctx.canEdit) throw new Error("You can look at this banner, not store its pictures.");
+  const d = normalizeBanner(doc);
+  const state = contentMediaState();
+  if (!state.on) throw new Error(state.why ?? "The hub's picture storage is off here - download the picture and put it in the shop's media.");
+  const files: MediaFile[] = [];
+  for (const [u, words] of bannerPictureWords(d)) {
+    const id = Number(/^\/api\/content\/picture\/(\d+)-/.exec(u)?.[1]);
+    if (!id) continue;
+    const a = await getAsset(id).catch(() => null);
+    const file = contentFileOf(id, a?.mime, words || a?.name?.replace(/\.[a-z0-9]{2,5}$/i, "") || a?.prompt || "");
+    files.push({ file, url: u, address: contentAddress(state.base, file) });
+  }
+  const out = await storePictures(files);
+  if (out.failed.length) {
+    const list = out.failed.slice(0, 3).map((x) => `${x.file}: ${x.why}`).join("; ");
+    throw new Error(`${out.failed.length === 1 ? "The picture" : `${out.failed.length} pictures`} could not be stored in the hub's picture storage (${list}) - try again in a moment.`);
+  }
+  return { pictures: files.map((f) => ({ url: f.url, file: f.file, address: f.address ?? "" })) };
+};
+
+/** cv16 "Update all": the banner's change on one page to-do with its new pictures, at the same place - one call per page,
+ * so the studio shows each page's progress and each refusal, with "Try again" for the failed ones. */
+const rePlace = async (ctx: StudioCtx, _doc: unknown, input: Record<string, unknown>) => {
+  if (!ctx.canEdit) throw new Error("You can look at this banner, not change the pages it is on.");
+  const page = await editablePage(ctx, input.pageId);
+  const desktop = typeof input.desktop === "string" && HUB_PICTURE.test(input.desktop) ? input.desktop : "";
+  const phone = typeof input.phone === "string" && HUB_PICTURE.test(input.phone) ? input.phone : "";
+  if (!desktop) throw new Error("The banner's picture was not kept - try again.");
+  const stored = await readDoc(page.id);
+  const d = pageDoc(stored?.doc ?? null, page.language);
+  const old = d.changes.find((c) => c.id === changeIdFor(ctx.pieceId));
+  if (!old) throw new Error("The banner is not on this page any more - put it there again with \"Put it on a page\".");
+  const next = refreshedChange(old, {
+    pieceId: ctx.pieceId, store: d.store || "de-CH", desktop, phone,
+    alt: typeof input.alt === "string" ? input.alt.slice(0, 200) : ctx.piece.title, link: typeof input.link === "string" ? input.link.slice(0, 600) : "",
+  });
+  const r = await saveOps(page.id, [{ op: "set", path: ["changes"], value: withBanner(d.changes, next) }], ctx.me.username);
+  if (!r.ok) throw new Error(r.error);
+  return { pieceId: page.id, title: page.title, path: d.path, href: `/projects/${ctx.projectId}/pieces/${page.id}` };
+};
+
 export const bannerKind: KindDef = {
   kind: "banner",
   channel: "ad",
@@ -214,10 +286,15 @@ export const bannerKind: KindDef = {
       system: `${RULES}\n- "sizes": shorter words for a place only where the banner's own words do not fit its room; leave a field empty to keep the banner's words. List only the places in the question.`,
       user: (ctx, doc, input) => {
         const d = normalizeBanner(doc);
-        return `${context(ctx, d)}\n\nWrite the banner's own words for the place with the most room (${PRESET[roomiest(d)].label}), then shorter ones for the other places where needed.${ask(input)}`;
+        const mode = modeOf(input);
+        return `${context(ctx, d, mode !== "topic")}\n\nWrite the banner's own words for the place with the most room (${PRESET[roomiest(d)].label}), then shorter ones for the other places where needed.${mode ? `\n${MODE_TELL[mode]}` : ""}${ask(input)}`;
       },
       maxTokens: 2500,
-      clean: (raw, doc) => cleanCopy(raw, normalizeBanner(doc)),
+      // the shop's word rules on every text (cv16, ./guard.ts): a text that breaks one is left out, and said
+      clean: (raw, doc, ctx, input) => {
+        const d = normalizeBanner(doc);
+        return guardCopy(cleanCopy(raw, d), knownOf(ctx, d, input), d.language);
+      },
     },
     variants: {
       label: "Three other headlines",
@@ -229,11 +306,16 @@ export const bannerKind: KindDef = {
         return `${context(ctx, d)}\n\nGive three other headlines for the banner (${PRESET[k].label}, ${PRESET[k].limits.headline} characters at most).${ask(input)}`;
       },
       maxTokens: 1200,
-      clean: (raw, doc) => cleanVariants(raw, normalizeBanner(doc)),
+      clean: (raw, doc, ctx, input) => {
+        const d = normalizeBanner(doc);
+        return guardVariants(cleanVariants(raw, d).headlines, knownOf(ctx, d, input), d.language);
+      },
     },
   },
   actions: {
     shop_pages: shopPages, page_places: pagePlaces, to_page: toPage,
+    // cv16: the Page builder's "Find a page" (its LinkInput asks "pages") for the button's page; "Update all" on the pages
+    pages: shopPages, re_place: rePlace, store_media: storeMedia,
     place: async (ctx, _doc, input) => {
       const page = await editablePage(ctx, input.pageId);
       const preset = isPreset(input.preset) && PAGE_PLACES.includes(input.preset) ? input.preset : null;

@@ -13,6 +13,12 @@
 //   5. LAST STEP, pinned at the foot of the map (Content v7, SARCLA 10.11.2026 point 11): "Put it on a page" - a page of the
 //      shop and a place on it; the page's Page builder to-do gets the banner as a module, shown in the middle - and "or
 //      get the pictures and the paste block" (the PNGs, the paste block for Magento).
+//   cv16 (11.11.2026, SARCLA: "compare the evolution of this page [the Page builder] to the other content types' generators,
+//   and improve them"): a part clicked on the banner opens its own popup under it, as the Page builder's elements (./Pops.tsx)
+//   - its words, its page, its look, its own "Ask AI" box applied at once with Undo, Take it out; the picture's popup is the
+//   Page builder's (make it from your words, the newest ask wins, fine-tune); the ground opens the banner's design with
+//   "Write it again with AI". "Write it all again" has the Page builder's four ways; every AI text keeps the shop's word
+//   rules (lib .../banner/guard.ts); the pages it is on are brought up to date at once ("Update all", ./Pages.tsx).
 //   Since Content v7 a banner starts from a DESIGN - the shop's own best banners (./Design.tsx) - and its picture can be any
 //   of the shop's products (the picture panel's Products source).
 // The banner is drawn by the same code that writes the paste block and the PNGs (lib/content/studio/kinds/banner/
@@ -43,6 +49,8 @@ export default function Studio({ api }: StudioProps) {
   // a part opened from the map takes the cursor into its words; one selected on the banner does not (a double-click
   // there types right on the banner)
   const [focusLeft, setFocusLeft] = useState(true);
+  // cv16: the map's last step open = a publishing view: the build column twice as wide, the assistant on its rail
+  const [step, setStep] = useState<"map" | "get" | "page">("map");
   const pickFromMap = useCallback((p: PickPart | null) => { setFocusLeft(true); setPickState(p); }, []);
   const pickOnBanner = useCallback((p: PickPart | null) => { setFocusLeft(false); setPickState(p); }, []);
   // the brand's type is never waited on: drawn at once in its look-alike stack, swapped in when it comes
@@ -65,17 +73,18 @@ export default function Studio({ api }: StudioProps) {
   );
 
   return (
-    <StudioPanes id="banner4" buildWidth={360} assistWidth={320}
+    <StudioPanes id="banner4" buildWidth={360} assistWidth={320} wide={step !== "map"}
       build={(
         <Pane pad={false} title="Build">
           <BannerMap api={api} doc={doc} set={set} view={view} setView={setView} pick={pick} setPick={pickFromMap} pages={pages} ai={ai} png={png} prefix={prefix} title={piece.title} focusLeft={focusLeft}
-            font={brandFont.css} showPage={(id) => { setPageId(id); setView("pages"); }} />
+            font={brandFont.css} showPage={(id) => { setPageId(id); setView("pages"); }} onStep={setStep} />
         </Pane>
       )}
       preview={(
         <Stage doc={doc} set={set} prefix={prefix} view={view} setView={setView} font={brandFont.css} fontFailed={brandFont.state === "failed"} title={piece.title} canEdit={canEdit}
           pages={pages} pageId={pageId} setPageId={(id) => { setPageId(id); setView("pages"); }} saved={api.save === "saved"} pieceId={piece.id} projectId={piece.projectId} me={api.data.me}
-          api={api} pick={pick} setPick={pickOnBanner} language={language} busy={ai.busy} onAskAi={() => ask.current?.focus()} png={png} onTyped={ai.note} />
+          api={api} pick={pick} setPick={pickOnBanner} language={language} busy={ai.busy} onAskAi={() => ask.current?.focus()} png={png} onTyped={ai.note}
+          ai={ai} fromBanner={!focusLeft} />
       )}
       assist={<BannerAssistant api={api} doc={doc} ai={ai} pick={pick} setPick={pickFromMap} inputRef={ask} />}
     />

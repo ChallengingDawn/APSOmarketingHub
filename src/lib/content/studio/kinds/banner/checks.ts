@@ -30,12 +30,15 @@ export function placeChecks(d: BannerDoc, k: PresetKey): Check[] {
     out.push({ level: "warn", text: "A product photo on white reads better in another design - the photo behind the words wants a scene." });
   }
   for (const f of brandFlags([w.eyebrow, w.headline, ...w.words, w.line, w.button].join("\n"))) out.push({ level: "stop", text: f });
+  // cv16: prices and delivery times too, as the Page builder's word rules (below)
+  for (const f of promiseFlags([w.eyebrow, w.headline, ...w.words, w.line, w.button].join("\n"))) out.push({ level: "stop", text: f });
   if (p.out === "html" && w.button && !w.url) out.push({ level: "warn", text: "The button goes nowhere - say where it leads." });
   if (p.motion && d.content.rotatingWords.filter((x) => x.trim()).length === 1) out.push({ level: "warn", text: "One changing word does not change - add another, or put it in the headline." });
   const pics = picturesOf(d);
   if (pics.some((u) => !mediaUrl(u))) out.push({ level: "stop", text: "A picture's address cannot be used - pick another picture." });
   if (p.out === "html" && pics.some(isHubPicture)) {
-    out.push({ level: "warn", text: "The picture is kept in the hub, which the shop's visitors cannot reach. Download it, put it in the shop's media, then pick it by its shop address." });
+    // cv16: "Copy the paste block" stores it in the hub's picture storage first (./media.ts, server.ts store_media)
+    out.push({ level: "warn", text: "The picture is kept in the hub: copying the paste block stores it in the hub's picture storage first, where the shop's visitors see it." });
   }
   if (!pics.length && (p.group === "social" || p.group === "mail")) out.push({ level: "warn", text: "No picture - this place reads better with one." });
   return dedupe(out);
@@ -54,4 +57,20 @@ export function placeState(checks: Check[]): "ready" | "look" | "stop" {
 function dedupe(list: Check[]): Check[] {
   const seen = new Set<string>();
   return list.filter((c) => (seen.has(c.text) ? false : (seen.add(c.text), true)));
+}
+
+// a price ("CHF 12.50", "ab 9 €") or a delivery time ("in 24 h", "innert 2 Tagen") - the banner's checks say them too
+// (cv16 - brand.ts brandFlags is shared with the social studio and stays as it is)
+const PRICE = /(\b(CHF|EUR|USD|PLN|Fr\.)\s?\d|\d+([.,]\d+)?\s?(€|\$|CHF|EUR|USD|PLN)(?![\p{L}])|[€$]\s?\d)/iu;
+const DELIVERY = /\b(in|within|innerhalb( von)?|innert|en|entro|binnen|w ciągu)\s+\d+(\s*[/-]\s*\d+)?\s*(h\b|std|stunden|hours?|tage[n]?|days?|jours?|giorni|dagen|dni|werktage[n]?|business days)/i;
+
+/** A price or a delivery time in a banner's words: a short sentence each for the checks ([] = none). */
+export function promiseFlags(text: string): string[] {
+  const t = String(text ?? "");
+  const out: string[] = [];
+  const p = PRICE.exec(t);
+  if (p) out.push(`No prices on a banner - take out "${p[0].trim()}".`);
+  const d = DELIVERY.exec(t);
+  if (d) out.push(`No delivery times on our pieces - take out "${d[0].trim()}".`);
+  return out;
 }

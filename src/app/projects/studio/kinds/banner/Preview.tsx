@@ -40,7 +40,9 @@ import { GROUPS, PRESET, PRESETS, hasPhone, isBand, sizeLabel, sizesOf, togglePl
 import { pasteBlock, pickCss, previewDoc, previewSwap, sizeOf, stillMarkup, stillSheet, type PickPart } from "@/lib/content/studio/kinds/banner/render";
 import { Pane, btn, type Device } from "../../parts";
 import { PART_NAME, inLine, type Set } from "./Editor";
-import { CheckLines, type BannerBusy, type usePng } from "./Output";
+import { CheckLines, type BannerAi, type BannerBusy, type usePng } from "./Output";
+import PartPopup from "./Pops";
+import { AI_BOX_ATTR } from "@/lib/content/studio/kinds/page/barAi";
 import { isWordPart, readPart, targetOf, writePart, type Target, type WordPartKey } from "@/lib/content/studio/kinds/banner/edit";
 import { shimmer, useClock } from "../video/map";
 import { InPage, PageBar, type Pages } from "./Place";
@@ -372,7 +374,7 @@ function PictureActions({ doc, set, projectId, pieceId, me, onWork }: {
 
 /* ── the stage ── */
 
-export default function Stage({ doc, set, prefix, view, setView, font, fontFailed, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId, api, pick, setPick, language, busy, onAskAi, png, onTyped, onTyping, me }: {
+export default function Stage({ doc, set, prefix, view, setView, font, fontFailed, title, canEdit, pages, pageId, setPageId, saved, pieceId, projectId, api, pick, setPick, language, busy, onAskAi, png, onTyped, onTyping, me, ai, fromBanner = false }: {
   doc: BannerDoc; set: Set; prefix: string; view: View; setView: (v: View) => void; font: string | null; fontFailed: boolean; title: string; canEdit: boolean;
   pages: Pages; pageId: number | null; setPageId: (id: number) => void; saved: boolean; pieceId: number; projectId: number; me: string;
   api: Parameters<typeof PageBar>[0]["api"]; pick: PickPart | null; setPick: (p: PickPart | null) => void; language: React.ReactNode;
@@ -385,6 +387,10 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
   onTyped?: (label: string, before: BannerDoc) => void;
   /** words being typed on the banner now (the left card does not take the cursor) */
   onTyping?: (on: boolean) => void;
+  /** cv16: the banner's AI - a part's popup has its own "Ask AI" box */
+  ai?: BannerAi;
+  /** cv16: the part was selected on the banner (not from its row on the left): its popup opens under it */
+  fromBanner?: boolean;
 }) {
   const [box, width] = useWidth<HTMLDivElement>(820);
   const [device, setDevice] = useState<Device>("desktop");
@@ -471,8 +477,21 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
   const dock = useRef<HTMLDivElement | null>(null);
   const rect = useRef<Hit["rect"]>(null);
   const [notch, setNotch] = useState({ left: 0, arrow: 40 });
+  // cv16 (the Page builder's element popups): a part selected on the banner opens its popup under it - words, its page,
+  // look, its own "Ask AI" box, Take it out; selected from its row on the left, the small label (its fields are there),
+  // whose "Ask AI" opens the popup with the cursor in its AI box (page/barAi.ts)
+  const [askPop, setAskPop] = useState(false);
+  useEffect(() => { setAskPop(false); }, [pick]);
+  // Esc lets go of the part, wherever the cursor is (a menu or a gallery of the popup closes itself first)
+  useEffect(() => {
+    if (!pick) return;
+    const on = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented && !typingRef.current && !document.querySelector(".MuiPopover-root, .MuiMenu-root, .MuiDialog-root")) setPick(null); };
+    window.addEventListener("keydown", on);
+    return () => window.removeEventListener("keydown", on);
+  }, [pick, setPick]);
+  const popup = !!pick && !!ai && canEdit && (fromBanner || askPop);
   // the label under the part: its words and actions - the picture carries four of them
-  const edW = pick === "picture" ? 440 : 310;
+  const edW = popup ? (pick === "picture" || pick === "background" ? 440 : 400) : pick === "picture" ? 440 : 310;
   const partRect = useCallback((): DOMRect | null => {
     if (live && frame.current && rect.current) {
       const f = frame.current.getBoundingClientRect();
@@ -557,14 +576,25 @@ export default function Stage({ doc, set, prefix, view, setView, font, fontFaile
                         <StillView key={`${stillKey}${phonePic ? "m" : ""}`} onDbl={(part) => onEdit({ kind: "dbl", part })} css={still.css} html={still.html} w={size?.w ?? p.w} h={size?.h ?? p.h} scale={Math.min(1, avail / (size?.w ?? p.w), k === "story" || k === "portrait" || k === "sky" || phonePic ? 620 / (size?.h ?? p.h ?? 1) : 1)} prefix={prefix} picked={pick} onHit={(h) => onHit(h)} boxRef={stillBox} />
                       )}
                     </Box>
-                    {pick && (
+                    {pick && popup && !typing && k && (
+                      <Box ref={dock} data-banner-pop={pick} sx={{ position: "relative", mt: 1.5, ml: `${notch.left}px`, width: edW, maxWidth: "100%", scrollMarginBottom: "24px" }}>
+                        <Box sx={{ position: "absolute", top: -6, left: Math.min(notch.arrow, edW - 24) - 6, width: 12, height: 12, bgcolor: "#fff", borderLeft: "1px solid rgba(21,34,58,.10)", borderTop: "1px solid rgba(21,34,58,.10)", transform: "rotate(45deg)", zIndex: 1 }} />
+                        <PartPopup key={`${pick}-${k}`} api={api} doc={doc} set={set} k={k} part={pick} canEdit={canEdit} ai={ai!} onClose={() => setPick(null)} onTyped={onTyped} onWork={setPicWork} />
+                      </Box>
+                    )}
+                    {pick && (!popup || typing) && (
                       <Box ref={dock} sx={{ position: "relative", mt: 1.25, ml: `${notch.left}px`, width: "fit-content", maxWidth: "100%", scrollMarginBottom: "24px" }}>
                         <Box sx={{ position: "absolute", top: -5, left: Math.min(notch.arrow, 30) - 5, width: 10, height: 10, bgcolor: "#15223a", transform: "rotate(45deg)" }} />
                         <Box sx={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 0.25, pl: 1.25, pr: 0.25, py: 0.25, borderRadius: "6px", bgcolor: "#15223a", color: "#fff", boxShadow: "0 6px 18px rgba(21,34,58,.25)" }}>
                           <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: "#fff", mr: 0.5, whiteSpace: "nowrap" }}>{PART_NAME[pick]}{typing ? <Box component="span" sx={{ fontWeight: 500, color: "rgba(255,255,255,.7)" }}> · typing - Enter keeps it, Esc drops it</Box> : null}</Typography>
                           {pick === "picture" && canEdit && !typing && <PictureActions doc={doc} set={set} projectId={projectId} pieceId={pieceId} me={me} onWork={setPicWork} />}
                           {["eyebrow", "headline", "line", "button"].includes(pick) && canEdit && !typing && (
-                            <Button size="small" onClick={onAskAi} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={{ ...btn, color: "#f7b6cf", fontSize: "0.74rem", py: 0, px: 0.75, minWidth: 0 }}>Ask AI</Button>
+                            <Button size="small" onClick={() => {
+                              // the bar's "Ask AI" acts on what is selected: its own popup, the cursor in its AI box (page/barAi.ts)
+                              if (!ai) { onAskAi(); return; }
+                              setAskPop(true);
+                              setTimeout(() => dock.current?.querySelector<HTMLElement>(`[${AI_BOX_ATTR}]`)?.focus(), 120);
+                            }} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 14 }} />} sx={{ ...btn, color: "#f7b6cf", fontSize: "0.74rem", py: 0, px: 0.75, minWidth: 0 }}>Ask AI</Button>
                           )}
                           <IconButton size="small" onClick={() => setPick(null)} aria-label="Let go of it" sx={{ color: "rgba(255,255,255,.75)", p: 0.4 }}><CloseIcon sx={{ fontSize: 15 }} /></IconButton>
                         </Box>

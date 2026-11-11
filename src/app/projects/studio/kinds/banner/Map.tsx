@@ -13,7 +13,7 @@
 //              editing"): "Put it on a page" (./ToPage.tsx) - and under it "Get the pictures or the paste block" (the PNGs,
 //              the paste block for Magento) - each in its own view, "← The banner"
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -35,13 +35,17 @@ import { CheckLines, GetItView, type BannerAi, type usePng } from "./Output";
 import type { Pages } from "./Place";
 import { AddPlace, Shape, type View } from "./Preview";
 import ToPageView from "./ToPage";
+import { drawnForPages } from "./Pages";
+import { WROTE, WriteAgain } from "./WriteAgain";
+import { SaidRules } from "./Output";
+import { HAIRLINE } from "@/app/uc/report/ui";
 
 /** Where a new banner is for, the first question (the others are added later in "Its places"). */
 const START_PLACES: PresetKey[] = ["slider", "band", "home", "card", "story", "mail"];
 
 const STATE_TEXT = { ready: "Ready", look: "To look at", stop: "Not yet" } as const;
 
-export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title, focusLeft = true, font, showPage }: {
+export default function BannerMap({ api, doc, set, view, setView, pick, setPick, pages, ai, png, prefix, title, focusLeft = true, font, showPage, onStep }: {
   api: StudioApi; doc: BannerDoc; set: Set; view: View; setView: (v: View) => void; pick: PickPart | null; setPick: (p: PickPart | null) => void;
   pages: Pages; ai: BannerAi; png: ReturnType<typeof usePng>; prefix: string; title: string;
   /** the part opened from the map takes the cursor; one selected on the banner does not */
@@ -50,10 +54,16 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   font: string | null;
   /** a page to-do with the banner on it, shown in the middle */
   showPage: (pageId: number) => void;
+  /** cv16: the last step is open - the studio widens it as a publishing view (the assistant folds to its rail) */
+  onStep?: (step: "map" | "get" | "page") => void;
 }) {
   const [step, setStep] = useState<"map" | "get" | "page">("map");
+  useEffect(() => { onStep?.(step); }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  // cv16: does every page it is on carry the banner as it is now? (its print against the one it last drew for pages)
+  const print = useMemo(() => drawnForPages(doc, prefix).print, [doc, prefix]);
   const [placeOpen, setPlaceOpen] = useState<PresetKey | null>(null);
   const [fitMsg, setFitMsg] = useState<string | null>(null);
+  const [writeMsg, setWriteMsg] = useState<string | null>(null);
   const piece = api.data.piece;
   const canEdit = api.data.access.canEdit;
   const canAi = api.data.ai && canEdit;
@@ -68,14 +78,14 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   if (step === "page") {
     return (
       <Box sx={{ height: "100%", overflowY: "auto" }}>
-        <ToPageView api={api} doc={doc} prefix={prefix} title={title} font={font} pages={pages} onBack={() => setStep("map")} onShowPage={showPage} />
+        <ToPageView api={api} doc={doc} set={set} prefix={prefix} title={title} font={font} pages={pages} onBack={() => setStep("map")} onShowPage={showPage} />
       </Box>
     );
   }
   if (step === "get") {
     return (
       <Box sx={{ height: "100%", overflowY: "auto" }}>
-        <GetItView doc={doc} k={shown} prefix={prefix} title={title} png={png} onBack={() => setStep("map")} onPlace={(x) => setView(x)} />
+        <GetItView doc={doc} k={shown} prefix={prefix} title={title} png={png} onBack={() => setStep("map")} onPlace={(x) => setView(x)} api={api} />
       </Box>
     );
   }
@@ -106,7 +116,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   };
   const writtenN = parts.filter((p) => mark(p) === "written").length;
   const openPart = (p: PickPart) => {
-    if (pick === p) { setPick(null); return; }
+    if (pick === p && focusLeft) { setPick(null); return; }
     // from the overview or a page, the banner comes back first (a new view lets go of what was selected), then the part
     if (view === "all" || view === "pages") { setView(shown); setTimeout(() => setPick(p), 60); } else setPick(p);
     setTimeout(() => document.querySelector(`[data-row="b-${p}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 260);
@@ -118,6 +128,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
   const line = st === "ready" ? `${PRESET[shown].label} · ready to go out`
     : <><Box component="span" sx={{ color: st === "stop" ? "#c5221f" : "#8a5a00", fontWeight: 600 }}>{STATE_TEXT[st]}</Box>{` · ${PRESET[shown].label} · ${checks.length} thing${checks.length === 1 ? "" : "s"}`}</>;
   const onPages = (pages.pages ?? []).filter((x) => x.onPage || x.mine.length);
+  const stale = onPages.some((x) => x.onPage) && !!doc.shot && doc.shot.print !== print;
 
   return (
     <MapPane foot={!empty ? (
@@ -152,16 +163,25 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
         </StartCard>
       )}
 
+      {/* cv16: "Write it all again" in the Page builder's four ways (./WriteAgain.tsx): from the topic, directly, as asked,
+          start again - what it did said under the header with its Undo */}
       <Kick right={busy?.part === "all" ? <Writing label="Writing the banner" since={busy.since} /> : !empty && canEdit ? (
-        <Button size="small" disabled={!canAi || !!busy} onClick={writeAll} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: 15 }} />}
-          sx={{ ...btn, color: PINK, px: 0.75, py: 0.1, fontSize: "0.76rem", minWidth: 0 }}>Write it all again</Button>
+        <WriteAgain label="Write it all again" disabled={!canAi || !!busy} busy={!!busy} onRun={(mode, request) => { setWriteMsg(null); void ai.writeAgain(mode, request).then(setWriteMsg); }} />
       ) : undefined}>
         The banner{busy?.part === "all" ? "" : ` · ${writtenN} of ${parts.filter((p) => mark(p) !== "none").length} done`}
       </Kick>
+      {ai.wrote && !busy && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1, px: 1.25, py: 0.6, borderRadius: "8px", bgcolor: "#f1faf5", border: "1px solid #bfe3cf" }}>
+          <Typography sx={{ flex: 1, fontSize: "0.78rem", color: "#1b7a55", fontWeight: 600 }}>{WROTE[ai.wrote.mode]}{ai.wrote.mode === "reset" ? " - its design, places and picture kept" : ""}</Typography>
+          <Button size="small" onClick={ai.undoWrote} sx={{ ...btn, px: 1, py: 0, minWidth: 0, color: PINK, border: `1px solid ${HAIRLINE}`, borderRadius: "6px", fontSize: "0.76rem", bgcolor: "#fff" }}>Undo</Button>
+        </Box>
+      )}
+      {writeMsg && !busy && <Typography sx={{ fontSize: "0.78rem", color: "#7f4f0b", mb: 1 }}>{writeMsg}</Typography>}
+      {ai.wrote && ai.said.length > 0 && !busy && <Box sx={{ mb: 1 }}><SaidRules said={ai.said} /></Box>}
       <MapList>
         {parts.map((p) => (
           <MapRow key={p} id={`b-${p}`} title={PART_NAME[p]} summary={summary(p)} state={mark(p)} busyLabel={busy?.part === "all" ? "Writing…" : `${busy?.label ?? "Writing"}…`}
-            open={pick === p} onToggle={() => openPart(p)}>
+            open={pick === p && focusLeft} onToggle={() => openPart(p)}>
             <PartFields doc={doc} set={set} k={shown} part={p} canEdit={canEdit} projectId={piece.projectId} pieceId={piece.id} me={api.data.me} autoFocus={focusLeft} />
           </MapRow>
         ))}
@@ -195,7 +215,7 @@ export default function BannerMap({ api, doc, set, view, setView, pick, setPick,
           );
         })}
         {onPages.length > 0 && (
-          <MapRow id="p-pages" title="On shop pages" summary={`On ${onPages.length} page${onPages.length === 1 ? "" : "s"}: ${onPages.map((x) => x.path || x.title).join(", ")}`} state="written"
+          <MapRow id="p-pages" title="On shop pages" summary={stale ? `An older look on ${onPages.length} page${onPages.length === 1 ? "" : "s"} - Update all in "Put it on a page"` : `On ${onPages.length} page${onPages.length === 1 ? "" : "s"}: ${onPages.map((x) => x.path || x.title).join(", ")}`} state={stale ? "warn" : "written"}
             accent="blue" open={false} onToggle={() => { setPick(null); setPlaceOpen(null); showPage(onPages[0].id); }} />
         )}
         {made.length > 1 && (
