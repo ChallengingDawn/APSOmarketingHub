@@ -44,8 +44,8 @@ export function putStore(view: string | null | undefined, ref?: { code?: string 
  * page out of its other store views - somebody broadened it in Magento's admin). A page record without store_id, or
  * with one id the shop's list doesn't know: the store view the hub wrote it for (putStore).
  */
-export function updateStoreOf(now: { store_id?: unknown } | null | undefined, view: string | null | undefined, ref?: { code?: string | null } | null): string {
-  const raw = now?.store_id;
+export function updateStoreOf(now: unknown, view: string | null | undefined, ref?: { code?: string | null } | null): string {
+  const raw = now && typeof now === "object" ? (now as { store_id?: unknown }).store_id : undefined;
   if (raw === undefined || raw === null) return putStore(view, ref);
   const ids = (Array.isArray(raw) ? raw : [raw]).map((x) => Number(x)).filter((n) => Number.isInteger(n) && n >= 0);
   if (!ids.length) return putStore(view, ref);
