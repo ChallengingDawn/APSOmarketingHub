@@ -42,7 +42,27 @@ export type BlogDoc = {
   notes: string;
   /** "Changes made here": the assistant's changes, kept with the post (Content v4 - never a picture or the text itself) */
   changes?: StudioChange[];
+  /** where the last step found the post's pages on the shop (cv16) - the Content library's card shows it */
+  published?: Published | null;
 };
+
+/** Where the post's pages were found on the shop (www), and when, by whom (cv16, ./publish.ts). */
+export type Published = { at: string; by: string; pages: { label: string; path: string; url: string }[] };
+
+/** The stored record put right: pages with a shop path, 12 at most; none: no record. */
+export function publishedOf(v: unknown): Published | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const x = v as Record<string, unknown>;
+  const pages = (Array.isArray(x.pages) ? x.pages : []).flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const r = p as Record<string, unknown>;
+    const path = typeof r.path === "string" ? r.path.slice(0, 300) : "";
+    if (!/^\/[a-z]{2}-[A-Z]{2}\/blog/.test(path)) return [];
+    return [{ label: typeof r.label === "string" ? r.label.slice(0, 120) : path, path, url: `https://www.apsoparts.com${path}` }];
+  }).slice(0, 12);
+  if (!pages.length) return null;
+  return { at: typeof x.at === "string" ? x.at.slice(0, 40) : "", by: typeof x.by === "string" ? x.by.slice(0, 120) : "", pages };
+}
 
 export const LIMITS = { title: 110, metaTitle: 60, metaDescription: 155, excerpt: 300, tags: 8 };
 
@@ -167,6 +187,7 @@ export function blogDoc(raw: unknown, defaults: { language?: string | null; auth
     store: str(d.store, 20) || storeOf(lang),
     notes: str(d.notes, 4000),
     changes: changesOf(d.changes),
+    published: publishedOf(d.published),
   };
 }
 

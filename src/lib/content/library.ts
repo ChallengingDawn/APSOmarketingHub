@@ -224,7 +224,13 @@ export function libraryItem(row: LibraryDbRow): LibraryItem | null {
     line = store && slug ? `/${store}/blog/${slug}` : str(d.excerpt, 200);
     picture = pictureOf(d.hero) ?? pictureOf(row.first_pic);
     languages = [upperLang(d.language) || upperLang(row.language) || upperLang(store)].filter(Boolean);
-    official = status === "live";
+    // cv16 (11.11.2026): its pages as the last step found them on the shop (www) - the post, the blog's home, its topics
+    const pub = isObj(d.published) ? d.published : null;
+    const links = (pub && Array.isArray(pub.pages) ? pub.pages.filter(isObj) : [])
+      .map((x) => ({ label: str(x.label, 120) || str(x.path, 200), url: https(str(x.url, 400)) }))
+      .filter((l): l is WhereLink => !!l.url).slice(0, 12);
+    if (pub && links.length) where.push({ kind: "prod", label: "On the shop", at: iso(pub.at) || null, by: str(pub.by, 255) || null, links });
+    official = status === "live" || where.length > 0;
   } else if (kind === "newsletter") {
     own = str(d.subject, 200);
     line = str(d.preheader, 200);
@@ -403,7 +409,7 @@ export function libraryQuery(admin: boolean): string {
                   'headline', d.doc #> '{content,headline}', 'line', d.doc #> '{content,line}', 'eyebrow', d.doc #> '{content,eyebrow}',
                   'image', jsonb_build_object('url', d.doc #> '{content,image,url}')), 'language', d.doc -> 'language')
               WHEN 'blog' THEN jsonb_build_object('title', d.doc -> 'title', 'slug', d.doc -> 'slug', 'store', d.doc -> 'store', 'excerpt', d.doc -> 'excerpt',
-                  'hero', d.doc #> '{hero,url}', 'language', d.doc -> 'language')
+                  'hero', d.doc #> '{hero,url}', 'language', d.doc -> 'language', 'published', d.doc -> 'published')
               WHEN 'newsletter' THEN jsonb_build_object('subject', d.doc -> 'subject', 'preheader', d.doc -> 'preheader', 'language', d.doc -> 'language',
                   'hubspot', d.doc -> 'hubspot',
                   -- cv16: each other language's own HubSpot draft (its words are not read)

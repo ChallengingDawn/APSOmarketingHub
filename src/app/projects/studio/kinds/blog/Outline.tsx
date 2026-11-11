@@ -8,8 +8,11 @@
 //               under its row - one open at a time. Sections are added, moved and removed here.
 //   around it   what is not on the page: what Google shows, notes for the team - opened under their row like a part
 //   last step   pinned at the foot: "LAST STEP · Publish" opens its own view here, "<- The post" goes back
+// cv16 (11.11.2026): "Write it all again" is the Page builder's own choice (../page/WriteAgain.tsx: From the topic /
+// Directly / Ask / Start again); the last step tells the studio it is open (`onStep`) - the build column becomes the wide
+// publishing view, the assistant a rail.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -32,6 +35,8 @@ import { serp } from "@/lib/content/studio/kinds/blog/render";
 import { Field, PINK, Pane, btn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Publish } from "./Publish";
+import type { WriteMode } from "../page/WriteAgain";
+import { WriteAgainPost } from "./WriteAgain";
 import { BLUE, toolBtn, useFitHeight } from "./ui";
 
 /** Where a picked part shows in the map: its row's key (a section's parts all show on its row). */
@@ -124,21 +129,24 @@ function Row({ active, onClick, mark, num, label, detail, warn, tools, children,
   );
 }
 
-export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields, start, onWriteAll, busy }: {
+export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields, start, onWriteAll, busy, onStep }: {
   api: StudioApi; d: BlogDoc; set: (d: BlogDoc) => void; sel: string | null; onPick: (key: string | null) => void;
   onAddSection: () => void; cards: BlogCard[] | null;
   /** the picked part's own fields (its picture, its topics, where its button goes...) - under its row */
   fields?: React.ReactNode;
   /** the start card, while nothing is written */
   start?: React.ReactNode;
-  /** "Write it all again" in the header, once something is written */
-  onWriteAll?: () => void;
+  /** "Write it all again" in the header, once something is written - its way (and the person's words for "Ask") */
+  onWriteAll?: (mode: WriteMode, request?: string) => void;
   /** the row being written by the assistant ("all": the whole post) */
   busy?: string | null;
+  /** the last step opened or closed (the studio makes it the wide publishing view) */
+  onStep?: (step: "map" | "publish") => void;
 }) {
   const canEdit = api.data.access.canEdit;
   const [around, setAround] = useState<"google" | "notes" | null>(null);
   const [step, setStep] = useState<"map" | "publish">("map");
+  useEffect(() => { onStep?.(step); }, [step, onStep]);
   // the map scrolls inside the left pane and the last step stands at its foot, at any height
   const fit = useFitHeight(14, step);
   const rows = outlineOf(d);
@@ -156,19 +164,15 @@ export function Outline({ api, d, set, sel, onPick, onAddSection, cards, fields,
           <Button size="small" startIcon={<ArrowBackIcon sx={{ fontSize: 17 }} />} onClick={() => setStep("map")} sx={{ ...btn, color: INK, px: 0.5, ml: -0.5, mb: 1.25 }}>The post</Button>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: PINK }}>Last step</Typography>
           <Typography sx={{ fontSize: "1.05rem", fontWeight: 750, color: INK, mb: 1.5, letterSpacing: "-0.01em" }}>Publish on the shop</Typography>
-          <Publish api={api} d={d} cards={cards} />
+          <Publish api={api} d={d} set={set} cards={cards} />
         </Box>
       </Pane>
     );
   }
 
-  const linkBtn = { ...btn, minWidth: 0, px: 0.75, py: 0.1, fontSize: "0.74rem", color: PINK, letterSpacing: 0, textTransform: "none" as const, "& .MuiButton-startIcon": { mr: 0.4 } };
   return (
     <Pane title="Build" pad={false} right={onWriteAll ? (
-      <Tooltip title="The assistant writes the whole post again from the brief - Undo brings this one back">
-        {/* a span: the tooltip still hears the pointer while the button is off (the AI writing) */}
-        <span><Button size="small" onClick={onWriteAll} disabled={busy !== null && busy !== undefined} startIcon={<AutoAwesomeOutlinedIcon sx={{ fontSize: "14px !important" }} />} sx={linkBtn}>Write it all again</Button></span>
-      </Tooltip>
+      <WriteAgainPost label="Write it all again" disabled={busy !== null && busy !== undefined} busy={busy === "all"} onRun={onWriteAll} />
     ) : undefined}>
       <Box ref={fit.ref} sx={{ height: fit.height ?? "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
