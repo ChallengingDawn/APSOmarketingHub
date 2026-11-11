@@ -88,6 +88,7 @@ import { WROTE, WriteAgain, type WriteMode } from "./WriteAgain";
 import { moduleChangeOf, modulePending, useModules, type Place } from "./modules/useModules";
 import { MODULES } from "@/lib/content/studio/kinds/page/modules/registry";
 import { kindOf, moduleGap, moduleOfChange } from "@/lib/content/studio/kinds/page/modules/model";
+import { itemsAs, productNumbersOf } from "@/lib/content/studio/kinds/page/modules/translate";
 import AddIcon from "@mui/icons-material/Add";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
@@ -1024,6 +1025,26 @@ export default function Studio({ api }: StudioProps) {
           await setDocSafely(api, cur, withView(cur, to, { ...v, fields }));
         }
         if (rl.ok && rl.result.missing.length) relinked = ` ${rl.result.missing.length} link${rl.result.missing.length === 1 ? " has" : "s have"} no ${langName(to)} page on the shop and still point${rl.result.missing.length === 1 ? "s" : ""} to the ${from} one.`;
+        // its modules' products as this store view's shop has them - names, addresses, counts in its language (Content v13,
+        // SARCLA 11.11.2026: "also one link also when translated" - /de-CH/<the English key>, the English names)
+        const reread = new Map<string, Card[]>();
+        let notThere = 0;
+        for (const pm of viewOf(docRef.current, to).fields.modules ?? []) {
+          const nums = productNumbersOf(pm.module);
+          if (!nums.length) continue;
+          const pr = await api.act<{ cards: Card[]; missing: unknown[] }>("module_numbers", { store: to, text: nums.join(" "), count: Math.max(nums.length, 2) });
+          if (!pr.ok || !pr.result.cards.length) { notThere += nums.length; continue; }
+          const got = itemsAs(pm.module.settings.items, pr.result.cards);
+          notThere += got.missing;
+          reread.set(pm.id, got.items);
+        }
+        if (reread.size) {
+          const cur = docRef.current;
+          const v = viewOf(cur, to);
+          const modules = (v.fields.modules ?? []).map((x) => (reread.has(x.id) ? { ...x, module: { ...x.module, settings: { ...x.module.settings, items: reread.get(x.id)!, store: to } } } : x));
+          await setDocSafely(api, cur, withView(cur, to, { ...v, fields: { ...v.fields, modules } }));
+        }
+        if (notThere) relinked += ` ${notThere} product${notThere === 1 ? " is" : "s are"} not in the ${to} shop and keep${notThere === 1 ? "s" : ""} the ${from} card.`;
       }
       return [r.result.problems.length ? r.result.problems.join("; ") : null, checkNote(r.result.leftovers)].filter(Boolean).join(" ") || `The ${to} page is made - its links go to the shop's ${langName(to)} pages. Change what you like; it is its own page.${relinked}`;
     } finally { setBusy(null); }
