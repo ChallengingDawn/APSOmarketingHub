@@ -7,7 +7,8 @@
 // posted from the hub: the text and the slides are made ready to copy and post by hand.
 
 import { brandFlags, SHOP_PHOTOS } from "../banner/brand";
-import { designText, emptyDesign, isFormat, normalizeDesign, pageIn, pageWords, type FormatKey, type SocialDesign } from "./design";
+import type { DesignNode } from "../../../../design-document";
+import { MAX_ALT, altOf, designText, emptyDesign, isFormat, normalizeDesign, pageAlts, pageIn, pageWords, type AltNode, type FormatKey, type SocialDesign } from "./design";
 
 export const NETWORKS = ["linkedin", "instagram", "facebook"] as const;
 export type Network = (typeof NETWORKS)[number];
@@ -275,6 +276,18 @@ export function translateItems(d: SocialDoc): LangItem[] {
       }
     }
   }
+  // cv17: what each picture shows (its alt text) goes along too - once per different text, as the words on the design
+  const alts = new Set<string>();
+  for (const p of d.design.pages) {
+    for (const doc of Object.values(p.by)) {
+      for (const node of doc?.nodes ?? []) {
+        const a = node.kind === "image" ? altOf(node) : "";
+        if (!a || alts.has(a)) continue;
+        alts.add(a);
+        out.push({ id: `a.${alts.size}`, text: a });
+      }
+    }
+  }
   return out;
 }
 
@@ -286,13 +299,19 @@ export function translatedVersion(d: SocialDoc, items: LangItem[], at: string): 
   const source = translateItems(d);
   const missing = source.filter((x) => !by.has(x.id)).length;
   const textOf = new Map(source.filter((x) => x.id.startsWith("t.")).map((x) => [x.text, by.get(x.id) ?? x.text]));
+  const altText = new Map(source.filter((x) => x.id.startsWith("a.")).map((x) => [x.text, (by.get(x.id) ?? x.text).replace(/\s+/g, " ").trim().slice(0, MAX_ALT)]));
+  const node = (n: DesignNode): DesignNode => {
+    if (n.kind === "text" && textOf.has(n.text ?? "")) return { ...n, text: textOf.get(n.text ?? "") };
+    if (n.kind === "image" && altText.has(altOf(n))) return { ...n, alt: altText.get(altOf(n)) } as AltNode;
+    return n;
+  };
   const design: SocialDesign = {
     ...d.design,
     pages: d.design.pages.map((p) => {
       const pby: typeof p.by = {};
       for (const [f, doc] of Object.entries(p.by)) {
         if (!doc) continue;
-        pby[f as FormatKey] = { ...doc, nodes: doc.nodes.map((n) => (n.kind === "text" && textOf.has(n.text ?? "") ? { ...n, text: textOf.get(n.text ?? "") } : n)) };
+        pby[f as FormatKey] = { ...doc, nodes: doc.nodes.map(node) };
       }
       return { ...p, by: pby };
     }),
@@ -322,6 +341,28 @@ export function copiedVersion(d: SocialDoc, at: string): LangVersion {
 export function linkLanguage(url: string): string | null {
   const m = /^(?:https?:\/\/(?:www|acc)\.apsoparts\.com)?\/([a-z]{2})-[A-Za-z]{2,3}(?:\/|$)/i.exec(url.trim());
   return m ? m[1].toUpperCase() : null;
+}
+
+/**
+ * cv17 (SARCLA 11.11.2026: "continue" - a language version's link follows its language): the language of a version's link
+ * when it is a page of the shop in ANOTHER language than the version's - the page to find in the version's language (the
+ * Page builder's lookup from the shop's hreflang links, ./relink.ts); null when there is nothing to find.
+ */
+export function linkToFind(url: string, lang: string | null | undefined): string | null {
+  const ll = linkLanguage(url);
+  const want = String(lang ?? "").slice(0, 2).toUpperCase();
+  return ll && /^[A-Z]{2}$/.test(want) && ll !== want ? ll : null;
+}
+
+/** An address as a note shows it: its page, without the host and the tracking ("/fr-CH/technologie.html"). */
+export const linkPath = (u: string) => String(u ?? "").replace(/^https?:\/\/[^/]+/i, "").replace(/[?#].*$/, "").slice(0, 80);
+
+/** A version's link put to the page found in its language - only while it is still the address the search started from
+ * (one typed by hand meanwhile wins). */
+export function withLangLink(d: SocialDoc, lang: string, from: string, to: string | null): SocialDoc {
+  const v = d.langs[lang];
+  if (!v || !to || v.link.url !== from || to === from) return d;
+  return { ...d, langs: { ...d.langs, [lang]: { ...v, link: { ...v.link, url: to } } } };
 }
 
 /** The design, the formats per network (each one the design has), and whether it went out. */
@@ -411,7 +452,7 @@ export function checks(d: SocialDoc, lang?: string | null): { network: Network |
   const out: { network: Network | null; text: string }[] = [];
   // cv16: the link follows the language - a French post never sends its readers to the German shop
   const ll = linkLanguage(d.link.url);
-  if (lang && ll && ll !== lang.toUpperCase()) out.push({ network: null, text: `The link goes to the ${ll} shop - give this ${lang.toUpperCase()} version its own address.` });
+  if (lang && ll && ll !== lang.toUpperCase()) out.push({ network: null, text: `The link goes to the ${ll} shop - give this ${lang.toUpperCase()} version its own address ("Find this page" beside it looks for it on the shop).` });
   for (const n of enabled(d)) {
     const spec = NETWORK[n];
     const p = d.networks[n];
@@ -478,6 +519,11 @@ export function exportPack(doc: unknown, title = ""): string {
   if (d.media.kind === "image" && d.media.image.url) out.push("--- Picture ---", d.media.image.url, d.media.image.alt ? `Alt text: ${d.media.image.alt}` : "", "");
   if (d.design.pages.length) {
     out.push(`--- The design: ${d.design.pages.length} page${d.design.pages.length > 1 ? "s" : ""}, in ${formatsInUse(d).join(", ")} ---`, designText(d.design), "");
+    // cv17: what its pictures show, for the network's alt text field (a post without any says nothing here)
+    const alts = d.design.pages.map((p) => pageAlts(pageIn(d.design, p, d.design.formats[0])).join(" "));
+    if (alts.some(Boolean)) {
+      out.push("--- Alt text (what the pictures show) ---", ...alts.map((a, i) => (a ? `${d.design.pages.length > 1 ? `Page ${i + 1}: ` : ""}${a}` : "")).filter(Boolean), "");
+    }
   }
   const slides = d.design.pages.length ? [] : slidesOf(d);
   if (slides.length) {

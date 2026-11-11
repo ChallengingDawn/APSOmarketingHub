@@ -6,6 +6,9 @@
 // along: each network's caption, the first comment, the link's words, the words on every page in every format (one ask,
 // the shop's word rules on what comes back) - or copied to write by hand. The link follows the language: each version
 // has its own address (Publish), and the checks say when it still points to another language's shop.
+// cv17 (SARCLA 11.11.2026: "continue"): a version made here gets its link in its language at once - a page of the shop is
+// found the Page builder's way (the server's "counterpart": the shop's hreflang links), else it keeps the main one's and
+// the note says so; what each picture shows (its alt text) is translated with the rest.
 
 import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
@@ -16,7 +19,7 @@ import Typography from "@mui/material/Typography";
 import TranslateIcon from "@mui/icons-material/Translate";
 
 import { LANGUAGES, languageLabel } from "@/lib/content/languages";
-import { copiedVersion, translatedVersion, type LangItem } from "@/lib/content/studio/kinds/social/model";
+import { copiedVersion, linkPath, linkToFind, translatedVersion, withLangLink, type LangItem } from "@/lib/content/studio/kinds/social/model";
 import { leftOutLine } from "@/lib/content/studio/kinds/social/ai";
 import { useClock } from "../../standard";
 import { PINK } from "../../parts";
@@ -29,18 +32,39 @@ export default function LangSwitch({ ctx }: { ctx: StudioCtx }) {
   const [menu, setMenu] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; warn: boolean } | null>(null);
+  const [finding, setFinding] = useState<string | null>(null);
   const clock = useClock(!!busy);
   // the note steps aside by itself after a while (a click closes it at once)
   useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 15000); return () => clearTimeout(t); }, [note]);
   const others = LANGUAGES.filter((l) => l.code !== main && !codes.includes(l.code));
 
+  /** cv17: the new version's link follows its language - a page of the shop is found in that language (the Page builder's
+   *  lookup from the shop's hreflang links), else it keeps the main one's and says so. The words for the note. */
+  const relink = async (code: string, url: string): Promise<{ text: string; warn: boolean }> => {
+    const from = linkToFind(url, code);
+    // no link, a page of this language already, or not a page of the shop: nothing to find
+    if (!from) return { text: "", warn: false };
+    setFinding(code);
+    const r = await ctx.api.act<{ url: string | null; error?: string }>("counterpart", { url, lang: code });
+    setFinding(null);
+    const found = r.ok ? r.result.url : null;
+    if (found) {
+      ctx.setFull((d) => withLangLink(d, code, url, found));
+      return { text: `Its link goes to the ${languageLabel(code)} page of the shop now: ${linkPath(found)}.`, warn: false };
+    }
+    const why = !r.ok ? r.error : r.result.error;
+    return { text: why ? `Its link could not be looked up (${why}) - it still goes to the ${from} shop; "Find this page" in Publish tries again.` : `The shop has no ${languageLabel(code)} page for its link - it keeps the ${from} one; set its address in Publish.`, warn: true };
+  };
+
   const add = async (code: string, how: "translate" | "copy") => {
     setMenu(null); setNote(null);
     const at = new Date().toISOString();
+    const url = ctx.full.link.url;
     if (how === "copy") {
       ctx.setFull((d) => ({ ...d, langs: { ...d.langs, [code]: copiedVersion(d, at) } }));
       ctx.goLang(code);
-      setNote({ text: `${languageLabel(code)}: the ${languageLabel(main) || "main"} words, to write by hand.`, warn: false });
+      const l = await relink(code, url);
+      setNote({ text: `${languageLabel(code)}: the ${languageLabel(main) || "main"} words, to write by hand.${l.text ? ` ${l.text}` : ""}`, warn: l.warn });
       return;
     }
     setBusy(code);
@@ -48,16 +72,20 @@ export default function LangSwitch({ ctx }: { ctx: StudioCtx }) {
     setBusy(null);
     if (!r.ok) { setNote({ text: r.error, warn: true }); return; }
     let missing = 0;
+    // translated again: the version keeps the address it was given (its own page found before, or typed by hand)
+    const own = ctx.full.langs[code]?.link.url;
     ctx.setFull((d) => {
       const t = translatedVersion(d, r.result.items, at);
       missing = t.missing;
-      return { ...d, langs: { ...d.langs, [code]: t.version } };
+      const keep = d.langs[code]?.link.url;
+      return { ...d, langs: { ...d.langs, [code]: keep ? { ...t.version, link: { ...t.version.link, url: keep } } : t.version } };
     });
     ctx.goLang(code);
     const left = leftOutLine(r.result.leftOut);
+    const l = await relink(code, own || url);
     setNote({
-      text: `Translated into ${languageLabel(code)} - every caption and every page's words.${missing ? ` ${missing} part${missing > 1 ? "s" : ""} kept in ${languageLabel(main) || "the main language"}.` : ""}${left ? ` ${left}` : ""} Its link: set its own address in Publish.`,
-      warn: !!missing || !!left,
+      text: `Translated into ${languageLabel(code)} - every caption, every page's words and what its pictures show.${missing ? ` ${missing} part${missing > 1 ? "s" : ""} kept in ${languageLabel(main) || "the main language"}.` : ""}${left ? ` ${left}` : ""}${l.text ? ` ${l.text}` : ""}`,
+      warn: !!missing || !!left || l.warn,
     });
   };
   const drop = (code: string) => {
@@ -89,8 +117,9 @@ export default function LangSwitch({ ctx }: { ctx: StudioCtx }) {
       )}
       <IconBtn title={codes.length ? "Another language, or this one again" : "The post in another language"} onClick={(e) => setMenu(e.currentTarget)} active={!!menu} disabled={!ctx.canEdit || !!busy}><TranslateIcon /></IconBtn>
       {busy && <Typography role="status" sx={{ fontSize: "0.78rem", fontWeight: 700, color: PINK, whiteSpace: "nowrap" }}>Translating into {languageLabel(busy)}… <Box component="span" sx={{ color: T.ink3, fontVariantNumeric: "tabular-nums" }}>{clock}</Box></Typography>}
+      {!busy && finding && <Typography role="status" sx={{ fontSize: "0.78rem", fontWeight: 700, color: PINK, whiteSpace: "nowrap" }}>Finding its link&apos;s {languageLabel(finding)} page on the shop…</Typography>}
       {/* what the translation did: a small note under the bar (the bar has no room), closed by a click */}
-      {!busy && note && (
+      {!busy && !finding && note && (
         <Box role="status" onClick={() => setNote(null)} sx={{ position: "absolute", top: "calc(100% + 8px)", left: 12, zIndex: 7, maxWidth: 420, p: 1, pr: 1.25, borderRadius: "8px", bgcolor: "#fff", border: `1px solid ${T.line}`, boxShadow: T.shadow, cursor: "pointer" }}>
           <Typography sx={{ fontSize: "0.78rem", color: note.warn ? "#a96a12" : "#1b7a55", lineHeight: 1.4 }}>{note.text}</Typography>
           <Typography sx={{ fontSize: "0.7rem", color: T.ink3, mt: 0.25 }}>Close</Typography>

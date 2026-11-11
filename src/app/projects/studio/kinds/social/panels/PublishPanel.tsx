@@ -47,6 +47,7 @@ import { ChipsInput, Checks, CopyButton } from "../../banner/ui";
 import { CaptionFor, PostText, type TextAsk } from "../captions";
 import { Btn, Head, Note, PanelFrame, T } from "../look";
 import { FormatGlyph } from "../CanvasBar";
+import LinkFields from "../LinkFields";
 import { fileStem } from "../actions";
 import { exportEverything, exportPages, exportPdf } from "../exportDesign";
 import type { StudioCtx } from "../Studio";
@@ -275,10 +276,14 @@ export default function PublishPanel({ ctx }: { ctx: StudioCtx }) {
         <Head right={<Btn onClick={() => void tags()} disabled={!ai || !!busy} icon={busy === "tags" ? <CircularProgress size={13} /> : <AutoAwesomeIcon sx={{ color: T.accent }} />} sx={{ height: 28, fontSize: "0.76rem" }}>Suggest</Btn>}>Hashtags</Head>
         <ChipsInput values={doc.hashtags} comma max={30} disabled={!canEdit} placeholder="sealing technology, MRO…" clean={cleanTag} onChange={(v) => set((d) => ({ ...d, hashtags: v }))} />
         <Head>Link</Head>
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1.4fr) minmax(0, 1fr)", gap: 1 }}>
-          <TextField size="small" label="Address" value={doc.link.url} disabled={!canEdit} onChange={(e) => set((d) => ({ ...d, link: { ...d.link, url: e.target.value.trim() } }))} placeholder="https://www.apsoparts.com/…" />
-          <TextField size="small" label="Words before it" value={doc.link.label} disabled={!canEdit} onChange={(e) => set((d) => ({ ...d, link: { ...d.link, label: e.target.value } }))} placeholder="Sizes in the shop:" />
-        </Box>
+        {/* cv17: in a language's tab, "Find this page in <language>" beside its address (../LinkFields.tsx) */}
+        <LinkFields url={doc.link.url} label={doc.link.label} lang={ctx.lang} canEdit={canEdit}
+          onUrl={(url) => set((d) => ({ ...d, link: { ...d.link, url } }))}
+          onLabel={(label) => set((d) => ({ ...d, link: { ...d.link, label } }))}
+          find={async (url, lang) => {
+            const r = await api.act<{ url: string | null; error?: string }>("counterpart", { url, lang });
+            return r.ok ? { ok: true, url: r.result.url, error: r.result.error } : r;
+          }} />
         {msg && <Note sx={{ mt: 1, color: T.ink2 }}>{msg}</Note>}
       </Step>
 

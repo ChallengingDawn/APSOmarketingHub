@@ -74,7 +74,27 @@ export type VideoDoc = {
   /** Its language versions (cv16, 11.11.2026 - as the Page builder's: every language a tab of its own): the same scenes,
    *  pictures and timing, their own words. Keyed by the language's code (DE, FR ...), never the film's own. */
   langs?: Record<string, LangCopy>;
+  /** cv17 (SARCLA 11.11.2026: "continue"): each export of a language for the render machine - when, which language, by
+   *  whom, the file - newest first (at most MAX_EXPORTS). The library's card says "Exported · DE, FR"; the last step
+   *  shows each language's last one. Not part of the film: never in what is exported. */
+  exports?: ExportRecord[];
 };
+
+/** One export of the film in one language (its file for the render machine). */
+export type ExportRecord = {
+  /** when (ISO) */
+  at: string;
+  /** the language exported (EN, DE ...) */
+  lang: string;
+  /** who exported it (the hub's username) */
+  by: string;
+  /** the file it was saved as */
+  file: string;
+  format: Format;
+  /** filmPrint() of what was exported - another print now: the film changed since */
+  print?: string;
+};
+export const MAX_EXPORTS = 24;
 
 /** A language version's words: each scene's by its id, the end card's; `from` = the film's own words it was made from. */
 export type LangCopy = {
@@ -281,7 +301,24 @@ export function cleanVideo(raw: unknown, dflt: { language?: string | null } = {}
   if (features.length) doc.features = features;
   const langs = cleanLangs(d.langs, scenes, doc.language);
   if (langs) doc.langs = langs;
+  const recorded = cleanExports(d.exports);
+  if (recorded.length) doc.exports = recorded;
   return doc;
+}
+
+/** The exports kept (cv17): each with its when, language and file - newest first, at most MAX_EXPORTS. */
+export function cleanExports(raw: unknown): ExportRecord[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ExportRecord[] = [];
+  for (const x of raw) {
+    if (!isObj(x)) continue;
+    const at = typeof x.at === "string" && Number.isFinite(Date.parse(x.at)) ? x.at.slice(0, 40) : "";
+    const lang = typeof x.lang === "string" && /^[a-z]{2}$/i.test(x.lang.trim()) ? x.lang.trim().toUpperCase() : "";
+    if (!at || !/^[A-Z]{2}$/.test(lang)) continue;
+    const print = str(x.print, 40);
+    out.push({ at, lang, by: str(x.by, 255), file: str(x.file, 200), format: oneOf(x.format, FORMATS, "16:9"), ...(print ? { print } : {}) });
+  }
+  return out.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_EXPORTS);
 }
 
 /** The language versions kept: a code of two letters that is not the film's own, each scene's words by an id the film has. */
@@ -316,7 +353,8 @@ export const languagesOf = (doc: Pick<VideoDoc, "language" | "langs">): string[]
  * the film as it is. Never carries the versions (what plays and what is exported is one language).
  */
 export function inLanguage(doc: VideoDoc, lang: string | null | undefined): VideoDoc {
-  const { langs, ...rest } = doc;
+  // cv17: its record of exports is not the film either
+  const { langs, exports: _exports, ...rest } = doc;
   const code = String(lang ?? "").toUpperCase();
   const v = code && code !== doc.language ? langs?.[code] : undefined;
   if (!v) return rest;
@@ -386,6 +424,46 @@ export function dropLanguage(doc: VideoDoc, lang: string): VideoDoc {
   const { [lang.toUpperCase()]: _gone, ...rest } = doc.langs ?? {};
   const { langs: _l, ...d } = doc;
   return Object.keys(rest).length ? { ...d, langs: rest } : d;
+}
+
+// ───────────────────────── its exports (cv17) ─────────────────────────
+
+/** A short fingerprint of the film as one language exports it (its scenes, words, pictures, timing, end card, format) -
+ *  an export with another print was made before the film changed. */
+export function filmPrint(doc: VideoDoc, lang: string | null | undefined, format?: Format): string {
+  const f = inLanguage(cleanVideo(doc), lang);
+  const t = JSON.stringify({ s: f.scenes, e: f.endCard, f: format ?? f.format, l: f.language });
+  let h = 5381;
+  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+  return `${t.length}:${h >>> 0}`;
+}
+
+/**
+ * An export recorded in the document as it is being typed (the studio's own, its spaces kept; the bar's Download too): the
+ * newest first, at most MAX_EXPORTS. Anything that is not a film document stays as it is.
+ */
+export function withExport<T>(raw: T, rec: ExportRecord): T {
+  if (!isObj(raw) || raw.v !== 2 || !Array.isArray(raw.scenes)) return raw;
+  const one = cleanExports([rec]);
+  if (!one.length) return raw;
+  return { ...raw, exports: [...one, ...cleanExports(raw.exports)].slice(0, MAX_EXPORTS) } as T;
+}
+
+/** Each language's last export, by its code (a language never exported has none). */
+export function lastExports(doc: Pick<VideoDoc, "exports">): Record<string, ExportRecord> {
+  const out: Record<string, ExportRecord> = {};
+  for (const x of cleanExports(doc.exports)) if (!out[x.lang]) out[x.lang] = x;
+  return out;
+}
+
+/** The languages the film was exported in, the film's own first then its versions' order (one no longer a version last),
+ *  with the newest export's when and who - null when it never was. What the library's card says: "Exported · DE, FR". */
+export function exportedSummary(doc: Pick<VideoDoc, "exports" | "language" | "langs">): { langs: string[]; at: string; by: string } | null {
+  const list = cleanExports(doc.exports);
+  if (!list.length) return null;
+  const order = languagesOf({ language: doc.language, langs: doc.langs });
+  const done = [...new Set(list.map((x) => x.lang))].sort((a, b) => (order.indexOf(a) < 0 ? 99 : order.indexOf(a)) - (order.indexOf(b) < 0 ? 99 : order.indexOf(b)));
+  return { langs: done, at: list[0].at, by: list[0].by };
 }
 
 // ───────────────────────── timing ─────────────────────────
