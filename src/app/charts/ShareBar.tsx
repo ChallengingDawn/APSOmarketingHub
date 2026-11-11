@@ -10,7 +10,8 @@ import Tooltip from "@mui/material/Tooltip";
 import { CHROME, SERIES, DEEMPHASIS } from "./palette";
 import { compact, percent } from "./format";
 
-export type ShareSegment = { label: string; value: number | null };
+/** color: only for a part whose meaning has a colour of its own ("none written" in grey); else the categorical slot. */
+export type ShareSegment = { label: string; value: number | null; color?: string };
 
 const MAX_SLOTS = SERIES.length;
 
@@ -18,20 +19,24 @@ export function ShareBar({
   segments,
   format = compact,
   height = 28,
+  keepOrder = false,
 }: {
   segments: ShareSegment[];
   format?: (v: number | null) => string;
   height?: number;
+  /** the parts are an order of their own (the pilot's evidence categories) - drawn as given, not largest first */
+  keepOrder?: boolean;
 }) {
   const usable = segments.filter((s) => typeof s.value === "number" && (s.value as number) > 0) as {
     label: string;
     value: number;
+    color?: string;
   }[];
-  const sorted = [...usable].sort((a, b) => b.value - a.value);
+  const sorted = keepOrder ? usable : [...usable].sort((a, b) => b.value - a.value);
   // Past the validated slots the tail folds into "Other" — never a generated hue.
   const head = sorted.slice(0, MAX_SLOTS);
   const tail = sorted.slice(MAX_SLOTS);
-  const parts = tail.length
+  const parts: { label: string; value: number; color?: string }[] = tail.length
     ? [...head, { label: "Other", value: tail.reduce((s, t) => s + t.value, 0) }]
     : head;
   const total = parts.reduce((s, p) => s + p.value, 0);
@@ -44,7 +49,7 @@ export function ShareBar({
     );
   }
 
-  const colorOf = (i: number, label: string) => (label === "Other" ? DEEMPHASIS : SERIES[i]);
+  const colorOf = (i: number, label: string) => parts[i]?.color ?? (label === "Other" ? DEEMPHASIS : SERIES[i]);
 
   return (
     <Box>

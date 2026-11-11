@@ -12,7 +12,7 @@
 export type MagentoOrder = Record<string, unknown> & {
   entity_id?: number | string;
   increment_id?: string | number;
-  items?: { sku?: string; qty_ordered?: number | string; row_total?: number | string }[];
+  items?: { sku?: string; name?: string; qty_ordered?: number | string; row_total?: number | string }[];
 };
 
 export type Props = Record<string, string>;
@@ -127,6 +127,51 @@ export function provisionalProps(o: MagentoOrder, pipe: { pipelineId: string; pi
 }
 
 /**
+ * The shop's name of each line, numbered as provisionalProps numbers the lines (a priced row and its revenue-0 twin are
+ * one line; the kept row's name). Not in provisionalProps, which stays the old connector's mapping: the names are new
+ * (SARCLA 11.11.2026, the certificate request on A26.676387 - its AVOR mail had "2 Stk 8001165332" and no name; "we can
+ * adapt the connector to also write here"). Nothing else in HubSpot has a cut article's name: Products & Pricing and
+ * the product library hold the catalogue, not the 8001... cuts.
+ */
+export function lineNames(o: MagentoOrder): Props {
+  const bySku = new Map<string, { sku?: string; name?: string; row_total?: number | string }>();
+  for (const l of o.items ?? []) {
+    if (!l.sku) continue;
+    const prev = bySku.get(l.sku);
+    if (!prev || Number(l.row_total || 0) > Number(prev.row_total || 0)) bySku.set(l.sku, l);
+  }
+  const out: Props = {};
+  let i = 1;
+  for (const l of bySku.values()) {
+    if (i > 80) break;
+    const name = str(l.name).replace(/\s+/g, " ").trim().slice(0, 250);
+    if (name) out[`order_line_${String(i).padStart(2, "0")}_text`] = name;
+    i++;
+  }
+  return out;
+}
+
+const TEXT = /^order_line_(\d{2})_text$/;
+/** The line articles a HubSpot order holds, as upsertOrder reads them (order_line_01_article ... _80_article). */
+export const LINE_ARTICLES = Array.from({ length: 80 }, (_, i) => `order_line_${String(i + 1).padStart(2, "0")}_article`);
+
+/**
+ * The names onto an order the ERP linked: its lines are the ERP's, and its line N need not be the shop's line N - a
+ * name goes only onto the line holding the same article (every one that does), never by position.
+ */
+export function namesOntoLinked(props: Props, existing: Record<string, string | null | undefined>): Props {
+  const out: Props = {};
+  for (const [k, name] of Object.entries(props)) {
+    const m = TEXT.exec(k);
+    if (!m || !name) continue;
+    const article = props[`order_line_${m[1]}_article`];
+    if (!article) continue;
+    for (const a of LINE_ARTICLES) if (existing[a] === article) out[a.replace(/_article$/, "_text")] = name;
+  }
+  return out;
+}
+
+/**
  * The shop statuses of an order the ERP does not have yet. Once the shop has transferred an
  * order, the Compass sync holds it: its .000 entry is archived when the deliveries arrive, and
  * no active HubSpot order keeps the web order number (11.10.2026: 645 of the week's 1,034
@@ -172,11 +217,15 @@ export function erpLinked(existing: { order_order_number?: string | null; order_
   return (!!existing.order_order_number && existing.order_order_number.startsWith("A")) || existing.order_reconcile_state === "erp_linked";
 }
 
-/** What may be written onto an existing order: everything, or - once the ERP linked it - only the shop's own fields. */
-export function writableProps(props: Props, existing: Parameters<typeof erpLinked>[0]): Props {
+/**
+ * What may be written onto an existing order: everything, or - once the ERP linked it - only the shop's own fields, and
+ * the shop's line names on the ERP's lines of the same article (namesOntoLinked; the existing record's line articles).
+ */
+export function writableProps(props: Props, existing: (Parameters<typeof erpLinked>[0] & Record<string, string | null | undefined>) | null | undefined): Props {
   if (!erpLinked(existing)) return props;
   const owned = new Set<string>(ERP_OWNED_AFTER_LINK);
-  return Object.fromEntries(Object.entries(props).filter(([k]) => !owned.has(k) && !LINE.test(k)));
+  const shop = Object.fromEntries(Object.entries(props).filter(([k]) => !owned.has(k) && !LINE.test(k)));
+  return { ...shop, ...namesOntoLinked(props, existing ?? {}) };
 }
 
 /** "2026-10-11T09:00:00.000Z" -> "2026-10-11 09:00:00" (Magento's filter format). */

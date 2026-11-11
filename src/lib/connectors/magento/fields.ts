@@ -67,6 +67,7 @@ export const FIELD_GROUPS: FieldGroup[] = [
     { name: "order_line_NN_article", from: "items.sku - up to 80 lines, a priced row and its zero twin as one" },
     { name: "order_line_NN_qty", from: "items.qty_ordered" },
     { name: "order_line_NN_revenue", from: "items.row_total" },
+    { name: "order_line_NN_text", from: "items.name - the shop's name of the line; on an order the ERP linked, only onto its line of the same article" },
   ] },
 ];
 
