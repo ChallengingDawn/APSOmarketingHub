@@ -256,3 +256,26 @@ test("on hold: on the console or on the ticket card", () => {
   assert.equal(isHeld({ id: "1", hold: null }, { "1": { by: "x", at: "y" } }), true);
   assert.equal(isHeld({ id: "2", hold: "" }, { "1": { by: "x", at: "y" } }), false);
 });
+
+test("the expert: a person's pick stays; never the requester, never the issuer (SARCLA 11.11.2026, 446049398992)", () => {
+  const c = Date.parse("2026-11-06T09:29:54Z");
+  const exp = (x: Partial<Facts>) => base({ actions: ACT.expert, actionsAt: c, due: "2026-11-12", ...x });
+  // a rotation that names who it was asked to leave out
+  const rot = (order: string[]) => (_who: "backOffice" | "experts", avoid: string[] = []) => order.find((id) => !avoid.includes(id)) ?? null;
+  const entry = (f: Facts) => [stepsOf(f)!.steps[0]];
+  // Maida picked by hand before the hub's look: she stays (the rotation would have given Claudia)
+  const picked = exp({ requester: "1229976030", expert: "1207485931" });
+  assert.deepEqual(merge(picked, entry(picked), rot(["76134337", "1207485931"]), DEFAULT_PEOPLE).props, { hs_pipeline_stage: STAGE.certificates, conformity_expert: "1207485931", hubspot_owner_id: "1207485931" });
+  // Claudia requested it: the rotation gives Maida even when it is Claudia's turn
+  const own = exp({ requester: "76134337" });
+  assert.equal(merge(own, entry(own), rot(["76134337", "1207485931"]), DEFAULT_PEOPLE).props.conformity_expert, "1207485931");
+  // Claudia on the ticket by hand, but she requested it: replaced
+  const self = exp({ requester: "76134337", expert: "76134337" });
+  assert.equal(merge(self, entry(self), rot(["76134337", "1207485931"]), DEFAULT_PEOPLE).props.conformity_expert, "1207485931");
+  // Maida issued the declaration: never her expert
+  const issued = exp({ requester: "1229976030" });
+  assert.equal(merge(issued, entry(issued), rot(["1207485931", "76134337"]), DEFAULT_PEOPLE, null, ["1207485931"]).props.conformity_expert, "76134337");
+  // somebody who is not an expert on the field: the rotation
+  const odd = exp({ requester: "1229976030", expert: "30050251" });
+  assert.equal(merge(odd, entry(odd), rot(["76134337", "1207485931"]), DEFAULT_PEOPLE).props.conformity_expert, "76134337");
+});
