@@ -167,6 +167,16 @@ export function BlockList({ rows, selected, busy, canEdit, onSelect, onSettings,
                 </Typography>
               </Box>
               <Box sx={{ width: 18, display: "grid", placeItems: "center", flexShrink: 0 }}><StateMark row={r} busy={!!working} /></Box>
+              {/* Content v14 (SARCLA 11.11.2026: "On the block side bar I should be able to click and add another block"):
+                  a "+" on every row, always there - a block after this one */}
+              {canEdit && onAdd && (
+                <Tooltip title={`Add a block after block ${r.num}`}>
+                  <IconButton size="small" data-add-after={r.key} onClick={(e) => { e.stopPropagation(); onAdd(i + 1, e.currentTarget); }} aria-label={`Add a block after block ${r.num}`}
+                    sx={{ p: 0.35, ml: -0.25, borderRadius: "6px", color: PINK, border: "1px solid rgba(194,44,110,.28)", bgcolor: "#fff", "&:hover": { bgcolor: "rgba(194,44,110,.08)", borderColor: PINK } }}>
+                    <AddIcon sx={{ fontSize: 15 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
               <Box className="acts" onClick={(e) => e.stopPropagation()} sx={{ display: "flex", alignItems: "center", opacity: { xs: 1, md: on ? 1 : 0 }, transition: "opacity .12s", ml: -0.25 }}>
                 <Tooltip title="Settings"><IconButton size="small" onClick={() => onSettings(r)} aria-label={`Settings of block ${r.num}`} sx={{ p: 0.5, color: on ? PINK : MUTED, "&:hover": { color: INK } }}><TuneIcon sx={{ fontSize: 17 }} /></IconButton></Tooltip>
                 <Tooltip title="More"><IconButton size="small" onClick={(e) => setOpen({ row: r, el: e.currentTarget })} aria-label={`More for block ${r.num}`} sx={{ p: 0.5, color: MUTED, "&:hover": { color: INK } }}><MoreHorizIcon sx={{ fontSize: 18 }} /></IconButton></Tooltip>
@@ -176,6 +186,13 @@ export function BlockList({ rows, selected, busy, canEdit, onSelect, onSettings,
         );
         return canEdit && onAdd ? [row, <Gap key={`gap-${r.key}`} onAdd={(el) => onAdd(i + 1, el)} last={i === rows.length - 1} />] : [row];
       })}
+      {canEdit && onAdd && (
+        <Box component="button" type="button" data-add-end="1" onClick={(e: React.MouseEvent<HTMLElement>) => onAdd(rows.length, e.currentTarget)}
+          sx={{ all: "unset", boxSizing: "border-box", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 0.6, width: "100%", py: 0.9, borderTop: `1px dashed ${HAIRLINE}`,
+            borderBottomLeftRadius: "10px", borderBottomRightRadius: "10px", color: PINK, fontSize: "0.82rem", fontWeight: 700, "&:hover": { bgcolor: "rgba(194,44,110,.05)" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: -2 } }}>
+          <AddIcon sx={{ fontSize: 17 }} />Add a block
+        </Box>
+      )}
       <Menu anchorEl={open?.el ?? null} open={!!open} onClose={() => setOpen(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}
         slotProps={{ paper: { sx: { borderRadius: "8px", minWidth: 220, boxShadow: "0 12px 32px rgba(21,34,58,.16)" } } }}>
         {acts.map((a) => {

@@ -34,7 +34,7 @@
 import { relinkModule } from "@/lib/content/studio/kinds/page/links";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  LIMIT, addBlock, addItem, asWritten, blockOrder, emptyFields, fieldKind, fieldLabel, filledCount, getField, heroBack, onlyOnPage, setField, setLook, type ListKey, type Look, type NewBlock, type Pic,
+  LIMIT, addBlock, addItem, asWritten, blockOrder, emptyFields, fieldKind, fieldLabel, filledCount, getField, heroBack, moveItem, onlyOnPage, setField, setLook, type Fields, type ListKey, type Look, type NewBlock, type Pic,
 } from "@/lib/content/studio/kinds/page/fields";
 import {
   duplicateRow, isModuleKey, moduleKeyOf, moduleWordsEdit, takeOutField, moveRow, moveRowBy, newPageRows, removeRow, rowOfSelection, selectionOfRow, shopRowOf, shopRows,
@@ -63,12 +63,14 @@ import { Build, type AppBrief, type Step } from "./Build";
 import { BlockList, type RowAct } from "./BlockList";
 import { applyElementEdit, lookCss, lookOf as elementLook, type ElementEdit } from "./edits";
 import { InsertPanel, type Selection } from "./Element";
-import { AddPartMenu, AskPop, BlockSettingsPop, ButtonPop, CardPop, EditBar, PartPop, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich, type AiWords, type BlockAiAnswer } from "./pops";
-import { addOptions, addPart, addPicture, cardOfProduct, lookKind, partInfo, partLook, takeOutPart, withCard, withPartLook, withPartPicture, withPartUrl, withPartWords, type AddKey } from "@/lib/content/studio/kinds/page/modules/elements";
+import { AddPartMenu, AskPop, BlockSettingsPop, ButtonPop, CardPop, EditBar, PartPop, PicturePop, PopCard, ShopBlockPop, TextPop, cleanRich, type AiWords, type BlockAiAnswer, type ItemOrder } from "./pops";
+import { addOptions, addPart, addPicture, cardOfProduct, duplicatePart, itemOfLink, lookKind, movePart, partInfo, partLook, partOrder, takeOutPart, withCard, withPartLook, withPartPicture, withPartUrl, withPartWords, type AddKey } from "@/lib/content/studio/kinds/page/modules/elements";
+import { DATE_KEYS, DATE_PANEL_KEY, GROUNDS } from "@/lib/content/studio/kinds/page/modules/looks";
 import { groundsOfModule } from "@/lib/content/studio/kinds/page/modules/looks";
 import { fieldOf as specOf, moduleDef as libDef } from "@/lib/content/studio/kinds/page/modules/registry";
 import type { Card, ModuleRef } from "@/lib/content/studio/kinds/page/modules/model";
 import { findPart, partIn } from "./parts";
+import { Choice } from "./ui";
 import { useModuleAi } from "./modules/useModuleAi";
 import { SwitchList } from "./Switch";
 import { useEdit } from "./useEdit";
@@ -1777,6 +1779,34 @@ export default function Studio({ api }: StudioProps) {
     focusPart(mod, r.part);
   };
 
+  /** Content v14: an element of a list moved or duplicated - its popup follows it; a card duplicated opens on its search */
+  const justPick = useRef<string | null>(null);
+  /** Content v14: what a picture of a module should show, while its popup is open (Make it uses these words) */
+  const partIdea = useRef<Record<string, string>>({});
+  const relist = (mod: string, r: { module: ModuleRef; part: string } | null, label: string, pick = false) => {
+    const at = tools.moduleAt(mod);
+    if (!at || !r) return;
+    at.put(r.module, label);
+    if (pick) justPick.current = r.part;
+    focusPart(mod, r.part);
+  };
+  /** Duplicate · Move up · Move down of a list's item (a point, a tile, a question, a product, a row) */
+  const orderOf = (mod: string, m: ModuleRef, field: string): ItemOrder | null => {
+    const o = canEdit ? partOrder(m, field) : null;
+    if (!o) return null;
+    const name = kindOf(m.type).name.toLowerCase();
+    return {
+      word: o.word,
+      dup: o.dup ? () => { const a = tools.moduleAt(mod); relist(mod, a ? duplicatePart(a.m, field) : null, `Duplicated a ${o.word} of the ${name}`, /^items\.\d+$/.test(field)); } : null,
+      up: o.up ? () => { const a = tools.moduleAt(mod); relist(mod, a ? movePart(a.m, field, -1) : null, `Moved a ${o.word} of the ${name} up`); } : null,
+      down: o.down ? () => { const a = tools.moduleAt(mod); relist(mod, a ? movePart(a.m, field, 1) : null, `Moved a ${o.word} of the ${name} down`); } : null,
+    };
+  };
+  /** what a list's look reaches: every tile's title alike */
+  const lookNote = (field: string, word: string): string | undefined =>
+    /^points\.\d+\.title$/.test(field) ? `every ${word}'s title alike` : /^points\.\d+\.text$/.test(field) ? `every ${word}'s line alike`
+      : /^faq\.\d+\.q$/.test(field) ? "every question alike" : /^faq\.\d+\.a$/.test(field) ? "every answer alike" : /^table\./.test(field) ? "every cell alike" : undefined;
+
   /** an element's popup: its words (a text, a date, a cell), a button, a picture, a card of the shop, a point or a question */
   const partPopup = (mod: string, field: string, kick: string): { node: React.ReactNode; at: "below" | "side"; width?: number } | null => {
     const at = tools.moduleAt(mod);
@@ -1791,19 +1821,44 @@ export default function Studio({ api }: StudioProps) {
     const grounds = groundsOfModule(m) ?? groundsOfLook(sel?.picked?.look?.ground);
     const look = lookKind(m, field);
     const fresh = justAdded.current === field;
+    const order = orderOf(mod, m, field);
+    const ex = /^extra\.([\w-]+)$/.exec(field);
+    // Content v14: a campaign's dates - its start, the word between and its end in one popup, their look and their panel's colour
+    if (ex && (DATE_KEYS as readonly string[]).includes(ex[1]) && libDef(m.type)?.fields.some((f) => f.kind === "extra" && f.key === "to")) {
+      const ds = [{ k: "from", label: "Starts (e.g. 16.11.)" }, { k: "until", label: "The word between (bis, to…)" }, { k: "to", label: "Ends (e.g. 06.12.2026)" }];
+      const panel = String(m.settings.extra[DATE_PANEL_KEY] ?? "");
+      const panelHex = GROUNDS.find((g) => g.key === panel)?.hex ?? (/^#[0-9a-f]{6}$/i.test(panel) ? panel : "#d80901");
+      return { at: "below", width: 440, node: (
+        <PartPop key={key} kicker={kick} title="Its dates" canEdit={canEdit} onClose={closePop} onRemove={out} ai={ai}
+          fields={ds.map((x) => ({ key: x.k, label: x.label, value: partInfo(m, `extra.${x.k}`)?.words ?? "", max: 16, onChange: (v: string) => { putPart(mod, (y) => withPartWords(y, `extra.${x.k}`, v), once(`${key}.${x.k}`, `Changed the ${name}'s dates`)); } }))}
+          textLook={{ value: cleanTextLook(unpackLook(partLook(m, field))), grounds: [panelHex], large: true, note: "the dates and the word between",
+            set: (next, label) => { putPart(mod, (y) => withPartLook(y, field, packLook(next)), label); } }}
+          extra={(
+            <Box sx={{ mt: 1.25 }}>
+              <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: "#6b7785", mb: 0.6 }}>Its panel</Typography>
+              <Choice value={GROUNDS.some((g) => g.key === panel) ? panel : "standard"} onChange={(v: string) => putPart(mod, (y) => ({ ...y, settings: { ...y.settings, extra: (() => { const e = { ...y.settings.extra }; if (v === "standard" || v === "red") delete e[DATE_PANEL_KEY]; else e[DATE_PANEL_KEY] = v; return e; })() } }), v === "standard" || v === "red" ? "Put the dates' panel back to red" : `Made the dates' panel ${GROUNDS.find((g) => g.key === v)?.label.toLowerCase() ?? v}`)}
+                options={[{ key: "standard", label: "Red (standard)" }, ...GROUNDS.filter((g) => g.key !== "red").map((g) => ({ key: g.key, label: g.label }))]} />
+            </Box>
+          )}
+          hint="Empty, a date is not on the page - type it and it shows." />
+      ) };
+    }
     if (info.kind === "words" || info.kind === "cell") {
       const put = (v: string) => putPart(mod, (x) => withPartWords(x, field, v), once(key, `Changed the ${name}'s ${info.label.toLowerCase()}`));
       return { at: "below", width: 440, node: (
         <TextPop key={key} kicker={kick} title={info.label} value={info.words} max={info.max || null} multiline={info.multiline} canEdit={canEdit} live selectAll={fresh}
           onChange={put} onDone={(v) => { put(v); justAdded.current = null; closePop(); }} onClose={() => { justAdded.current = null; closePop(); }}
-          ai={ai ? (ask) => ai(ask) : null} onRemove={out}
-          textLook={look === "text" ? { value: cleanTextLook(unpackLook(partLook(m, field))), grounds, large: field === "title" || /^h[1-3]$/.test(info.tag),
+          ai={ai ? (ask) => ai(ask) : null} onRemove={out} order={order}
+          textLook={look === "text" ? { value: cleanTextLook(unpackLook(partLook(m, field))), grounds, large: field === "title" || /^h[1-3]$/.test(info.tag), note: lookNote(field, order?.word ?? "point"),
             set: (next, label) => { putPart(mod, (x) => withPartLook(x, field, packLook(next)), label); } } : null}
           hint={field.startsWith("extra.") && !info.words ? "Empty, it is not on the page - type it and it shows." : field === "title" ? "==word== shows a word in the shop's red." : undefined} />
       ) };
     }
     if (info.kind === "button") {
       const tile = field.startsWith("words.");
+      // Content v14: the tile it stands on (its link) - its product, and "Pick another product" for it
+      const onItem = tile ? itemOfLink(m, sel?.picked?.href ?? null) : null;
+      const item = onItem ? m.settings.items[Number(onItem.split(".")[1])] : null;
       return { at: "below", width: MODULE_POP_WIDTH, node: (
         <ButtonPop key={key} kicker={kick} title={info.label} label={info.words} max={info.max || 60} api={api} store={d.store} canEdit={canEdit} stores={pageStores}
           onLabel={(v) => putPart(mod, (x) => withPartWords(x, field, v), once(key, `Changed the ${name}'s ${info.label.toLowerCase()}`))}
@@ -1813,16 +1868,20 @@ export default function Studio({ api }: StudioProps) {
           onLook={look === "button" ? (next, label) => { putPart(mod, (x) => withPartLook(x, field, packLook(next)), label); } : undefined}
           grounds={grounds} fallback={field === "link" ? "red" : "petrol"} arrowDefault={field === "link" || tile}
           ai={ai ? (ask) => ai(ask) : null} onRemove={out} onClose={() => { justAdded.current = null; closePop(); }}
+          fixed={item && onItem ? { text: <>This one leads to <b>{item.name}</b> - its page is the tile&apos;s {item.kind === "category" ? "category" : "product"}.</>, onPick: item.kind === "product" ? () => { justPick.current = onItem; focusPart(mod, onItem); } : () => { const r = rowsRef.current.find((x) => x.key === mod); if (r) openSettings(r); } } : null}
           hint={tile ? "Kept in the block's settings - empty, it says the shop's own words again." : undefined} />
       ) };
     }
     if (info.kind === "picture") {
       const hub = !!info.img && info.img.includes("/api/content/picture/");
+      const cardPhoto = /^items\.\d+\.img$/.test(field);
       return { at: "below", width: 420, node: (
-        <PicturePop key={key} kicker={kick} title={info.label} api={api} store={d.store} aspect="16:9" url={info.img ?? ""} alt={info.words} idea="" making={null}
-          canEdit={canEdit} canMake={aiHere && imagesOn !== false} noAlt={field === "feature"}
+        <PicturePop key={key} kicker={kick} title={info.label} api={api} store={d.store} aspect="16:9" url={info.img ?? ""} alt={info.words} idea={partIdea.current[key] ?? ""} making={null}
+          canEdit={canEdit} canMake={aiHere && imagesOn !== false} noAlt={field === "feature" || cardPhoto || /^points\.\d+\.img$/.test(field)}
           onMake={(idea) => { void makePicture(idea, "16:9", { projectId: api.data.piece.projectId, pieceId: api.data.piece.id }).then((r) => { if (r.ok) pictureInto(mod, field, r.picture); else window.alert(r.error); }); }}
-          onIdea={() => undefined} onUpload={() => setPartPic({ mod, field })}
+          hint={cardPhoto ? "The card stays this product - its name, number and page. A product picked under Products puts that whole product on the card." : undefined}
+          onProduct={cardPhoto && info.card?.kind === "product" ? () => { const it = field.replace(/\.img$/, ""); justPick.current = it; focusPart(mod, it); } : null}
+          onIdea={(idea) => { partIdea.current[key] = idea; }} onUpload={() => setPartPic({ mod, field })}
           onPick={(x) => pictureInto(mod, field, x)}
           onAlt={(alt) => { if (field !== "feature") putPart(mod, (x) => withPartWords(x, field, alt), `Wrote the ${name}'s picture's alt text`); }}
           onRemove={out ? out.run : undefined}
@@ -1834,8 +1893,9 @@ export default function Studio({ api }: StudioProps) {
       return { at: "below", width: 480, node: (
         <CardPop key={key} kicker={kick} card={info.card} store={langRef.current} canEdit={canEdit} busy={cardBusy}
           onProducts={() => { const r = rowsRef.current.find((x) => x.key === mod); if (r) openSettings(r); }}
-          onPick={info.card.kind === "product" ? (p) => void cardInto(mod, field, p) : null}
-          ai={aiHere ? (ask) => cardAi(mod, field, ask) : null} onRemove={out} onClose={closePop} />
+          onPick={info.card.kind === "product" ? (p) => void cardInto(mod, field, p) : null} order={order} picking={justPick.current === field}
+          onPhoto={() => focusPart(mod, `${field}.img`)}
+          ai={aiHere ? (ask) => cardAi(mod, field, ask) : null} onRemove={out} onClose={() => { justPick.current = null; closePop(); }} />
       ) };
     }
     if (info.kind === "point" || info.kind === "question") {
@@ -1847,10 +1907,10 @@ export default function Studio({ api }: StudioProps) {
         ? [{ key: "t", label: spec?.item?.title ?? "Title", value: s0.points[i]?.title ?? "", max: 80, sub: `points.${i}.title` }, { key: "x", label: spec?.item?.text ?? "Its line", value: s0.points[i]?.text ?? "", max: 240, multiline: true, sub: `points.${i}.text` }]
         : [{ key: "q", label: "The question", value: s0.faq[i]?.q ?? "", max: 300, sub: `faq.${i}.q` }, { key: "a", label: "The answer", value: s0.faq[i]?.a ?? "", max: 1500, multiline: true, sub: `faq.${i}.a` }];
       return { at: "below", width: 440, node: (
-        <PartPop key={key} kicker={kick} title={info.label} canEdit={canEdit} onClose={closePop} onRemove={out} ai={ai}
+        <PartPop key={key} kicker={kick} title={info.label} canEdit={canEdit} onClose={closePop} onRemove={out} ai={ai} order={order}
           fields={fields.map((f) => ({ ...f, onChange: (v: string) => { putPart(mod, (x) => withPartWords(x, f.sub, v), once(`${key}.${f.key}`, `Changed the ${name}'s ${info.label.toLowerCase()}`)); } }))}
-          link={info.kind === "point" && spec?.links ? { api, store: d.store, value: s0.points[i]?.url ?? "", onChange: (v) => putPart(mod, (x) => withPartUrl(x, field, v), `Changed where the ${name}'s ${info.label.toLowerCase()} goes`) } : null}
-          picture={info.kind === "point" && spec?.pictures ? { url: s0.points[i]?.img ?? "", onChange: () => setPartPic({ mod, field }), onRemove: () => putPart(mod, (x) => withPartPicture(x, field, { url: "" }), `Took the ${name}'s picture out`) } : null} />
+          link={info.kind === "point" && spec?.links ? { api, store: d.store, value: s0.points[i]?.url ?? "", stores: pageStores, onChange: (v) => putPart(mod, (x) => withPartUrl(x, field, v), `Changed where the ${name}'s ${info.label.toLowerCase()} goes`) } : null}
+          picture={info.kind === "point" && spec?.pictures ? { url: s0.points[i]?.img ?? "", onChange: () => { if (s0.points[i]?.img) focusPart(mod, `points.${i}.img`); else setPartPic({ mod, field }); }, onRemove: () => putPart(mod, (x) => withPartPicture(x, field, { url: "" }), `Took the ${name}'s picture out`) } : null} />
       ) };
     }
     return null;
@@ -1906,6 +1966,26 @@ export default function Studio({ api }: StudioProps) {
       const path = k.slice(2);
       const kind = fieldKind(path);
       const title = lastPart(fieldLabel(d.fields, path));
+      // Content v14: a tile, a link or a question of the page's own - Duplicate (right after it) and Move up / down
+      const li = /^(benefits|links|faq)\.([a-z0-9]+)(?:\.(title|text|q|a|label))?$/i.exec(path);
+      const items = li ? (d.fields[li[1] as "benefits" | "links" | "faq"] as { id: string }[]) : [];
+      const at = li ? items.findIndex((x) => x.id === li[2]) : -1;
+      const word = li ? (li[1] === "benefits" ? "tile" : li[1] === "links" ? "link" : "question") : "";
+      const max = li ? (li[1] === "benefits" ? 8 : li[1] === "links" ? 16 : 14) : 0;
+      const sub = li?.[3] ? `.${li[3]}` : "";
+      const relistField = (make: (f: Fields) => { fields: Fields; id: string } | null, label: string) => {
+        const cur = viewOf(docRef.current, langRef.current);
+        const r = make(cur.fields);
+        if (!r) return;
+        setView({ ...cur, fields: r.fields }, label);
+        selectField(`${li![1]}.${r.id}${sub}`);
+      };
+      const fieldOrder: ItemOrder | null = li && at >= 0 && canEdit ? {
+        word,
+        dup: items.length < max ? () => relistField((f) => { const list = f[li[1] as "benefits"] as { id: string }[]; const i = list.findIndex((x) => x.id === li[2]); if (i < 0) return null; const r = addItem(f, li[1] as ListKey, i + 1); return { id: r.id, fields: { ...r.fields, [li[1]]: (r.fields[li[1] as "benefits"] as { id: string }[]).map((x) => (x.id === r.id ? { ...list[i], id: r.id } : x)) } as Fields }; }, `Duplicated a ${word}`) : null,
+        up: at > 0 ? () => relistField((f) => ({ fields: moveItem(f, li[1] as ListKey, li[2], -1), id: li[2] }), `Moved a ${word} up`) : null,
+        down: at < items.length - 1 ? () => relistField((f) => ({ fields: moveItem(f, li[1] as ListKey, li[2], 1), id: li[2] }), `Moved a ${word} down`) : null,
+      } : null;
       if (kind === "link") {
         const id = path.split(".")[1];
         const l = d.fields.links.find((x) => x.id === id);
@@ -1913,7 +1993,7 @@ export default function Studio({ api }: StudioProps) {
         return { at: "below", width: 400, node: (
           <TextPop key={k} kicker={kick} title={title || "Link"} value={l.label} max={LIMIT.linkLabel} multiline={false} canEdit={canEdit} live
             onChange={(v) => setFieldText(`${path}.label`, v)} onDone={(v) => { setFieldText(`${path}.label`, v); closePop(); }} onClose={closePop} onRemove={outHere}
-            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null}
+            ai={aiHere ? (ask) => aiField(`${path}.label`, ask) : null} order={fieldOrder} stores={pageStores}
             link={{ api, store: d.store, value: l.url, onChange: (v) => setFieldText(`${path}.url`, v), label: "The page" }}
             note={{ value: l.note, onChange: (v) => setFieldText(`${path}.note`, v), max: LIMIT.linkNote }} />
         ) };
@@ -1934,7 +2014,7 @@ export default function Studio({ api }: StudioProps) {
       return { at: "below", width: long ? 440 : 400, node: (
         <TextPop key={k} kicker={kick} title={title} value={value} max={limitOf(path) ?? null} multiline={long} marks={marks} canEdit={canEdit} live
           onChange={(v) => setFieldText(path, v)} onDone={(v) => { setFieldText(path, v); closePop(); }} onClose={closePop}
-          ai={aiHere ? (ask) => aiField(path, ask) : null}
+          ai={aiHere ? (ask) => aiField(path, ask) : null} order={fieldOrder}
           textLook={tools.fieldLook(path)} onRemove={outHere} />
       ) };
     }
@@ -2097,7 +2177,7 @@ export default function Studio({ api }: StudioProps) {
 
   return (
     <MakeViewsProvider value={makeViews}>
-      <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist}
+      <StudioPanes id="page" buildWidth={410} assistWidth={340} hideBuild={fold.build} hideAssist={fold.assist} wide={step === "publish"} railLabel="Assistant"
         // the left: the page's blocks only (Content v8) - a module's settings, a block's look, a text's words open on the page
         build={<Build api={api} doc={doc} d={d} lang={lang} onLang={openView} groups={groups} presence={presence} set={setDoc} setView={setView} hits={hits} step={step} onStep={setStep}
           fill={fill} busy={busyHere} canAi={aiHere} inserts={inserts} onPickPage={() => setPicking(true)} removeInsert={removeInsert}

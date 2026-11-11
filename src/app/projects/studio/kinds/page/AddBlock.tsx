@@ -44,6 +44,22 @@ export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery, onHero
       anchorOrigin={{ vertical: "bottom", horizontal: "center" }} transformOrigin={{ vertical: "top", horizontal: "center" }}
       slotProps={{ paper: { sx: { p: 1.5, borderRadius: "10px", width: 420, maxWidth: "calc(100vw - 32px)", boxShadow: "0 18px 50px rgba(21,34,58,.22)" } } }}>
       <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, mb: 1, px: 0.25 }}>Add a block here</Typography>
+      {/* Content v14: the library first - the place is chosen; then the page's own blocks */}
+      {onGallery && (
+        <Box component="button" type="button" data-add="gallery" onClick={() => { if (where) onGallery(where.at); onClose(); }} sx={{
+          all: "unset", boxSizing: "border-box", cursor: "pointer", width: "100%", display: "flex", gap: 1, alignItems: "center", p: 1.1, mb: 1.25, borderRadius: "6px",
+          border: `1px solid ${PINK}`, bgcolor: "rgba(194,44,110,.04)", "&:hover": { bgcolor: "rgba(194,44,110,.08)" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
+        }}>
+          <Box sx={{ width: 30, height: 30, flexShrink: 0, borderRadius: "6px", display: "grid", placeItems: "center", bgcolor: "rgba(194,44,110,.1)", color: PINK }}>
+            <DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>A module from the library</Typography>
+            <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>Bentos, product rows, mosaics, banners, campaigns - it lands here, its settings open</Typography>
+          </Box>
+        </Box>
+      )}
+      <Typography sx={{ fontSize: "0.66rem", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, mb: 0.75, px: 0.25 }}>Page blocks</Typography>
       <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 0.75 }}>
         {onHero && (
           <Box component="button" type="button" data-add="hero" onClick={() => { onHero(); onClose(); }} sx={{
@@ -75,20 +91,6 @@ export function AddBlockMenu({ where, onClose, onPick, onPage, onGallery, onHero
             </Box>
           );
         })}
-        {onGallery && (
-          <Box component="button" type="button" data-add="gallery" onClick={() => { if (where) onGallery(where.at); onClose(); }} sx={{
-            all: "unset", boxSizing: "border-box", cursor: "pointer", gridColumn: "1 / -1", display: "flex", gap: 1, alignItems: "center", p: 1.1, borderRadius: "6px",
-            border: `1px dashed ${PINK}`, bgcolor: "rgba(194,44,110,.03)", "&:hover": { bgcolor: "rgba(194,44,110,.07)" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: 1 },
-          }}>
-            <Box sx={{ width: 30, height: 30, flexShrink: 0, borderRadius: "6px", display: "grid", placeItems: "center", bgcolor: "rgba(194,44,110,.08)", color: PINK }}>
-              <DashboardCustomizeOutlinedIcon sx={{ fontSize: 18 }} />
-            </Box>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, lineHeight: 1.3 }}>A module from the gallery</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.35 }}>Bentos, product rows, mosaics, banners - filled from the shop</Typography>
-            </Box>
-          </Box>
-        )}
       </Box>
     </Popover>
   );

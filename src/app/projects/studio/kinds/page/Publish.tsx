@@ -13,6 +13,12 @@
 // Magento's Store View lists them, each saying what the write does there (put in, already in, left out and why, "id ?"
 // where the hub does not know Magento's id). Content v11: Magento's API takes no store views in a page ("StoreId" is not
 // supported), so the same page is written into each ticked store view - one Magento page each, kept together here.
+// Content v14 (SARCLA 11.11.2026, after the first official page with the picture storage: "see the current links in one
+// tab, and in one click update them all"; "we should see the setup as today"; "pictures should be a new tab"; the A/B test
+// "controlled from here"): the step is a publishing view - the studio gives it about twice the width, the assistant folded
+// to a rail (parts.tsx StudioPanes `wide`) - in four sections, a squared switch: Pages (each language's links on ACC and
+// production, changed since or as published, and "Update all on ACC" / "on production" - ACC first), Pictures (a grid),
+// A/B test (./PublishAb.tsx) and Setup (the step as it was: the ticks, the targets, the rights, the calendar, the hand-over).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Box from "@mui/material/Box";
@@ -34,7 +40,8 @@ import { noKeySteps, type Check } from "@/lib/content/studio/kinds/page/magentoC
 import { versionList, viewName, viewsOf, type MagentoRecord, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import type { MagentoView } from "@/lib/content/studio/kinds/page/shop";
 import { mediaGallerySteps, picturesHold, type PictureCheck } from "@/lib/content/studio/kinds/page/media";
-import { SHOP_LABEL, abStore, abTestHref, lastWrite, liveOn, type LivePage, type Since } from "@/lib/content/studio/kinds/page/published";
+import { SHOP_LABEL, liveOn, type LivePage, type Since } from "@/lib/content/studio/kinds/page/published";
+import { ENVS_SHOWN, PUB_SECTIONS, pageRows, progressLine, stateLine, updateAllOf, type PubSection, type RowState, type UpdateAll } from "@/lib/content/studio/kinds/page/publishView";
 import { h1ModuleOf } from "@/lib/content/studio/kinds/page/blocklist";
 import { moduleGap } from "@/lib/content/studio/kinds/page/modules/model";
 import { blockOrder } from "@/lib/content/studio/kinds/page/fields";
@@ -42,7 +49,8 @@ import { PINK, btn, mainBtn } from "../../parts";
 import { fileStem, saveFiles, type FileOut } from "../../frame";
 import type { StudioApi } from "../../useStudio";
 import { Publish as HandOver } from "./Sections";
-import { Hint, mono } from "./ui";
+import { AbSection, useAbLit } from "./PublishAb";
+import { Choice, Hint, mono } from "./ui";
 
 export type EnvState = {
   env: Env; label: string; base: string; key: boolean; waiting: string | null; why: string | null; restoreWhy: string | null;
@@ -453,45 +461,90 @@ function PageLinks({ pages }: { pages: LivePage[] }) {
   );
 }
 
-/**
- * The page where it is in Magento (Content v12, SARCLA 10.11.2026): "if already created I should have the link" - on each
- * shop, every store view's page as a link; "on send to Magento you should add another button - set up A/B testing
- * optimization" - AI testing & personalization's preview of one of them with its question open, in a new tab.
- */
-function OnShops({ records, envs, pieceId, prefer }: { records: MagentoRecord[]; envs: EnvState[]; pieceId: number; prefer: (string | null | undefined)[] }) {
-  const rows = envs.map((e) => ({ e, pages: liveOn(records, e.env), last: lastWrite(records, e.env) })).filter((x) => x.pages.length);
-  if (!rows.length) return null;
+/** What a write said, each store view's page on that shop a link (Content v12, SARCLA: "if already created I should have the link"). */
+function ResultList({ env, results, records }: { env: Env; results: Result[]; records?: MagentoRecord[] }) {
   return (
-    <Box sx={{ mb: 1.5, p: 1.25, borderRadius: "8px", bgcolor: "#f3f8f5", border: "1px solid #cfe5d8", display: "grid", gap: 1 }}>
-      {rows.map(({ e, pages, last }) => {
-        const ab = abStore(pages, prefer);
+    <>
+      {results.map((r, i) => {
+        const mine = (records ?? []).filter((x) => x.env === env && (r.stores?.length ? r.stores.includes(x.store) : x.store === r.view));
+        const pages = liveOn(mine, env);
         return (
-          <Box key={e.env}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: GREEN, flex: 1, minWidth: 0 }}>
-                On {e.label} · {pages.length} page{pages.length === 1 ? "" : "s"}{last ? ` · ${when(last.at)}` : ""}
-              </Typography>
-              {ab && (
-                <Button size="small" variant="outlined" component="a" href={abTestHref(e.env, ab.path, pieceId)} target="_blank" rel="noopener noreferrer"
-                  endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
-                  sx={{ ...btn, height: 30, borderRadius: "7px", borderColor: HAIRLINE, color: INK, bgcolor: "#fff", fontSize: "0.78rem", px: 1.25 }}>
-                  Set up an A/B test
-                </Button>
-              )}
-            </Box>
-            <Box sx={{ mt: 0.5 }}><PageLinks pages={pages} /></Box>
-            {ab && <Typography sx={{ mt: 0.4, fontSize: "0.72rem", color: MUTED }}>The A/B test starts on {ab.store} ({ab.path}) in AI testing &amp; personalization.</Typography>}
+          <Box key={`${r.view || "all"}-${i}`} sx={{ py: 0.25 }}>
+            <Typography sx={{ fontSize: "0.8rem", color: r.ok ? GREEN : "#c5221f" }}>
+              {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} on ${SHOP_LABEL[env]} (page #${r.pageId})${pages.length > 1 ? ` in ${pages.length} store views` : ""}${r.note ? ` - ${r.note}` : ""}` : r.error}
+            </Typography>
+            {r.ok && pages.length > 0 && <Box sx={{ mt: 0.25 }}><PageLinks pages={pages} /></Box>}
           </Box>
         );
       })}
+    </>
+  );
+}
+
+const STATE_TONE: Record<RowState, string> = { changed: AMBER, same: GREEN, on: GREEN, none: MUTED };
+
+/** A small squared tick with its words. */
+function Tick({ on, onClick, children, disabled }: { on: boolean; onClick: () => void; children: React.ReactNode; disabled?: boolean }) {
+  return (
+    <Box component="button" type="button" aria-pressed={on} disabled={disabled} onClick={onClick}
+      sx={{ all: "unset", cursor: disabled ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 0.6, fontSize: "0.76rem", color: disabled ? "#b3bccb" : INK, "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: 2 } }}>
+      <Box component="span" sx={{ width: 14, height: 14, borderRadius: "3px", border: `1.5px solid ${on ? BLUE : "#9aa5b8"}`, bgcolor: on ? BLUE : "#fff", display: "grid", placeItems: "center", boxSizing: "border-box", flexShrink: 0 }}>
+        {on && <CheckIcon sx={{ fontSize: 11, color: "#fff" }} />}
+      </Box>
+      {children}
     </Box>
   );
 }
 
-export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
+/** The page's pictures as a compact grid (Content v14, SARCLA 11.11.2026: "pictures should be a new tab"): each its
+ * thumbnail, its file, stored or stored on Publish, its address - the hub's picture storage, the same for ACC and production. */
+function PictureGrid({ envs, p, reading, onRead }: { envs: EnvState[]; p: PicturesOut; reading: Record<string, boolean>; onRead: (env: Env) => void }) {
+  const left = p.list.filter((x) => x.state !== "there").length;
+  const n = p.list.length;
+  const busy = envs.some((e) => reading[e.env]);
+  return (
+    <Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+        <Typography sx={{ flex: 1, fontSize: "0.82rem", fontWeight: 700, color: INK }}>
+          {!left ? `${n === 1 ? "Its picture is" : `All ${n} pictures are`} stored in the hub's picture storage.`
+            : `${left === n ? (n === 1 ? "Its picture goes" : `Its ${n} pictures go`) : `${left} of ${n} pictures go`} to the hub's picture storage on Publish - nothing to upload by hand.`}
+        </Typography>
+        <Button size="small" onClick={() => { for (const e of envs) onRead(e.env); }} disabled={busy} startIcon={busy ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
+          sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0, flexShrink: 0 }}>Read again</Button>
+      </Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(176px, 1fr))", gap: 1 }}>
+        {p.list.map((x) => (
+          <Box key={x.file} sx={{ borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", overflow: "hidden", minWidth: 0 }}>
+            <Box sx={{ aspectRatio: "16 / 9", bgcolor: "#eef1f6", display: "grid", placeItems: "center", overflow: "hidden" }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={x.state === "there" && x.address ? x.address : x.url} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </Box>
+            <Box sx={{ p: 0.75 }}>
+              <Typography title={x.file} sx={{ ...mono, fontSize: "0.7rem", color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.file}</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: HUB_STATE[x.state].c, lineHeight: 1.35, mt: 0.25 }}>{HUB_STATE[x.state].w}</Typography>
+              {x.views.length > 0 && <Typography sx={{ fontSize: "0.68rem", color: MUTED, mt: 0.25 }}>{x.views.join(", ")}</Typography>}
+              {x.address && (
+                <Box component="a" href={x.address} target="_blank" rel="noopener noreferrer" title={x.address}
+                  sx={{ display: "flex", alignItems: "center", gap: 0.25, mt: 0.25, color: BLUE, fontSize: "0.68rem", fontWeight: 700, textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
+                  Its address<OpenInNewIcon sx={{ fontSize: 11 }} />
+                </Box>
+              )}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+export function ToMagento({ api, doc, d, setView, canEdit, lang, initial, abPart, section: start }: {
   api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; canEdit: boolean; lang: string;
   /** what Magento was read to say (a static check draws the step with it) */
   initial?: { status: Status; plans: Record<string, PlanOut[]>; pictures?: Record<string, PicturesOut> };
+  /** the A/B test's plan (Sections.tsx AbLastStep, from the top bar): in the A/B test section */
+  abPart?: React.ReactNode;
+  /** the section first shown (a static check opens each) */
+  section?: PubSection;
 }) {
   const [status, setStatus] = useState<Status | null>(initial?.status ?? null);
   const [pics, setPics] = useState<Record<string, PicturesOut>>(initial?.pictures ?? {});
@@ -504,6 +557,11 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<{ env: Env; results: Result[]; records?: MagentoRecord[] } | null>(null);
   const [handOver, setHandOver] = useState(false);
+  // Content v14: the publishing view's sections - the A/B test first when the top bar opened the step on it
+  const abFirst = useAbLit(abPart, () => setSection("ab"));
+  const [section, setSection] = useState<PubSection>(start ?? (abFirst ? "ab" : "pages"));
+  const [all, setAll] = useState<Record<Env, boolean>>({ acc: false, prod: false });
+  const [run, setRun] = useState<{ env: Env; line: string; results: Result[]; records: MagentoRecord[]; done: boolean } | null>(null);
   const madeKey = viewsOf(doc).join(",");
   // the studio's api is a new object at each render: the reads below hold the latest one
   const apiRef = useRef(api);
@@ -562,6 +620,30 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
     await load();
     void read(env.env, sel);
   };
+  /** "Update all on ACC (n pages)" (Content v14, SARCLA 11.11.2026: "in one click update them all"): each page in turn - one
+   * progress line, then each one's result; a refusal of the first (the review, the key, ACC first) stops the rest. */
+  const updateAll = async (env: EnvState, plan: UpdateAll) => {
+    if (!plan.views.length || plan.why) return;
+    const label = (v: string) => status?.views.find((x) => x.view === v)?.label ?? v;
+    if (!window.confirm(`${plan.verb} ${plan.views.map(label).join(", ")} on Magento ${env.label} - ${plan.storeViews} store view${plan.storeViews === 1 ? "" : "s"}? Each page is backed up first, and can be brought back as it was.`)) return;
+    setBusy(`all:${env.env}`); setSaid(null);
+    const results: Result[] = [];
+    const records: MagentoRecord[] = [];
+    for (let i = 0; i < plan.views.length; i++) {
+      const v = plan.views[i];
+      setRun({ env: env.env, line: progressLine(label(v), env.label, i + 1, plan.views.length), results: [...results], records: [...records], done: false });
+      const r = await api.act<{ env: Env; results: Result[]; records: MagentoRecord[] }>("magento_publish", { env: env.env, views: [v] });
+      if (!r.ok) { results.push({ view: v, ok: false, error: r.error }); if (i === 0) break; continue; }
+      results.push(...r.result.results);
+      records.push(...r.result.records);
+    }
+    const okN = results.filter((r) => r.ok).length;
+    setRun({ env: env.env, line: `${okN} of ${results.length} written into ${env.label}${okN < results.length ? ` - ${results.length - okN} not` : ""}.`, results, records, done: true });
+    setBusy(null);
+    await api.reload();
+    await load();
+    if (on.includes(env.env)) void read(env.env, sel);
+  };
   const restore = async (rec: MagentoRecord) => {
     const env = envs.find((e) => e.env === rec.env);
     if (!env || !window.confirm(`Bring the ${rec.store} page on ${env.label} back as it was before this to-do wrote it? ${rec.action === "created" ? "It was made by this to-do: it is switched off (not deleted)." : "Its content before the write is put back."}`)) return;
@@ -579,6 +661,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
     for (const r of doc.magento) if (!m.has(`${r.env}|${r.store}`)) m.set(`${r.env}|${r.store}`, r);
     return m;
   }, [doc.magento]);
+  const rows = useMemo(() => pageRows(status?.views ?? [], doc.magento), [status, doc.magento]);
 
   if (err) return <Typography sx={{ fontSize: "0.84rem", color: "#c5221f" }}>{err} <Button size="small" onClick={() => void load()} sx={{ ...btn, color: INK }}>Try again</Button></Typography>;
   if (!status) return <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.84rem", py: 2 }}><CircularProgress size={14} /> Reading the page&apos;s store views…</Box>;
@@ -596,22 +679,138 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
   }
 
   const gateWhy = status.gate.why;
-  return (
-    <Box>
-      {/* Content v12: the page's hero taken out and no module in its place - the page would go without its H1 */}
-      {d.source === "new" && !blockOrder(d.fields).includes("hero") && (() => { const id = h1ModuleOf(d.fields); const pm = (d.fields.modules ?? []).find((x) => x.id === id); return !pm || !!moduleGap(pm.module); })() && (
-        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
-          <Typography sx={{ fontSize: "0.82rem", color: INK }}>This page has no H1: its hero was taken out and no finished module stands in its place - the first module carries the H1 once it is filled. Fill it, or put the page&apos;s hero back (the &quot;+&quot; between two blocks).</Typography>
-        </Box>
-      )}
-      {gateWhy && (
-        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
-          <Typography sx={{ fontSize: "0.82rem", color: INK }}>{gateWhy}</Typography>
-        </Box>
-      )}
+  const accLive = liveOn(doc.magento, "acc").length > 0;
+  // a new page's own pictures not in a shop's media yet (the picture storage off): every write there waits
+  const picHoldOf = (env: Env) => (doc.source === "new" && pics[env]?.storage !== "hub" ? pics[env]?.hold ?? null : null);
+  const picsShown = envs.filter((e) => e.key && on.includes(e.env) && (pics[e.env]?.list.length ?? 0) > 0);
+  const picHub = picsShown.find((e) => pics[e.env]?.storage === "hub");
+  const picCount = picsShown.length ? pics[picsShown[0].env]!.list.length : 0;
+  const prefer = [lang, d.store, ...viewsOf(doc)];
 
-      {/* where it is already: its pages as links, and its A/B test (Content v12) */}
-      <OnShops records={doc.magento} envs={envs} pieceId={api.data.piece.id} prefer={[lang, d.store, ...viewsOf(doc)]} />
+  /* ── Pages: the current links, and "Update all" on each shop ── */
+  const pagesPart = (
+    <Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", sm: `repeat(${Math.max(1, envs.length)}, minmax(0,1fr))` }, gap: 1 }}>
+        {envs.map((e) => {
+          // what holds every write there: the target's own (its key, the review, the grant - said once at the top) or its pictures
+          const held0 = e.why ?? picHoldOf(e.env);
+          const plan = updateAllOf(rows, e.env, { all: all[e.env], accLive, held: held0 && held0 === gateWhy ? "Held - see the line above." : held0 });
+          const onShop = rows.filter((r) => r.envs[e.env].state !== "none");
+          const changed = rows.filter((r) => r.envs[e.env].state === "changed").length;
+          const lastAt = rows.map((r) => r.envs[e.env].at).filter((x): x is string => !!x).sort().at(-1) ?? null;
+          const busyHere = busy === `all:${e.env}`;
+          const first = e.env === "acc";
+          return (
+            <Box key={e.env} sx={{ p: 1.25, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", display: "flex", flexDirection: "column", gap: 0.75, minWidth: 0 }}>
+              <Box sx={{ display: "flex", alignItems: "baseline", gap: 1 }}>
+                <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, color: INK, flex: 1 }}>{e.label}</Typography>
+                <Typography sx={{ ...mono, fontSize: "0.7rem", color: MUTED }}>{e.base.replace(/^https:\/\//, "")}</Typography>
+              </Box>
+              <Typography sx={{ fontSize: "0.76rem", color: changed ? AMBER : onShop.length ? GREEN : MUTED, fontWeight: 700 }}>
+                {!onShop.length ? "Not published here yet" : `${onShop.length} of ${rows.length} page${rows.length === 1 ? "" : "s"} here${changed ? ` · ${changed} changed since the publish` : " · all as published"}${lastAt ? ` · ${when(lastAt)}` : ""}`}
+              </Typography>
+              <Button fullWidth variant={first ? "contained" : "outlined"} disableElevation disabled={!!plan.why || !!busy || !!reading[e.env]} onClick={() => void updateAll(e, plan)}
+                startIcon={busyHere ? <CircularProgress size={14} color="inherit" /> : undefined}
+                sx={first ? { ...mainBtn, height: 40, borderRadius: "8px" } : { ...btn, height: 40, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
+                {busyHere ? `Writing into ${e.label}…` : plan.label}
+              </Button>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                <Tick on={all[e.env]} onClick={() => setAll((x) => ({ ...x, [e.env]: !x[e.env] }))} disabled={!!busy}>all, changed or not</Tick>
+                <Typography component="span" sx={{ fontSize: "0.72rem", color: MUTED }}>{plan.storeViews ? `${plan.storeViews} store view${plan.storeViews === 1 ? "" : "s"}` : ""}</Typography>
+              </Box>
+              {plan.why && <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.4 }}>{plan.why}</Typography>}
+            </Box>
+          );
+        })}
+      </Box>
+      {run && (
+        <Box sx={{ mt: 1, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: INK, display: "flex", alignItems: "center", gap: 0.75 }}>
+            {!run.done && <CircularProgress size={12} />}{run.line}
+          </Typography>
+          {run.results.length > 0 && <Box sx={{ mt: 0.5 }}><ResultList env={run.env} results={run.results} records={run.records} /></Box>}
+        </Box>
+      )}
+      {multi && <Typography sx={{ mt: 1, fontSize: "0.78rem", color: INK }}>Version <b>{d.letter || "A"}</b> of the page goes to Magento - the one open above the page.</Typography>}
+
+      <Kick>{doc.source === "new" ? "Pages" : "Languages"} · {rows.length} · {rows.reduce((n, r) => n + r.stores.length, 0)} store views</Kick>
+      <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden" }}>
+        {rows.map((r, i) => {
+          const v = status.views.find((x) => x.view === r.view)!;
+          const isOpenRow = open === `pages:${r.view}`;
+          return (
+            <Box key={r.view} sx={{ borderTop: i ? `1px solid ${HAIRLINE}` : "none", px: 1.25, py: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "baseline", gap: 0.75, flexWrap: "wrap" }}>
+                <Typography sx={{ fontSize: "0.84rem", fontWeight: 800, color: INK, whiteSpace: "nowrap" }}>{r.label}</Typography>
+                <Typography sx={{ ...mono, flex: "1 1 160px", minWidth: 0, fontSize: "0.74rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.sent?.identifier ?? v.path ?? ""}</Typography>
+                {v.sent && (
+                  <Box component="button" type="button" onClick={() => setOpen(isOpenRow ? null : `pages:${r.view}`)} sx={{ all: "unset", cursor: "pointer", fontSize: "0.74rem", color: PINK, fontWeight: 600, display: "inline-flex", alignItems: "center" }}>
+                    What is sent<KeyboardArrowDownIcon sx={{ fontSize: 16, transform: isOpenRow ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />
+                  </Box>
+                )}
+              </Box>
+              {!r.writable && <Typography sx={{ fontSize: "0.74rem", color: v.why ? MUTED : AMBER, mt: 0.25 }}>{v.why ?? v.blocked}</Typography>}
+              {/* its store views by name while no shop has it yet (once there, its links name them) */}
+              {ENVS_SHOWN.every((x) => !r.envs[x].pages.length) && <Typography sx={{ fontSize: "0.7rem", color: MUTED, mt: 0.25 }}>{r.stores.join(" · ")}</Typography>}
+              <Box sx={{ mt: 0.6, display: "grid", gap: 0.5 }}>
+                {envs.map((e) => {
+                  const x = r.envs[e.env];
+                  const rec = latest.get(`${e.env}|${r.view}`);
+                  const live = !!rec && (rec.action === "created" || rec.action === "updated");
+                  const busyHere = busy === `restore:${e.env}:${r.view}`;
+                  return (
+                    <Box key={e.env} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "92px minmax(0,1fr)" }, columnGap: 1, rowGap: 0.25, alignItems: "baseline" }}>
+                      <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: INK }}>{e.label}</Typography>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography component="div" sx={{ fontSize: "0.76rem", fontWeight: 700, color: STATE_TONE[x.state] }}>{stateLine(x, when)}</Typography>
+                        {x.pages.length > 0 && <Box sx={{ mt: 0.25 }}><PageLinks pages={x.pages} /></Box>}
+                        {live && !e.restoreWhy && (
+                          <Box component="button" type="button" disabled={!!busy} onClick={() => void restore(rec!)} sx={{ all: "unset", mt: 0.25, cursor: busy ? "default" : "pointer", color: MUTED, fontSize: "0.72rem", display: "inline-flex", alignItems: "center", gap: 0.25, "&:hover": { textDecoration: "underline", color: INK } }}>
+                            {busyHere ? <CircularProgress size={11} /> : <UndoIcon sx={{ fontSize: 13 }} />}Bring the {rec!.store} page back as it was
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
+              <Collapse in={isOpenRow} unmountOnExit><WhatIsSent api={api} v={v} envs={envs} plans={plans} on={on} /></Collapse>
+            </Box>
+          );
+        })}
+      </Box>
+      <Hint mt={0.75}>Each address opens the page on that shop, in its store view. &quot;Update all&quot; writes every page changed since its publish - one Magento page per store view, each backed up first. The ticks per language, the targets and the calendar are under Setup.</Hint>
+    </Box>
+  );
+
+  /* ── Pictures ── */
+  const picturesPart = doc.source !== "new" ? (
+    <Typography sx={{ fontSize: "0.82rem", color: MUTED }}>A page of the shop keeps its own pictures - the hub adds none to it.</Typography>
+  ) : picHub ? (
+    <PictureGrid envs={picsShown} p={pics[picHub.env]!} reading={reading} onRead={(env) => void read(env, sel)} />
+  ) : picsShown.length ? (
+    <Pictures envs={envs.filter((e) => on.includes(e.env))} pics={pics} reading={reading} onRead={(env) => void read(env, sel)} title={api.data.piece.title} />
+  ) : (
+    <Typography sx={{ fontSize: "0.82rem", color: MUTED, display: "flex", alignItems: "center", gap: 1 }}>
+      {Object.values(reading).some(Boolean) ? <><CircularProgress size={12} /> Reading the pictures…</> : "The page has no pictures of its own."}
+    </Typography>
+  );
+
+  /* ── Setup: the step as it was - where to, the ticks per language, the publish buttons, the calendar, the hand-over ── */
+  const setupPart = (
+    <Box>
+      <Kick>Publish rights</Kick>
+      <Box sx={{ p: 1.25, borderRadius: "8px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", display: "grid", gap: 0.4 }}>
+        {[
+          [status.gate.approved, status.gate.approved ? "Reviewed: the to-do is approved." : "The to-do waits for its reviewer's approval."],
+          [status.gate.grant, status.gate.grant ? "You may write to the shop (Edit on AI testing & personalization > Winners)." : "Writing to the shop needs Edit on AI testing & personalization > Winners."],
+          [status.gate.canEdit, status.gate.canEdit ? "You can edit this to-do." : "You can only comment on this to-do."],
+        ].map(([ok, text]) => (
+          <Typography key={String(text)} sx={{ fontSize: "0.78rem", color: ok ? GREEN : AMBER, display: "flex", alignItems: "center", gap: 0.5 }}>
+            {ok ? <CheckIcon sx={{ fontSize: 14 }} /> : <Box component="span" sx={{ width: 14, textAlign: "center" }}>·</Box>}{text}
+          </Typography>
+        ))}
+      </Box>
 
       <Kick>Where to</Kick>
       <Targets envs={envs} on={on} onToggle={toggleEnv} />
@@ -630,7 +829,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
         {status.views.map((v, i) => {
           const can = v.cms && !v.why;
           const chosen = can && sel.includes(v.view);
-          const isOpen = open === v.view;
+          const isOpenRow = open === v.view;
           return (
             <Box key={v.view} sx={{ borderTop: i ? `1px solid ${HAIRLINE}` : "none", px: 1.25, py: 1 }}>
               <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1 }}>
@@ -640,10 +839,10 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
                   "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: 2 },
                 }}>{chosen && <CheckIcon sx={{ fontSize: 12, color: "#fff" }} />}</Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Box component="button" type="button" onClick={() => setOpen(isOpen ? null : v.view)} sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, width: "100%" }}>
+                  <Box component="button" type="button" onClick={() => setOpen(isOpenRow ? null : v.view)} sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, width: "100%" }}>
                     <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: INK, letterSpacing: ".02em", whiteSpace: "nowrap" }}>{v.label ?? v.view}</Typography>
                     <Typography sx={{ ...mono, flex: 1, minWidth: 0, fontSize: "0.76rem", color: MUTED, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{v.sent?.identifier ?? v.path ?? ""}</Typography>
-                    {v.sent && <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transform: isOpen ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />}
+                    {v.sent && <KeyboardArrowDownIcon sx={{ fontSize: 18, color: MUTED, transform: isOpenRow ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />}
                   </Box>
                   {v.why && <Typography sx={{ fontSize: "0.76rem", color: MUTED, mt: 0.25 }}>{v.why}</Typography>}
                   {can && v.blocked && <Typography sx={{ fontSize: "0.76rem", color: AMBER, mt: 0.25 }}>{v.blocked}</Typography>}
@@ -677,7 +876,7 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
                       </Box>
                     );
                   })}
-                  <Collapse in={isOpen} unmountOnExit><WhatIsSent api={api} v={v} envs={envs} plans={plans} on={on} /></Collapse>
+                  <Collapse in={isOpenRow} unmountOnExit><WhatIsSent api={api} v={v} envs={envs} plans={plans} on={on} /></Collapse>
                 </Box>
               </Box>
             </Box>
@@ -686,14 +885,12 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
       </Box>
       <Hint mt={0.75}>{doc.source === "new" ? "One page per language, written into every store view ticked - Magento keeps one copy of it in each. A click on a row shows the exact page Magento gets; nothing is written until you press Publish." : "The changes go into the page of each store view the language goes to. A click on a row shows what Magento gets; nothing is written until you press Publish."}</Hint>
 
-      {doc.source === "new" && <Pictures envs={envs.filter((e) => on.includes(e.env))} pics={pics} reading={reading} onRead={(env) => void read(env, sel)} title={api.data.piece.title} />}
-
       <Box sx={{ mt: 2, display: "flex", flexDirection: "column", gap: 1 }}>
         {envs.filter((e) => on.includes(e.env)).map((e, i) => {
           const writable = sel.filter((v) => { const p = plans[e.env]?.find((x) => x.view === v); return doc.source !== "new" ? true : p && p.action !== "none"; });
-          // a new page's own pictures not in this shop's media yet: Publish waits (Pictures, above)
-          const picHold = doc.source === "new" && pics[e.env]?.storage !== "hub" ? pics[e.env]?.hold ?? null : null;
-          const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : picHold ? "Its pictures first - upload them to Magento's media (Pictures, above), then Read Magento again." : null);
+          // a new page's own pictures not in this shop's media yet: Publish waits (the Pictures section)
+          const picHold = picHoldOf(e.env);
+          const why = e.why ?? (!sel.length ? "Pick at least one store view." : !reading[e.env] && plans[e.env] && !writable.length ? "Nothing to write here - see each store view above." : picHold ? "Its pictures first - upload them to Magento's media (Pictures), then Read Magento again." : null);
           const blocked = cmsViews.filter((v) => sel.includes(v.view) && v.blocked).length;
           const off = !!why || !!busy || !!reading[e.env] || !!blocked;
           // the review or the grant is said once, at the top; the key, per target
@@ -727,23 +924,10 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
       </Box>
       {said && (
         <Box sx={{ mt: 1.25, p: 1.25, borderRadius: "8px", bgcolor: "#f6f8fb", border: `1px solid ${HAIRLINE}` }}>
-          {said.results.map((r) => {
-            // each store view written: its page on that shop, a link (Content v12, SARCLA: "if already created I should have the link")
-            const mine = (said.records ?? []).filter((x) => x.env === said.env && (r.stores?.length ? r.stores.includes(x.store) : x.store === r.view));
-            const pages = liveOn(mine, said.env);
-            return (
-              <Box key={r.view || "all"} sx={{ py: 0.25 }}>
-                <Typography sx={{ fontSize: "0.8rem", color: r.ok ? GREEN : "#c5221f" }}>
-                  {r.view ? `${r.view}: ` : ""}{r.ok ? `${r.action === "created" ? "created" : "updated"} on ${SHOP_LABEL[said.env]} (page #${r.pageId})${pages.length > 1 ? ` in ${pages.length} store views` : ""}${r.note ? ` - ${r.note}` : ""}` : r.error}
-                </Typography>
-                {r.ok && pages.length > 0 && <Box sx={{ mt: 0.25 }}><PageLinks pages={pages} /></Box>}
-              </Box>
-            );
-          })}
+          <ResultList env={said.env} results={said.results} records={said.records} />
         </Box>
       )}
       {canEdit && <OrCalendar api={api} />}
-
 
       <Box sx={{ mt: 2.5, borderTop: `1px solid ${HAIRLINE}`, pt: 1.25 }}>
         <Button size="small" onClick={() => setHandOver(!handOver)} endIcon={<KeyboardArrowDownIcon sx={{ transform: handOver ? "none" : "rotate(-90deg)", transition: "transform .15s" }} />}
@@ -753,6 +937,36 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial }: {
           <Box sx={{ mt: 1.25 }}><HandOver api={api} d={d} set={setView} canEdit={canEdit} lang={lang} /></Box>
         </Collapse>
       </Box>
+    </Box>
+  );
+
+  return (
+    <Box>
+      {/* Content v12: the page's hero taken out and no module in its place - the page would go without its H1 */}
+      {d.source === "new" && !blockOrder(d.fields).includes("hero") && (() => { const id = h1ModuleOf(d.fields); const pm = (d.fields.modules ?? []).find((x) => x.id === id); return !pm || !!moduleGap(pm.module); })() && (
+        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
+          <Typography sx={{ fontSize: "0.82rem", color: INK }}>This page has no H1: its hero was taken out and no finished module stands in its place - the first module carries the H1 once it is filled. Fill it, or put the page&apos;s hero back (the &quot;+&quot; between two blocks).</Typography>
+        </Box>
+      )}
+      {gateWhy && (
+        <Box sx={{ p: 1.25, mb: 1.5, borderRadius: "8px", bgcolor: "#fff8ec", border: "1px solid #f1d9ad" }}>
+          <Typography sx={{ fontSize: "0.82rem", color: INK }}>{gateWhy}</Typography>
+        </Box>
+      )}
+
+      {/* the publishing view's sections (Content v14): one at a time, squared - never MUI Tabs */}
+      <Box sx={{ mb: 1.75 }}>
+        <Choice value={section} onChange={(k: PubSection) => setSection(k)}
+          options={PUB_SECTIONS.map((s) => ({ ...s, count: s.key === "pages" ? rows.length : s.key === "pictures" && doc.source === "new" && picCount ? picCount : undefined }))} />
+      </Box>
+
+      {section === "pages" && pagesPart}
+      {section === "pictures" && picturesPart}
+      {section === "ab" && (
+        <AbSection doc={doc} d={d} pieceId={api.data.piece.id} title={api.data.piece.title} abPart={abPart} prefer={prefer}
+          stores={status.views.find((v) => v.view === lang)?.stores?.map((x) => x.view) ?? viewsOf(doc)} />
+      )}
+      {section === "setup" && setupPart}
     </Box>
   );
 }

@@ -17,6 +17,8 @@ import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import DesktopWindowsOutlinedIcon from "@mui/icons-material/DesktopWindowsOutlined";
 import PhoneIphoneOutlinedIcon from "@mui/icons-material/PhoneIphoneOutlined";
 
@@ -56,17 +58,43 @@ function Gutter({ onDrag, onEnd, onReset, label }: { onDrag: (dx: number) => voi
   );
 }
 
+/** The assistant folded to a thin rail while the build column is a publishing view: a click opens it again. */
+function AssistRail({ label, open, onOpen }: { label: string; open: boolean; onOpen: () => void }) {
+  return (
+    <Box component="button" type="button" onClick={onOpen} aria-label={`Open the ${label.toLowerCase()}`} aria-expanded={open} title={`Open the ${label.toLowerCase()}`}
+      sx={{
+        all: "unset", boxSizing: "border-box", cursor: "pointer", display: { xs: "none", lg: "flex" }, flexDirection: "column", alignItems: "center", gap: 1.25, py: 1.5,
+        width: "100%", height: "100%", borderRadius: "14px", bgcolor: "rgba(255,255,255,.82)", border: "1px solid rgba(255,255,255,.9)",
+        boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 12px 32px rgba(31,45,78,.07)", color: MUTED, transition: "color .12s, background-color .12s",
+        "&:hover": { color: "#2459d1", bgcolor: "#fff" }, "&:focus-visible": { outline: "2px solid #2459d1", outlineOffset: -2 },
+      }}>
+      <ChevronLeftIcon sx={{ fontSize: 18 }} />
+      <AutoAwesomeOutlinedIcon sx={{ fontSize: 17, color: PINK }} />
+      <Box component="span" sx={{ writingMode: "vertical-rl", fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase" }}>{label}</Box>
+    </Box>
+  );
+}
+
 /** The three columns under the studio's bar, each scrolling on its own; the side ones resized by dragging their edge. */
-export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340, id = "studio", hideBuild = false, hideAssist = false }: {
+export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWidth = 340, id = "studio", hideBuild = false, hideAssist = false, wide = false, railLabel = "Assistant" }: {
   build: React.ReactNode; preview: React.ReactNode; assist?: React.ReactNode; buildWidth?: number; assistWidth?: number;
   /** Keeps this studio's widths apart from another's. */
   id?: string;
   /** A side column folded away (the preview takes its room) - on wide screens; a narrow one stacks them anyway. */
   hideBuild?: boolean; hideAssist?: boolean;
+  /** The build column as a publishing view (Content v14, SARCLA 11.11.2026: "the assistant bar collapsible when 'send to
+   * Magento' opens, so we can double the size of this publish modal"): about twice as wide, the assistant folded to a thin
+   * rail - opened again over the page from it, still mounted (its chat kept) - and back as it was when `wide` ends. */
+  wide?: boolean; railLabel?: string;
 }) {
   const [bw, setBw, keepB] = usePaneWidth(`${id}:build`, buildWidth, 260, 760);
   const [aw, setAw, keepA] = usePaneWidth(`${id}:assist`, assistWidth, 260, 620);
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const [railOpen, setRailOpen] = useState(false);
+  useEffect(() => { if (!wide) setRailOpen(false); }, [wide]);
+  const rail = wide && !!assist && !hideAssist;
+  // twice the build column, never so wide that the page in the middle drops under 420px (the rail and the gaps beside it)
+  const buildCol = wide && !hideBuild ? `min(${Math.max(2 * bw, 720)}px, calc(100% - 520px))` : `${bw}px`;
   // the panes fill the window under whatever sits above them (the studio's bar, a sandbox's banner) - with the fixed
   // bar height alone, the sandbox's banner pushed the foot of every pane (the LAST STEP) under the window's edge
   const [top, setTop] = useState(STUDIO_BAR);
@@ -81,19 +109,39 @@ export function StudioPanes({ build, preview, assist, buildWidth = 380, assistWi
   return (
     <Box ref={rootRef} sx={{
       display: "grid", gap: 1.5, p: 1.5, boxSizing: "border-box", height: { lg: `calc(100vh - ${top}px)` },
-      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: [hideBuild ? "" : `${bw}px 0`, "minmax(420px, 1fr)", assist && !hideAssist ? `0 ${aw}px` : ""].filter(Boolean).join(" ") },
+      gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: [hideBuild ? "" : `${buildCol} 0`, "minmax(420px, 1fr)", assist && !hideAssist ? `0 ${rail ? 44 : aw}px` : ""].filter(Boolean).join(" ") },
+      transition: "grid-template-columns .22s ease-out",
     }}>
       <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 2, lg: 1 }, display: { lg: hideBuild ? "none" : "block" } }}>{build}</Box>
       <Box sx={{ order: { xs: 9, lg: 2 }, display: { xs: "none", lg: hideBuild ? "none" : "block" } }}>
-        <Gutter label="Resize the build column" onDrag={(dx) => setBw((v) => clamp(v + dx, 260, 760))} onEnd={() => keepB(bw)} onReset={() => { setBw(buildWidth); keepB(buildWidth); }} />
+        <Gutter label="Resize the build column" onDrag={(dx) => setBw((v) => clamp(v + (wide ? dx / 2 : dx), 260, 760))} onEnd={() => keepB(bw)} onReset={() => { setBw(buildWidth); keepB(buildWidth); }} />
       </Box>
       <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 1, lg: 3 } }}>{preview}</Box>
       {assist && (
-        <Box sx={{ order: { xs: 9, lg: 4 }, display: { xs: "none", lg: hideAssist ? "none" : "block" } }}>
+        <Box sx={{ order: { xs: 9, lg: 4 }, display: { xs: "none", lg: hideAssist || rail ? "none" : "block" } }}>
           <Gutter label="Resize the assistant" onDrag={(dx) => setAw((v) => clamp(v - dx, 260, 620))} onEnd={() => keepA(aw)} onReset={() => { setAw(assistWidth); keepA(assistWidth); }} />
         </Box>
       )}
-      {assist && <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 3, lg: 5 }, display: { lg: hideAssist ? "none" : "block" } }}>{assist}</Box>}
+      {assist && (
+        <Box sx={{ minHeight: 0, minWidth: 0, order: { xs: 3, lg: 5 }, display: { lg: hideAssist ? "none" : "block" }, position: { lg: rail ? "relative" : "static" } }}>
+          {rail && <AssistRail label={railLabel} open={railOpen} onOpen={() => setRailOpen(true)} />}
+          {/* folded to the rail it stays mounted (its chat and its tab kept); opened from the rail it lies over the page */}
+          <Box sx={rail ? {
+            display: { xs: "block", lg: railOpen ? "block" : "none" }, height: "100%",
+            position: { lg: "absolute" }, top: 0, right: 0, bottom: 0, width: { lg: aw }, zIndex: 6, bgcolor: { lg: "#fff" },
+            boxShadow: { lg: "0 18px 48px rgba(31,45,78,.22)" }, borderRadius: "18px",
+          } : { height: "100%" }}>
+            {rail && railOpen && (
+              <Box component="button" type="button" onClick={() => setRailOpen(false)} aria-label={`Fold the ${railLabel.toLowerCase()} again`} title={`Fold the ${railLabel.toLowerCase()} again - the publishing view keeps the room`}
+                sx={{ all: "unset", display: { xs: "none", lg: "grid" }, placeItems: "center", position: "absolute", left: -13, top: 14, zIndex: 7, width: 26, height: 26, borderRadius: "50%", cursor: "pointer",
+                  bgcolor: "#fff", border: `1px solid ${HAIRLINE}`, boxShadow: "0 2px 8px rgba(31,45,78,.16)", color: INK, "&:hover": { color: "#2459d1" }, "&:focus-visible": { outline: "2px solid #2459d1" } }}>
+                <ChevronRightIcon sx={{ fontSize: 18 }} />
+              </Box>
+            )}
+            {assist}
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }
