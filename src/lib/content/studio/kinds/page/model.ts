@@ -120,6 +120,9 @@ export type PageVersion = {
   at: string;
   /** a version of an optimization of AI testing & personalization (apsomh_convert_versions): which one, its revision */
   origin: { versionId: string; rev: number; summary: string } | null;
+  /** a page made here (Content v15, SARCLA 11.11.2026: "in one click create, with the same content, another version"): its
+   * own blocks and words - the open one's are the view's `fields`, as its changes are the view's `changes` */
+  fields?: Fields;
 };
 /** The letters a page's versions take, in order - AI testing & personalization's own (A first, at most four). */
 export const PAGE_LETTERS = ["A", "B", "C", "D"] as const;
@@ -524,8 +527,10 @@ export function dropView(d: PageDoc, key: string): PageDoc {
 /** A store view's versions, each with its own change list (the open one's is the view's) - A alone when it has no other. */
 export function versionList(view: PageDoc): PageVersion[] {
   const open = view.letter || "A";
-  if (!view.versions?.length) return [{ letter: open, changes: view.changes, texts: view.texts, from: "", at: "", origin: null }];
-  return view.versions.map((v) => (v.letter === open ? { ...v, changes: view.changes, texts: view.texts } : v));
+  // a page made here: each version its own blocks and words too (Content v15)
+  const own = view.source === "new" ? { fields: view.fields } : {};
+  if (!view.versions?.length) return [{ letter: open, changes: view.changes, texts: view.texts, from: "", at: "", origin: null, ...own }];
+  return view.versions.map((v) => (v.letter === open ? { ...v, changes: view.changes, texts: view.texts, ...own } : v));
 }
 /** The letters it has, in order. */
 export const lettersOf = (view: PageDoc): string[] => versionList(view).map((v) => v.letter);
@@ -538,9 +543,15 @@ export function openVersion(view: PageDoc, letter: string): PageDoc {
   if (letter === open || !lettersOf(view).includes(letter)) return view;
   const all = versionList(view);
   const to = all.find((v) => v.letter === letter)!;
+  // a page made here: its blocks and words go with the version (Content v15); the one opened keeps none of its own
+  const isNew = view.source === "new";
   return {
-    ...view, letter, changes: to.changes, texts: to.texts,
-    versions: all.map((v) => (v.letter === letter ? { ...v, changes: [], texts: [] } : v)),
+    ...view, letter, changes: to.changes, texts: to.texts, ...(isNew && to.fields ? { fields: to.fields } : {}),
+    versions: all.map((v) => {
+      if (v.letter !== letter) return v;
+      const { fields: _f, ...rest } = v;
+      return { ...rest, changes: [], texts: [] };
+    }),
   };
 }
 
@@ -549,9 +560,35 @@ export function addVersion(view: PageDoc, at = new Date().toISOString()): PageDo
   const letter = nextPageLetter(view);
   if (!letter) return view;
   const open = view.letter || "A";
-  const all = versionList(view).map((v) => (v.letter === open ? { ...v, changes: cloneOf(view.changes), texts: cloneOf(view.texts) } : v));
+  const isNew = view.source === "new";
+  const all = versionList(view).map((v) => (v.letter === open ? { ...v, changes: cloneOf(view.changes), texts: cloneOf(view.texts), ...(isNew ? { fields: cloneOf(view.fields) } : {}) } : v));
   const made: PageVersion = { letter, changes: [], texts: [], from: open, at, origin: null };
-  return { ...view, letter, changes: cloneOf(view.changes), texts: cloneOf(view.texts), versions: [...all, made].sort((a, b) => a.letter.localeCompare(b.letter)) };
+  // a page made here (Content v15): the copy is its blocks and words, the same content to change on its own
+  return { ...view, letter, changes: cloneOf(view.changes), texts: cloneOf(view.texts), ...(isNew ? { fields: cloneOf(view.fields) } : {}), versions: [...all, made].sort((a, b) => a.letter.localeCompare(b.letter)) };
+}
+
+/**
+ * A version becomes the page (Content v15, the A/B test's winner, SARCLA 11.11.2026): its content is version A's from now
+ * on - A's own words are replaced, the version itself goes - and A is open, to be written with "Update on ACC", then
+ * production. A page with versions left keeps them; with none left it is the page alone again.
+ */
+export function promoteVersion(view: PageDoc, letter: string): PageDoc {
+  const all = versionList(view);
+  const won = all.find((v) => v.letter === letter);
+  if (!won || letter === "A" || !all.some((v) => v.letter === "A")) return view;
+  const isNew = view.source === "new";
+  const content = { changes: cloneOf(won.changes), texts: cloneOf(won.texts), ...(isNew && won.fields ? { fields: cloneOf(won.fields) } : {}) };
+  const left = all.filter((v) => v.letter !== letter).map((v) => (v.letter === "A" ? { ...v, ...content, from: "", at: v.at } : v));
+  // A open: its content is the view's; every other version keeps its own
+  const view2: PageDoc = { ...view, letter: "A", changes: content.changes, texts: content.texts, ...(isNew && content.fields ? { fields: content.fields } : {}) };
+  const versions = left.length > 1 ? left.map((v) => {
+    if (v.letter !== "A") return v;
+    const { fields: _f, ...rest } = v;
+    return { ...rest, changes: [], texts: [] };
+  }) : [];
+  const ab = view.abTest;
+  const fix = ab.a === letter || ab.b === letter ? { a: "page", b: "A" } : {};
+  return { ...view2, versions, abTest: { ...ab, ...fix } };
 }
 
 /** The store view without one version (never its last); the one open taken out opens the first left. The A/B test that
@@ -881,7 +918,9 @@ function versionsOfRaw(v: unknown, open: string): PageVersion[] {
     if (!isLetter(x.letter) || out.some((y) => y.letter === x.letter)) continue;
     const o = isObj(x.origin) && typeof x.origin.versionId === "string" && x.origin.versionId
       ? { versionId: str(x.origin.versionId, 40), rev: Number(x.origin.rev) || 1, summary: str(x.origin.summary, 600) } : null;
-    out.push({ letter: x.letter, changes: x.letter === open ? [] : changesOf(x.changes), texts: x.letter === open ? [] : textsOf(x.texts), from: isLetter(x.from) ? x.from : "", at: str(x.at, 40), origin: o });
+    out.push({ letter: x.letter, changes: x.letter === open ? [] : changesOf(x.changes), texts: x.letter === open ? [] : textsOf(x.texts), from: isLetter(x.from) ? x.from : "", at: str(x.at, 40), origin: o,
+      // a page made here keeps each version's blocks and words (Content v15) - the open one's are the view's
+      ...(x.letter !== open && isObj(x.fields) ? { fields: normalizeFields(x.fields) } : {}) });
   }
   if (out.length && !out.some((x) => x.letter === open)) out.push({ letter: open, changes: [], texts: [], from: "", at: "", origin: null });
   return out.sort((a, b) => a.letter.localeCompare(b.letter));

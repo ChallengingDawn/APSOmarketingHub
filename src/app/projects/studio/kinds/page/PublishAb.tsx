@@ -1,13 +1,21 @@
 "use client";
-// THE PUBLISHING VIEW'S A/B TEST SECTION (Content v14, SARCLA 11.11.2026: "the A/B test on the publish modal: we need to
-// control it from here; this creates a test on the A/B testing platform"). The page's tests in Website > A/B testing >
-// Page tests (src/lib/convert/tests.ts, read and controlled through /api/website/ab-testing/pages - the app's own routes
-// and rights): each published store view with its A/B state, each test with its status, figures and verdict, and start /
-// pause / resume / stop - starting and resuming put a version on the shop, so each is confirmed with what goes live where,
-// never by itself. "Create a test from this page" makes AI testing & personalization's version from the Page builder's own
-// changes, approves it and makes the test as a draft (POST .../ai-personalization/work {action:"version"}, {action:
-// "approve"}, then POST .../ab-testing/pages {action:"create"}) - behind ONE flag (lib .../publishView.ts AB_FROM_PAGE)
-// until that release is live; until then the page's tests are matched on its published addresses.
+// THE PUBLISHING VIEW'S A/B TEST SECTION, IN THREE STEPS (Content v15, SARCLA 11.11.2026, ~18:00: "I cannot define the
+// test. I should be able in one click to create, with the same content, another version to send, and then it sends to AI
+// personalization - this should send to the A/B testing sub app, but always be tracked from the page as well, on its tab.
+// Needs also to behave more featured and straightforward.")
+//   1  Version B   "Make version B (a copy of this page)": the page builder's own versions (lib .../model.ts addVersion -
+//                  a page made here keeps each version's blocks and words since v15), B opened on the stage to be changed;
+//                  a line says what B changes (lib .../abFlow.ts blocksChanged; a page of the shop: its changes beyond A's);
+//                  one click back to A
+//   2  The test    one card, its defaults filled in (abFlow.ts testDefaults): its name, what decides (add to cart - what A/B
+//                  testing counts), who sees it, the split, where (ACC first). "Send to A/B testing": B's change list
+//                  (the studio's ab_variant), AI testing & personalization's version from it, approved, then the test as a
+//                  DRAFT linked to this to-do (POST .../ai-personalization/work {action:"version"}, {action:"approve"}; POST
+//                  .../ab-testing/pages {action:"create", piece}) - nothing on the shop until it is started, confirmed
+//   3  Tracked     each test of this page (GET .../ab-testing/pages?piece=): its status, days, visitors and add-to-carts of
+//                  A and B, the uplift with its range, the verdict in plain words, its day-by-day line (GET .../<id>); and
+//                  Start / Pause / Resume / Stop, "Make B the page" (the winner: B's content becomes version A, written by
+//                  Update on ACC, then production), "Open in A/B testing" - every one that changes the shop confirmed.
 
 import { isValidElement, useCallback, useEffect, useMemo, useState } from "react";
 import Box from "@mui/material/Box";
@@ -16,33 +24,40 @@ import CircularProgress from "@mui/material/CircularProgress";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import CheckIcon from "@mui/icons-material/Check";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import { HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
 import { convertPost } from "@/app/website/ai-personalization/Flow";
 import {
-  ConfirmDialog, GatewayNotice, StatusChip, VerdictChip, envChip, n, pagesLine, pct, signed,
+  ConfirmDialog, GatewayNotice, StatusChip, VerdictChip, envChip, n, pagesLine,
   type Confirm, type GatewayView, type TestView,
 } from "@/app/website/ai-personalization/TestParts";
-import { versionList, type PageDoc } from "@/lib/content/studio/kinds/page/model";
-import { SHOP_LABEL, abStore, abTestHref, liveOn, type ShopEnv } from "@/lib/content/studio/kinds/page/published";
+import { addVersion, openVersion, promoteVersion, versionList, type PageDoc } from "@/lib/content/studio/kinds/page/model";
+import { SHOP_LABEL, abTestHref, liveOn } from "@/lib/content/studio/kinds/page/published";
+import { AB_FROM_PAGE, abActionsOf, abRows, changeWords, testsOfPage, variantChanges, type AbAction, type ChangeLite } from "@/lib/content/studio/kinds/page/publishView";
 import {
-  AB_FROM_PAGE, AB_FROM_PAGE_WAIT, abActionsOf, abRows, changeWords, testsOfPage, variantChanges, type AbAction, type ChangeLite,
-} from "@/lib/content/studio/kinds/page/publishView";
+  allocationOf, audienceOf, blocksChanged, differsLine, flowStep, sendWhy, sparkPoints, testDefaults, upliftLine, type AbEnv, type SplitKey, type TestDraft,
+} from "@/lib/content/studio/kinds/page/abFlow";
 import { PINK, btn, mainBtn } from "../../parts";
+import type { StudioApi } from "../../useStudio";
 import { Choice, Hint, mono } from "./ui";
 
 const API = "/api/website/ab-testing/pages";
 const WORK = "/api/website/ai-personalization/work";
 const BLUE = "#2459d1";
+const GREEN = "#1b7a55";
+const RED = "#c5221f";
 const testHref = (id: string) => `/website/ab-testing/pages/${encodeURIComponent(id)}`;
 type Data = { tests: (TestView & { piece?: number | string | null })[]; gateway: GatewayView; canEdit: boolean };
+type Daily = { rateA: number | null; rateB: number | null }[];
 
-const ACTION: Record<AbAction, { go: string; title: (t: TestView) => string; tone?: "stop"; first: (t: TestView) => string }> = {
-  start: { go: "Start the test", title: () => "Start this test?", first: (t) => `The version goes live on ${t.host} for ${t.allocation.mode === "bandit" ? "a share of the visitors that follows the results" : `${t.allocation.split.b}% of the visitors`} on:` },
-  resume: { go: "Resume it", title: () => "Resume this test?", first: (t) => `The version is live again on ${t.host} on:` },
-  pause: { go: "Pause it", title: () => "Pause this test?", first: () => "Every visitor sees the page as it is until it is resumed - the figures stay. Its pages:" },
-  stop: { go: "Stop it", tone: "stop", title: () => "Stop this test?", first: () => "Every visitor sees the page as it is; the figures stay, and the winner is picked in A/B testing. Its pages:" },
+const ACTION: Record<AbAction, { go: string; title: string; tone?: "stop"; first: (t: TestView) => string }> = {
+  start: { go: "Start the test", title: "Start this test?", first: (t) => `Version B goes live on ${t.host} for ${t.allocation.mode === "bandit" ? "a share of the visitors that follows the results (each side keeps at least 10%)" : `${t.allocation.split.b}% of the visitors`} on:` },
+  resume: { go: "Resume it", title: "Resume this test?", first: (t) => `Version B is live again on ${t.host} on:` },
+  pause: { go: "Pause it", title: "Pause this test?", first: () => "Every visitor sees the page as it is until it is resumed - the figures stay. Its pages:" },
+  stop: { go: "Stop it", tone: "stop", title: "Stop this test?", first: () => "Every visitor sees the page as it is; the figures stay. Its pages:" },
 };
 const ACTION_LABEL: Record<AbAction, string> = { start: "Start", resume: "Resume", pause: "Pause", stop: "Stop" };
 
@@ -75,12 +90,39 @@ async function readJson<T>(url: string): Promise<{ ok: true; data: T } | { ok: f
   }
 }
 
-export function AbSection({ doc, d, pieceId, title, abPart, prefer, stores }: {
-  doc: PageDoc; d: PageDoc; pieceId: number; title: string; abPart?: React.ReactNode;
-  /** the store view a test starts on, first (the one worked on, the version's own) */
+/** A step's card: its number, its title, lit when it is the one to do. */
+function StepCard({ n: num, title, now, done, children, right }: { n: number; title: string; now: boolean; done?: boolean; children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <Box sx={{ p: 1.5, borderRadius: "12px", border: `1px solid ${now ? "rgba(194,44,110,.45)" : HAIRLINE}`, bgcolor: "#fff", boxShadow: now ? "0 0 0 3px rgba(194,44,110,.08)" : "none" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+        <Box component="span" sx={{ width: 22, height: 22, borderRadius: "50%", display: "grid", placeItems: "center", flexShrink: 0, fontSize: "0.74rem", fontWeight: 800,
+          color: done ? "#fff" : now ? "#fff" : MUTED, bgcolor: done ? GREEN : now ? PINK : "rgba(21,34,58,.07)" }}>
+          {done ? <CheckIcon sx={{ fontSize: 14 }} /> : num}
+        </Box>
+        <Typography sx={{ flex: 1, fontSize: "0.9rem", fontWeight: 800, color: INK }}>{title}</Typography>
+        {right}
+      </Box>
+      {children}
+    </Box>
+  );
+}
+
+const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "130px minmax(0,1fr)" }, columnGap: 1.5, rowGap: 0.5, alignItems: "center", py: 0.6 }}>
+    <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: MUTED }}>{label}</Typography>
+    <Box sx={{ minWidth: 0 }}>{children}</Box>
+  </Box>
+);
+
+export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, prefer, stores, canEditPage, onPromoted }: {
+  api: StudioApi; doc: PageDoc; d: PageDoc; setView: (next: PageDoc) => void; lang: string; pieceId: number; title: string; abPart?: React.ReactNode;
+  /** the store view a test link opens first (the one worked on, the version's own) */
   prefer: (string | null | undefined)[];
-  /** the open version's store views (a test made from this page runs on one of its addresses) */
+  /** the open language's store views (who sees the test, by default) */
   stores: string[];
+  canEditPage: boolean;
+  /** B became the page: the publishing view shows Pages, to update ACC, then production */
+  onPromoted: () => void;
 }) {
   const [data, setData] = useState<Data | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -97,236 +139,293 @@ export function AbSection({ doc, d, pieceId, title, abPart, prefer, stores }: {
   }, [pieceId]);
   useEffect(() => { void load(); }, [load]);
 
-  // the page's tests: read by its to-do once the app records it, else the tests on its published addresses
+  // the page's tests: read by its to-do (the app records it), else the tests on its published addresses
   const tests = useMemo(() => (data ? (AB_FROM_PAGE ? data.tests : testsOfPage(data.tests, doc.magento, pieceId)) : []), [data, doc.magento, pieceId]);
   const rows = useMemo(() => abRows(doc.magento, tests), [doc.magento, tests]);
   const g = data?.gateway ?? null;
   const canAct = !!data?.canEdit && !!g?.configured;
 
+  /* ── step 1: version B ── */
+  const isNew = d.source === "new";
+  const all = versionList(d);
+  const open = d.letter || "A";
+  const others = all.filter((v) => v.letter !== "A");
+  const [letter, setLetter] = useState<string>(others[0]?.letter ?? "B");
+  const hasB = all.some((v) => v.letter === letter) && all.some((v) => v.letter === "A");
+  const aView = hasB ? openVersion(d, "A") : d;
+  const bView = hasB ? openVersion(d, letter) : null;
+  const changed = useMemo(() => {
+    if (!bView) return [];
+    if (isNew) return blocksChanged(aView.fields, bView.fields);
+    return variantChanges(aView.changes as ChangeLite[], bView.changes as ChangeLite[]).map(changeWords);
+  }, [aView, bView, isNew]);
+  const makeB = () => {
+    // the next free letter is B on a page with A alone; the copy opens on the stage, to be changed
+    const next = addVersion(d);
+    if (next === d) return;
+    setLetter(next.letter);
+    setView(next);
+  };
+
+  /* ── step 2: the test ── */
+  const [draft, setDraft] = useState<TestDraft>(() => testDefaults({ page: title, letter, changed, stores }));
+  const [named, setNamed] = useState(false);
+  // the name follows what B changes until the person writes one
+  const autoName = testDefaults({ page: title, letter, changed, stores }).name;
+  useEffect(() => { if (!named) setDraft((x) => ({ ...x, name: autoName })); }, [autoName, named]);
+  useEffect(() => { setDraft((x) => (x.stores.join() === stores.join() ? x : { ...x, stores: [...stores] })); }, [stores]);
+  const [sending, setSending] = useState<string | null>(null);
+  const [sent, setSent] = useState(false);
+  // this language's pages on each shop: where its test runs
+  const here = (env: AbEnv) => liveOn(doc.magento, env).filter((p) => !stores.length || stores.includes(p.store));
+  const where = here(draft.env);
+  const startPage = prefer.map((s) => where.find((p) => p.store === s)).find(Boolean) ?? where[0] ?? null;
+  const why = !hasB ? "Make version B first (step 1)." : sendWhy({ canEdit: !!data?.canEdit, changes: changed.length, onShop: { acc: here("acc").length > 0, prod: here("prod").length > 0 }, env: draft.env, name: draft.name, sending: !!sending });
+
+  const send = async () => {
+    if (why || !startPage) return;
+    setSaid(null);
+    setSending("Reading version B as the shop will get it…");
+    const v = await api.act<{ changes: ChangeLite[]; size: number; path: string | null }>("ab_variant", { lang, letter, env: draft.env });
+    if (!v.ok) { setSending(null); setSaid({ ok: false, text: v.error }); return; }
+    if (!v.result.changes.length) { setSending(null); setSaid({ ok: false, text: `Version ${letter} does nothing the page on the shop does not do already.` }); return; }
+    setSending("Making the version in AI testing & personalization…");
+    const made = await convertPost<{ version: { id: string | number; rev: number } }>(WORK, {
+      action: "version", env: draft.env, path: startPage.path, changes: v.result.changes, title: draft.name.trim(), summary: changed.length ? `Version ${letter} from the Page builder: ${changed.join(", ")}` : `Version ${letter} from the Page builder`, piece: pieceId,
+    });
+    if (!made.ok) { setSending(null); setSaid({ ok: false, text: made.error }); return; }
+    const versionId = String(made.data.version.id);
+    setSending("Approving it…");
+    const ok = await convertPost(WORK, { action: "approve", versionId });
+    if (!ok.ok) { setSending(null); setSaid({ ok: false, text: ok.error }); return; }
+    setSending("Making the test in A/B testing…");
+    const pages = draft.who === "stores" ? where.map((p) => p.path) : [startPage.path];
+    const t = await convertPost<{ id: string }>(API, {
+      action: "create", versionId, env: draft.env, pages: [...new Set([startPage.path, ...pages])].slice(0, 20), name: draft.name.trim(),
+      allocation: allocationOf(draft.split), audience: audienceOf(draft), piece: pieceId,
+    });
+    setSending(null);
+    if (!t.ok) { setSaid({ ok: false, text: t.error }); return; }
+    setSent(true);
+    setSaid({ ok: true, text: `Sent to A/B testing as a draft (#${t.data.id}) - nothing is on the shop until you start it below.` });
+    await load();
+  };
+
+  /* ── step 3: the tests, tracked here ── */
   const ask = (t: TestView, a: AbAction) => setConfirm({
-    title: ACTION[a].title(t), go: ACTION[a].go, tone: ACTION[a].tone,
+    title: ACTION[a].title, go: ACTION[a].go, tone: ACTION[a].tone,
     lines: [ACTION[a].first(t), pagesLine(t.host, t.pages), `"${t.name}" · ${SHOP_LABEL[t.env]}`],
     run: async () => {
       const r = await convertPost<{ id: string; status: string }>(API, { action: a, id: t.id });
-      if (!r.ok) { setSaid({ ok: false, text: r.error }); return true; }
-      setSaid({ ok: true, text: `"${t.name}" - ${r.data.status === "running" ? "running" : r.data.status}.` });
+      setSaid(r.ok ? { ok: true, text: `"${t.name}" - ${r.data.status}.` } : { ok: false, text: r.error });
       await load();
       return true;
     },
   });
+  const makeBThePage = (t: TestView) => setConfirm({
+    title: `Make ${letter} the page?`, go: `Make ${letter} the page`,
+    lines: [
+      `The test stops and ${letter} is recorded as its winner in A/B testing. ${letter}'s content becomes the page's version A here - A as it was is replaced.`,
+      "Nothing is written to the shop yet: Pages then shows the page changed - Update all on ACC, look at it there, then production.",
+      `"${t.name}" · ${SHOP_LABEL[t.env]}`,
+    ],
+    run: async () => {
+      if (t.status === "running" || t.status === "paused" || t.status === "stopped") {
+        const r = await convertPost(API, { action: "decide", id: t.id, winner: "b" });
+        if (!r.ok) { setSaid({ ok: false, text: r.error }); return true; }
+      }
+      setView(promoteVersion(d, letter));
+      setSaid({ ok: true, text: `${letter} is the page now - update it on ACC, then production, from Pages.` });
+      await load();
+      onPromoted();
+      return true;
+    },
+  });
+
+  const step = flowStep({ hasB, changed: changed.length, tests });
+  const counts = `${tests.length} test${tests.length === 1 ? "" : "s"}`;
 
   return (
-    <Box>
-      <Hint mt={0}>A test runs a version of the page against the page as it is, on the shop: the add-to-carts decide. It lives in Website &gt; A/B testing &gt; Page tests - started, paused and stopped from here as there.</Hint>
-      {abPart && <Box sx={{ mt: 1.5 }}>{abPart}</Box>}
-      {g && <Box sx={{ mt: 1.25 }}><GatewayNotice g={g} what="tests" /></Box>}
-      {err && <Typography sx={{ mt: 1.25, fontSize: "0.82rem", color: "#c5221f" }}>{err}</Typography>}
+    <Box sx={{ display: "grid", gap: 1.25 }}>
+      <Hint mt={0}>Test a version B of this page against the page as it is, on the shop - the add-to-carts decide. The test runs in A/B testing and is followed here.</Hint>
+      {g && <GatewayNotice g={g} what="tests" />}
+      {err && <Typography sx={{ fontSize: "0.82rem", color: RED }}>{err}</Typography>}
 
-      {/* the page's tests: status, figures, verdict - and their controls */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2, mb: 0.75 }}>
-        <Typography component="div" sx={{ flex: 1, fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>
-          The page&apos;s tests · {tests.length}
-        </Typography>
-        <Button size="small" onClick={() => void load()} disabled={loading} startIcon={loading ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
-          sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0 }}>Read again</Button>
-      </Box>
-      {loading && !data ? (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.8rem" }}><CircularProgress size={13} /> Reading A/B testing…</Box>
-      ) : !tests.length ? (
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No test runs on this page yet.</Typography>
-      ) : (
-        <Box sx={{ display: "grid", gap: 1 }}>
-          {tests.map((t) => <TestCard key={t.id} t={t} canAct={canAct} onAct={(a) => ask(t, a)} />)}
+      {/* 1 - version B in one click */}
+      <StepCard n={1} title="Version B" now={step === "make" || step === "change"} done={hasB && changed.length > 0}>
+        {!hasB ? (
+          <>
+            <Button variant="contained" disableElevation disabled={!canEditPage} onClick={makeB} startIcon={<ContentCopyIcon sx={{ fontSize: 16 }} />}
+              sx={{ ...mainBtn, height: 38, borderRadius: "8px", px: 2 }}>Make version B (a copy of this page)</Button>
+            <Typography sx={{ mt: 0.75, fontSize: "0.78rem", color: MUTED }}>B starts as the same page and opens on the stage - change what you want to test there: a headline, the hero, a block.</Typography>
+          </>
+        ) : (
+          <>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              <Choice value={open} onChange={(k: string) => setView(openVersion(d, k))} options={all.map((v) => ({ key: v.letter, label: v.letter === "A" ? "A - the page" : `${v.letter} - to test` }))} />
+              {open !== "A" && <Typography component="span" sx={{ fontSize: "0.76rem", color: PINK, fontWeight: 700 }}>{open} is open on the stage - what you change now changes {open}.</Typography>}
+            </Box>
+            <Typography sx={{ mt: 0.75, fontSize: "0.8rem", color: changed.length ? INK : MUTED, fontWeight: changed.length ? 600 : 400 }}>{differsLine(changed, letter)}</Typography>
+            {open !== "A" && <Typography sx={{ mt: 0.4, fontSize: "0.74rem", color: MUTED }}>Pages writes the version open - open A again before you update the page itself.</Typography>}
+          </>
+        )}
+      </StepCard>
+
+      {/* 2 - the test, defined on one card */}
+      <StepCard n={2} title="Define the test" now={step === "define"} done={sent}>
+        <Row label="Name">
+          <TextField size="small" fullWidth value={draft.name} onChange={(e) => { setNamed(true); setDraft((x) => ({ ...x, name: e.target.value })); }} inputProps={{ maxLength: 200 }}
+            sx={{ "& .MuiInputBase-input": { fontSize: "0.84rem" } }} />
+        </Row>
+        <Row label="What decides">
+          <Typography sx={{ fontSize: "0.82rem", color: INK }}><b>Add to cart</b> on the page - the share of visitors who add something to the cart, A against B</Typography>
+        </Row>
+        <Row label="Who sees it">
+          <Choice value={draft.who} onChange={(k: "all" | "stores") => setDraft((x) => ({ ...x, who: k }))}
+            options={[{ key: "stores", label: `This language's store views (${stores.length})` }, { key: "all", label: "All visitors" }]} />
+          {draft.who === "stores" && <Typography sx={{ mt: 0.4, ...mono, fontSize: "0.7rem", color: MUTED }}>{stores.join(" · ")}</Typography>}
+        </Row>
+        <Row label="The split">
+          <Choice value={draft.split} onChange={(k: SplitKey) => setDraft((x) => ({ ...x, split: k }))}
+            options={[{ key: "half", label: "Half and half" }, { key: "bandit", label: "More to the better one, automatically" }]} />
+          <Typography sx={{ mt: 0.4, fontSize: "0.72rem", color: MUTED }}>
+            {draft.split === "bandit" ? "Starts half and half; the shop's gateway then sends more visitors to the version doing better - each keeps at least 10%." : "Each visitor keeps the version they got."}
+          </Typography>
+        </Row>
+        <Row label="Where">
+          <Choice value={draft.env} onChange={(k: AbEnv) => setDraft((x) => ({ ...x, env: k }))}
+            options={[{ key: "acc", label: "ACC first" }, { key: "prod", label: "Production", disabled: !here("prod").length }]} />
+        </Row>
+        <Box sx={{ mt: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Button variant={step === "define" ? "contained" : "outlined"} disableElevation disabled={!!why} onClick={() => void send()}
+            startIcon={sending ? <CircularProgress size={13} color="inherit" /> : <SendOutlinedIcon sx={{ fontSize: 16 }} />}
+            sx={step === "define" ? { ...mainBtn, height: 38, borderRadius: "8px", px: 2 } : { ...btn, height: 38, borderRadius: "8px", borderColor: HAIRLINE, color: INK }}>
+            {sending ?? "Send to A/B testing"}
+          </Button>
+          {why && !sending && <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED }}>{why}</Typography>}
+          {!why && startPage && <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>As a draft, on {SHOP_LABEL[draft.env]} - started only by you, below.</Typography>}
         </Box>
-      )}
-      {data && !data.canEdit && tests.length > 0 && <Hint mt={0.75}>Starting, pausing and stopping need the write level of Page tests.</Hint>}
-      {said && <Typography sx={{ mt: 1, fontSize: "0.78rem", color: said.ok ? "#1b7a55" : "#c5221f" }}>{said.text}</Typography>}
+      </StepCard>
 
-      <MakeTest doc={doc} d={d} pieceId={pieceId} title={title} prefer={prefer} stores={stores} canEdit={!!data?.canEdit} onMade={() => void load()} />
-      {/* each published store view with its A/B state */}
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 2.5, mb: 0.75 }}>
-        <Typography component="div" sx={{ flex: 1, fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>
+      {/* 3 - tracked here */}
+      <StepCard n={3} title="Tracked here" now={step === "track"} right={(
+        <Button size="small" onClick={() => void load()} disabled={loading} startIcon={loading ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 15 }} />}
+          sx={{ ...btn, color: MUTED, px: 0.5, py: 0, fontSize: "0.74rem", minWidth: 0 }}>{counts} · Read again</Button>
+      )}>
+        {loading && !data ? (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, color: MUTED, fontSize: "0.8rem" }}><CircularProgress size={13} /> Reading A/B testing…</Box>
+        ) : !tests.length ? (
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No test of this page yet - send one above.</Typography>
+        ) : (
+          <Box sx={{ display: "grid", gap: 1 }}>
+            {tests.map((t) => <TestCard key={t.id} t={t} canAct={canAct} canPromote={hasB && canEditPage && !!data?.canEdit} letter={letter} onAct={(a) => ask(t, a)} onPromote={() => makeBThePage(t)} />)}
+          </Box>
+        )}
+        {data && !data.canEdit && tests.length > 0 && <Hint mt={0.75}>Starting, pausing and stopping need the write level of A/B testing &gt; Page tests.</Hint>}
+      </StepCard>
+      {said && <Typography sx={{ fontSize: "0.8rem", color: said.ok ? GREEN : RED }}>{said.text}</Typography>}
+
+      {/* the page's published store views, each with its test - or a link to A/B testing for it */}
+      <Box>
+        <Typography component="div" sx={{ mt: 0.5, mb: 0.75, fontSize: "0.7rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED }}>
           Published store views · {rows.length}
         </Typography>
-      </Box>
-      {!rows.length ? (
-        <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Not on a shop yet - publish it on ACC first (Pages), then test it here.</Typography>
-      ) : (
-        <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden" }}>
-          {[...rows].sort((x, y) => Number(!!y.test) - Number(!!x.test)).map((r, i) => (
-            <Box key={`${r.env}|${r.store}`} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", px: 1.25, py: 0.75, borderTop: i ? `1px solid ${HAIRLINE}` : "none" }}>
-              <Box sx={{ width: 78, flexShrink: 0 }}>{envChip(r.env)}</Box>
-              <Box component="a" href={r.url} target="_blank" rel="noopener noreferrer" title={r.url}
-                sx={{ ...mono, fontSize: "0.76rem", color: BLUE, textDecoration: "none", minWidth: 0, flex: "1 1 220px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>
-                {r.path}
+        {!rows.length ? (
+          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>Not on a shop yet - publish it on ACC first (Pages), then test it here.</Typography>
+        ) : (
+          <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden", maxHeight: 260, overflowY: "auto" }}>
+            {[...rows].sort((x, y) => Number(!!y.test) - Number(!!x.test)).map((r, i) => (
+              <Box key={`${r.env}|${r.store}`} sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", px: 1.25, py: 0.6, borderTop: i ? `1px solid ${HAIRLINE}` : "none" }}>
+                <Box sx={{ width: 78, flexShrink: 0 }}>{envChip(r.env)}</Box>
+                <Box component="a" href={r.url} target="_blank" rel="noopener noreferrer" title={r.url}
+                  sx={{ ...mono, fontSize: "0.74rem", color: BLUE, textDecoration: "none", minWidth: 0, flex: "1 1 200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", "&:hover": { textDecoration: "underline" } }}>{r.path}</Box>
+                {r.test ? <StatusChip status={r.test.status} kind="test" /> : (
+                  <Button size="small" component="a" href={abTestHref(r.env, r.path, pieceId)} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 13 }} />}
+                    sx={{ ...btn, color: INK, px: 0.75, py: 0, fontSize: "0.74rem", minWidth: 0 }}>Open in A/B testing</Button>
+                )}
               </Box>
-              {r.test ? (
-                <Box component="a" href={testHref(r.test.id)} target="_blank" rel="noopener noreferrer" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, textDecoration: "none" }}>
-                  <StatusChip status={r.test.status} kind="test" />
-                  <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.test.name}</Typography>
-                </Box>
-              ) : (
-                <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED }}>No test</Typography>
-              )}
-              {!r.test && (
-                <Button size="small" component="a" href={abTestHref(r.env, r.path, pieceId)} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 13 }} />}
-                  sx={{ ...btn, color: INK, px: 0.75, py: 0, fontSize: "0.74rem", minWidth: 0 }}>Open in A/B testing</Button>
-              )}
-            </Box>
-          ))}
-        </Box>
-      )}
-
+            ))}
+          </Box>
+        )}
+      </Box>
+      {abPart}
       <ConfirmDialog c={confirm} onClose={() => setConfirm(null)} />
     </Box>
   );
 }
 
-function TestCard({ t, canAct, onAct }: { t: TestView; canAct: boolean; onAct: (a: AbAction) => void }) {
+/** A test of the page, followed here: its status and days, A and B side by side, the uplift with its range, the verdict
+ * in plain words, the day-by-day line - and what may be done with it. */
+function TestCard({ t, canAct, canPromote, letter, onAct, onPromote }: {
+  t: TestView; canAct: boolean; canPromote: boolean; letter: string; onAct: (a: AbAction) => void; onPromote: () => void;
+}) {
   const f = t.figures;
   const acts = abActionsOf(t.status);
+  const [daily, setDaily] = useState<Daily | null>(null);
+  useEffect(() => {
+    if (t.status === "draft") return;
+    let gone = false;
+    void readJson<{ analysis?: { daily?: Daily } | null }>(`${API}/${encodeURIComponent(t.id)}`).then((r) => { if (!gone && r.ok) setDaily(r.data.analysis?.daily ?? null); });
+    return () => { gone = true; };
+  }, [t.id, t.status]);
+  const spark = daily ? sparkPoints(daily) : null;
+  const won = f?.verdict?.key === "b-wins";
   return (
-    <Box sx={{ p: 1.25, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff" }}>
+    <Box sx={{ p: 1.25, borderRadius: "10px", border: `1px solid ${won ? "rgba(27,122,85,.4)" : HAIRLINE}`, bgcolor: won ? "rgba(27,122,85,.03)" : "#fff" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.86rem", fontWeight: 700, color: INK, flex: "1 1 200px", minWidth: 0 }}>{t.name}</Typography>
         {envChip(t.env)}
         <StatusChip status={t.status} kind="test" />
       </Box>
       <Typography sx={{ mt: 0.25, fontSize: "0.74rem", color: MUTED }}>
-        {t.pages.length} page{t.pages.length === 1 ? "" : "s"} on {t.host} · {t.changeCount} change{t.changeCount === 1 ? "" : "s"} in the version
+        {t.status === "draft" ? "A draft - nothing on the shop until it is started." : `${n(f?.days ?? 0)} day${f?.days === 1 ? "" : "s"}`} · {t.pages.length} page{t.pages.length === 1 ? "" : "s"} on {t.host} · {t.allocation.mode === "bandit" ? "more to the better one" : "half and half"}
         {t.syncError ? ` · the gateway: ${t.syncError}` : ""}
       </Typography>
-      {f?.counted ? (
-        <Box sx={{ mt: 0.75, display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, minmax(0,1fr))" }, gap: 1 }}>
-          {[
-            ["Original", `${pct(f.a.rate, 1)} · ${n(f.a.visitors)} visitors`],
-            ["Version", `${pct(f.b.rate, 1)} · ${n(f.b.visitors)} visitors`],
-            ["Uplift", signed(f.uplift.mid)],
-            ["Days", n(f.days)],
-          ].map(([k, v]) => (
-            <Box key={k} sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>{k}</Typography>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{v}</Typography>
-            </Box>
-          ))}
-        </Box>
-      ) : t.status !== "draft" ? (
-        <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: MUTED }}>No figures yet - the shop&apos;s gateway has not counted any visitor.</Typography>
-      ) : null}
+      {f?.counted && (
+        <>
+          <Box sx={{ mt: 0.75, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
+            {([["A - the page", f.a], [`${letter} - the version`, f.b]] as const).map(([k, arm]) => (
+              <Box key={k} sx={{ minWidth: 0, p: 0.75, borderRadius: "8px", bgcolor: "#f6f8fb" }}>
+                <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>{k}</Typography>
+                <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, color: INK, fontVariantNumeric: "tabular-nums" }}>{arm.rate === null ? "–" : `${(arm.rate * 100).toFixed(1)}%`} add to cart</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{n(arm.carts)} add-to-carts of {n(arm.visitors)} visitors</Typography>
+              </Box>
+            ))}
+          </Box>
+          <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+            <Typography sx={{ flex: "1 1 220px", minWidth: 0, fontSize: "0.8rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums" }}>{upliftLine(f)}</Typography>
+            {spark && spark.a && (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                <Box component="svg" viewBox="0 0 160 36" sx={{ width: 160, height: 36, display: "block" }} aria-label="The add-to-cart rate day by day, A and B">
+                  <polyline points={spark.a} fill="none" stroke="#7d8aa3" strokeWidth={1.6} />
+                  <polyline points={spark.b} fill="none" stroke={PINK} strokeWidth={2} />
+                </Box>
+                <Typography component="span" sx={{ fontSize: "0.68rem", color: MUTED, lineHeight: 1.3 }}>day by day<br /><Box component="span" sx={{ color: PINK, fontWeight: 700 }}>{letter}</Box> · <Box component="span" sx={{ color: "#7d8aa3", fontWeight: 700 }}>A</Box></Typography>
+              </Box>
+            )}
+          </Box>
+        </>
+      )}
+      {f && !f.counted && t.status !== "draft" && <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: MUTED }}>No visitor counted yet.</Typography>}
       <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
         {f?.verdict && <VerdictChip v={f.verdict} />}
         {f?.verdict?.why && <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED, flex: "1 1 200px", minWidth: 0 }}>{f.verdict.why}</Typography>}
         <Box sx={{ flex: 1 }} />
         {canAct && acts.map((a) => (
           <Button key={a} size="small" variant={a === "start" || a === "resume" ? "contained" : "outlined"} disableElevation onClick={() => onAct(a)}
-            sx={a === "start" || a === "resume" ? { ...mainBtn, height: 30, borderRadius: "7px", fontSize: "0.78rem", px: 1.25 } : { ...btn, height: 30, borderRadius: "7px", borderColor: HAIRLINE, color: a === "stop" ? "#c5221f" : INK, fontSize: "0.78rem", px: 1.25 }}>
+            sx={a === "start" || a === "resume" ? { ...mainBtn, height: 30, borderRadius: "7px", fontSize: "0.78rem", px: 1.25 } : { ...btn, height: 30, borderRadius: "7px", borderColor: HAIRLINE, color: a === "stop" ? RED : INK, fontSize: "0.78rem", px: 1.25 }}>
             {ACTION_LABEL[a]}
           </Button>
         ))}
+        {canPromote && t.status !== "draft" && t.status !== "shipped" && (
+          <Button size="small" variant={won ? "contained" : "outlined"} disableElevation onClick={onPromote}
+            sx={won ? { ...btn, height: 30, borderRadius: "7px", fontSize: "0.78rem", px: 1.25, bgcolor: GREEN, color: "#fff", "&:hover": { bgcolor: "#15603f" } } : { ...btn, height: 30, borderRadius: "7px", borderColor: HAIRLINE, color: GREEN, fontSize: "0.78rem", px: 1.25 }}>
+            Make {letter} the page
+          </Button>
+        )}
         <Button size="small" component="a" href={testHref(t.id)} target="_blank" rel="noopener noreferrer" endIcon={<OpenInNewIcon sx={{ fontSize: 13 }} />}
           sx={{ ...btn, color: INK, px: 0.75, py: 0, fontSize: "0.76rem", minWidth: 0 }}>Open in A/B testing</Button>
       </Box>
-    </Box>
-  );
-}
-
-/**
- * "Create a test from this page": its variant is the Page builder's other version of the page (B ...) - what it does
- * beyond the version published, which the page on the shop already carries - or, with no other version, the changes the
- * person ticks. A test is made on ACC first, as a draft: nothing reaches the shop until it is started above, confirmed.
- */
-function MakeTest({ doc, d, pieceId, title, prefer, stores, canEdit, onMade }: {
-  doc: PageDoc; d: PageDoc; pieceId: number; title: string; prefer: (string | null | undefined)[]; stores: string[]; canEdit: boolean; onMade: () => void;
-}) {
-  const env: ShopEnv = "acc";
-  const onAcc = liveOn(doc.magento, env);
-  const mine = onAcc.filter((p) => !stores.length || stores.includes(p.store));
-  const start = abStore(mine.length ? mine : onAcc, prefer);
-  const all = versionList(d);
-  const open = d.letter || "A";
-  const live = all.find((v) => v.letter === open)?.changes ?? [];
-  const others = all.filter((v) => v.letter !== open);
-  type From = string; // a letter, or "pick"
-  const [from, setFrom] = useState<From>(others[0]?.letter ?? "pick");
-  const [picked, setPicked] = useState<number[]>([]);
-  const [store, setStore] = useState<string | null>(null);
-  const [name, setName] = useState(title);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
-  const at = mine.find((p) => p.store === store) ?? start;
-  const changes: ChangeLite[] = from === "pick"
-    ? live.filter((_, i) => picked.includes(i)).map((c) => variantChanges([], [c as ChangeLite])[0]).filter(Boolean)
-    : variantChanges(live as ChangeLite[], (others.find((v) => v.letter === from)?.changes ?? []) as ChangeLite[]);
-  const why = !AB_FROM_PAGE ? AB_FROM_PAGE_WAIT
-    : !canEdit ? "Making a test needs the write level of Page tests."
-      : !at ? "Publish it on ACC first - a test runs on the page as it is on the shop."
-        : !changes.length ? (from === "pick" ? "Tick the changes the version makes." : `Version ${from} does nothing the page on the shop does not do already.`)
-          : null;
-
-  const make = async () => {
-    if (!at || why) return;
-    setSaid(null);
-    setBusy("Making the version in AI testing & personalization…");
-    const v = await convertPost<{ version: { id: string | number; rev: number; letter?: string } }>(WORK, {
-      action: "version", env, path: at.path, changes, title: name.trim() || title, summary: from === "pick" ? `${changes.length} change${changes.length === 1 ? "" : "s"} from the Page builder` : `Version ${from} from the Page builder`, piece: pieceId,
-    });
-    if (!v.ok) { setBusy(null); setSaid({ ok: false, text: v.error }); return; }
-    setBusy("Approving it…");
-    const a = await convertPost(WORK, { action: "approve", versionId: v.data.version.id });
-    if (!a.ok) { setBusy(null); setSaid({ ok: false, text: a.error }); return; }
-    setBusy("Making the test as a draft…");
-    const t = await convertPost<{ id: string }>(API, { action: "create", versionId: v.data.version.id, env, pages: [at.path], name: name.trim() || title, piece: pieceId });
-    setBusy(null);
-    if (!t.ok) { setSaid({ ok: false, text: t.error }); return; }
-    setSaid({ ok: true, text: `The test is made as a draft on ACC (#${t.data.id}) - nothing is on the shop until it is started above.` });
-    onMade();
-  };
-
-  return (
-    <Box sx={{ mt: 2, p: 1.25, borderRadius: "10px", border: `1px dashed ${HAIRLINE}`, bgcolor: "#fff" }}>
-      <Typography sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK }}>Create a test from this page</Typography>
-      <Typography sx={{ mt: 0.25, fontSize: "0.76rem", color: MUTED }}>
-        {doc.source === "new" && !others.length && !live.length
-          ? "A page made here goes to Magento whole: its test needs a version B - its changes against the page on the shop."
-          : "The version of the test is what the page builder's other version changes on the page as it is on the shop. Made on ACC first, as a draft."}
-      </Typography>
-      {AB_FROM_PAGE && (
-        <Box sx={{ mt: 1, display: "grid", gap: 1 }}>
-          {mine.length > 1 && (
-            <Choice label="On" value={at?.store ?? ""} onChange={(s: string) => setStore(s)} options={mine.map((p) => ({ key: p.store, label: p.store }))} />
-          )}
-          <Choice label="Its version" value={from} onChange={(k: string) => setFrom(k)}
-            options={[...others.map((v) => ({ key: v.letter, label: `Version ${v.letter}` })), { key: "pick", label: "Pick the changes", disabled: !live.length }]} />
-          {from === "pick" && live.length > 0 && (
-            <Box sx={{ display: "grid", gap: 0.4 }}>
-              {live.map((c, i) => {
-                const on = picked.includes(i);
-                return (
-                  <Box key={i} component="button" type="button" aria-pressed={on} onClick={() => setPicked((p) => (on ? p.filter((x) => x !== i) : [...p, i]))}
-                    sx={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 0.75, fontSize: "0.78rem", color: INK }}>
-                    <Box component="span" sx={{ width: 14, height: 14, borderRadius: "3px", border: `1.5px solid ${on ? BLUE : "#9aa5b8"}`, bgcolor: on ? BLUE : "#fff", display: "grid", placeItems: "center", boxSizing: "border-box", flexShrink: 0 }}>
-                      {on && <CheckIcon sx={{ fontSize: 11, color: "#fff" }} />}
-                    </Box>
-                    <Box component="span" sx={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{changeWords(c as ChangeLite)}</Box>
-                  </Box>
-                );
-              })}
-              <Hint mt={0}>Tick only what the page on the shop does not show yet - the test lays it over the page as it is there.</Hint>
-            </Box>
-          )}
-          <TextField size="small" label="Name" value={name} onChange={(e) => setName(e.target.value)} inputProps={{ maxLength: 200 }} sx={{ maxWidth: 460 }} />
-        </Box>
-      )}
-      <Box sx={{ mt: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-        <Button size="small" variant="outlined" disabled={!!why || !!busy} onClick={() => void make()}
-          startIcon={busy ? <CircularProgress size={12} color="inherit" /> : undefined}
-          sx={{ ...btn, height: 34, borderRadius: "8px", borderColor: HAIRLINE, color: PINK }}>
-          {busy ?? "Create a test from this page"}
-        </Button>
-        {why && <Typography component="span" sx={{ fontSize: "0.76rem", color: MUTED }}>{why}</Typography>}
-        {AB_FROM_PAGE && at && !why && <Typography component="span" sx={{ ...mono, fontSize: "0.72rem", color: MUTED }}>{at.path} · {changes.length} change{changes.length === 1 ? "" : "s"}</Typography>}
-      </Box>
-      {said && <Typography sx={{ mt: 0.75, fontSize: "0.78rem", color: said.ok ? "#1b7a55" : "#c5221f" }}>{said.text}</Typography>}
     </Box>
   );
 }

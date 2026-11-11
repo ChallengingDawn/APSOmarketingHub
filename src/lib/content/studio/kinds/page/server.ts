@@ -21,6 +21,8 @@
 //   magento_publish  the store views written into ACC or production - once the to-do is approved, by someone with
 //                    Edit on AI testing & personalization > Winners (the Ship grant), a backup of each page first
 //   magento_restore  a store view's page brought back as it was before this to-do's last write there
+//   ab_variant version B's change list for an A/B test, laid over A as Publish writes it (Content v15) - B's pictures
+//              stored, nothing written to Magento
 //   ping       nothing - the studio waits on it so a big change goes in two steps (studio/doc.ts batches)
 //   winner     a test's winner (the brief's marker names the test): the tested change list, its figures, published yet,
 //              may this person publish (lib/convert/winner.ts)
@@ -62,7 +64,10 @@ import {
   baseStore, changeId, changeLine, changeStrings, convertVersionsOf, emptyPage, opensMarkerPage, fillTexts, fromAi, hashOf, isLegacyBody, langName, langOfStore, languageOfStore, leftoversIn, mainLang, mainView, pageDoc,
   pageModesFor, pageSourceFix, pageText, shopList, placeholdersOf, shopUrl, sourceHash, storeKnown, storesOfView, textsFromAi, urlKeyOf, versionLabel, versionOfStore, viewKey, viewOf, viewsOf, withChangeStrings,
   type AiChange, type MagentoRecord, type PageChange, type PageDoc,
+  lettersOf, openVersion, withView,
 } from "./model";
+import { blocksChanged, pageVariant } from "./abFlow";
+import { variantChanges, type ChangeLite } from "./publishView";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
 import { convertPages, counterpartOf, findPages, insertsOf, magentoOf, outlineOf, pasteOf, picturesOn, presenceOf, previewOf, readShopPage, relinkOf } from "./shop";
@@ -1209,6 +1214,47 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
   return { env, results, records };
 };
 
+/**
+ * A version's change list for an A/B test (Content v15, SARCLA 11.11.2026: "in one click create, with the same content,
+ * another version to send ... to the A/B testing sub app"): version `letter` of the store view `lang` laid over version A
+ * as it is on the shop (`env`) - both read exactly as Publish writes them (./shop.ts magentoOf: the pictures at their
+ * address, the links in the visitor's store view). A page made here: B's blocks over A's (./abFlow.ts pageVariant); a page
+ * of the shop: what B's changes do beyond A's (./publishView.ts variantChanges). B's own pictures are stored first, as
+ * Publish stores them - nothing is written to Magento.
+ */
+const abVariant: ServerAction = async (ctx, raw, input) => {
+  const doc = pageDoc(raw, ctx.piece.language);
+  const view = langIn(input) ?? mainView(doc);
+  const d = viewOf(doc, view);
+  const letter = typeof input.letter === "string" && /^[B-D]$/.test(input.letter) ? input.letter : "B";
+  if (!lettersOf(d).includes("A") || !lettersOf(d).includes(letter)) throw new Error(`The page has no version ${letter} to test yet.`);
+  const env = envIn(input);
+  const [a, b] = await Promise.all([
+    magentoOf(withView(doc, view, openVersion(d, "A")), view, env),
+    magentoOf(withView(doc, view, openVersion(d, letter)), view, env),
+  ]);
+  if (!a.want || !b.want) throw new Error(b.why ?? a.why ?? "This page cannot be tested from here.");
+  if (b.blocked) throw new Error(`Version ${letter}: ${b.blocked}`);
+  let changes: ChangeLite[];
+  if (a.want.kind === "page" && b.want.kind === "page") {
+    const v = pageVariant(a.want.content, b.want.content);
+    if (v.problem) throw new Error(v.problem);
+    changes = v.changes as ChangeLite[];
+  } else if (a.want.kind === "changes" && b.want.kind === "changes") {
+    changes = variantChanges(a.want.changes as ChangeLite[], b.want.changes as ChangeLite[]);
+  } else throw new Error("Versions A and B are not the same kind of page.");
+  if (contentMediaState().on) {
+    const own = (b.sent?.pictures ?? []).filter((f) => f.address);
+    if (own.length) { const no = storeFailed(await storePictures(own)); if (no) throw new Error(no); }
+  }
+  const dA = openVersion(d, "A");
+  const dB = openVersion(d, letter);
+  return {
+    letter, env, path: b.path, changes, size: JSON.stringify(changes).length,
+    differs: d.source === "new" ? blocksChanged(dA.fields, dB.fields) : [],
+  };
+};
+
 const magentoRestore: ServerAction = async (ctx, raw, input) => {
   const env = envIn(input);
   const no = gateOf({ canEdit: ctx.canEdit, status: ctx.piece.status, grant: await mayShip(), key: cmsKeys()[env], env, restore: true });
@@ -1250,7 +1296,7 @@ ${pageBlock(d).slice(0, 6000)}`; }),
   actions: {
     start, winner, publish, stores, views, pages, convert, outline: readOutline, preview, paste, counterpart, candidates, inserts, relink, ping: async () => ({ ok: true }),
     english: englishAction, brief, ab_state: abState,
-    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck,
+    magento, magento_plan: magentoPlan, magento_publish: magentoPublish, magento_restore: magentoRestore, magento_check: magentoCheck, ab_variant: abVariant,
     convert_letter: convertLetter,
     // the module gallery (Content v6): the shop's tree, categories, numbers, most viewed / bought - ./modules/server.ts
     ...moduleActions,
