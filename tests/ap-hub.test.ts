@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { asCross, crossClosed, crossHiddenApi, crossUserMaySend, homeFor, mfaRequired, planClosedTo } from "../src/lib/auth/access";
 import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
+import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
 import { SEALING_PAGES } from "../src/lib/apHub/sealingPages";
 import { inviteContent, whatTheySee } from "../src/lib/auth/inviteMailRules";
 
@@ -187,6 +188,10 @@ test("sealing: the three priorities from the figures", () => {
   assert.match(spread?.evidence ?? "", /Huba reports 71\.1% GM and Hilti 25\.7%/);
   // an unnamed compound is never a priority
   assert.ok(p.every((x) => x.compound !== "No info"));
+  // each names the pilot's suggested owner
+  assert.equal(margin.owner, "Account manager + product manager");
+  assert.equal(growth?.owner, "Sales leads + product manager");
+  assert.equal(spread?.owner, "Account managers + controlling");
 });
 
 test("sealing: the months a page shows, within those the figures hold", () => {
@@ -305,4 +310,92 @@ test("sealing: the share of the largest, the months named, the ready-made period
   assert.equal(first[0].from, "2026-02");
   assert.equal(first.find((p) => p.id === "q1")?.from, "2026-02");
   assert.deepEqual(sealingPresets("x", "2026-05"), []);
+});
+
+test("sealing: the pilot's approval categories, every one in its order, and its references - which overlap", () => {
+  assert.equal(approvalKind(""), "none");
+  assert.equal(approvalKind("(blank)"), "none");
+  assert.equal(approvalKind("FDA 21 CFR 177.2600"), "explicit");
+  assert.equal(approvalKind("KTW / W270 / WRAS"), "explicit");
+  assert.equal(approvalKind("See technical datasheet"), "datasheet");
+  assert.equal(approvalKind("Datenblatt beachten"), "datasheet");
+  assert.equal(approvalKind("Customer drawing rev. B"), "other");
+  const texts = [
+    { name: "", rev: 800, gp: 300 },
+    { name: "FDA, WRAS", rev: 100, gp: 50 },
+    { name: "NSF 61", rev: 60, gp: 20 },
+    { name: "TDS attached", rev: 30, gp: 10 },
+    { name: "Customer spec", rev: 10, gp: 5 },
+  ];
+  const kinds = approvalKinds(texts);
+  assert.deepEqual(kinds.map((k) => k.key), ["none", "datasheet", "explicit", "other"]);
+  assert.deepEqual(kinds.map((k) => k.rev), [800, 30, 160, 10]);
+  // the categories part the whole: they add up to it
+  assert.equal(kinds.reduce((a, k) => a + k.rev, 0), 1000);
+  assert.equal(kinds[2].margin, 70 / 160);
+  const refs = approvalRefs(texts);
+  assert.equal(refs.length, 8);
+  assert.deepEqual(refs.slice(0, 3).map((r) => [r.name, r.rev]), [["FDA", 100], ["WRAS", 100], ["NSF", 60]]);
+  // a text naming two counts in both - the references never add up to the explicit texts
+  assert.ok(refs.reduce((a, r) => a + r.rev, 0) > kinds[2].rev);
+  // no approval written is no reference, whatever its row says
+  assert.equal(approvalRefs([{ name: "-", rev: 5, gp: 1 }]).every((r) => r.rev === 0), true);
+});
+
+test("sealing: the pilot's material cards - the named compounds of each family, how many, their share", () => {
+  const fams = familyFigures([
+    { key: "Kalrez 6375", name: "Kalrez® 6375", rev: 400, gp: 130, margin: 0.325 },
+    { key: "FKM 75.16-04", name: "FKM 75.16-04", rev: 300, gp: 189, margin: 0.63 },
+    { key: "FKM 75.00-01", name: "FKM 75.00-01", rev: 200, gp: 120, margin: 0.6 },
+    { key: "No info", name: "No info", rev: 5000, gp: 0, margin: 0 },
+  ]);
+  assert.deepEqual(fams.map((x) => [x.key, x.count]), [["FKM", 2], ["FFKM", 1]]);
+  assert.equal(fams[0].rev, 500);
+  assert.equal(fams[0].margin, 309 / 500);
+  assert.equal(fams[0].share, 500 / 900);
+  assert.equal(fams[1].share, 400 / 900);
+  assert.deepEqual(familyFigures([]), []);
+});
+
+test("sealing: the customers' and articles' review cards - the low-margin position, the concentration, the comparison", () => {
+  const rows = [
+    { name: "Big AG", rev: 1_000_000, margin: 0.35 },
+    { name: "Thin GmbH", rev: 400_000, margin: 0.12 },
+    { name: "Loss SA", rev: 300_000, margin: -0.03 },
+    { name: "Thinner", rev: 100_000, margin: 0.05 },
+  ];
+  const r = reviewActions("customers", rows, 2_000_000, "FKM 75.16-04");
+  assert.deepEqual(r.map((x) => x.kind), ["profit", "retain", "compare"]);
+  assert.match(r[0].evidence, /^Thin GmbH has €400\.0k net revenue at 12\.0% GM/);
+  assert.equal(r[0].effect, 20_000);
+  assert.match(r[1].evidence, /The largest account, Big AG, represents 50\.0% of the net revenue/);
+  assert.equal(r[2].compound, "FKM 75.16-04");
+  assert.ok(r.every((x) => x.owner));
+  // a loss is never the low-margin screen's position, nor 20% or more
+  assert.equal(lowMarginLead([{ rev: 10, margin: -0.1 }, { rev: 9, margin: 0.2 }]), null);
+  assert.equal(lowMarginLead([{ rev: 10, margin: 0.19 }, { rev: 50, margin: 0.05 }])?.rev, 50);
+  // nothing low: the largest exposure, no effect
+  const none = reviewActions("articles", [{ name: "A", rev: 10, margin: 0.5 }], 10);
+  assert.equal(none[0].title, "Review the largest commercial exposure");
+  assert.equal(none[0].effect, 0);
+  assert.match(none[1].evidence, /The largest article, A, represents 100\.0%/);
+});
+
+test("sealing: a material family's cards - its priorities, else its portfolio review; the approvals' three", () => {
+  const card = (kind: Priority["kind"], compound: string): Priority => ({ kind, compound, title: kind, evidence: "", effect: 0, effectLabel: "" });
+  const all = [card("growth", "FKM 75.16-04"), card("margin", "DW EPDM 70.503-00")];
+  assert.equal(familyActions(all, null, []).length, 2);
+  assert.deepEqual(familyActions(all, "FKM", []).map((p) => p.kind), ["growth"]);
+  const port = familyActions(all, "NBR", [{ name: "NBR 70.10-02", rev: 250_000 }, { name: "NBR 90", rev: 50_000 }]);
+  assert.equal(port.length, 1);
+  assert.equal(port[0].kind, "portfolio");
+  assert.equal(port[0].compound, "NBR 70.10-02");
+  assert.match(port[0].evidence, /The named NBR compounds shown represent €300\.0k/);
+  assert.deepEqual(APPROVAL_ACTIONS.map((p) => p.kind), ["capture", "validate", "interpret"]);
+  assert.ok(APPROVAL_ACTIONS.every((p) => !p.compound && !p.next));
+});
+
+test("sealing: the detail window opens a customer, an article or a compound - nothing else reaches the query", () => {
+  for (const k of ["customer", "article", "compound"]) assert.equal(isDetailKind(k), true, k);
+  for (const k of ["approval", "customer_name", "bu", "", null, undefined, 1]) assert.equal(isDetailKind(k), false, String(k));
 });

@@ -19,8 +19,15 @@ import { Badge, FAINT, HAIRLINE, INK, MUTED, TINT, type Tint } from "@/app/uc/re
 
 const foldIn = keyframes`from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; }`;
 
-export function FilterPanel({ id, open, onClose, subtitle, chips, onClearAll, children }: {
+export function FilterPanel({ id, open, onClose, subtitle, chips, onClearAll, children, title = "Filters", icon, tint = "blue", width = 380, foot, closeLabel = "Close the filters" }: {
   id: string; open: boolean; onClose: () => void; subtitle: string; chips?: React.ReactNode; onClearAll?: () => void; children: React.ReactNode;
+  /** the window's own name and glyph when it is not the Filters (the Sealing Business Review's detail window) */
+  title?: string; icon?: React.ReactNode; tint?: Tint;
+  /** its width from a small screen up */
+  width?: number;
+  /** the line at its foot, left of Done */
+  foot?: React.ReactNode;
+  closeLabel?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -29,9 +36,9 @@ export function FilterPanel({ id, open, onClose, subtitle, chips, onClearAll, ch
     return () => window.removeEventListener("keydown", esc);
   }, [open, onClose]);
   return (
-    <Box id={id} role="dialog" aria-modal="false" aria-label="Filters" aria-hidden={!open}
+    <Box id={id} role="dialog" aria-modal="false" aria-label={title} aria-hidden={!open}
       sx={{
-        position: "fixed", top: 16, right: 16, bottom: 16, width: { xs: "calc(100vw - 32px)", sm: 380 }, zIndex: 1300,
+        position: "fixed", top: 16, right: 16, bottom: 16, width: { xs: "calc(100vw - 32px)", sm: width }, zIndex: 1300,
         display: "flex", flexDirection: "column", borderRadius: "22px", overflow: "hidden",
         bgcolor: "#fff", border: "1px solid rgba(21,34,58,.08)",
         boxShadow: "0 24px 60px rgba(21,34,58,.22), 0 4px 14px rgba(21,34,58,.08)",
@@ -47,13 +54,13 @@ export function FilterPanel({ id, open, onClose, subtitle, chips, onClearAll, ch
       }}>
       {/* the header: what this is, how many choices, and the way out */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 2.25, py: 1.75, borderBottom: `1px solid ${HAIRLINE}`, background: "linear-gradient(180deg, #f6f8fc, #fff)" }}>
-        <Badge icon={<TuneIcon />} tint="blue" size={34} />
+        <Badge icon={icon ?? <TuneIcon />} tint={tint} size={34} />
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>Filters</Typography>
+          <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: INK, lineHeight: 1.2 }}>{title}</Typography>
           <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>{subtitle}</Typography>
         </Box>
         {onClearAll && <Button size="small" onClick={onClearAll} sx={{ textTransform: "none", fontWeight: 700 }}>Clear all</Button>}
-        <IconButton aria-label="Close the filters" onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}>
+        <IconButton aria-label={closeLabel} onClick={onClose} sx={{ bgcolor: "rgba(21,34,58,.05)", "&:hover": { bgcolor: "rgba(21,34,58,.1)" } }}>
           <CloseIcon sx={{ fontSize: 20 }} />
         </IconButton>
       </Box>
@@ -69,7 +76,7 @@ export function FilterPanel({ id, open, onClose, subtitle, chips, onClearAll, ch
       </Box>
 
       <Box sx={{ px: 2.25, py: 1.5, borderTop: `1px solid ${HAIRLINE}`, display: "flex", gap: 1, alignItems: "center", bgcolor: "#fbfcfe" }}>
-        <Typography sx={{ fontSize: "0.74rem", color: FAINT, flex: 1 }}>Filters apply at once; the charts behind stay live</Typography>
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT, flex: 1 }}>{foot ?? "Filters apply at once; the charts behind stay live"}</Typography>
         <Button variant="contained" disableElevation onClick={onClose} sx={{ textTransform: "none", fontWeight: 700, borderRadius: "10px" }}>Done</Button>
       </Box>
     </Box>

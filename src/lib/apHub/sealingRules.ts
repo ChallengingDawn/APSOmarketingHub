@@ -223,15 +223,24 @@ export function periodWords(from: string, to: string): string {
 
 /* -- from results to action: the pilot's three commercial priorities, from the figures --------------------------- */
 
+/**
+ * A card of the pilot's "From results to action": the overview's three commercial priorities (margin, growth, spread),
+ * the customers' and articles' reviews (profit, retain, compare), a material family's (portfolio) and the approvals'
+ * (capture, validate, interpret).
+ */
 export type Priority = {
-  kind: "margin" | "growth" | "spread";
+  kind: "margin" | "growth" | "spread" | "profit" | "retain" | "compare" | "portfolio" | "capture" | "validate" | "interpret";
   title: string;
   evidence: string;
-  next: string;
-  /** the illustrative effect, in EUR of gross profit - never a forecast */
+  /** the next move - the approvals' cards have none, their evidence is the move */
+  next?: string;
+  /** the illustrative effect, in EUR of gross profit - never a forecast (0: none) */
   effect: number;
   effectLabel: string;
+  /** the compound to inspect ("" none) */
   compound: string;
+  /** the pilot's "Suggested owner" */
+  owner?: string;
 };
 
 /** A compound and one customer's part of it: revenue and gross profit. */
@@ -269,7 +278,7 @@ export function priorities(compounds: Figure[], pairs: CompoundCustomer[]): Prio
       title: `Review ${p.customerName}'s ${p.compound} economics`,
       evidence: `${p.customerName} buys ${eur(p.rev)} of ${p.compound} at ${pc(m)} GM, versus ${pc(own)} for the compound overall. The comparison may reflect different article mixes.`,
       next: "Review article mix, costs and price conditions with the account manager. Test a 5 percentage-point margin improvement without assuming it is achievable.",
-      effect: p.rev * 0.05, effectLabel: "Illustrative +5 pp at current sales",
+      effect: p.rev * 0.05, effectLabel: "Illustrative +5 pp at current sales", owner: "Account manager + product manager",
     });
   }
 
@@ -280,7 +289,7 @@ export function priorities(compounds: Figure[], pairs: CompoundCustomer[]): Prio
       title: "Test growth in a sizeable, high-margin compound",
       evidence: `${big.name} generates ${eur(big.rev)} at ${pc(big.margin)} GM.`,
       next: "Ask sales to identify application-matched opportunities around existing accounts and validate capacity, pricing and demand before setting a target.",
-      effect: big.rev * 0.1 * big.margin, effectLabel: "Illustrative +10% sales at current GM",
+      effect: big.rev * 0.1 * big.margin, effectLabel: "Illustrative +10% sales at current GM", owner: "Sales leads + product manager",
     });
   }
 
@@ -296,12 +305,152 @@ export function priorities(compounds: Figure[], pairs: CompoundCustomer[]): Prio
       title: `Explain the ${materialOf(c.name) === "Unclassified" ? c.name : materialOf(c.name)} margin spread`,
       evidence: `For ${c.name}, ${hi.customerName} reports ${pc(hi.gp / hi.rev)} GM and ${lo.customerName} ${pc(lo.gp / lo.rev)}. These are different account and article mixes, not a like-for-like price comparison.`,
       next: "Compare article-level profitability and service costs. Identify whether mix, transfer costs or commercial terms explain the gap before proposing changes.",
-      effect: 0, effectLabel: "Validate causes before any repricing",
+      effect: 0, effectLabel: "Validate causes before any repricing", owner: "Account managers + controlling",
     });
     break;
   }
   return out;
 }
+
+/* -- the pilot's other "From results to action" cards (revision.js analysis, index.html analysis) ---------------- */
+
+/** The largest position with a low margin (0 % up to `cap`, 20 %: the pilot's review screen, never a target). */
+export function lowMarginLead<T extends { rev: number; margin: number }>(rows: T[], cap = 0.2): T | null {
+  return [...rows].filter((r) => r.rev > 0 && r.margin >= 0 && r.margin < cap).sort((a, b) => b.rev - a.rev)[0] ?? null;
+}
+
+/**
+ * The customers' and the articles' three cards (revision.js analysis): the sizeable low-margin position first (+5 pp
+ * illustrative), the concentration of the largest, then the compound comparisons - `compound` the one to inspect.
+ * `rows` the positions shown, `total` the net revenue they belong to.
+ */
+export function reviewActions(what: "customers" | "articles", rows: { name: string; rev: number; margin: number }[], total: number, compound = ""): Priority[] {
+  const low = lowMarginLead(rows);
+  const largest = [...rows].sort((a, b) => b.rev - a.rev)[0];
+  const share = largest && total > 0 ? largest.rev / total : null;
+  return [
+    {
+      kind: "profit", compound: "", owner: "Account manager + controlling",
+      title: low ? "Start with a sizeable low-margin position" : "Review the largest commercial exposure",
+      evidence: low
+        ? `${low.name} has ${eur(low.rev)} net revenue at ${pc(low.margin)} GM. The 20% screen is a review filter, not an agreed target.`
+        : largest ? `${largest.name} represents ${eur(largest.rev)} in this selection.` : "No matching records.",
+      next: "Review article mix, pricing and cost allocation. Prioritise positions where sales and controlling can validate a specific improvement.",
+      effect: low ? low.rev * 0.05 : 0, effectLabel: low ? "Illustrative +5 pp on this position" : "",
+    },
+    {
+      kind: "retain", compound: "", owner: "Business-unit sales lead",
+      title: "Make concentration part of account planning",
+      evidence: share != null
+        ? `The largest ${what === "customers" ? "account" : "article"}, ${largest.name}, represents ${pc(share)} of the net revenue in the current selection.`
+        : `Select ${what === "customers" ? "an account" : "an article"} to review its exposure.`,
+      next: "Confirm renewal timing, technical alternatives and retention actions with the responsible sales team.",
+      effect: 0, effectLabel: "",
+    },
+    {
+      kind: "compare", compound, owner: "Product managers + account managers",
+      title: "Use compound-level comparisons",
+      evidence: "The leading compounds show material differences in profitability across the accounts buying the same compound.",
+      next: "Inspect a compound and its customers. Validate product mix before treating a margin gap as a pricing opportunity.",
+      effect: 0, effectLabel: "",
+    },
+  ];
+}
+
+/**
+ * The compounds' cards for a material family (revision.js analysis): the commercial priorities on its compounds -
+ * none, its portfolio review. `family` null: every family, the priorities as they are.
+ */
+export function familyActions(all: Priority[], family: string | null, rows: { name: string; rev: number }[]): Priority[] {
+  const mine = all.filter((p) => !family || materialOf(p.compound) === family);
+  if (mine.length || !family) return mine;
+  const rev = rows.reduce((a, r) => a + r.rev, 0);
+  return [{
+    kind: "portfolio", compound: rows[0]?.name ?? "", owner: "Product manager + sales leads",
+    title: `Review ${family} account exposure`,
+    evidence: `The named ${family} compounds shown represent ${eur(rev)} of net revenue.`,
+    next: "Open the leading compound and review its customers. Confirm application fit, purchasing conditions and customer needs before proposing expansion.",
+    effect: 0, effectLabel: "",
+  }];
+}
+
+/** The approvals' three cards (index.html analysis), in the hub's words: an approval as written on the article. */
+export const APPROVAL_ACTIONS: Priority[] = [
+  {
+    kind: "capture", compound: "", effect: 0, effectLabel: "", title: "Require explicit approval names",
+    evidence: "Add structured approval fields, a source document and validity information. Generic technical-datasheet references should remain a separate category.",
+  },
+  {
+    kind: "validate", compound: "", effect: 0, effectLabel: "", title: "Check commercial relevance with sales",
+    evidence: "Review recurring explicit approval mentions with product managers. Confirm whether certification is mandatory for the customer application before calling it a sales driver.",
+  },
+  {
+    kind: "interpret", compound: "", effect: 0, effectLabel: "", title: "Avoid counting the same sales twice",
+    evidence: "A text can name several approvals. Its revenue belongs to one text here; assigning it to several approval rankings would create overlapping values.",
+  },
+];
+
+/* -- the pilot's approval evidence (index.html approvalCategory, mentionSummary) --------------------------------- */
+
+/** The references the pilot ranks, in its order. */
+export const APPROVAL_REFS = ["FDA", "WRAS", "NSF", "ACS", "DVGW", "USP", "KTW", "BfR"] as const;
+
+/**
+ * Each reference's figures: the texts naming it, its letters anywhere in the text, as the pilot reads them - a text
+ * naming two counts in both, so the references overlap and never add up. The largest first.
+ */
+export function approvalRefs(approvals: { name: string; rev: number; gp: number }[]): Figure[] {
+  return APPROVAL_REFS.map((ref) => {
+    const of = approvals.filter((a) => !noApproval(a.name) && a.name.toLowerCase().includes(ref.toLowerCase()));
+    const rev = of.reduce((t, a) => t + a.rev, 0), gp = of.reduce((t, a) => t + a.gp, 0);
+    return { key: ref, name: ref, rev, gp, margin: rev ? gp / rev : 0 };
+  }).sort((a, b) => b.rev - a.rev);
+}
+
+export type ApprovalKind = "none" | "datasheet" | "explicit" | "other";
+/** The pilot's indicative categories, in its order - a text's keywords, never a validated approval. */
+export const APPROVAL_KINDS: { key: ApprovalKind; name: string }[] = [
+  { key: "none", name: "No approval written" },
+  { key: "datasheet", name: "Datasheet reference" },
+  { key: "explicit", name: "Explicit references" },
+  { key: "other", name: "Other texts" },
+];
+
+/** A text's category, by the pilot's keywords (index.html approvalCategory). */
+export function approvalKind(name: string): ApprovalKind {
+  if (noApproval(name)) return "none";
+  if (/FDA|WRAS|NSF|ACS|DVGW|KTW|USP|1935|3-A|BfR|BFR|LFGB|EN 681|4020|W270|RoHS/i.test(name)) return "explicit";
+  if (/datasheet|data sheet|TDS|Datenblatt|Datenvblatt/i.test(name)) return "datasheet";
+  return "other";
+}
+
+/** The net revenue of each category, every category in the pilot's order (a zero when none). */
+export function approvalKinds(approvals: { name: string; rev: number; gp: number }[]): Figure[] {
+  return APPROVAL_KINDS.map(({ key, name }) => {
+    const of = approvals.filter((a) => approvalKind(a.name) === key);
+    const rev = of.reduce((t, a) => t + a.rev, 0), gp = of.reduce((t, a) => t + a.gp, 0);
+    return { key, name, rev, gp, margin: rev ? gp / rev : 0 };
+  });
+}
+
+/* -- the pilot's material cards (revision.js materialCards) ------------------------------------------------------- */
+
+/** A family as the pilot's card shows it: its figures, how many compounds it holds, its share of the named compounds' revenue. */
+export type FamilyFigure = Figure & { count: number; share: number };
+
+export function familyFigures(compounds: Figure[]): FamilyFigure[] {
+  const named = compounds.filter((c) => !noCompound(c.name));
+  const total = named.reduce((t, c) => t + c.rev, 0);
+  return sumBy(named, (c) => materialOf(c.name)).map((x) => ({
+    ...x, count: named.filter((c) => materialOf(c.name) === x.key).length, share: total > 0 ? x.rev / total : 0,
+  }));
+}
+
+/* -- the pilot's drawer: one customer, article or compound and what it is made of -------------------------------- */
+
+/** What the detail window can open: a customer's articles, an article's customers, a compound's customers. */
+export type DetailKind = "customer" | "article" | "compound";
+export const isDetailKind = (s: unknown): s is DetailKind => s === "customer" || s === "article" || s === "compound";
 
 /* -- the pages' figures, laid out as Digital Growth's (SARCLA 10.11.2026: "look at Digital Growth for example") ------ */
 
