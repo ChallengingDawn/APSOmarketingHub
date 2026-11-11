@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildLineStore, customerLines, customerList, dayNo, dayOf, glcCustomers, lineOf, pick, supplierList, workdays } from "../src/lib/reporting/otdLines";
+import { articleList, buildLineStore, customerLines, customerList, dayNo, dayOf, glcCustomers, lineOf, pick, supplierList, workdays } from "../src/lib/reporting/otdLines";
 import { networkdays, type OtdLine } from "../src/lib/reporting/otdRules";
 
 const L = (o: Partial<OtdLine>): OtdLine => ({
@@ -94,4 +94,19 @@ test("otd lines: every supplier with its lead times, and GLC's kinds with the cu
   assert.deepEqual(g.customers.map((x) => [x.c, x.name, x.n, x.late, x.kinds.map((k) => k[0])]), [["100-2", "Beispiel GmbH", 2, 1, [0, 1, 1]], ["100-1", "", 1, 0, [1, 0, 0]]]);
   // a supplier's line is never GLC
   assert.equal(glcCustomers(s, { ...f, src: ["m"] }).customers.length, 0);
+});
+
+test("otd lines: every article with its name, groups, customers and orders - the most late lines first, then the most lines", () => {
+  const lines = [
+    L({ order: "A26.000001.001", line: "10", article: "0191200011", group: "NORMATEC O-ring" }),
+    L({ order: "A26.000001.001", line: "20", article: "0191200011", group: "NORMATEC O-ring", atCustomer: "2026-03-13" }), // 3 days late
+    L({ order: "A26.000002.001", article: "0191200011", group: "NORMATEC O-ring", customer: "100-2" }),
+    L({ order: "A26.000003.001", article: "0300000001", supplier: "", atCustomer: "2026-03-26" }), // 12 days late, GLC
+  ];
+  const s = buildLineStore(lines, "2026-11-10", { infoOf: (a) => (a === "0191200011" ? { t: "O-ring 10x2", s: "NBR", p: "O-rings" } : undefined) });
+  const list = articleList(s, { from: "2026-03", to: "2026-03", axis: "promised" });
+  assert.deepEqual(list.map((x) => [x.a, x.name, x.group, x.product, x.sup, x.n, x.late, x.days, x.over10, x.customers, x.orders]), [
+    ["0191200011", "O-ring 10x2", "NORMATEC O-ring", "O-rings", "Anyseals NV", 3, 1, 3, 0, 2, 2],
+    ["0300000001", "", "", "", "", 1, 1, 12, 1, 1, 1],
+  ]);
 });
