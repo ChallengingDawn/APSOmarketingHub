@@ -13,6 +13,9 @@ export type StudioCtx = {
   projectTitle: string;
   /** The project's own notes, free text (the brief as first written; a page from APSOconvert carries its marker here). */
   projectNotes: string | null;
+  /** The to-do's own notes: a page added from AI testing & personalization to a project that was there already carries
+   *  its marker here, read before the project's (lib/content/convertTodo.ts markerFor, notesFor). */
+  pieceNotes?: string | null;
   brief: Brief;
   piece: Piece;
   /** The person working - their username and name. */

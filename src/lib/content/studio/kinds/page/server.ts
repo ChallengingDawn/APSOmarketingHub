@@ -41,7 +41,7 @@ import { s } from "../../contract";
 import type { Op } from "../../doc";
 import { saveOps } from "../../store";
 import { projectBrief, projectHead } from "@/lib/content/workflow";
-import { markerOf } from "@/lib/convert/handoff";
+import { markerFor, notesFor } from "@/lib/content/convertTodo";
 import { publishFromContent, winnerFor, type Winner } from "@/lib/convert/winner";
 import { KEY_WAITING, cmsConnectionCheck, cmsKeys, cmsPageBackups, cmsPagePlans, cmsPageRestore, cmsPageWrite, cmsSharedPlan, cmsSharedWrite, pieceOnAcc } from "@/lib/convert/cms";
 
@@ -746,7 +746,11 @@ const englishAction: ServerAction = async (ctx, raw, input) => {
 // ideas"): it writes itself when its to-do came from ANY idea of the Ideas board (Own ideas too) - ./appBrief.ts says the rule.
 const brief: ServerAction = async (ctx) => {
   const { source } = await projectBrief(ctx.projectId).catch(() => ({ source: null as string | null }));
-  return appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes, title: ctx.projectTitle });
+  // a page added to the project from AI testing & personalization: the to-do's own brief, under the to-do's name
+  const own = notesFor(ctx.pieceNotes, null);
+  return own
+    ? appBriefOf({ source: "convert", goal: ctx.brief.goal, notes: own, title: ctx.piece.title })
+    : appBriefOf({ source, goal: ctx.brief.goal, notes: ctx.projectNotes, title: ctx.projectTitle });
 };
 
 /* ── actions ──────────────────────────────────────────────────────────── */
@@ -761,13 +765,15 @@ const start: ServerAction = async (ctx, raw, input) => {
   const again = input.again === true;
   if (d.started && !again) return { imported: null };
   const head = await projectHead(ctx.projectId);
-  const brief = head?.project.brief ?? "";
+  // the to-do's own brief when it carries its page's marker (a page added to the project), else the project's
+  const brief = notesFor(ctx.pieceNotes, head?.project.brief) ?? "";
   const ops: Op[] = [{ op: "set", path: ["started"], value: true }, { op: "set", path: ["briefText"], value: brief.slice(0, 7000) }];
   // a page starts the way its type makes it (model.ts pageModesFor): an SEO landing page as a new page, the Page builder by
   // picking the shop's page (SARCLA 09.11.2026)
   const fix = again ? null : pageSourceFix(ctx.piece.contentType, d);
   if (fix) ops.push({ op: "set", path: ["source"], value: fix });
-  const mark = markerOf(brief);
+  // the to-do's marker first, then the project's (lib/content/convertTodo.ts)
+  const mark = markerFor(ctx.pieceNotes, head?.project.brief);
   const path = mark ? cleanPath(mark.path) : null;
   let imported: { env: string; path: string; version: { rev: number; status: string; summary: string } | null } | null = null;
   // a page from APSOconvert is taken over on the first open of an empty studio, or when asked again - by a to-do that
@@ -852,7 +858,8 @@ async function mayShip(): Promise<boolean> {
 }
 async function testIdOf(ctx: StudioCtx): Promise<string | null> {
   const head = await projectHead(ctx.projectId);
-  return markerOf(head?.project.brief ?? "")?.testId ?? null;
+  // a page added to the project as its own to-do is no test's winner, whatever the project's marker says
+  return markerFor(ctx.pieceNotes, head?.project.brief)?.testId ?? null;
 }
 
 const winner: ServerAction = async (ctx, raw) => {

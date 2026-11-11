@@ -13,6 +13,10 @@
 // properties as well"): by hand with "ticket-stage", in HubSpot at once; by itself when a piece's date or status is saved
 // here (piece-edit, piece-move -> todos.pushPieceToTask, lib/content/ticketMoves.ts) - the answer's `moved` is what its chip
 // shows now.
+// A page from AI testing & personalization added to this project (SARCLA 10.11.2026: "upon sending to Content allow to
+// create a new project or associate to the current one + the ticket"; "A/B should be sent to Content and then decided in
+// Content"): "piece-add-convert" makes one more Page builder to-do carrying that page's marker itself
+// (lib/content/convertTodo.ts), its sub-action, and - when asked - its Scroll to Sale ticket linked or made.
 
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/guard";
@@ -26,9 +30,10 @@ import {
 import { isPieceStatus, mailsFor, mentionsIn, moveError, stageMail, stageOf, STATUS_LABEL, TASK_KIND, taskMoveError, type MailTo } from "@/lib/content/pieceRules";
 import { sendContentMails, type MailContext } from "@/lib/content/workflowMail";
 import {
-  createTodoTicket, findTickets, linkTodoTicket, movePlace, moveTodoTicket, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
-  syncPieceTasks, ticketDraft, unlinkTodoTicket, whyNoTicket, type TicketMoved,
+  createTodoTicket, findTickets, giveTodoTicket, linkTodoTicket, movePlace, moveTodoTicket, piecesTickets, planPlaces, pushPieceToTask, removeTodo,
+  syncPieceTasks, ticketDraft, todoTicketCheck, unlinkTodoTicket, whyNoTicket, type TicketMoved,
 } from "@/lib/content/todos";
+import { checkAddConvert, studioPath, todoBrief, todoLanguage, todoTitle } from "@/lib/content/convertTodo";
 import { fillTicket, placesFor, ticketsFor, type ProjectSketch } from "@/lib/content/assist";
 import { describeIntegrationError } from "@/lib/integrations/status";
 
@@ -258,6 +263,52 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     }
     const mailed = await sendContentMails(mails, { ...base, pieceTitle: piece.title, dueDate: piece.dueDate });
     return NextResponse.json({ ok: true, piece, mailed, moved });
+  }
+
+  // a page from AI testing & personalization, added to this project as one more to-do: its own marker (the page, the
+  // version - the studio lays all the idea's versions over the page as its A/B versions), its sub-action, its ticket
+  if (action === "piece-add-convert") {
+    const asked = checkAddConvert(b);
+    if (!asked.ok) return fail(asked.error);
+    const a = asked.value;
+    // its people as every new to-do's: the owner is who adds it, the reviewer the default one (lib/content/people.ts)
+    const people = newTodoPeople({ kind: a.kind, me: me.username, defaultReviewer: defaultReviewerOf(await shareCandidates()), task: TASK_KIND });
+    const title = todoTitle(a.ideaTitle, a.path, a.kind);
+    // the ticket asked for is checked first: a refusal leaves the project as it was
+    if (a.ticket) {
+      const no = await todoTicketCheck(id, { title, writer: people.writer }, a.ticket).catch((e: unknown) => `HubSpot did not answer - nothing was added (${errText(e)}).`);
+      if (no) return fail(no);
+    }
+    // a project sent from the app and never opened takes its own first to-do first (workflow.ts pieceFromConvert)
+    await syncPieceTasks(id, me.username);
+    const made = await addPiece({
+      projectId: id, contentType: a.kind, language: todoLanguage(a.path), title, ...people, dueDate: null, by: me.username, brief: todoBrief(a),
+    });
+    await addEvent(id, made.id, me.username, "piece", { piece: made.title, from: "convert", page: `${a.env}:${a.path}` });
+    // its sub-action, at once
+    const piece = (await syncPieceTasks(id, me.username)).find((x) => x.id === made.id) ?? made;
+    await join(piece.writer, "editor");
+    await join(piece.reviewer, "commenter");
+    const mails: MailTo[] = [];
+    for (const role of ["writer", "reviewer"] as const) {
+      const who = piece[role];
+      if (!who) continue;
+      await addEvent(id, piece.id, me.username, "assign", { role, to: who, piece: piece.title });
+      mails.push(...mailsFor({ kind: "assign", role, username: who }, piece, owner, me.username));
+    }
+    const mailed = await sendContentMails(mails, { ...base, pieceTitle: piece.title, dueDate: piece.dueDate });
+    const url = studioPath(id, piece.id);
+    // the ticket: the to-do is made whatever HubSpot answers now - a ticket refused here is said, and given from its to-do
+    let ticket: { id: string; url: string; made: boolean } | null = null;
+    let ticketError: string | null = null;
+    if (a.ticket) {
+      const r = await giveTodoTicket(id, piece.taskId, a.ticket, me.full_name || me.username, url).catch((e: unknown) => ({ ok: false as const, error: errText(e) }));
+      if (r.ok) {
+        ticket = { id: r.id, url: r.url, made: r.made };
+        await addEvent(id, piece.id, me.username, "ticket", { piece: piece.title, ticket: r.id, made: r.made });
+      } else ticketError = r.error;
+    }
+    return NextResponse.json({ ok: true, piece: { id: piece.id, title: piece.title, contentType: piece.contentType, taskId: piece.taskId }, url, ticket, ticketError, mailed });
   }
 
   if (action === "piece-remove") {
