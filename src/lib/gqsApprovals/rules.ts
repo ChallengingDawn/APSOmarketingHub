@@ -11,7 +11,8 @@
 //   - then the rule, in this order: order potential >= 20,000 EUR; <= 1,000 EUR and margin <= 20 %; 1,000 - 20,000 EUR
 //     and margin <= 30 %; a liquidation article -> the line manager reviews it (status "Review by Line manager", a mail
 //     to the requester and one to the line manager); else "Automatically Approved", stage "New for Back-Office", owner
-//     Backoffice Team, a mail to the Backoffice Team. A value that is not filled in never matches (HubSpot's filters).
+//     Backoffice Team, no mail (its address is the Back Office inbox, 12.11.2026). A value that is not filled in never
+//     matches (HubSpot's filters).
 
 export const GQS = "1726786775";
 export const ESO = "1726599376", TSA = "1726599377";
@@ -23,7 +24,7 @@ export const STAGE = {
 } as const;
 /** The stages that make an entry a re-entry (the workflow's "EXCLUSION REOPEN"; some no longer exist). */
 export const REOPEN_STAGES = ["2964068584", "3152460022", "2520497378", "4704538856", "2520497377", "4793532647", "2510335188", "2510335189", "2338266317", "2338266316", "2338266314"];
-/** Backoffice Team - the owner and the mail of an approved request. */
+/** Backoffice Team - the owner of an approved request (never mailed: its address is the Back Office inbox). */
 export const BACKOFFICE_TEAM = "76164822";
 /** Requesters whose follow-up ticket goes to TSA (the workflow's TSA branch: Falk, Schawlochow, Gustak, Pielock, Kuridza, Frech). */
 export const TSA_OWNERS = ["1229976031", "1229999295", "1229976029", "1229976026", "30052119", "817497321"];
