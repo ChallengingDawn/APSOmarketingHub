@@ -50,6 +50,7 @@ import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { AvailabilityCard, AvailabilitySettings } from "./Availability";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, when } from "@/app/connectors/parts";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
@@ -256,8 +257,8 @@ export default function BoDistribution() {
   else if (view === "flow") body = <>{FLOW_NOTE}<FlowTab d={inWin(all)} /></>;
   else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
-  else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
-  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" />;
+  else if (view === "people") body = <><AvailabilityCard /><People d={bo} onSaved={reload} pipe="bo" /></>;
+  else if (view === "settings") body = <><SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" /><AvailabilitySettings /></>;
   else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} from={win.from} to={win.to} label={periodLabel} />;
   // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
   // owner's figures, the GQS team, GQS's lists
