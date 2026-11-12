@@ -27,6 +27,20 @@ export { smtpConfigured };
 /** The address part of a sender like "APSOparts® <info@news.apsoparts.com>". */
 export const addressOf = (from: string) => /<([^>]+)>/.exec(from)?.[1] ?? from.trim();
 
+/**
+ * The Back Office's HubSpot inbox, support@apsoparts.com - also the hub's own From on the live server and the
+ * Backoffice Team owner's address. A hub mail sent there comes back as a new Back Office ticket. 05.11.2026: 120
+ * such tickets in 44 minutes; 11.11.2026: the GQS approvals' "❗Special Request GQS Created" made one per
+ * automatically approved request. So no hub mail ever goes there, whoever builds it - the address is taken off To
+ * and Cc here, and a mail with nobody else on it is not sent. (Not DOC_REPLY_TO: that may name a person.)
+ */
+const BACK_OFFICE_INBOX = "support@apsoparts.com";
+const OWN_INBOXES = (): Set<string> =>
+  new Set([addressOf(FROM), BACK_OFFICE_INBOX].map((a) => a.trim().toLowerCase()).filter(Boolean));
+const splitAddresses = (list: string): string[] => list.split(/[,;]/).map((a) => a.trim()).filter(Boolean);
+export const isOwnInbox = (address: string | null | undefined): boolean =>
+  !!address && OWN_INBOXES().has(addressOf(address).trim().toLowerCase());
+
 export async function sendHubMail(m: {
   to: string;
   subject: string;
@@ -41,6 +55,12 @@ export async function sendHubMail(m: {
   /** Files sent with it - the partners' stock file (18.10.2026). */
   attachments?: { filename: string; content: Buffer; contentType?: string }[];
 }): Promise<void> {
+  const dropped = [...splitAddresses(m.to), ...splitAddresses(m.cc ?? "")].filter((a) => isOwnInbox(a));
+  // Untouched when nothing is dropped, so a display name with a comma in it is never split.
+  const to = dropped.length ? splitAddresses(m.to).filter((a) => !isOwnInbox(a)).join(", ") : m.to;
+  const cc = dropped.length ? splitAddresses(m.cc ?? "").filter((a) => !isOwnInbox(a)).join(", ") : (m.cc ?? "");
+  if (dropped.length) console.warn(`[mailer] "${m.subject.slice(0, 80)}": not to ${dropped.join(", ")} - the Back Office inbox, a mail there becomes a ticket`);
+  if (!to.trim()) throw new Error(`not sent: ${m.to} is the Back Office inbox - a mail there becomes a ticket`);
   const s = smtp();
   if (!s.user || !s.pass) throw new Error("No SMTP credentials: DOC_SMTP_USER / DOC_SMTP_PASS are unset.");
   transport ??= nodemailer.createTransport({
@@ -52,11 +72,11 @@ export async function sendHubMail(m: {
   });
   const info = await transport.sendMail({
     from: m.fromName ? `"${m.fromName.replace(/["<>]/g, "")}" <${addressOf(FROM)}>` : FROM,
-    replyTo: m.replyTo || REPLY_TO, to: m.to, subject: m.subject, html: m.html, text: m.text,
-    ...(m.cc ? { cc: m.cc } : {}), ...(m.attachments?.length ? { attachments: m.attachments } : {}),
+    replyTo: m.replyTo || REPLY_TO, to, subject: m.subject, html: m.html, text: m.text,
+    ...(cc ? { cc } : {}), ...(m.attachments?.length ? { attachments: m.attachments } : {}),
   });
   if (!info.accepted?.length) {
-    throw new Error(`SMTP refused ${m.to}: ${JSON.stringify(info.rejected ?? [])}`);
+    throw new Error(`SMTP refused ${to}: ${JSON.stringify(info.rejected ?? [])}`);
   }
 }
 
