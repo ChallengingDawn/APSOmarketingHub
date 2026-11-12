@@ -71,6 +71,10 @@ test("ticket properties: the person's team picks the pipeline; no owner means no
   assert.equal(eso.kalrez_switch_key, "100-704456|2026-11");
   assert.equal(eso.kalrez_switch_value, "84973");
   assert.equal(eso.kalrez_switch_currency, "CHF");
+  assert.equal(eso.order_potential_, "90397"); // 84,973 CHF in EUR
+  assert.equal(eso.sales_potential_estimate, "90397");
+  assert.equal(eso.sales_potential_source, "direct_field");
+  assert.equal(eso.sales_potential_confidence, "high");
   const tsa = kzTicketProperties(target({ team: "TSA", ownerId: null, value: 9500 }));
   assert.equal(tsa.hs_pipeline, PIPELINE.TSA.id);
   assert.equal("hubspot_owner_id" in tsa, false);
