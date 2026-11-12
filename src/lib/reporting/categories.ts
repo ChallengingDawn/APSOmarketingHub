@@ -137,10 +137,10 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
     // 02.11.2026: "and the back office reports based on file?" - "Live, file = the KPI list", "like on the ESO / TSA, split
     // per topic"); the BUC View first, as ESO's and TSA's (SARCLA 03.11.2026: "BUC View is missing"); then a page per block
     // of the workbook, in its order (SARCLA 03.11.2026: "rethink based on the excel file all the view"); what HubSpot does
-    // not hold typed in - the hours on Team totals, the OTD, the pass rate, the manual prices, the stopped orders
+    // not hold typed in - the hours on Team totals, the OTD, the price pass rate, the manual prices, the stopped orders
     reports: [
       {
-        name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, pass rate, stopped orders - month by month", icon: "bar",
+        name: "Back Office KPIs", href: "/reporting/back-office", note: "Team totals, topics, ESO & TSA tickets, GQS, OTD, price pass rate, stopped orders - month by month", icon: "bar",
         overview: "BUC View", overviewHref: "/reporting/back-office",
         children: [
           // each page's glyph the one its BUC View panel wears (SARCLA 04.11.2026: "Team totals icon should be the same as in BUC View")
@@ -149,7 +149,7 @@ export const REPORT_CATEGORIES: ReportCategory[] = [
           { name: "ESO & TSA tickets", href: "/reporting/back-office/sales-tickets", icon: "groups" },
           { name: "GQS", href: "/reporting/back-office/gqs", icon: "assignment" },
           { name: "OTD", href: "/reporting/back-office/otd", icon: "shipping" },
-          { name: "Pass rate", href: "/reporting/back-office/autonomy", icon: "verified" },
+          { name: "Price pass rate", href: "/reporting/back-office/autonomy", icon: "verified" },
           { name: "Stopped orders", href: "/reporting/back-office/stopped", icon: "block" },
         ],
       },

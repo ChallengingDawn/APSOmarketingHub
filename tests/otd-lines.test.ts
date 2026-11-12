@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { articleList, buildLineStore, customerLines, customerList, dayNo, dayOf, glcCustomers, lineOf, pick, supplierList, workdays } from "../src/lib/reporting/otdLines";
+import { articleList, buildLineStore, customerLines, customerList, dayNo, dayOf, glcCustomers, leadBands, lineOf, pick, supplierList, workdays } from "../src/lib/reporting/otdLines";
 import { networkdays, type OtdLine } from "../src/lib/reporting/otdRules";
 
 const L = (o: Partial<OtdLine>): OtdLine => ({
@@ -109,4 +109,14 @@ test("otd lines: every article with its name, groups, customers and orders - the
     ["0191200011", "O-ring 10x2", "NORMATEC O-ring", "O-rings", "Anyseals NV", 3, 1, 3, 0, 2, 2],
     ["0300000001", "", "", "", "", 1, 1, 12, 1, 1, 1],
   ]);
+});
+
+test("otd lines: the lead-time bands from the kept lines, as the cube counts them", () => {
+  // ordered Mon 2 March, first confirmed Tue 10 (7 working days: 6-10), shipped Mon 9 (5: 4-5), at the customer Tue 10 (1: 0-1), real 7 (6-10)
+  const s = buildLineStore([L({ orderDay: "2026-03-02" }), L({ order: "A26.000002.001", orderDay: "2026-03-09", firstDay: "2026-03-10", shipDay: "2026-03-09" })], "2026-11-10");
+  const d = leadBands(s, { from: "2026-03", to: "2026-03", axis: "promised" });
+  assert.deepEqual(d.map((r) => r.reduce((a, b) => a + b, 0)), [2, 2, 2, 2]);
+  assert.deepEqual([d[0][3], d[1][2], d[2][0], d[3][3]], [1, 1, 2, 1]);
+  // the second: promised 2 working days (2-3), processing 0 (0-1), real 2 (2-3)
+  assert.deepEqual([d[0][1], d[1][0], d[3][1]], [1, 1, 1]);
 });

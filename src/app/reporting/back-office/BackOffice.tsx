@@ -115,6 +115,9 @@ import { DEEMPHASIS, SEQUENTIAL, SERIES } from "@/app/charts/palette";
 import { ChartFrame } from "@/app/charts/ChartFrame";
 import { MultiLine } from "@/app/charts/MultiLine";
 import { GLC, LATE_CATS, priorityOf, type OtdMain } from "@/lib/reporting/otdRules";
+import { CustomerExplorer, type CustomerQuery } from "@/app/reporting/otd/OtdCustomers";
+import { ArticleMaster, GlcCompanies, LeadBands, SupplierLeads } from "@/app/reporting/otd/OtdLineViews";
+import { PagedBars } from "@/app/reporting/otd/OtdPaged";
 import { CompaniesFor, type CompanySource } from "@/app/reporting/CompanyList";
 import { Sankey } from "@/app/charts/Sankey";
 import type { ArtInfo, BoRead, ChatRow } from "@/lib/reporting/boReport";
@@ -148,7 +151,7 @@ type Data = BoRead & {
   team?: string[]; surveys?: BoSurvey[];
   /** each delivery's speed, from the ERP's order file (the chain's order_sync, every night) - OTD > Delivery speed */
   delivery?: DeliveryKept | null;
-  /** OTD, the pass rate and the manual prices counted from the ERP's order lines (lib/reporting/boErpLines.ts) */
+  /** OTD, the price pass rate and the manual prices counted from the ERP's order lines (lib/reporting/boErpLines.ts) */
   erpLines?: ErpLinesKept | null;
   /** OTD Reports' main views for the Back Office (lib/reporting/otdRules.ts otdMainOf): the OTD analysis file's categories,
    *  the suppliers' impact, GLC, the date changes - eShop, by the first confirmed date's month */
@@ -308,7 +311,7 @@ export const BO_PAGES: PageDef[] = [
   { slug: "sales-tickets", title: "ESO & TSA tickets", line: "inbound, without the sales actions, against the orders - and APSOparts in total", icon: <GroupsOutlinedIcon />, tint: "purple" },
   { slug: "gqs", title: "GQS", line: "special tasks with the GQS team: how many, how long before sent, how long to close", icon: <AssignmentOutlinedIcon />, tint: "green" },
   { slug: "otd", title: "OTD", line: "on time against the first confirmed date, counted from the ERP · the late lines · the delivery speed", icon: <LocalShippingOutlinedIcon />, tint: "pink" },
-  { slug: "autonomy", title: "Pass rate", line: "the pass rate and the manual price adjustments per mandant, counted from the ERP", icon: <VerifiedOutlinedIcon />, tint: "slate" },
+  { slug: "autonomy", title: "Price pass rate", line: "the price pass rate and the manual price adjustments per mandant, counted from the ERP", icon: <VerifiedOutlinedIcon />, tint: "slate" },
   { slug: "stopped", title: "Stopped orders", line: "the eShop orders Performis stopped, why, per mandant and who released them", icon: <BlockOutlinedIcon />, tint: "amber" },
 ];
 const pageOf = (slug: Slug) => BO_PAGES.find((p) => p.slug === slug)!;
@@ -397,7 +400,7 @@ const FIGS: Record<Slug, (f: Frame, d: Data) => Fig[]> = {
       return fig(label, share(v), null, undefined, `target ${lower ? "below " : ""}${pct(target)}${ok == null ? " · not typed in yet" : ok ? " · on target" : " · off target"}${counted != null ? " · counted" : v != null ? " · typed in" : ""}`, icon, tint);
     };
     return [
-      one("pass.m100", "Pass rate, 100", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"), one("pass.m110", "Pass rate, 110", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"),
+      one("pass.m100", "Price pass rate, 100", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"), one("pass.m110", "Price pass rate, 110", 0.95, false, <VerifiedOutlinedIcon sx={{ fontSize: 14 }} />, "green"),
       one("price.m100", "Manual prices, 100", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"), one("price.m110", "Manual prices, 110", 0.025, true, <PriceChangeOutlinedIcon sx={{ fontSize: 14 }} />, "amber"),
     ];
   },
@@ -440,6 +443,10 @@ const ALL_IN: ListOf = { note: "the tickets created" };
  *  later: 3 on 2 November, so 615 % tickets per order line) - the month to date only while none is complete */
 const drawn = (f: Frame) => Math.max(1, f.done);
 const wide = (c: ChartDef): ChartDef => ({ ...c, wide: true });
+/** the period as OTD Reports' views ask for it: the eShop lines, by the month of the first confirmed date (the Back Office's
+ *  rule) - their customers, articles, suppliers, GLC and lead bands drawn here too (SARCLA 12.11.2026: "with the OTD report
+ *  now we can improve the one from Back Office OTD as well") */
+const boQ = (f: Frame): CustomerQuery => ({ from: f.yms[0], to: f.yms[f.yms.length - 1], axis: "promised", filter: { src: ["e"] }, yms: f.yms });
 
 /** a monthly KPI as a line, last year's beside it, its complete months added up in the hint */
 function trend(id: string, page: Slug, title: string, note: string, pick: (k: BoKpis) => number | null, fmt: (v: number | null) => string, tick?: (v: number | null) => string): ChartDef {
@@ -1902,7 +1909,7 @@ function prCharts(): ChartDef[] {
   ];
 }
 
-/* ── From the ERP's order lines (lib/reporting/boErpLines.ts): the pass rate, the manual prices and OTD, counted ── */
+/* ── From the ERP's order lines (lib/reporting/boErpLines.ts): the price pass rate, the manual prices and OTD, counted ── */
 
 /** a month with fewer lines is not drawn */
 const EL_MIN = 100, OTD_MIN = 30;
@@ -1927,12 +1934,12 @@ function ElTrend({ f, d, typedKey, at, tick, target }: { f: Frame; d: Data; type
   return <MonthTrend values={yms.map((ym) => at(k, ym))} compare={typed.some((x) => x != null) ? typed : null} labels={f.labels.slice(0, n)} label="Counted from the ERP" compareLabel="Typed in by the Back Office" fmt={share} tick={tick} target={target} />;
 }
 
-/** KPI autonomy: the pass rate or the manual prices of one mandant */
+/** KPI autonomy: the price pass rate or the manual prices of one mandant */
 function elTrend(id: string, kind: "pass" | "price", mandant: string): ChartDef {
   const pass = kind === "pass", target = pass ? PASS_TARGET : PR_TARGET, key = `${kind}.m${mandant}`;
   const of = (p: PriceCounts) => (pass ? autoAt(p) : manualAt(p));
   return {
-    id, page: "autonomy", title: pass ? `Pass rate, mandant ${mandant}` : `Manual price adjustments, mandant ${mandant}`,
+    id, page: "autonomy", title: pass ? `Price pass rate, mandant ${mandant}` : `Manual price adjustments, mandant ${mandant}`,
     figure: ({ f, d }) => { const v = d.erpLines ? of(pcOf(d, mandant, elYms(f))) : meanOf(typedOf(d, key, elYms(f))); return v == null ? null : share(v); },
     hint: ({ f, d }) => {
       const p = d.erpLines ? pcOf(d, mandant, elYms(f)) : null;
@@ -2083,7 +2090,7 @@ function elCharts(): ChartDef[] {
     elTrend("price100", "price", "100"),
     elTrend("price110", "price", "110"),
     wide({
-      id: "elMonths", needsCount: true, page: "autonomy", title: "Pass rate and manual prices, month by month",
+      id: "elMonths", needsCount: true, page: "autonomy", title: "Price pass rate and manual prices, month by month",
       hint: () => "eShop order lines by the month ordered, service articles left out · counted from the ERP",
       body: ({ f, d }) => {
         const k = d.erpLines;
@@ -2092,10 +2099,10 @@ function elCharts(): ChartDef[] {
         const rows: R[] = f.yms.map((ym, i) => ({ label: f.labels[i], a: priceSum(k, "100", [ym]), b: priceSum(k, "110", [ym]) })).filter((r) => r.a[0] + r.b[0] > 0);
         const cols: Col<R>[] = [
           { key: "la", head: "Lines 100", cell: (r) => int(r.a[0]), sort: (r) => r.a[0] },
-          { key: "pa", head: "Pass rate 100", cell: (r) => pct(autoAt(r.a)), sort: (r) => autoAt(r.a) ?? -1 },
+          { key: "pa", head: "Price pass rate 100", cell: (r) => pct(autoAt(r.a)), sort: (r) => autoAt(r.a) ?? -1 },
           { key: "ma", head: "By hand 100", cell: (r) => pct(manualAt(r.a)), sort: (r) => manualAt(r.a) ?? -1 },
           { key: "lb", head: "Lines 110", cell: (r) => int(r.b[0]), sort: (r) => r.b[0] },
-          { key: "pb", head: "Pass rate 110", cell: (r) => pct(autoAt(r.b)), sort: (r) => autoAt(r.b) ?? -1 },
+          { key: "pb", head: "Price pass rate 110", cell: (r) => pct(autoAt(r.b)), sort: (r) => autoAt(r.b) ?? -1 },
           { key: "mb", head: "By hand 110", cell: (r) => pct(manualAt(r.b)), sort: (r) => manualAt(r.b) ?? -1 },
         ];
         if (!rows.length) return <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>No eShop order line in this period.</Typography>;
@@ -2242,7 +2249,7 @@ function el2Charts(): ChartDef[] {
       hint: ({ f }) => `${periodOf(f)} · each month's eShop lines by how many working days after the first confirmed date they reached the customer · the full analysis in Advanced reporting > OTD Reports`,
       body: ({ f, d }) => {
         const m = d.otdMain;
-        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next ERP delivery's run" />;
         const ys = elYms(f).filter((ym) => m.months[ym]);
         if (!ys.length) return <ElNone what="no month of this period is counted" />;
         const colors = [SERIES[2], "#f7d9b5", "#f0b47a", "#e5873f", "#c45a1c", "#7d3410"];
@@ -2255,7 +2262,7 @@ function el2Charts(): ChartDef[] {
       hint: () => "the share on time of the eShop lines whose confirmed date moved, and of the others - OTD Reports > Orders & date changes",
       body: ({ f, d }) => {
         const m = d.otdMain;
-        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next ERP delivery's run" />;
         const ys = elYms(f).filter((ym) => m.months[ym]);
         const on = (t: number[] | undefined) => (t && t[0] ? (t[0] - t[1]) / t[0] : null);
         return <MultiLine labels={ys.map(otdMonth)} series={[{ key: "c", label: "Date changed", values: ys.map((ym) => on(m.months[ym].changed[1])) }, { key: "n", label: "Never changed", values: ys.map((ym) => on(m.months[ym].changed[0])) }]}
@@ -2263,17 +2270,17 @@ function el2Charts(): ChartDef[] {
       },
     },
     {
-      id: "otdImpactBo", page: "otd", title: "Supplier impact - the 10 with the most late days",
+      id: "otdImpactBo", page: "otd", title: "Supplier impact - every supplier by late days",
       hint: ({ f }) => `${periodOf(f)} · eShop lines, each article's main supplier, GLC the lines cut to size and made in house · impact index against the largest: Critical from 50, High from 20, Medium from 10 · the full ranking in OTD Reports > Suppliers`,
       body: ({ f, d }) => {
         const m = d.otdMain;
-        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next ERP delivery's run" />;
         const t = new Map<string, [number, number, number]>();
         for (const ym of elYms(f)) for (const [s, r] of Object.entries(m.sup[ym] ?? {})) { const x = t.get(s) ?? [0, 0, 0]; x[0] += r[0]; x[1] += r[1]; x[2] += r[2]; t.set(s, x); }
-        const rows = [...t].sort((a, b) => b[1][2] - a[1][2]).slice(0, 10);
+        const rows = [...t].sort((a, b) => b[1][2] - a[1][2]);
         const top = rows[0]?.[1][2] ?? 0;
-        return <BarList rows={rows.map(([s, r]) => ({ label: s === GLC ? "GLC" : supName(s.split(",")[0]), value: r[2], secondary: `${int(r[1])} late lines · ${pct(r[0] ? r[1] / r[0] : null)} late · ${priorityOf(top ? (100 * r[2]) / top : 0)}` }))}
-          format={(v) => int(v ?? 0)} labelWidth={200} emptyMessage="No late line in this period." />;
+        return <PagedBars rows={rows.map(([s, r]) => ({ label: s === GLC ? "GLC" : supName(s.split(",")[0]), value: r[2], secondary: `${int(r[1])} late lines · ${pct(r[0] ? r[1] / r[0] : null)} late · ${priorityOf(top ? (100 * r[2]) / top : 0)}` }))}
+          format={(v) => int(v ?? 0)} emptyMessage="No late line in this period." />;
       },
     },
     {
@@ -2281,7 +2288,7 @@ function el2Charts(): ChartDef[] {
       hint: () => "the share on time of the eShop lines cut to size and made in house (no supplier), and of the lines bought in",
       body: ({ f, d }) => {
         const m = d.otdMain;
-        if (!m) return <ElNone what="this is not counted yet - it comes with the next morning run" />;
+        if (!m) return <ElNone what="this is not counted yet - it comes with the next ERP delivery's run" />;
         const ys = elYms(f).filter((ym) => m.months[ym]);
         const g = ys.map((ym) => m.sup[ym]?.[GLC]);
         return <MultiLine labels={ys.map(otdMonth)} series={[
@@ -2290,6 +2297,15 @@ function el2Charts(): ChartDef[] {
         ]} format={pct} tickFormat={(v) => (v == null ? "" : `${Math.round(v * 100)}%`)} max={1} />;
       },
     },
+
+    /* OTD - OTD Reports' views, from the lines kept one by one (otdLines.ts), the eShop lines of the period */
+    { id: "otdCustomersBo", page: "otd", wide: true, title: "Every customer", own: ({ f }) => <CustomerExplorer q={boQ(f)} /> },
+    { id: "otdArticlesBo", page: "otd", wide: true, title: "Every article", own: ({ f }) => <ArticleMaster q={boQ(f)} /> },
+    { id: "otdSupLeadsBo", page: "otd", wide: true, title: "Every supplier's lead time",
+      own: ({ f }) => <SupplierLeads q={boQ(f)} fallback={<ElNone what="every supplier comes with the next ERP delivery's run" />} /> },
+    { id: "otdGlcKindsBo", page: "otd", wide: true, title: "GLC lines: what DirectCut did with them",
+      own: ({ f }) => <GlcCompanies q={boQ(f)} openCustomer={(c) => setQuery((p) => { p.set("tab", "customers"); p.set("c", c); })} /> },
+    { id: "otdLeadBandsBo", page: "otd", wide: true, title: "How long - the lines per band", own: ({ f }) => <LeadBands q={boQ(f)} /> },
 
     /* OTD - the open lines to act on */
     wide({
@@ -2363,17 +2379,17 @@ function el2Charts(): ChartDef[] {
       },
     }),
 
-    /* Pass rate - eShop and typed-in orders */
+    /* Price pass rate - eShop and typed-in orders */
     wide({
       id: "prSources", needsCount: true, page: "autonomy", title: "eShop orders and orders typed in by the Back Office",
-      hint: () => "The pass rate and the manual prices per order source, by the month ordered, service articles left out",
+      hint: () => "The price pass rate and the manual prices per order source, by the month ordered, service articles left out",
       body: ({ f, d }) => {
         const k = d.erpLines;
         if (!k?.srcPrice) return <ElNone what="this is not counted" />;
         const ys = elYms(f), srcs = keysOf(k.srcPrice, ys);
         const cols: Col<ElMonth>[] = srcs.flatMap((x): Col<ElMonth>[] => [
           { key: `l-${x}`, head: `Lines, ${x}`, cell: (r) => int(priceOf(k.srcPrice, r.yms, x)[0]), sort: (r) => priceOf(k.srcPrice, r.yms, x)[0] },
-          { key: `p-${x}`, head: `Pass rate, ${x}`, cell: (r) => pct(passOf(priceOf(k.srcPrice, r.yms, x))), sort: (r) => passOf(priceOf(k.srcPrice, r.yms, x)) ?? -1 },
+          { key: `p-${x}`, head: `Price pass rate, ${x}`, cell: (r) => pct(passOf(priceOf(k.srcPrice, r.yms, x))), sort: (r) => passOf(priceOf(k.srcPrice, r.yms, x)) ?? -1 },
           { key: `m-${x}`, head: `By hand, ${x}`, cell: (r) => pct(handOf(priceOf(k.srcPrice, r.yms, x))), sort: (r) => handOf(priceOf(k.srcPrice, r.yms, x)) ?? -1 },
         ]);
         return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => keysOf(k.srcPrice, y).length > 0)} total={{ label: periodOf(f), yms: ys }} natural />;
@@ -2426,10 +2442,10 @@ function el2Charts(): ChartDef[] {
       },
     },
 
-    /* Pass rate - how it's counted, with the figures and real lines */
+    /* Price pass rate - how it's counted, with the figures and real lines */
     wide({
       id: "passSources", needsCount: true, page: "autonomy", title: "Every month's lines per price source",
-      hint: () => "The eShop order lines of mandants 100 and 110 as the ERP records their price source, by the month ordered, service articles left out - what the pass rate and the manual prices are made of",
+      hint: () => "The eShop order lines of mandants 100 and 110 as the ERP records their price source, by the month ordered, service articles left out - what the price pass rate and the manual prices are made of",
       body: ({ f, d }) => {
         const k = d.erpLines;
         if (!k) return <ElNone what="this is not counted" />;
@@ -2439,7 +2455,7 @@ function el2Charts(): ChartDef[] {
           { key: "a", head: "automatically", cell: (r) => int(p(r.yms)[2]), sort: (r) => p(r.yms)[2] },
           { key: "m", head: "manually", cell: (r) => int(p(r.yms)[1]), sort: (r) => p(r.yms)[1] },
           { key: "c", head: "calculated", cell: (r) => int(p(r.yms)[3]), sort: (r) => p(r.yms)[3] },
-          { key: "pr", head: "Pass rate", cell: (r) => pct(passOf(p(r.yms))), sort: (r) => passOf(p(r.yms)) ?? -1 },
+          { key: "pr", head: "Price pass rate", cell: (r) => pct(passOf(p(r.yms))), sort: (r) => passOf(p(r.yms)) ?? -1 },
           { key: "mp", head: "Manual prices", cell: (r) => pct(handOf(p(r.yms))), sort: (r) => handOf(p(r.yms)) ?? -1 },
         ];
         return <FullTable first="Month" cols={cols} rows={monthRows(f, (y) => p(y)[0] > 0)} total={{ label: periodOf(f), yms: elYms(f) }} natural />;
@@ -2447,7 +2463,7 @@ function el2Charts(): ChartDef[] {
     }),
     wide({
       id: "passExamples", needsCount: true, page: "autonomy", title: "Lines priced by hand, the latest",
-      hint: () => "Real eShop order lines whose price was typed in the ERP (price source \"manually\") - each one counts against the pass rate",
+      hint: () => "Real eShop order lines whose price was typed in the ERP (price source \"manually\") - each one counts against the price pass rate",
       body: ({ d }) => {
         const m = d.erpLines?.manualRows;
         if (!m) return <ElNone what="this is not counted" />;
@@ -2458,7 +2474,7 @@ function el2Charts(): ChartDef[] {
   ];
 }
 
-/* ── How it's counted: OTD and the pass rate, in words, with the ERP's own dates and examples ── */
+/* ── How it's counted: OTD and the price pass rate, in words, with the ERP's own dates and examples ── */
 
 function Rule({ children }: { children: React.ReactNode }) {
   return <Box sx={{ px: 1.75, py: 1.25, borderRadius: "12px", bgcolor: TINT.blue.bg, border: `1px solid ${TINT.blue.fg}`, fontSize: "0.95rem", fontWeight: 700, color: INK }}>{children}</Box>;
@@ -2507,7 +2523,7 @@ function logicCharts(): ChartDef[] {
             ["Shipment date", "Delivery · ShipmentDate", "The day the delivery left the warehouse (Embrach)", "The actual: shipment + transport = when it arrives"],
             ["Transport time", "The ERP's table per delivery country", "Working days from the warehouse to the customer - Switzerland 1, Germany 2, Italy 4, France 5 ...", "Added to the shipment date"],
             ["Confirmed date now", "Order line · ShippingDateConfirmed", "The date as it stands today, after every change", "Only to see which lines had their date postponed"],
-            ["Order date", "Order · OrderDate", "The day the order came in", "Not in OTD (the pass rate's month)"],
+            ["Order date", "Order · OrderDate", "The day the order came in", "Not in OTD (the price pass rate's month)"],
             ["Customer's wish date", "Order line · CustomerWishDate", "What the customer asked for - the same as the first date on 86 % of lines", "Not used: the first confirmed date is the promise"],
             ["Delivery date initial", "Order · DeliveryDateInitial", "Empty on every order since 2025", "Not used"],
           ].map((r) => ({ key: r[0], cells: r }))} />
@@ -2542,11 +2558,11 @@ function logicCharts(): ChartDef[] {
       id: "passLogic", page: "autonomy", title: "The rule", hint: () => "Where each line's price came from, as the ERP records it on the order line (PriceSource)",
       body: () => (
         <Box>
-          <Rule>Pass rate = the share of eShop order lines whose price the ERP set by itself · manual prices = the share typed by a person</Rule>
+          <Rule>Price pass rate = the share of eShop order lines whose price the ERP set by itself · manual prices = the share typed by a person</Rule>
           <Box sx={{ mt: 1.5 }}>
             <Table head={["Price source in the ERP", "What it means", "Counts as"]} left={[0, 1, 2]} minWidth={700}
               rows={[
-                ["automatically", "The ERP found the price itself - its price list and the customer's conditions", "Pass rate - no hand on the price"],
+                ["automatically", "The ERP found the price itself - its price list and the customer's conditions", "Price pass rate - no hand on the price"],
                 ["manually", "A person typed the price in the ERP", "Manual price adjustment"],
                 ["calculated", "The ERP calculated it - about 0.1 % of the lines", "Neither"],
               ].map((r) => ({ key: r[0], cells: r }))} />
@@ -2554,7 +2570,7 @@ function logicCharts(): ChartDef[] {
           <Points items={[
             ["Which lines", "Every order line of an eShop order in mandants 100 and 110; services (freight, certificates) left out; credit notes left out."],
             ["Which month", "The month the order came in."],
-            ["Targets", "Pass rate 95 % or more; manual prices below 2.5 %."],
+            ["Targets", "Price pass rate 95 % or more; manual prices below 2.5 %."],
             ["Checked", "Against the Back Office's typed figures, Jan-Sep 2026: 0.3 points apart on average. Per ORDER it would be 6-10 % by hand - their figure is per line."],
             ["The biggest changes", "The list under Manual prices is another source: the shop's price against the price the ERP invoiced, for the lines that moved most."],
           ]} />
@@ -3348,22 +3364,23 @@ const TABS: Record<Slug, TabDef[]> = {
       charts: ["otdFigs", "otdAll", "otdStandard", "otdSpecial", "otdPushed", "otdMonths", "otdSources"] },
     { id: "pcs", label: "Profit centres", title: "OTD per profit centre", note: "standard and special articles, counted from the ERP · the filters do not apply here", icon: <ApartmentOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdMinis", "otdPc"] },
     { id: "late", label: "Late lines", title: "Where and how late", note: "the lines that arrived after their first confirmed date: per country, how late, and each one of the last 3 months · the filters do not apply here", icon: <EventRepeatOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdCatsBo", "otdChangedBo", "otdCountry", "otdLate", "otdList"] },
-    { id: "products", label: "Late products", title: "The products late most often", note: "the eShop lines shipped per article: the ones that most often arrive after their first confirmed date, with their supplier and profit centre · the filters do not apply here", icon: <InventoryOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["lateProductsBar", "lateProductsPc", "lateProducts"] },
-    { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdImpactBo", "otdGlcBo", "otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
+    { id: "customers", label: "Customers", title: "OTD per customer", note: "every customer of the eShop lines in the period: its place by the most late lines coloured by the share on time, sortable, searchable - a click opens its orders line by line, articles and suppliers", icon: <GroupsOutlinedIcon />, tint: "purple", unfiltered: true, charts: ["otdCustomersBo"] },
+    { id: "products", label: "Late products", title: "The products late most often", note: "the eShop lines shipped per article: the ones that most often arrive after their first confirmed date, with their supplier and profit centre · the filters do not apply here", icon: <InventoryOutlinedIcon />, tint: "amber", unfiltered: true, charts: ["otdArticlesBo", "lateProductsBar", "lateProductsPc", "lateProducts"] },
+    { id: "suppliers", label: "Suppliers", title: "OTD per supplier", note: "the eShop lines shipped, by each article's main supplier in the ERP: on time, who the late lines come from, the main ones month by month · the filters do not apply here", icon: <FactoryOutlinedIcon />, tint: "blue", unfiltered: true, charts: ["otdImpactBo", "otdSupLeadsBo", "otdGlcKindsBo", "otdGlcBo", "otdSupplier", "otdSupplierLate", "otdSupplierMonths"] },
     { id: "open", label: "Open lines", title: "Open lines to act on", note: "the lines not shipped yet whose first confirmed date has passed or comes within 3 working days - every order source, as the morning file had them", icon: <PendingActionsOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["openFigs", "openList"] },
-    { id: "lead", label: "Lead time", title: "Promised lead time", note: "the working days from the order to the first confirmed date: what we promise, month by month and per profit centre · the filters do not apply here", icon: <HourglassEmptyOutlinedIcon />, tint: "green", unfiltered: true, charts: ["leadMonths", "leadBands", "leadPc"] },
+    { id: "lead", label: "Lead time", title: "Promised lead time", note: "the working days from the order to the first confirmed date: what we promise, month by month and per profit centre · the filters do not apply here", icon: <HourglassEmptyOutlinedIcon />, tint: "green", unfiltered: true, charts: ["leadMonths", "leadBands", "leadPc", "otdLeadBandsBo"] },
     { id: "speed", label: "Delivery speed", title: "Delivery speed", note: "every delivery in the ERP's order file, read every night: the working days from the order to the shipment - the filters do not apply here", icon: <TimerOutlinedIcon />, tint: "green", unfiltered: true,
       charts: ["spdFigs", "spdMix", "spdFast", "spdMedian", "spdByDate", "spdLate", "spdCountry", "spdMode", "spdTable", "spdSlow"] },
     TYPE_IN,
     { id: "logic", label: "How it's counted", title: "How OTD is counted", note: "the rule, the ERP's dates it reads and the transport time per country - and real lines as the rule reads them", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["otdLogic", "otdDates", "otdTransit", "otdExamples"] },
   ],
   autonomy: [
-    { id: "pass", label: "Pass rate", title: "Pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths", "prSources"],
-      warn: (d) => (d.erpLines ? null : "Waiting for the ERP's order lines: the pass rate and the manual prices are counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.") },
+    { id: "pass", label: "Price pass rate", title: "Price pass rate per mandant", note: "the eShop order lines whose price the ERP set by itself, counted every night · by the month ordered, service articles left out · target 95 % · the filters do not apply here", icon: <VerifiedOutlinedIcon />, tint: "green", unfiltered: true, charts: ["pass100", "pass110", "elMonths", "prSources"],
+      warn: (d) => (d.erpLines ? null : "Waiting for the ERP's order lines: the price pass rate and the manual prices are counted from them, and the first morning file carrying them has not reached the hub yet. Until it does, the graphs show the Back Office's own typed figures.") },
     { id: "price", label: "Manual prices", title: "Manual price adjustments per mandant", note: "the eShop order lines whose price was typed by hand in the ERP, counted every night · by the month ordered, service articles left out · target below 2.5 % · then the biggest changes from the shop's price · the filters do not apply here", icon: <PriceChangeOutlinedIcon />, tint: "amber", unfiltered: true,
       charts: ["price100", "price110", "elMonths", "pricePc", "pricePcMonths", "priceArticles", "priceOwner", "prBig"] },
     TYPE_IN,
-    { id: "logic", label: "How it's counted", title: "How the pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
+    { id: "logic", label: "How it's counted", title: "How the price pass rate and the manual prices are counted", note: "where each eShop order line's price came from, as the ERP records it", icon: <RuleOutlinedIcon />, tint: "slate", unfiltered: true, charts: ["passLogic", "passSources", "passExamples"] },
   ],
   stopped: [
     { id: "stopped", label: "Stopped orders", title: "Stopped orders", note: `of the eShop orders transferred to the ERP, the share Performis stopped - target at most ${pct(STOP_TARGET)} - and why`, icon: <BlockOutlinedIcon />, tint: "pink", unfiltered: true, charts: ["stopped", "stoppedCounts", "stoppedWhy"] },
@@ -3816,7 +3833,7 @@ export function BoOtdPage() {
     note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): an eShop order line is on time when its shipment plus the ERP's transport time to the country reaches its first confirmed date. The Back Office's typed figures stay beside it. The delivery speed comes from the ERP's order file.` : "The Back Office types each month in until the ERP's order lines come in. The delivery speed is counted from the ERP's order file every night.")} />;
 }
 export function BoAutonomyPage() {
-  return <TypedPage slug="autonomy" note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): where each eShop order line's price came from - set by the ERP itself (the pass rate) or typed by hand (the manual prices). The Back Office's typed figures stay beside it.` : "The Back Office types each month in until the ERP's order lines come in. The biggest price changes are the shop's prices against the ERP's.")} />;
+  return <TypedPage slug="autonomy" note={(d) => (d.erpLines ? `Counted every night from the ERP's order lines (${ddmm(d.erpLines.at.slice(0, 10))}): where each eShop order line's price came from - set by the ERP itself (the price pass rate) or typed by hand (the manual prices). The Back Office's typed figures stay beside it.` : "The Back Office types each month in until the ERP's order lines come in. The biggest price changes are the shop's prices against the ERP's.")} />;
 }
 export function BoStoppedPage() {
   // SARCLA 11.11.2026: the Back Office's own evaluation ("Auswertung Aufgaben 2026") is the source - the stops happen in

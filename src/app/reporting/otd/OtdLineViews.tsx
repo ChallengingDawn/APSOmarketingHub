@@ -16,7 +16,7 @@ import { StackedColumns } from "@/app/charts/StackedColumns";
 import { BarList } from "@/app/charts/BarList";
 import { SERIES } from "@/app/charts/palette";
 import { PagedBars, PosCell, RateCell } from "./OtdPaged";
-import { GLC_KINDS } from "@/lib/reporting/otdRules";
+import { GLC_KINDS, LEAD_BUCKETS, LEAD_MEASURES } from "@/lib/reporting/otdRules";
 import type { ArticleRow, GlcCustomerRow, GlcKindRow, SupplierRow } from "@/lib/reporting/otdLines";
 import { params, useRead, type CustomerQuery } from "./OtdCustomers";
 
@@ -76,7 +76,9 @@ const KIND_LOOK: { label: string; short: string }[] = [
   { label: "Not a DirectCut order", short: "Not a DirectCut order" },
 ];
 
-export function GlcCompanies({ q }: { q: CustomerQuery }) {
+/** `openCustomer`: where a click on a company goes - OTD Reports' Customers page unless given (Back-Office Reports keeps it on
+ *  its own OTD page) */
+export function GlcCompanies({ q, openCustomer }: { q: CustomerQuery; openCustomer?: (c: string) => void }) {
   const router = useRouter();
   const here = useSearchParams();
   const got = useRead<{ at: string | null; kinds?: GlcKindRow[]; customers?: GlcCustomerRow[] }>(`/api/reporting/otd/customers?${params(q)}&view=glc`);
@@ -111,11 +113,11 @@ export function GlcCompanies({ q }: { q: CustomerQuery }) {
     { key: "rate", head: "On time", cell: (r) => pct(r.rate), sort: (r) => r.rate ?? 0 },
     { key: "avg", head: "Average late", cell: (r) => days1(avg(r.days, r.late)), sort: (r) => avg(r.days, r.late) ?? 0 },
   ];
-  const open = (c: string) => {
+  const open = openCustomer ?? ((c: string) => {
     const p = new URLSearchParams(here.toString());
     p.delete("tab"); p.set("c", c);
     router.push(`/reporting/otd/customers?${p.toString()}`);
-  };
+  });
   return (
     <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
       <ChartBox title="GLC lines: what DirectCut did with them"
@@ -170,6 +172,25 @@ export function ArticleMaster({ q }: { q: CustomerQuery }) {
   return (
     <ChartBox title={`Every article, ${int(rows.length)}`} hint={`all of them together ${pct(onTime(all[0], all[1]))} on time · the article number, its name beside it · the most late lines first, a header sorts · search a number, name, group, product or supplier`}>
       <FullTable first="Article number" find="an article, name, group or supplier" findIn={(r) => `${r.a} ${r.name} ${r.group} ${r.product} ${r.sup}`} initial="late" rows={rows} cols={cols} />
+    </ChartBox>
+  );
+}
+
+/* ── the lead times per band, from the kept lines (Back-Office Reports > OTD has no OTD cube; SARCLA 12.11.2026) ── */
+
+const BAND_COLORS = [SERIES[2], "#cfe6d8", "#f7d9b5", "#f0b47a", "#e5873f", "#c45a1c", "#7d3410"];
+export function LeadBands({ q }: { q: CustomerQuery }) {
+  const got = useRead<{ at: string | null; dist?: number[][] }>(`/api/reporting/otd/customers?${params(q)}&view=leads`);
+  const title = "How long - the lines per band";
+  const hint = "working days · promised = order to the first confirmed date, processing = order to shipment, transport = shipment to the customer, real = order to the customer";
+  if (!got) return <LoadingPanel label="Reading the lead times…" />;
+  if (got.error) return <UpstreamPanel source="OTD Reports" error={got.error} status={null} onRetry={() => window.location.reload()} />;
+  const dist = got.data?.dist;
+  if (!got.data?.at || !dist || !dist.some((r) => r.some((x) => x > 0))) return <ChartBox title={title} hint={hint}>{NONE(LATER)}</ChartBox>;
+  return (
+    <ChartBox title={title} hint={hint}>
+      <StackedColumns ordinal xFormat={(x) => x} data={LEAD_MEASURES.map((m, i) => ({ x: m.split(":")[0], ...Object.fromEntries(dist[i].map((n, j) => [`b${j}`, n])) }))}
+        parts={LEAD_BUCKETS.map((label, j) => ({ key: `b${j}`, label, color: BAND_COLORS[j] }))} format={(v) => (v == null ? "—" : int(v))} height={280} />
     </ChartBox>
   );
 }
