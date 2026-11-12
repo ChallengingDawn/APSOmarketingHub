@@ -246,6 +246,9 @@ export default function BoDistribution() {
   if (view === "gqs-approvals") body = <ApprovalsTab from={win.from} to={win.to} />;
   // the way in (Back Office Ticket Created | Notification, SARCLA 05-06.11.2026: "a new tab that we can steer") - its own API
   else if (view === "way-in") body = <WayInTab />;
+  // Availability (SARCLA 12.11.2026: "create a new tab availability to put the logic inside") - its own API
+  // (src/lib/boAvailability): who is Available or Away on the tickets, and how it runs
+  else if (view === "availability") body = <><AvailabilityCard /><AvailabilitySettings /></>;
   else if (GQS_KPI_VIEWS.includes(view)) {
     body = withStore((s) => <GqsKpis key={view} view={view as GqsView} store={s} from={win.from} to={win.to} />);
   } else if (r === null || !all || !bo) {
@@ -257,8 +260,8 @@ export default function BoDistribution() {
   else if (view === "flow") body = <>{FLOW_NOTE}<FlowTab d={inWin(all)} /></>;
   else if (view === "detection") body = <DetectionTab d={all} from={win.from} to={win.to} />;
   else if (view === "sentiment") body = <SentimentPanel key="sentiment" days={days} from={win.from} to={win.to} label={periodLabel} />;
-  else if (view === "people") body = <><AvailabilityCard /><People d={bo} onSaved={reload} pipe="bo" /></>;
-  else if (view === "settings") body = <><SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" /><AvailabilitySettings /></>;
+  else if (view === "people") body = <People d={bo} onSaved={reload} pipe="bo" />;
+  else if (view === "settings") body = <SettingsTab key={all.settings.at ?? "s"} d={all} onChanged={reload} pipe="bo" />;
   else if (view === "priority") body = <PriorityTab key={all.settings.at ?? "p"} d={all} onSaved={reload} from={win.from} to={win.to} label={periodLabel} />;
   // GQS: Tickets and Flow from the routing's rows (GqsTab.tsx), with every open task under the tickets; People = each
   // owner's figures, the GQS team, GQS's lists
@@ -287,6 +290,7 @@ export default function BoDistribution() {
     { id: "sentiment", label: "Sentiment", count: null },
     { id: "priority", label: "Priority", count: null },
     { id: "people", label: "People", count: null },
+    { id: "availability", label: "Availability", count: null },
     { id: "settings", label: "Settings", count: null },
   ];
   const busy = r === null || held.stale || (pipe === "gqs" && (g === null || gqsHeld.stale));

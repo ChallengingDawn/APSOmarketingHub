@@ -1,10 +1,10 @@
 "use client";
 
-// BACK OFFICE DISTRIBUTION > People: "Available or Away on the tickets" (SARCLA 12.11.2026: "let's start with DISPLAY
-// AVAILABITY BO"). The workflow "SARCLA | DISPLAY AVAILABITY BO" wrote each Back Office person's HubSpot status onto
-// every open Back Office and GQS ticket, six properties, one per person; the hub does it now (src/lib/boAvailability).
-// This card shows the six as the tickets do, since when, and the last changes; how it runs is under Settings
-// (AvailabilitySettings - the engine card, never a bare admin line).
+// BACK OFFICE DISTRIBUTION > Availability (SARCLA 12.11.2026: "let's start with DISPLAY AVAILABITY BO", then "create
+// a new tab availability to put the logic inside"). The workflow "SARCLA | DISPLAY AVAILABITY BO" wrote each Back Office
+// person's HubSpot status onto every open Back Office and GQS ticket, six properties, one per person; the hub does it
+// now (src/lib/boAvailability). The tab: the six as the tickets show them, since when, the last changes, and how it
+// runs (AvailabilitySettings - the engine card, never a bare admin line).
 
 import Box from "@mui/material/Box";
 import Grid from "@mui/material/Grid";
@@ -73,7 +73,7 @@ export function AvailabilityCard() {
   );
 }
 
-/** BACK OFFICE DISTRIBUTION > Settings: how "Available or Away" runs. */
+/** BACK OFFICE DISTRIBUTION > Availability: how it runs. */
 export function AvailabilitySettings() {
   const n = (v: unknown) => full(Number(v ?? 0));
   return (
