@@ -29,6 +29,7 @@ import { CardTitle, GlassCard, HAIRLINE, KpiTile, MUTED, Notice, bodyCell, clip,
 import { ago } from "@/app/connectors/parts";
 import { useReportingWindow, WindowPicker } from "@/app/window/ReportingWindow";
 import type { HubPage } from "@/lib/convert/pages";
+import { testState, type TestBrief } from "@/lib/convert/testState";
 import type { ProblemsData } from "@/lib/convert/problems";
 import type { SeoData } from "@/lib/convert/seo";
 import type { Env } from "@/lib/convert/model";
@@ -36,7 +37,11 @@ import { Chip } from "../Tag";
 import { previewHref } from "../Flow";
 import { AiButton } from "../AiButton";
 
-export type Published = { pages: HubPage[]; work: Record<Env, Record<string, { waiting: number; approved: number; blocks: number }>> };
+export type Published = {
+  pages: HubPage[]; work: Record<Env, Record<string, { waiting: number; approved: number; blocks: number }>>;
+  /** each page's test - of its to-do or its address (src/lib/convert/tests.ts testsOfPages), keyed "env path" */
+  tests?: Record<string, TestBrief>;
+};
 
 const pct = (x: number | null) => (x === null ? "–" : `${(x * 100).toFixed(1)}%`);
 
@@ -89,12 +94,12 @@ export function HubPublished({ data }: { data: Published }) {
           <Table size="small" sx={{ minWidth: 900 }}>
             <TableHead>
               <TableRow>
-                {["Page", "Store view", "Shop", "Written", "Views", "Add-to-carts", "Google", "Optimizations", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}
+                {["Page", "Store view", "Shop", "Written", "Views", "Add-to-carts", "Google", "Optimizations", "A/B test", ""].map((h, i) => <TableCell key={i} sx={headCell}>{h}</TableCell>)}
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.length === 0 && (
-                <TableRow><TableCell colSpan={9} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>
+                <TableRow><TableCell colSpan={10} sx={{ ...bodyCell, fontSize: "0.84rem", color: MUTED }}>
                   The hub has published no page yet - a Page builder to-do&apos;s last step, To Magento, puts its page here.
                 </TableCell></TableRow>
               )}
@@ -121,13 +126,19 @@ export function HubPublished({ data }: { data: Published }) {
                       </Box>
                     ) : <Typography component="span" sx={{ color: MUTED, fontSize: "0.84rem" }}>–</Typography>}
                   </TableCell>
+                  {/* its A/B test, where it stands (13.11.2026 - the loop as one product) */}
+                  <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>
+                    {(() => { const tb = data.tests?.[`${p.env} ${p.path}`]; if (!tb) return <Typography component="span" sx={{ color: MUTED, fontSize: "0.84rem" }}>–</Typography>; const ts = testState(tb); return (
+                      <Box component={Link} href={`/website/ai-personalization/tests/${tb.id}`} sx={{ display: "inline-flex", textDecoration: "none" }}><Chip tint={ts.tint}>{ts.label}</Chip></Box>
+                    ); })()}
+                  </TableCell>
                   <TableCell sx={{ ...bodyCell, whiteSpace: "nowrap" }}>
                     <Box sx={{ display: "flex", gap: 0.5, alignItems: "center", justifyContent: "flex-end" }}>
                       {work && (work.waiting || work.approved)
                         ? <Button size="small" variant="outlined" component={Link} href={previewHref(p.env, p.path)} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px" }}>Preview</Button>
                         : <AiButton size="small" href={`${previewHref(p.env, p.path)}&ask=1`}>Find optimizations</AiButton>}
                       {/* a real button, not a link of text (SARCLA 13.11.2026) */}
-                      <Button size="small" variant="outlined" component={Link} href={`/projects/${p.projectId}`} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px", whiteSpace: "nowrap" }}>Open its project</Button>
+                      <Button size="small" variant="outlined" component={Link} href={`/projects/${p.projectId}/pieces/${p.pieceId}`} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px", whiteSpace: "nowrap" }}>Open its to-do</Button>
                     </Box>
                   </TableCell>
                 </TableRow>
