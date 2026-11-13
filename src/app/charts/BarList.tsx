@@ -40,6 +40,7 @@ export function BarList({
   rankFrom = 1,
   heads,
   noteWidth = 64,
+  wrapLabels = false,
 }: {
   rows: BarRow[];
   format?: (v: number | null) => string;
@@ -59,6 +60,8 @@ export function BarList({
   heads?: { label: string; value: string; note?: string };
   /** The note column's width. */
   noteWidth?: number;
+  /** A long name over up to three lines, never cut short (the Sealing Business Review's articles) - off, one line and an ellipsis. */
+  wrapLabels?: boolean;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = fixedMax ?? Math.max(0, ...rows.map((r) => (typeof r.value === "number" ? r.value : 0)));
@@ -133,13 +136,14 @@ export function BarList({
                   fontSize: "0.82rem",
                   color: CHROME.ink,
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  ...(wrapLabels
+                    ? { whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }
+                    : { textOverflow: "ellipsis", whiteSpace: "nowrap" }),
                   fontFamily: /^\/|^https?:/.test(r.label) ? "ui-monospace, SFMono-Regular, Menlo, monospace" : undefined,
                   textDecoration: "none",
                 }}
               >
-                {shortLabel(r.label, maxLabel)}
+                {wrapLabels ? r.label : shortLabel(r.label, maxLabel)}
               </Typography>
               <Box sx={{ position: "relative", height: 18 }}>
                 <Box

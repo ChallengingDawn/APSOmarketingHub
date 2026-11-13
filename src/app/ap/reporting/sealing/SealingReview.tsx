@@ -49,6 +49,7 @@ import MenuItem from "@mui/material/MenuItem";
 import InputBase from "@mui/material/InputBase";
 import CircularProgress from "@mui/material/CircularProgress";
 import IconButton from "@mui/material/IconButton";
+import Skeleton from "@mui/material/Skeleton";
 import MuiTable from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -106,7 +107,7 @@ import { fmtValue, type Fmt } from "@/lib/marketingKpis/measures";
 import { SEALING_PAGES, type SealingSlug } from "@/lib/apHub/sealingPages";
 import type { DetailRow, SealingDetail, SealingMonth, SealingView } from "@/lib/apHub/sealingStore";
 import {
-  APPROVAL_KINDS, LIST_PAGE, SEALING_DEFINITIONS, STATUS_NAME, actionsCaption, approvalCandidates, familyCandidates, nextStatuses, openCards, overviewCandidates, pagesOf, reviewCandidates, approvalKind, familyFigures, isMonth, leadingRefs, matchesQuery,
+  APPROVAL_KINDS, LIST_PAGE, approvalLabel, approvalParts, cleanName, shortName, SEALING_DEFINITIONS, STATUS_NAME, actionsCaption, approvalCandidates, familyCandidates, nextStatuses, openCards, overviewCandidates, pagesOf, reviewCandidates, approvalKind, familyFigures, isMonth, leadingRefs, matchesQuery,
   materialOf, monthsBetween, monthsSpan, noCompound, periodWords, rankBy, rateMonths, sealingPresets, sumMonths, tileSeries,
   type ApprovalKind, type DetailKind, type Figure, type KeyMonth, type ListKind, type MonthPair, type Position, type Priority, type PriorityStatus, type RankBy,
 } from "@/lib/apHub/sealingRules";
@@ -339,8 +340,8 @@ const keyPairs = (rows: KeyMonth[], keys: string[], months: string[]): MonthPair
 const leadFamily = (f: Frame) => f.d.byFamily.find((x) => x.key !== "Unclassified");
 /** The net revenue of the named compounds - the whole of the pilot's "named compound revenue". */
 const namedRev = (f: Frame) => f.d.byFamily.reduce((a, x) => a + x.rev, 0);
-const NO_COMPOUND = "No compound named";
-/** An article's material family by its compound - "No compound named" where it names none. */
+const NO_COMPOUND = "No compound";
+/** An article's material family by its compound - "No compound" where it names none. */
 const familyOfArticle = (compound: string) => (noCompound(compound) ? NO_COMPOUND : materialOf(compound));
 
 const V = {
@@ -362,10 +363,10 @@ const V = {
   negArticles: (f: Frame) => wholeView(f, "Articles with a negative gross margin", "int", f.d.negative.articles.count, f.d.negative.prevArticles?.count ?? null, {
     goodWhenUp: false, definition: "Articles whose gross profit over the period is below zero (the pilot's margin review)",
   }),
-  noCompound: (f: Frame) => rateView(f, "No compound named", pairsOf(f.d.months, (m) => m.noCompound, (m) => m.prevNoCompound), revPairs(f), {
+  noCompound: (f: Frame) => rateView(f, "No compound", pairsOf(f.d.months, (m) => m.noCompound, (m) => m.prevNoCompound), revPairs(f), {
     goodWhenUp: false, definition: "The part of the net revenue whose article names no compound (\"No info\", \"Unknown\", \"TBD\", a drawing) - the pilot's unresolved entries, left out of the families",
   }),
-  compounds: (f: Frame) => wholeView(f, "Compounds named", "int", f.d.totals.compounds, f.d.totals.prev.compounds, { definition: "The named compounds on the articles invoiced (the pilot's compound entries)" }),
+  compounds: (f: Frame) => wholeView(f, "Compounds", "int", f.d.totals.compounds, f.d.totals.prev.compounds, { definition: "The named compounds on the articles invoiced (the pilot's compound entries)" }),
   noApproval: (f: Frame) => rateView(f, "No approval written", pairsOf(f.d.months, (m) => m.noApproval, (m) => m.prevNoApproval), revPairs(f), {
     goodWhenUp: false, definition: "The part of the net revenue whose article has no approval written (the pilot's \"no approval comment\")",
   }),
@@ -506,7 +507,7 @@ const TR = {
   articles: (f: Frame): Trend => ({ v: { ...V.articles(f), id: "Articles invoiced" }, kind: "bars", note: "The articles with a sealing invoice each month", t: TOPIC.articles }),
   largestArticle: (f: Frame): Trend | null => {
     const x = f.d.articles[0];
-    return x ? { v: sumView(f, "Largest article", "eur", leaderPairs(f, "article")), kind: "bars", note: `${x.key || "—"} · ${x.name || ""}`, t: TOPIC.articles } : null;
+    return x ? { v: sumView(f, "Largest article", "eur", leaderPairs(f, "article")), kind: "bars", note: `${x.key || "—"} · ${cleanName(x.name || "")}`, t: TOPIC.articles } : null;
   },
   articleShare: (f: Frame): Trend | null => {
     const x = f.d.articles[0];
@@ -520,25 +521,25 @@ const TR = {
   }),
   named: (f: Frame, family: string | null): Trend => {
     const keys = family ? [family] : f.d.byFamily.map((x) => x.key);
-    return { v: keyView(f, family ? `${family} net revenue` : "Named compound revenue", f.d.familyMonths, keys), kind: "bars", note: family ? `The ${family} compounds` : "Every named compound", t: TOPIC_COMPOUND };
+    return { v: keyView(f, family ? `${family} net revenue` : "Compound revenue", f.d.familyMonths, keys), kind: "bars", note: family ? `The ${family} compounds` : "Every compound", t: TOPIC_COMPOUND };
   },
   namedMargin: (f: Frame, family: string | null): Trend => {
     const keys = family ? [family] : f.d.byFamily.map((x) => x.key);
     const ms = monthKeys(f);
-    return { v: rateView(f, family ? `${family} gross margin` : "Named compounds' gross margin", keyGpPairs(f.d.familyMonths, keys, ms), keyPairs(f.d.familyMonths, keys, ms)), kind: "lines", note: "Gross profit over their net revenue", t: TOPIC_COMPOUND };
+    return { v: rateView(f, family ? `${family} gross margin` : "Compounds' gross margin", keyGpPairs(f.d.familyMonths, keys, ms), keyPairs(f.d.familyMonths, keys, ms)), kind: "lines", note: "Gross profit over their net revenue", t: TOPIC_COMPOUND };
   },
   compounds: (f: Frame): Trend => ({
-    v: wholeView(f, "Compounds named", "int", f.d.totals.compounds, f.d.totals.prev.compounds, { months: pairsOf(f.d.months, (m) => m.compounds ?? 0, (m) => (m.prevRev == null ? null : m.prevCompounds ?? null)) }),
-    kind: "bars", note: "The named compounds invoiced each month", t: TOPIC_COMPOUND,
+    v: wholeView(f, "Compounds", "int", f.d.totals.compounds, f.d.totals.prev.compounds, { months: pairsOf(f.d.months, (m) => m.compounds ?? 0, (m) => (m.prevRev == null ? null : m.prevCompounds ?? null)) }),
+    kind: "bars", note: "The compounds invoiced each month", t: TOPIC_COMPOUND,
   }),
   noCompound: (f: Frame): Trend => ({ v: V.noCompound(f), kind: "lines", note: "Of the net revenue - \"No info\", \"Unknown\", \"TBD\", a drawing", t: TOPIC.materials }),
   leadFamily: (f: Frame): Trend | null => {
     const x = leadFamily(f);
-    return x ? { v: keyView(f, "Leading material family", f.d.familyMonths, [x.key]), kind: "bars", note: `${x.name} · ${pct(namedRev(f) > 0 ? x.rev / namedRev(f) : 0)} of the named compounds`, t: TOPIC.materials } : null;
+    return x ? { v: keyView(f, "Leading material family", f.d.familyMonths, [x.key]), kind: "bars", note: `${x.name} · ${pct(namedRev(f) > 0 ? x.rev / namedRev(f) : 0)} of compound revenue`, t: TOPIC.materials } : null;
   },
   leadCompound: (f: Frame): Trend | null => {
     const x = f.d.compounds[0];
-    return x ? { v: sumView(f, "Leading identified compound", "eur", leaderPairs(f, "compound")), kind: "bars", note: `${x.name} · ${pct(x.margin)} gross margin`, t: TOPIC_COMPOUND } : null;
+    return x ? { v: sumView(f, "Leading compound", "eur", leaderPairs(f, "compound")), kind: "bars", note: `${x.name} · ${pct(x.margin)} gross margin`, t: TOPIC_COMPOUND } : null;
   },
   noApproval: (f: Frame): Trend => ({ v: V.noApproval(f), kind: "lines", note: "Of the net revenue, no approval written on the article", t: TOPIC.approvals }),
   noApprovalRev: (f: Frame): Trend => ({
@@ -834,7 +835,7 @@ function Overview({ f, busy, err, again }: { f: Frame; busy: boolean; err: strin
           <Box sx={PAIR}>
             <Ranked title="Who buys from us?" hint={`Top 5 of ${int(f.d.totals.customers)} customer accounts`} rows={custRows} by="rev" n={5}
               nameHead="Customer" onPick={(r) => inspect(pickOf("customer", r))} labelWidth={200} right={<MoreLink href={hrefOf("customers", f.carry)} />} />
-            <Ranked title="Which compounds lead?" hint="Top 5 named entries" rows={compRows} by="rev" n={5}
+            <Ranked title="Which compounds lead?" hint="Top 5 compounds" rows={compRows} by="rev" n={5}
               nameHead="Compound" onPick={(r) => inspect(pickOf("compound", r))} labelWidth={200} right={<MoreLink href={hrefOf("materials", f.carry)} />} />
             <Ranked title="What sells most?" hint={`Top 5 of ${int(f.d.totals.articles)} articles`} rows={artRows} by="rev" n={5}
               nameHead="Article" onPick={(r) => inspect(pickOf("article", r))} labelWidth={200} right={<MoreLink href={hrefOf("articles", f.carry)} />} />
@@ -861,7 +862,7 @@ function Line({ f, busy }: { f: Frame; busy: boolean }) {
   return (
     <Typography sx={{ fontSize: "0.82rem", color: MUTED, lineHeight: 1.45 }}>
       {/* what is shown, as Who are our customers says it - the filters are the chips under it */}
-      <b style={{ color: INK }}>{f.now}</b> {against(f)} · {f.bus.length || f.orgs.length ? "the sealing invoices chosen" : "every business unit's sealing invoices"} (profit centre DT), in EUR · figures up to {f.upToDay}{busy ? " · reading again" : ""}
+      <b style={{ color: INK }}>{f.now}</b> {against(f)} · {f.bus.length || f.orgs.length ? "the units and organisations chosen · " : ""}in EUR · figures up to {f.upToDay}{busy ? " · reading again" : ""}
     </Typography>
   );
 }
@@ -1123,7 +1124,7 @@ function DetailWindow({ f, pick, onClose }: { f: Frame; pick: DetailPick | null;
   const kindName = pick?.kind === "approval" ? APPROVAL_KINDS.find((k) => k.key === approvalKind(pick.key))?.name ?? "" : "";
   const sub = !pick ? "" : pick.kind === "customer" ? `Account ${pick.key || "—"}${d?.bus.length ? ` · ${d.bus.join(", ")}` : ""}`
     : pick.kind === "article" ? `Article ${pick.key || "—"}${d?.compounds.length ? ` · compound ${d.compounds.join(", ")}` : ""}`
-      : pick.kind === "compound" ? `${noCompound(pick.key) ? "No compound named" : `${materialOf(pick.key)} family`}${d ? ` · ${int(d.count)} customer${d.count === 1 ? "" : "s"}` : ""}`
+      : pick.kind === "compound" ? `${noCompound(pick.key) ? "No compound" : `${materialOf(pick.key)} family`}${d ? ` · ${int(d.count)} customer${d.count === 1 ? "" : "s"}` : ""}`
         : kindName;
   const cards: [string, string, boolean][] = head ? [["Net revenue", eur(head.rev), false], ["Gross profit", eur(head.gp), head.gp < 0], ["Gross margin", pct(head.margin), head.margin < 0]] : [];
   return (
@@ -1148,14 +1149,19 @@ function DetailWindow({ f, pick, onClose }: { f: Frame; pick: DetailPick | null;
             <>
               <Box sx={{ bgcolor: "#f4f6fa", borderRadius: "12px", px: 1.5, py: 1.1 }}>
                 <Typography sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.5 }}>
-                  Indicative category: <b style={{ color: INK }}>{kindName}</b>. A text is not evidence of a current certification, nor of what caused a sale.
+                  Indicative category: <b style={{ color: INK }}>{kindName}</b>
                 </Typography>
               </Box>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Original text</Typography>
-              <Typography sx={{ fontSize: "0.86rem", color: INK, whiteSpace: "pre-wrap", overflowWrap: "anywhere", lineHeight: 1.55 }}>{pick.key}</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em" }}>Its references · {int(approvalParts(pick.key).length)}</Typography>
+              {/* the text read as its references, every one of them - never the run-on text (SARCLA 13.11.2026) */}
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.6 }}>
+                {approvalParts(pick.key).map((x) => (
+                  <Box key={x} component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, color: INK, bgcolor: "#eef2f8", border: `1px solid ${HAIRLINE}`, px: 0.9, borderRadius: "8px", lineHeight: 1.8 }}>{x}</Box>
+                ))}
+              </Box>
             </>
           ) : busy ? (
-            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}><CircularProgress size={16} /><Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Reading its figures…</Typography></Box>
+            <Skeletons n={5} h={26} />
           ) : err ? (
             <Typography sx={{ fontSize: "0.84rem", color: RED }}>The detail could not be read: {err}</Typography>
           ) : d ? (
@@ -1179,16 +1185,22 @@ function DetailWindow({ f, pick, onClose }: { f: Frame; pick: DetailPick | null;
 
 /* ── a breakdown's rows ────────────────────────────────────────────────── */
 
-type Row = { label: string; key: string; rev: number; gp: number; margin: number; prev: number; prevGp: number; compound?: string };
+type Row = { label: string; full?: string; key: string; rev: number; gp: number; margin: number; prev: number; prevGp: number; compound?: string };
 
 /** The figures as rows - a name twice (two customers of the same name) carries its number. */
-function rowsOf(a: (Figure & { compound?: string })[]): Row[] {
-  const n = new Map<string, number>();
-  for (const x of a) n.set(x.name || NOT_KNOWN, (n.get(x.name || NOT_KNOWN) ?? 0) + 1);
-  return a.map((x) => {
-    const name = x.name || NOT_KNOWN;
-    return { label: (n.get(name) ?? 0) > 1 ? `${name} · ${x.key || "-"}` : name, key: x.key, rev: x.rev, gp: x.gp, margin: x.margin, prev: x.prev ?? 0, prevGp: x.prevGp ?? 0, compound: x.compound };
-  });
+function rowsOf(a: (Figure & { compound?: string })[], shown: (name: string) => string = cleanName): Row[] {
+  const count = (labels: string[]) => { const n = new Map<string, number>(); for (const l of labels) n.set(l, (n.get(l) ?? 0) + 1); return n; };
+  const full = a.map((x) => cleanName(x.name || NOT_KNOWN) || NOT_KNOWN);
+  // the short form where it stays one of a kind, else the whole name ("A+P" twice: "Angst+Pfister AG", "Angst+Pfister S.A.")
+  const short = a.map((x, i) => shown(x.name || NOT_KNOWN) || full[i]);
+  const n1 = count(short);
+  const first = short.map((l, i) => ((n1.get(l) ?? 0) > 1 ? full[i] : l));
+  // two of the same name even in full (two customer numbers): the number beside it
+  const n2 = count(first);
+  return a.map((x, i) => ({
+    label: (n2.get(first[i]) ?? 0) > 1 ? `${first[i]} · ${x.key || "-"}` : first[i],
+    full: full[i], key: x.key, rev: x.rev, gp: x.gp, margin: x.margin, prev: x.prev ?? 0, prevGp: x.prevGp ?? 0, compound: x.compound,
+  }));
 }
 const prevMargin = (r: Row) => (r.prev ? r.prevGp / r.prev : null);
 /** The rows summed - the margin of the sums, never an average of margins. */
@@ -1253,6 +1265,10 @@ function ChartBox({ title, hint, right, table, foot, children }: {
     </Box>
   );
 }
+/** Grey placeholders the shape of what is coming - a section shows as soon as its data is there (SARCLA 13.11.2026). */
+function Skeletons({ n = 3, h = 28 }: { n?: number; h?: number }) {
+  return <Box sx={{ display: "grid", gap: 1 }}>{Array.from({ length: n }, (_, i) => <Skeleton key={i} variant="rounded" height={h} />)}</Box>;
+}
 const NONE = (what = "No invoice in these months with these filters.") => <Typography sx={{ fontSize: "0.85rem", color: MUTED, py: 2 }}>{what}</Typography>;
 
 /* the pilot's charts, drawn by the hub's kit */
@@ -1278,7 +1294,7 @@ type ListState = { rows: Row[]; total: number; busy: boolean; err: string | null
  * One page of a whole list from the hub (/api/ap/sealing/list): every customer, article, compound or approval of the
  * page's period and filters, ranked as asked, the search waiting for the typing to pause.
  */
-function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: number; limit: number; family?: string | null; unresolved?: boolean }): ListState {
+function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: number; limit: number; family?: string | null; unresolved?: boolean; bu?: string }): ListState {
   const [s, setS] = useState<ListState>({ rows: [], total: 0, busy: true, err: null });
   const [q, setQ] = useState(o.q);
   useEffect(() => { const t = setTimeout(() => setQ(o.q), 300); return () => clearTimeout(t); }, [o.q]);
@@ -1288,8 +1304,10 @@ function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: numbe
     if (q.trim()) p.set("q", q.trim());
     if (o.family) p.set("family", o.family);
     if (o.unresolved) p.set("unresolved", "1");
+    // one business unit in place of the page's (Customers by unit)
+    if (o.bu) { p.delete("bu"); p.append("bu", o.bu); }
     return p.toString();
-  }, [f.ask, o.kind, o.by, o.offset, o.limit, o.family, o.unresolved, q]);
+  }, [f.ask, o.kind, o.by, o.offset, o.limit, o.family, o.unresolved, o.bu, q]);
   useEffect(() => {
     let live = true;
     setS((x) => ({ ...x, busy: true, err: null }));
@@ -1298,7 +1316,7 @@ function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: numbe
         const j = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string; list?: { total: number; rows: (Figure & { compound: string })[] } };
         if (!live) return;
         if (!r.ok || !j.ok || !j.list) setS((x) => ({ ...x, busy: false, err: j.error ?? `the hub answered ${r.status}` }));
-        else setS({ rows: rowsOf(j.list.rows), total: j.list.total, busy: false, err: null });
+        else setS({ rows: rowsOf(j.list.rows, o.kind === "approval" ? approvalLabel : cleanName), total: j.list.total, busy: false, err: null });
       })
       .catch((e) => { if (live) setS((x) => ({ ...x, busy: false, err: String((e as Error)?.message ?? e) })); });
     return () => { live = false; };
@@ -1376,7 +1394,7 @@ function Ranked({ title, hint, rows, by, n, nameHead, onPick, labelWidth = 220, 
     <ChartBox title={title} hint={hint} right={right}
       table={{ columns: ["Rank", nameHead, "Net revenue", "Gross profit", "Gross margin"], rows: shown.map((r, i) => [i + 1, r.label, Math.round(r.rev), Math.round(r.gp), pct(r.margin)]), numeric: [0, 2, 3, 4] }}>
       {shown.length ? (
-        <BarList ranked format={eur} labelWidth={labelWidth} maxLabel={Math.max(18, Math.round(labelWidth / 6.6))}
+        <BarList ranked wrapLabels format={eur} labelWidth={labelWidth} maxLabel={Math.max(18, Math.round(labelWidth / 6.6))}
           heads={{ label: nameHead, value: by === "gp" ? "Gross profit" : "Net revenue", note: "GM %" }}
           rows={shown.map(rankRow(by))} onSelect={onPick ? (l) => { const r = byLabel.get(l); if (r) onPick(r); } : undefined} />
       ) : NONE("No records match this selection.")}
@@ -1402,10 +1420,10 @@ function RankedList({ f, kind, title, hint, what, nameHead, st, onPick, labelWid
       <Box sx={{ opacity: list.busy ? 0.55 : 1, transition: "opacity .15s ease", mt: 0.5 }}>
         {list.err ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>The ranking could not be read: {list.err}</Typography>
           : list.rows.length ? (
-            <BarList ranked rankFrom={(all ? st.offset : 0) + 1} format={eur} labelWidth={labelWidth} maxLabel={Math.max(18, Math.round(labelWidth / 6.6))}
+            <BarList ranked wrapLabels rankFrom={(all ? st.offset : 0) + 1} format={eur} labelWidth={labelWidth} maxLabel={Math.max(18, Math.round(labelWidth / 6.6))}
               heads={{ label: nameHead, value: st.by === "gp" ? "Gross profit" : "Net revenue", note: "GM %" }}
               rows={list.rows.map(rankRow(st.by))} onSelect={onPick ? (l) => { const r = byLabel.get(l); if (r) onPick(r); } : undefined} />
-          ) : list.busy ? <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>Reading the ranking…</Typography> : NONE("No records match this selection.")}
+          ) : list.busy ? <Skeletons n={Math.min(10, st.n || 10)} h={24} /> : NONE("No records match this selection.")}
       </Box>
       {all && <Pager total={list.total} offset={st.offset} onOffset={st.setOffset} />}
     </ChartBox>
@@ -1427,14 +1445,14 @@ function Scale({ f, kind, st, what, onPick, family }: { f: Frame; kind: ListKind
             xFormat={pct} xTick={(v) => `${Math.round(v * 100)}%`} yFormat={eur} yTick={eurTick} xTitle="Gross margin" yTitle="Net revenue"
             onSelect={onPick ? (l) => { const r = byLabel.get(l); if (r) onPick(r); } : undefined} />
         </Box>
-      ) : list.busy ? <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>Reading…</Typography> : NONE()}
+      ) : list.busy ? <Skeleton variant="rounded" height={300} /> : NONE()}
     </ChartBox>
   );
 }
 
 /** The pilot's revenue mix: a ring of the parts of the net revenue, its legend beside it - a click picks one. */
 function Mix({ title, hint, parts, first, centerLabel, onPick, selected, foot }: {
-  title: string; hint?: string; parts: { label: string; value: number }[]; first: string; centerLabel: string;
+  title: string; hint?: string; parts: { label: string; value: number; title?: string }[]; first: string; centerLabel: string;
   onPick?: (label: string) => void; selected?: string[]; foot?: string;
 }) {
   const total = parts.reduce((a, p) => a + Math.max(0, p.value), 0);
@@ -1447,23 +1465,20 @@ function Mix({ title, hint, parts, first, centerLabel, onPick, selected, foot }:
 }
 
 const partsOf = (figs: Figure[]) => figs.map((x) => ({ label: x.name || x.key || NOT_KNOWN, value: x.rev }));
-/** "the sealing invoices" or "the invoices chosen" - the pilot's "not total portfolio" in the hub's words. */
-const scopeWords = (f: Frame) => (f.bus.length || f.orgs.length ? "The sealing invoices chosen in the Filters · not the total portfolio" : "Every business unit's sealing invoices (profit centre DT)");
 
 /** "Where does revenue come from?" / "Business-unit contribution" (revision.js buMix) - each business unit's part; a click filters by it. */
 function BuMix({ f, title, hint, onPick }: { f: Frame; title: string; hint?: string; onPick?: (key: string) => void }) {
   const keyOf = new Map(f.d.byBu.map((x) => [x.name || x.key || NOT_KNOWN, x.key]));
   const pick = (label: string) => { const k = keyOf.get(label); if (k) (onPick ?? ((x: string) => toggleParam("bu", x)))(k); };
   return <Mix title={title} hint={hint} parts={partsOf(f.d.byBu)} first="Business unit" centerLabel={f.bus.length || f.orgs.length ? "revenue in selection" : "net revenue"}
-    onPick={pick} selected={f.bus.length ? f.bus : undefined} foot={scopeWords(f)} />;
+    onPick={pick} selected={f.bus.length ? f.bus : undefined} />;
 }
 
 /** "Which materials sell most?" (revision.js materialRows) - each family's part of the named compounds; a click opens its compounds. */
 function FamilyMix({ f, onPick, chosen, hint }: { f: Frame; onPick: (family: string) => void; chosen?: string | null; hint?: string }) {
   return (
-    <Mix title="Which materials sell most?" hint={hint} parts={partsOf(f.d.byFamily)} first="Material family" centerLabel="named compound revenue"
-      onPick={onPick} selected={chosen ? [chosen] : undefined}
-      foot="Named compound entries only. The family by the compound's name (Kalrez and Evolast are FFKM); a compound no rule names is Unclassified." />
+    <Mix title="Which materials sell most?" hint={hint} parts={partsOf(f.d.byFamily)} first="Material family" centerLabel="compound revenue"
+      onPick={onPick} selected={chosen ? [chosen] : undefined} />
   );
 }
 
@@ -1473,7 +1488,7 @@ function ArticleMix({ f, onPick, chosen, hint }: { f: Frame; onPick: (family: st
   return (
     <Mix title="Material mix of the articles" hint={hint} parts={[...partsOf(f.d.byFamily), ...(none > 0 ? [{ label: NO_COMPOUND, value: none }] : [])]}
       first="Material family" centerLabel="article revenue" onPick={onPick} selected={chosen ? [chosen] : undefined}
-      foot="The compound as written on the article - designations that do not match need validation." />
+ />
   );
 }
 
@@ -1488,7 +1503,7 @@ function ApprovalShare({ f, href }: { f: Frame; href: string }) {
   const named = leadingRefs(f.d.approvalRefs);
   return (
     <ChartBox title="Which approvals matter?" hint={`${pct(s)} of the net revenue has no approval written`} right={<MoreLink href={href}>Inspect</MoreLink>}
-      foot={named.length ? `Most named: ${andList(named)}. A text is not proof of what caused a sale.` : "A text is not proof of what caused a sale."}>
+      foot={named.length ? `Most named: ${andList(named)}` : undefined}>
       {all > 0 ? (
         <ShareBar keepOrder format={eur} segments={[
           { label: "No approval written", value: all * s, color: DEEMPHASIS },
@@ -1506,7 +1521,7 @@ function Evidence({ f }: { f: Frame }) {
   return (
     <ChartBox title="The evidence available today" hint="Every approval text of the period · indicative text classifications, not validated approval status"
       table={all > 0 ? { columns: ["Category", "Net revenue", "Share"], rows: kinds.map((k) => [k.name, Math.round(k.rev), pct(k.rev / all)]), numeric: [1, 2] } : undefined}
-      foot="Explicit references: FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270, RoHS. Datasheet: a technical datasheet named.">
+      >
       {all > 0 ? <ShareBar keepOrder format={eur} segments={kinds.map((k) => ({ label: k.name, value: k.rev, color: KIND_COLOR[k.key as ApprovalKind] }))} /> : NONE()}
     </ChartBox>
   );
@@ -1597,9 +1612,6 @@ function FamilyChart({ f, active = null, onPick }: { f: Frame; active?: string |
             rows={[...rows].sort((a, b) => b.margin - a.margin).map((x) => ({ label: x.name, value: Math.max(0, x.margin), color: x.margin < 0 ? DELTA.bad : undefined }))} />
         </ChartBox>
       </Box>
-      <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: -0.5 }}>
-        Material families are derived from compound names (Kalrez → FFKM). Compound designations and amounts remain unchanged. Unresolved entries are excluded from family totals.
-      </Typography>
     </GlassCard>
   );
 }
@@ -1676,7 +1688,30 @@ function MonthStack({ f, rows, order, title }: { f: Frame; rows: KeyMonth[]; ord
   );
 }
 
-type Col = { head: string; cell: (r: Row) => React.ReactNode; sort: (r: Row) => number | string; text?: boolean };
+/* the tables: one line a row, short heads (SARCLA 13.11.2026: "table layout still broken") */
+
+/** A figure with its change as a small chip beside it, on one line. */
+const inlineChange = (v: React.ReactNode, c: { text: string; color: string } | null) => (
+  <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.75, whiteSpace: "nowrap" }}>
+    <span>{v}</span>
+    {c && <Box component="span" sx={{ fontSize: "0.7rem", fontWeight: 700, color: c.color, bgcolor: `${c.color}14`, px: 0.6, borderRadius: "6px", lineHeight: 1.6 }}>{c.text}</Box>}
+  </Box>
+);
+/** A name on one line - cut with an ellipsis, the whole of it in the tooltip. */
+const oneLine = (text: string, full?: string) => (
+  <Box component="span" title={full ?? text} sx={{ display: "block", flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{text}</Box>
+);
+/** The heads of the figure columns, short: "Net revenue 2026", "2025" - the years when the period is one calendar year. */
+function figureHeads(f: Frame): { cur: string; prev: string } {
+  const one = f.from.slice(0, 4) === f.to.slice(0, 4);
+  return one ? { cur: `Net revenue ${f.to.slice(0, 4)}`, prev: f.d.period.prevTo.slice(0, 4) } : { cur: "Net revenue", prev: "Year before" };
+}
+/** The figure columns' widths: net revenue with its chip, the year before, gross profit, GM with its chip, share. */
+const FIGURE_WIDTHS = (two: boolean) => ["150px", ...(two ? ["92px"] : []), "118px", "118px", "66px"];
+/** The least width of columns ("150px", "minmax(220px, 2fr)") - below it the table scrolls sideways. */
+const widthsSum = (ws: string[]) => ws.reduce((a, w) => a + (Number((/(\d+)px/.exec(w) ?? [])[1]) || 0), 0);
+
+type Col = { head: string; cell: (r: Row) => React.ReactNode; sort: (r: Row) => number | string; text?: boolean; width?: string };
 
 /** All the figures of a breakdown (ExplorerKit Table) - any column sorts; a long list a page at a time, and a search. */
 function FigTable({ f, title, first, rows, extra = [], total = null, find, withPrev = true, query, onQuery }: {
@@ -1686,18 +1721,20 @@ function FigTable({ f, title, first, rows, extra = [], total = null, find, withP
 }) {
   const all = f.d.totals.rev;
   const two = withPrev && hasBefore(f);
+  const heads = figureHeads(f);
   const cols: Col[] = [
-    { head: first, cell: (r) => r.label, sort: (r) => r.label.toLowerCase(), text: true },
-    ...extra,
-    { head: `Net revenue ${f.now}`, cell: (r) => (two ? withChange(eur(r.rev), r.prev ? change(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev)), sort: (r) => r.rev },
-    ...(two ? [{ head: `Net revenue ${f.before}`, cell: (r: Row) => eur(r.prev), sort: (r: Row) => r.prev }] : []),
+    { head: first, cell: (r) => oneLine(r.label, r.full), sort: (r) => r.label.toLowerCase(), text: true, width: "minmax(180px, 2fr)" },
+    ...extra.map((c) => ({ width: "130px", ...c })),
+    { head: heads.cur, cell: (r) => (two ? inlineChange(eur(r.rev), r.prev ? change(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev)), sort: (r) => r.rev },
+    ...(two ? [{ head: heads.prev, cell: (r: Row) => eur(r.prev), sort: (r: Row) => r.prev }] : []),
     { head: "Gross profit", cell: (r) => eur(r.gp), sort: (r) => r.gp },
     {
-      head: "Gross margin", sort: (r) => r.margin,
-      cell: (r) => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : withChange(pct(r.margin), { text: points(r.margin, p), color: tone(r.margin - p) }); },
+      head: "GM", sort: (r) => r.margin,
+      cell: (r) => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : inlineChange(pct(r.margin), { text: points(r.margin, p), color: tone(r.margin - p) }); },
     },
-    { head: "Share of net revenue", cell: (r) => (all > 0 ? pct(r.rev / all) : "—"), sort: (r) => r.rev },
+    { head: "Share", cell: (r) => (all > 0 ? pct(r.rev / all) : "—"), sort: (r) => r.rev },
   ];
+  const widths = [...cols.slice(1, 1 + extra.length).map((c) => c.width ?? "130px"), ...FIGURE_WIDTHS(two)];
   const revCol = 1 + extra.length;
   const [sort, setSort] = useState<TableSort>({ col: revCol, desc: true });
   const [own, setOwn] = useState("");
@@ -1730,6 +1767,7 @@ function FigTable({ f, title, first, rows, extra = [], total = null, find, withP
       {rows.length ? (
         found.length ? (
           <Table head={cols.map((c) => c.head)} rows={body} left={cols.map((c, i) => (c.text && i > 0 ? i : -1)).filter((i) => i > 0)}
+            firstWidth={cols[0].width} widths={widths} minWidth={widthsSum([cols[0].width ?? "", ...widths])}
             sortable={cols.map((_, i) => i)} sort={sort} onSort={(c) => setSort((s) => (s.col === c ? { col: c, desc: !s.desc } : { col: c, desc: cols[c]?.text ? false : true }))}
             pageSize={long ? 25 : undefined} />
         ) : NONE(`Nothing found for "${q.trim()}".`)
@@ -1768,11 +1806,15 @@ const glyph = (I: typeof EuroOutlinedIcon) => <I />;
 /** The hub's own, after the pilot's content on a page: its heading. */
 const HubAfter = ({ hint }: { hint: string }) => <SectionHead title="Against a year earlier" hint={hint} />;
 
-/** A business unit or a sales organisation (the hub's own page): where revenue comes from, then each figure its own graph, its months, every figure. */
-function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
+/**
+ * A business unit or a sales organisation (the hub's own page), a few graphs a tab (SARCLA 13.11.2026: "give it more
+ * tabs, to decrease the number of graphs per page"): its contribution and every figure in the table, or its net revenue,
+ * gross profit and gross margin against a year earlier.
+ */
+function OrgBreakdown({ f, kind, view }: { f: Frame; kind: "units" | "orgs"; view: "contribution" | "figures" }) {
   const units = kind === "units";
   const figs = units ? f.d.byBu : f.d.byChannel;
-  const rows = rowsOf(figs);
+  const rows = rowsOf(figs, units ? cleanName : shortName);
   const param = units ? "bu" : "org";
   const keyOf = new Map(rows.map((r) => [r.label, r.key]));
   const pick = (label: string) => { const k = keyOf.get(label); if (k) toggleParam(param, k); };
@@ -1780,17 +1822,38 @@ function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
   const what = units ? "business unit" : "sales organisation";
   const t = units ? TOPIC.units : { ...TOPIC.units, icon: <StorefrontOutlinedIcon />, tint: "green" as Tint };
   const picked = chosen.length ? rows.filter((r) => chosen.includes(r.key)).map((r) => r.label) : undefined;
+  if (view === "figures") {
+    return (
+      <Breakdown t={t} title={`Revenue and margin by ${what}, ${f.now}`} note={`${against(f)} · click a bar to show only it`}
+        charts={<FigureGraphs f={f} rows={rows} what={what} labelWidth={units ? 140 : 190} onPick={pick} selected={picked} />} table={null} />
+    );
+  }
   return (
     <Breakdown t={t} title={`Where does revenue come from? By ${what}, ${f.now}`}
       note={`${units ? "The Angst+Pfister company that invoiced" : "The organisation that sold to the customer"} · ${against(f)} · click one to show only it`}
-      charts={<>
-        <Wide><Mix title={units ? "Business-unit contribution" : "Sales-organisation contribution"} hint="Revenue split within the selection · click one to show only it"
-          parts={rows.map((r) => ({ label: r.label, value: r.rev }))} first={units ? "Business unit" : "Sales organisation"} centerLabel="revenue in selection" onPick={pick} selected={picked} foot={scopeWords(f)} /></Wide>
-        <FigureGraphs f={f} rows={rows} what={what} labelWidth={units ? 140 : 200} onPick={pick} selected={picked} />
-        <Wide><MonthStack f={f} rows={units ? f.d.unitMonths : f.d.channelMonths} order={figs.map((x) => ({ key: x.key, name: x.name || NOT_KNOWN }))} title={`Net revenue month by month, by ${what}`} /></Wide>
-      </>}
+      charts={<Wide><Mix title={units ? "Business-unit contribution" : "Sales-organisation contribution"} hint="Revenue split within the selection · click one to show only it"
+        parts={rows.map((r) => ({ label: r.label, value: r.rev, title: r.full }))} first={units ? "Business unit" : "Sales organisation"} centerLabel="revenue in selection" onPick={pick} selected={picked} /></Wide>}
       table={<FigTable f={f} title={`All the figures, by ${what}`} first={units ? "Business unit" : "Sales organisation"} rows={rows} total={rows.length > 1 ? totalOf(rows, units ? "All business units" : "All sales organisations") : null} />}
-      foot={units ? "The business unit is the Angst+Pfister company the invoice was written by (the ERP's company)." : "The sales organisation is the organisation that sold to the customer (the ERP's channel)."}
+    />
+  );
+}
+
+/** The sales organisations: their contribution, their net revenue against a year earlier, their gross margin - three graphs. */
+function OrgsTab({ f }: { f: Frame }) {
+  const rows = rowsOf(f.d.byChannel, shortName);
+  const keyOf = new Map(rows.map((r) => [r.label, r.key]));
+  const pick = (label: string) => { const k = keyOf.get(label); if (k) toggleParam("org", k); };
+  const picked = f.orgs.length ? rows.filter((r) => f.orgs.includes(r.key)).map((r) => r.label) : undefined;
+  const t = { ...TOPIC.units, icon: <StorefrontOutlinedIcon />, tint: "green" as Tint };
+  return (
+    <Breakdown t={t} title={`Sales organisations, ${f.now}`} note={`The organisation that sold to the customer · ${against(f)} · click one to show only it`}
+      charts={<>
+        <Wide><Mix title="Sales-organisation contribution" hint="Revenue split within the selection · click one to show only it"
+          parts={rows.map((r) => ({ label: r.label, value: r.rev, title: r.full }))} first="Sales organisation" centerLabel="revenue in selection" onPick={pick} selected={picked} /></Wide>
+        <Wide><RevenueChart f={f} title="Net revenue against the same months a year earlier, by sales organisation" rows={rows} labelWidth={190} onPick={pick} selected={picked} /></Wide>
+        <Wide><MarginChart f={f} title="Gross margin, by sales organisation - in the order of their net revenue" rows={rows} labelWidth={190} /></Wide>
+      </>}
+      table={<FigTable f={f} title="All the figures, by sales organisation" first="Sales organisation" rows={rows} total={rows.length > 1 ? totalOf(rows, "All sales organisations") : null} />}
     />
   );
 }
@@ -1798,11 +1861,63 @@ function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
 function MonthsTab({ f }: { f: Frame }) {
   return (
     <>
-      <TrendCards f={f} items={[TR.rev(f), TR.gp(f), TR.margin(f), TR.customers(f)]} />
+      <TrendCards f={f} items={[TR.rev(f), TR.margin(f)]} />
       <Breakdown t={TOPIC.revenue} title={`Net revenue month by month, ${f.now}`} note={`Each month's invoices · ${against(f)}`}
         charts={<Wide><MonthStack f={f} rows={f.d.unitMonths} order={f.d.byBu.map((x) => ({ key: x.key, name: x.name || NOT_KNOWN }))} title="Net revenue month by month, by business unit" /></Wide>}
         table={null} />
     </>
+  );
+}
+
+/** Each business unit's customer accounts in the page's period and filters - how many, one small reading each. */
+function useUnitAccounts(f: Frame, units: string[]): Map<string, number> {
+  const [counts, setCounts] = useState<Map<string, number>>(new Map());
+  const key = units.join("|");
+  useEffect(() => {
+    let live = true;
+    Promise.all(units.map(async (u) => {
+      const p = new URLSearchParams(f.ask);
+      p.delete("bu"); p.append("bu", u);
+      p.set("kind", "customer"); p.set("limit", "1"); p.set("offset", "0");
+      const r = await fetch(`/api/ap/sealing/list?${p.toString()}`, { cache: "no-store" }).catch(() => null);
+      const j = r ? ((await r.json().catch(() => ({}))) as { ok?: boolean; list?: { total: number } }) : {};
+      return [u, j.ok && j.list ? j.list.total : 0] as const;
+    })).then((all) => { if (live) setCounts(new Map(all)); });
+    return () => { live = false; };
+  }, [f.ask, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  return counts;
+}
+
+/** Customers by unit: how many accounts each business unit invoiced, and the largest accounts of the unit chosen - two graphs. */
+function CustomersByUnit({ f }: { f: Frame }) {
+  const inspect = useContext(InspectCtx);
+  const units = f.d.byBu.filter((x) => x.rev > 0);
+  const [unit, setUnit] = useState<string>(units[0]?.key ?? "");
+  const counts = useUnitAccounts(f, units.map((u) => u.key));
+  const st = useRanking();
+  const top = useList(f, { kind: "customer", by: st.by, q: "", offset: 0, limit: 10, bu: unit });
+  const byLabel = new Map(top.rows.map((r) => [r.label, r]));
+  const t = { ...TOPIC.customers };
+  return (
+    <Breakdown t={t} title={`Customers by business unit, ${f.now}`} note="How many accounts each unit invoiced · click a unit for its largest accounts"
+      charts={<>
+        <ChartBox title="Customer accounts, by business unit" hint="Accounts with a sealing invoice in the period · net revenue per account beside"
+          table={{ columns: ["Business unit", "Customer accounts", "Net revenue", "Per account"], rows: units.map((u) => [u.name || u.key, counts.get(u.key) ?? 0, Math.round(u.rev), counts.get(u.key) ? Math.round(u.rev / counts.get(u.key)!) : 0]), numeric: [1, 2, 3] }}>
+          {counts.size ? (
+            <BarList format={int} labelWidth={130} heads={{ label: "Business unit", value: "Accounts", note: "Per account" }} noteWidth={92}
+              selectedLabel={units.find((u) => u.key === unit)?.name ?? unit} onSelect={(l) => { const u = units.find((x) => (x.name || x.key) === l); if (u) setUnit(u.key); }}
+              rows={units.map((u) => ({ label: u.name || u.key, value: counts.get(u.key) ?? 0, note: { text: counts.get(u.key) ? eur(u.rev / counts.get(u.key)!) : "—" } })).sort((a, b) => (b.value ?? 0) - (a.value ?? 0))} />
+          ) : <Skeletons n={6} h={22} />}
+        </ChartBox>
+        <ChartBox title={`The largest customers of ${units.find((u) => u.key === unit)?.name ?? unit}`} hint="By net revenue, each with its gross margin · click one to inspect it">
+          {top.rows.length ? (
+            <BarList ranked wrapLabels format={eur} labelWidth={220} heads={{ label: "Customer", value: "Net revenue", note: "GM %" }}
+              rows={top.rows.map(rankRow("rev"))} onSelect={(l) => { const r = byLabel.get(l); if (r) inspect(pickOf("customer", r)); }} />
+          ) : top.busy ? <Skeletons n={8} h={22} /> : NONE()}
+        </ChartBox>
+      </>}
+      table={null}
+    />
   );
 }
 
@@ -1842,7 +1957,7 @@ function CustomersTab({ f }: { f: Frame }) {
       </Box>
       <RankedList f={f} kind="customer" title="Customer accounts, ranked" hint="Each with its gross margin · click an entry to inspect its available detail" what="customers or identifiers"
         nameHead="Customer" st={st} onPick={open}
-        foot={<>Customer numbers remain separate even when names match. With a business unit chosen in the Filters, the ranking covers only its accounts. <ToAll label="Every account in the All customers tab" /></>} />
+        foot={<><ToAll label="Every account in the All customers tab" /></>} />
       <Actions items={reviewCandidates("customers", positions(found(all, st.q)), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The customer accounts against the same months a year earlier" />
@@ -1883,7 +1998,7 @@ function ArticlesTab({ f }: { f: Frame }) {
       </Box>
       <RankedList f={f} kind="article" title={family ? `Articles, ranked · ${family}` : "Articles, ranked"} hint="Each with its gross margin · click an entry to inspect its available detail"
         what="articles or numbers" nameHead="Article" st={st} onPick={open} labelWidth={320} family={family}
-        foot={<>Compound labels are shown as written on the article; apparent designation mismatches need validation. With a business unit chosen in the Filters, the ranking covers only its articles. <ToAll label="Every article in the All articles tab" /></>} />
+        foot={<><ToAll label="Every article in the All articles tab" /></>} />
       <Actions items={reviewCandidates("articles", positions(found(ofFamily, st.q)), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The articles against the same months a year earlier" />
@@ -1919,18 +2034,18 @@ function CompoundsTab({ f }: { f: Frame }) {
         <Button size="small" onClick={() => setParam("family", null)} sx={{ textTransform: "none", fontWeight: 700, minWidth: 0, px: 0.5 }}>All materials</Button>
         <span>/ {family ? `${family} / Compounds` : "Compounds"}</span>
       </Box>
-      <RankedList f={f} kind="compound" title={family ? `Compounds, ranked · ${family}` : "Compounds, ranked"} hint={`Each with its gross margin · ${unresolved ? "the unresolved entries included" : "named entries only"} · click one to see its customers`}
+      <RankedList f={f} kind="compound" title={family ? `Compounds, ranked · ${family}` : "Compounds, ranked"} hint={family === "Unclassified" ? "The compounds whose name no material rule knows, the largest first · click one to see its customers" : `Each with its gross margin${unresolved ? " · the unresolved entries included" : ""} · click one to see its customers`}
         what="compounds" nameHead="Compound" st={st} onPick={open} family={family} unresolved={unresolved}
         extra={f.d.unresolved.length > 0 ? <Chip icon={unresolved ? <CheckIcon /> : undefined} label={`Include unresolved entries (${int(f.d.unresolved.length)})`} onClick={() => { setUnresolved((x) => !x); st.setOffset(0); }} aria-pressed={unresolved} sx={chipSx(unresolved)} /> : undefined}
-        foot={<>A compound&apos;s customers come from the same invoices, so their totals match its own. Name variants of one compound remain separate; no names are merged. {pct(f.d.noCompoundShare)} of the net revenue names no compound. <ToAll label="Every compound in the All compounds tab" /></>} />
+        foot={<><ToAll label="Every compound in the All compounds tab" /></>} />
       <Actions items={familyCandidates(commercial(f), family, list)} title="Commercial priorities" />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The compounds against the same months a year earlier" />
       <TrendCards f={f} items={[TR.named(f, family), TR.namedMargin(f, family), TR.compounds(f), TR.noCompound(f)]} />
       <Breakdown t={t} title={`The compounds against a year earlier${family ? ` · ${family}` : ""}, ${f.now}`}
-        note={`${int(all.length)} compound${all.length === 1 ? "" : "s"}${unresolved ? ", the unresolved entries included" : " named"} · ${against(f)}`}
+        note={`${int(all.length)} compound${all.length === 1 ? "" : "s"}${unresolved ? ", the unresolved entries included" : ""} · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={all} what="compound" labelWidth={240} />} table={null}
-        foot="Compounds are shown as written - two spellings of one compound stay apart. A click on a compound opens its customers." />
+ />
     </>
   );
 }
@@ -1944,14 +2059,14 @@ function FamiliesTab({ f }: { f: Frame }) {
     <>
       <TrendCards f={f} items={[TR.leadFamily(f), TR.leadCompound(f), TR.namedMargin(f, null), TR.noCompound(f)]} />
       <Breakdown t={t} title={`The material families against a year earlier, ${f.now}`}
-        note={`Named compounds only - ${pct(f.d.noCompoundShare)} of the net revenue names none · ${against(f)}`}
+        note={`${pct(f.d.noCompoundShare)} of the net revenue has no compound · ${against(f)}`}
         charts={<>
           <Wide><FamilyMix f={f} onPick={toCompounds} hint="Click a family to open its compounds" /></Wide>
           <FigureGraphs f={f} rows={rows} what="material family" labelWidth={140} />
           <Wide><MonthStack f={f} rows={f.d.familyMonths} order={f.d.byFamily.map((x) => ({ key: x.key, name: x.name }))} title="Net revenue month by month, by material family" /></Wide>
         </>}
-        table={<FigTable f={f} title="All the figures, by material family" first="Material family" rows={rows} total={rows.length > 1 ? totalOf(rows, "All named compounds") : null} />}
-        foot="The family follows the pilot's rule, by the compound's name: FFKM (Kalrez, Evolast), HNBR, FKM (FPM), EPDM, NBR, VMQ (silicone), PTFE - any other compound is Unclassified."
+        table={<FigTable f={f} title="All the figures, by material family" first="Material family" rows={rows} total={rows.length > 1 ? totalOf(rows, "All compounds") : null} />}
+
       />
     </>
   );
@@ -1965,7 +2080,7 @@ function ApprovalsTab({ f }: { f: Frame }) {
   const inspect = useContext(InspectCtx);
   const params = useSearchParams();
   const st = useRanking(params.get("find") ?? "");
-  const all = rowsOf(f.d.approvals);
+  const all = rowsOf(f.d.approvals, approvalLabel);
   const t = TOPIC.approvals;
   // the pilot's data-mention: a reference searches the texts
   const mention = (ref: string) => {
@@ -1980,7 +2095,7 @@ function ApprovalsTab({ f }: { f: Frame }) {
       <Box id="sealing-approvals-ranking" sx={{ scrollMarginTop: 16 }}>
         <RankedList f={f} kind="approval" title="Approval texts, ranked" hint="Each with its gross margin · click one to read it" what="approval texts" nameHead="Approval as written" st={st}
           onPick={(r) => inspect(pickOf("approval", r))} labelWidth={340}
-          foot={<>Approvals as written are not verified approvals. Revenue is associated with the text, not attributed to an approval causing a sale; {pct(f.d.noApprovalShare)} of the net revenue has none. <ToAll label="Every text in the All approval texts tab" /></>} />
+          foot={<><ToAll label="Every text in the All approval texts tab" /></>} />
       </Box>
       <Actions items={approvalCandidates(f.d.approvalRefs, noApprovalRev(f), f.d.totals.rev)} title="What should we do?" first />
       {/* the hub's own, after the pilot's */}
@@ -1988,18 +2103,50 @@ function ApprovalsTab({ f }: { f: Frame }) {
       <TrendCards f={f} items={[TR.noApproval(f), TR.noApprovalRev(f), TR.withApproval(f), TR.approvals(f)]} />
       <Breakdown t={t} title={`The approvals against a year earlier, ${f.now}`} note={`The ${int(all.length)} texts with the most net revenue · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={all} what="approval text" labelWidth={300} />} table={null}
-        foot="A text can name several approvals, and the figures cannot tell which approval caused a sale." />
+ />
     </>
   );
 }
 
 /* ── the All tabs: every customer, article, compound or approval text, 30 a page (SARCLA 11.11.2026) ── */
 
-type AllCol = { head: string; cell: (r: Row) => React.ReactNode };
+type AllCol = { head: string; cell: (r: Row) => React.ReactNode; width: string };
 
-/** Every one of a kind in a table, 30 a page from the hub - searched, ranked by net revenue or gross profit, a click opens it. */
-function AllList({ f, kind, title, first, what, extra = [], pick, family }: {
+/** A name over up to two lines - whole wherever two lines hold it; the whole of it in the tooltip either way. */
+const twoLines = (text: React.ReactNode, title: string, lines = 2) => (
+  <Box component="span" title={title} sx={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", overflowWrap: "anywhere", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" }}>{text}</Box>
+);
+/** A change as the All tables write it in their chips - compact, no arrow: "+9.1%", "−1.8pp". */
+const pctChip = (cur: number, prev: number) => { const r = cur / prev - 1; return { text: `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(r * 100).toFixed(1)}%`, color: tone(r, 0.005) }; };
+const ppChip = (cur: number, prev: number) => { const d = (cur - prev) * 100; return { text: `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)}pp`, color: tone(cur - prev) }; };
+/** The All tables' figure columns: net revenue with its chip, the year before, gross profit, GM with its chip, share. */
+const ALL_WIDTHS = (two: boolean) => ["150px", ...(two ? ["88px"] : []), "116px", "106px", "54px"];
+
+/** An approval text's references as chips - over up to two lines, then how many more (the whole list in the detail window). */
+function RefChips({ text, n = 6 }: { text: string; n?: number }) {
+  const parts = approvalParts(text);
+  if (!parts.length) return twoLines(text, text);
+  const shown = parts.slice(0, n);
+  return (
+    <Box component="span" title={parts.join(" · ")} sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, minWidth: 0, flex: "1 1 auto" }}>
+      {shown.map((p) => (
+        <Box key={p} component="span" sx={{ flex: "0 1 auto", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.72rem", fontWeight: 600, color: INK, bgcolor: "#eef2f8", border: `1px solid ${HAIRLINE}`, px: 0.75, borderRadius: "8px", lineHeight: 1.6, whiteSpace: "nowrap" }}>{p}</Box>
+      ))}
+      {parts.length > n && <Box component="span" sx={{ flex: "0 0 auto", fontSize: "0.72rem", fontWeight: 700, color: MUTED, lineHeight: 1.6, whiteSpace: "nowrap" }}>+{parts.length - n} more</Box>}
+    </Box>
+  );
+}
+
+/**
+ * Every one of a kind in a table, 30 a page from the hub - searched, ranked by net revenue or gross profit, a click opens
+ * it. The name has most of the width and two lines (an article three) - shown whole (SARCLA 13.11.2026: no cut names); the changes as
+ * small chips beside the figures, short heads, fixed figure columns.
+ */
+function AllList({ f, kind, title, first, what, extra = [], pick, family, nameCell, firstWidth = "minmax(300px, 3fr)" }: {
   f: Frame; kind: ListKind; title: string; first: string; what: string; extra?: AllCol[]; pick?: DetailPick["kind"]; family?: string | null;
+  /** the first column's cell when not the name (the article's number and name, the approvals' chips) */
+  nameCell?: (r: Row) => React.ReactNode;
+  firstWidth?: string;
 }) {
   const inspect = useContext(InspectCtx);
   const [q, setQ] = useState("");
@@ -2008,21 +2155,23 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family }: {
   const list = useList(f, { kind, by, q, offset, limit: LIST_PAGE, family });
   const two = hasBefore(f);
   const whole = f.d.totals.rev;
-  const head = [first, ...extra.map((c) => c.head), `Net revenue ${f.now}`, ...(two ? [`Net revenue ${f.before}`] : []), "Gross profit", "Gross margin", "Share of net revenue"];
+  const heads = figureHeads(f);
+  const head = [first, ...extra.map((c) => c.head), heads.cur, ...(two ? [heads.prev] : []), "Gross profit", "GM", "Share"];
   const revCol = 1 + extra.length, gpCol = revCol + (two ? 2 : 1);
+  const widths = [...extra.map((c) => c.width), ...ALL_WIDTHS(two)];
   const rows = list.rows.map((r, i) => ({
     key: `${r.key}|${i}`,
     onPick: pick ? () => inspect(pickOf(pick, r)) : undefined,
     cells: [
-      <Box key="n" component="span" sx={{ display: "inline-flex", gap: 1, alignItems: "baseline", minWidth: 0 }}>
-        <Box component="span" sx={{ color: FAINT, fontSize: "0.74rem", fontVariantNumeric: "tabular-nums", minWidth: 34 }}>{int(offset + i + 1)}</Box>
-        <span>{r.label}</span>
+      <Box key="n" component="span" sx={{ display: "flex", gap: 0.75, alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
+        <Box component="span" sx={{ flex: "0 0 auto", color: FAINT, fontSize: "0.72rem", fontVariantNumeric: "tabular-nums", minWidth: 24 }}>{int(offset + i + 1)}</Box>
+        {nameCell ? nameCell(r) : twoLines(r.label, r.full ?? r.label)}
       </Box>,
       ...extra.map((c) => c.cell(r)),
-      two ? withChange(eur(r.rev), r.prev ? change(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev),
+      two ? inlineChange(eur(r.rev), r.prev ? pctChip(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev),
       ...(two ? [eur(r.prev)] : []),
       eur(r.gp),
-      (() => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : withChange(pct(r.margin), { text: points(r.margin, p), color: tone(r.margin - p) }); })(),
+      (() => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : inlineChange(pct(r.margin), ppChip(r.margin, p)); })(),
       whole > 0 ? pct(r.rev / whole) : "—",
     ],
   }));
@@ -2030,8 +2179,8 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family }: {
     <GlassCard sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>
       <CardTitle icon={<InventoryOutlinedIcon />} tint="slate" title={title}
         note={`${int(list.total)} in all${family ? ` · ${family}` : ""} · ${by === "gp" ? "by gross profit" : "by net revenue"}, 30 a page · ${f.now}`}
-        right={<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
-          <SearchBox what={what} q={q} onQ={(x) => { setQ(x); setOffset(0); }} />
+        right={<Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end" }}>
+          <SearchBox what={what} q={q} onQ={(x) => { setQ(x); setOffset(0); }} width={320} />
           <ToggleButtonGroup size="small" exclusive value={by} onChange={(_, v: By | null) => { if (v) { setBy(v); setOffset(0); } }} aria-label="Rank by" sx={TOGGLE}>
             <ToggleButton value="rev">Net revenue</ToggleButton>
             <ToggleButton value="gp">Gross profit</ToggleButton>
@@ -2039,9 +2188,10 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family }: {
         </Box>} />
       <Box sx={{ mt: -1, opacity: list.busy ? 0.55 : 1, transition: "opacity .15s ease" }}>
         {list.err ? <Typography sx={{ fontSize: "0.84rem", color: RED }}>The list could not be read: {list.err}</Typography>
-          : rows.length ? <Table head={head} rows={rows} firstWidth="minmax(260px, 2.4fr)" left={extra.map((_, i) => i + 1)} sortable={[revCol, gpCol]} sort={{ col: by === "gp" ? gpCol : revCol, desc: true }}
+          : rows.length ? <Table head={head} rows={rows} firstWidth={firstWidth} widths={widths} minWidth={widthsSum([firstWidth, ...widths])}
+            left={extra.map((_, i) => i + 1)} sortable={[revCol, gpCol]} sort={{ col: by === "gp" ? gpCol : revCol, desc: true }}
             onSort={(c) => { setBy(c === gpCol ? "gp" : "rev"); setOffset(0); }} />
-            : list.busy ? <Typography sx={{ fontSize: "0.84rem", color: MUTED, py: 2 }}>Reading the list…</Typography> : NONE(q ? `Nothing found for "${q.trim()}".` : undefined)}
+            : list.busy ? <Skeletons n={6} h={34} /> : NONE(q ? `Nothing found for "${q.trim()}".` : undefined)}
       </Box>
       <Pager total={list.total} offset={offset} onOffset={setOffset} />
     </GlassCard>
@@ -2050,20 +2200,23 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family }: {
 
 function AllCustomers({ f }: { f: Frame }) {
   return <AllList f={f} kind="customer" title="All customers" first="Customer" what="customers or numbers" pick="customer"
-    extra={[{ head: "Customer number", cell: (r) => r.key || "—" }]} />;
+    extra={[{ head: "Number", cell: (r) => oneLine(r.key || "—"), width: "84px" }]} />;
 }
 function AllArticles({ f }: { f: Frame }) {
   const family = useSearchParams().get("family");
-  return <AllList f={f} kind="article" title="All articles" first="Article" what="articles, numbers or compounds" pick="article" family={family || null}
-    extra={[{ head: "Article number", cell: (r) => r.key || "—" }, { head: "Compound", cell: (r) => r.compound || "—" }]} />;
+  // the article's number before its name, in grey - one column for both, so the name keeps its width
+  return <AllList f={f} kind="article" title="All articles" first="Article" what="articles, numbers or compounds" pick="article" family={family || null} firstWidth="minmax(320px, 3fr)"
+    nameCell={(r) => twoLines(<><Box component="span" sx={{ color: FAINT, fontVariantNumeric: "tabular-nums", mr: 0.75 }}>{r.key}</Box>{r.label}</>, `${r.key} · ${r.full ?? r.label}`, 3)}
+    extra={[{ head: "Compound", cell: (r) => twoLines(r.compound || "—", r.compound || ""), width: "156px" }]} />;
 }
 function AllCompounds({ f }: { f: Frame }) {
   const family = useSearchParams().get("family");
   return <AllList f={f} kind="compound" title="All compounds" first="Compound" what="compounds" pick="compound" family={family && f.d.byFamily.some((x) => x.key === family) ? family : null}
-    extra={[{ head: "Material family", cell: (r) => (noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)) }]} />;
+    extra={[{ head: "Family", cell: (r) => oneLine(noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)), width: "100px" }]} />;
 }
 function AllApprovals({ f }: { f: Frame }) {
-  return <AllList f={f} kind="approval" title="All approval texts" first="Approval as written" what="approval texts" pick="approval" />;
+  return <AllList f={f} kind="approval" title="All approval texts" first="Approval references" what="approval texts" pick="approval"
+    nameCell={(r) => <RefChips text={r.key} />} />;
 }
 
 /** "Revenue in this selection" - the pilot's first card; on Materials & compounds the named compounds' revenue. */
@@ -2095,8 +2248,8 @@ const PAGES: Record<Exclude<SealingSlug, "overview">, PageDef> = {
   materials: {
     title: "Our compound portfolio", lead: "Materials first, compounds next - the compounds as written on the articles.", topic: TOPIC.materials,
     figures: (f) => [
-      { label: "Revenue in this selection", icon: glyph(EuroOutlinedIcon), tint: "blue", v: keyView(f, "Named compound revenue", f.d.familyMonths, f.d.byFamily.map((x) => x.key)), sub: "named compound entries" },
-      { label: "Compound entries named", icon: glyph(ScienceOutlinedIcon), tint: "purple", v: V.compounds(f) },
+      { label: "Revenue in this selection", icon: glyph(EuroOutlinedIcon), tint: "blue", v: keyView(f, "Compound revenue", f.d.familyMonths, f.d.byFamily.map((x) => x.key)) },
+      { label: "Compounds", icon: glyph(ScienceOutlinedIcon), tint: "purple", v: V.compounds(f) },
     ],
     tabs: [
       { id: "compounds", label: "Materials & compounds", Body: CompoundsTab },
@@ -2124,9 +2277,11 @@ const PAGES: Record<Exclude<SealingSlug, "overview">, PageDef> = {
       { label: "Business units", icon: glyph(ApartmentOutlinedIcon), tint: "slate", v: wholeView(f, "Business units", "int", f.d.byBu.filter((x) => x.rev > 0).length, null), sub: `${int(f.d.byChannel.filter((x) => x.rev > 0).length)} sales organisations` },
     ],
     tabs: [
-      { id: "units", label: "Business units", count: (f) => (f.bus.length ? String(f.bus.length) : null), Body: ({ f }) => <OrgBreakdown f={f} kind="units" /> },
-      { id: "orgs", label: "Sales organisations", count: (f) => (f.orgs.length ? String(f.orgs.length) : null), Body: ({ f }) => <OrgBreakdown f={f} kind="orgs" /> },
+      { id: "units", label: "Contribution", count: (f) => (f.bus.length ? String(f.bus.length) : null), Body: ({ f }) => <OrgBreakdown f={f} kind="units" view="contribution" /> },
+      { id: "figures", label: "Revenue & margin", Body: ({ f }) => <OrgBreakdown f={f} kind="units" view="figures" /> },
       { id: "months", label: "Month by month", Body: MonthsTab },
+      { id: "orgs", label: "Sales organisations", count: (f) => (f.orgs.length ? String(f.orgs.length) : null), Body: OrgsTab },
+      { id: "customers", label: "Customers by unit", Body: CustomersByUnit },
     ],
   },
 };
@@ -2194,6 +2349,41 @@ function TopicPage({ slug, f, busy, err, again }: { slug: Exclude<SealingSlug, "
 
 /* ── the page ──────────────────────────────────────────────────────────── */
 
+/** A section's card in grey while its figures come: its title's place, then the shape of its chart. */
+function CardSkeleton({ h = 220, lines = 0 }: { h?: number; lines?: number }) {
+  return (
+    <Box sx={{ ...glass, borderRadius: "18px", p: 2, display: "grid", gap: 1.25, minWidth: 0 }}>
+      <Skeleton variant="text" width="45%" height={22} />
+      {lines > 0 && <Skeleton variant="text" width="70%" height={16} />}
+      <Skeleton variant="rounded" height={h} />
+    </Box>
+  );
+}
+
+/** A page in grey, in the shape it will have - its head, its cards and charts where they will stand. */
+function PageSkeleton({ slug }: { slug: SealingSlug }) {
+  const page = slug === "overview" ? null : PAGES[slug];
+  return (
+    <Box sx={{ width: "100%", minWidth: 0, px: GUTTER, py: { xs: 2.5, md: 3.5 }, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 2.5 }} aria-busy>
+      <Box sx={{ display: "grid", gap: 0.75 }}>
+        <Typography sx={KICKER}>Sealing Business Review{page ? ` · ${SEALING_PAGES.find((p) => p.slug === slug)?.name ?? ""}` : " · Executive Committee pilot"}</Typography>
+        <Typography component="h1" sx={H1}>{TITLE[slug]}</Typography>
+        <Typography sx={LEAD}>{page ? page.lead : "Who buys. What sells. Where to focus next."}</Typography>
+        <Skeleton variant="text" width={420} height={20} />
+      </Box>
+      {slug === "overview" ? (
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } }}>
+          {[0, 1, 2, 3].map((i) => <CardSkeleton key={i} h={96} />)}
+        </Box>
+      ) : (
+        <Skeleton variant="rounded" height={40} width={360} />
+      )}
+      <Box sx={PAIR}><CardSkeleton h={240} lines={1} /><CardSkeleton h={240} lines={1} /></Box>
+      <CardSkeleton h={280} lines={1} />
+    </Box>
+  );
+}
+
 /** A page's title while its figures are read - the pilot's titles. */
 const TITLE: Record<SealingSlug, string> = {
   overview: "Understand the business.", units: "Business units", customers: "Our leading customers", articles: "The products behind the revenue",
@@ -2217,16 +2407,17 @@ export function SealingPage({ slug }: { slug: SealingSlug }) {
   const shell = { width: "100%", minWidth: 0, px: GUTTER, pt: { xs: 1.25, md: 1.75 }, pb: 3, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1.75 } as const;
   const head = <Typography component="h1" sx={H1}>{TITLE[slug]}</Typography>;
   if (!d) {
-    // Digital Growth's waiting card - or what went wrong, in plain words, and a way to ask again
-    return (
+    // what went wrong, in plain words, and a way to ask again - or the page's own shape in grey while its figures come
+    // (SARCLA 13.11.2026: never one page-wide "Reading the sealing figures…")
+    if (err) return (
       <Box sx={shell}>{head}
         <GlassCard><Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
-          {!err && <CircularProgress size={18} />}
-          <Typography sx={{ fontSize: "0.9rem", color: err ? RED : MUTED }}>{err ? `The sealing figures could not be read: ${err}` : "Reading the sealing figures…"}</Typography>
-          {err && <Button size="small" onClick={again} sx={{ textTransform: "none", fontWeight: 700 }}>Try again</Button>}
+          <Typography sx={{ fontSize: "0.9rem", color: RED }}>The sealing figures could not be read: {err}</Typography>
+          <Button size="small" onClick={again} sx={{ textTransform: "none", fontWeight: 700 }}>Try again</Button>
         </Box></GlassCard>
       </Box>
     );
+    return <PageSkeleton slug={slug} />;
   }
   if (!d.meta.rows) return (
     <Box sx={shell}>{head}

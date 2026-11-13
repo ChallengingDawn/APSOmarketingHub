@@ -19,7 +19,7 @@ import Typography from "@mui/material/Typography";
 import { CHROME, DEEMPHASIS, FONT, SERIES } from "./palette";
 import { compact, percent } from "./format";
 
-export type DonutPart = { label: string; value: number | null };
+export type DonutPart = { label: string; value: number | null; /** the full name for the tooltip, when the label is a short form */ title?: string };
 
 const REST = "\u0000rest";
 
@@ -61,7 +61,7 @@ export function Donut({
     return () => ro.disconnect();
   }, []);
   const usable = parts
-    .filter((p): p is { label: string; value: number } => typeof p.value === "number" && p.value > 0)
+    .filter((p): p is { label: string; value: number; title?: string } => typeof p.value === "number" && p.value > 0)
     .sort((a, b) => b.value - a.value);
   const total = usable.reduce((a, p) => a + p.value, 0);
 
@@ -104,7 +104,7 @@ export function Donut({
   // the middle: the whole - or the part under the mouse
   const shown = hover === REST ? { label: restName, value: restValue } : hover ? usable.find((p) => p.label === hover) ?? null : null;
 
-  const row = (p: { label: string; value: number }, indent = false) => {
+  const row = (p: { label: string; value: number; title?: string }, indent = false) => {
     const arc = arcOf(p.label);
     const on = hover === p.label || (hover === REST && arc.id === REST);
     const chosen = !!picked && picked.includes(p.label);
@@ -139,7 +139,7 @@ export function Donut({
         }}
       >
         <Box sx={{ width: 10, height: 10, borderRadius: 0.5, bgcolor: arc.color }} />
-        <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: CHROME.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.label}>
+        <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: CHROME.ink, lineHeight: 1.3, overflow: "hidden", overflowWrap: "anywhere", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }} title={p.title ?? p.label}>
           {p.label}
         </Typography>
         <Typography sx={{ fontSize: "0.76rem", color: CHROME.muted, fontVariantNumeric: "tabular-nums", textAlign: "right", minWidth: 44 }}>{percent(p.value / total)}</Typography>
