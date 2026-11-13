@@ -652,6 +652,8 @@ function ConvertPreview() {
   const env: Env = sp.get("env") === "acc" ? "acc" : "prod";
   const path = sp.get("path");
   const ideaSel = sp.get("idea");
+  // opened from a Content to-do ("Open in A/B testing": &from=content&piece=N) - its optimization opens (13.11.2026)
+  const pieceSel = sp.get("piece");
   const letterSel = sp.get("v");
   const block = blockByKey(sp.get("block") ?? "");
   // from Google's view of the pages (Insights > SEO landing page): the AI proposes NEW landing pages for its searches
@@ -855,6 +857,8 @@ function ConvertPreview() {
   const autoPicked = useRef(false);
   useEffect(() => {
     if (autoPicked.current || !d || !path || ideaSel || compare || clicks) return;
+    const ofPiece = pieceSel ? ranked.find((i) => i.piece === pieceSel && i.status !== "dropped") : undefined;
+    if (ofPiece) { autoPicked.current = true; select(ofPiece.id); return; }
     // from Google's view: the lead new landing page - the page's other optimizations wait under More
     const lead = seoMode ? ranked.find((i) => i.status !== "dropped" && isLanding(i)) : ranked.find((i) => i.status !== "dropped" && !isLanding(i));
     if (!lead) return;
@@ -862,7 +866,7 @@ function ConvertPreview() {
     const compared = ranked.filter((i) => i.status !== "dropped" && (versionsOf.get(i.id)?.length ?? 0) > 0).length;
     if (block && compared >= 2) return;
     select(lead.id);
-  }, [d, path, ideaSel, ranked, versionsOf, block, compare, clicks, select, seoMode]);
+  }, [d, path, ideaSel, ranked, versionsOf, block, compare, clicks, select, seoMode, pieceSel]);
   const autoBuilt = useRef(new Set<string>());
   useEffect(() => {
     if (!idea || !d || !d.canEdit || !d.ai || d.page.status !== 200 || busy || making) return;
@@ -1026,6 +1030,10 @@ function ConvertPreview() {
             </Typography>
             <Box sx={{ display: "flex", gap: 0.6, flexWrap: "wrap", alignItems: "center", mt: 0.75 }}>
               {idea?.part && <Chip tint="blue">{idea.part}</Chip>}
+              {/* its Content to-do, back there in one click (13.11.2026 - the loop as one product) */}
+              {idea?.piece && (idea.projectId
+                ? <Box component={Link} href={`/projects/${idea.projectId}/pieces/${idea.piece}`} sx={{ display: "inline-flex", textDecoration: "none" }}><Chip tint="purple">In Content · its to-do</Chip></Box>
+                : <Chip tint="purple">In Content</Chip>)}
               {idea && pos === 0 && idea.source === "ai" && live.length > 1 && <Chip tint="pink">The lead</Chip>}
               {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
               {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
