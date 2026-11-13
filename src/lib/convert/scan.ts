@@ -15,9 +15,9 @@
 import { getPool, query } from "@/lib/db/client";
 import { STEP_LABEL, sortProblems, type Step } from "./model";
 import { buildProblems } from "./problems";
-import { aiLeft, englishPass, pageWork, pagesToRedo, proposeIdeas, setAsideExtraNewPages, setAsidePageIdeas, type Numbers } from "./studio";
+import { aiLeft, englishPass, pageWork, pagesToRedo, proposeIdeas, setAsideExtraNewPages, setAsideHomeBlocks, setAsidePageIdeas, type Numbers } from "./studio";
 import { proposeBlocks } from "./blockIdeas";
-import { blockPage, spreadStores } from "./blockRules";
+import { blockPage, isRework, spreadStores } from "./blockRules";
 import { classify } from "./model";
 import { SCAN, TOPUP, pagesTonight, swissNow, typesToTopUp, type TopUpType } from "./scanRules";
 import { blockByKey } from "./blocks";
@@ -156,6 +156,9 @@ async function blocksSwitch(): Promise<string[]> {
   // one new page per page (SARCLA 11.11.2026), once: a page's other new landing pages set aside
   const one = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ('2026-11-11', 'one-new-page', 'set aside') ON CONFLICT (day, type) DO NOTHING RETURNING type`);
   if (one.rows.length) notes.push(`${await setAsideExtraNewPages()} new landing pages set aside - one new page per page`);
+  // the home pages reworked as a whole (SARCLA 13.11.2026), once: their block optimizations set aside
+  const home = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ('2026-11-13', 'home-rework', 'set aside') ON CONFLICT (day, type) DO NOTHING RETURNING type`);
+  if (home.rows.length) notes.push(`${await setAsideHomeBlocks()} home page block optimizations set aside - the home pages are reworked as a whole`);
   const day = swissNow().day;
   let done = 0;
   for (const p of await pagesToRedo(REDO_PER_HOUR * 4)) {
@@ -206,7 +209,8 @@ async function fillUp(): Promise<string[]> {
     // the home pages come first (spreadStores): past the target only they are read
     if (waiting + made >= BLOCK_TARGET && classify(p.path).kind !== "home") break;
     const work = await pageWork("prod", p.path);
-    if (work.ideas.some((i) => i.scope === "block" && i.status !== "dropped")) continue;
+    // a page with its optimization open (a block's, or its rework) - the shop blocks' own (slider, newsletter band) aside
+    if (work.ideas.some((i) => i.status !== "dropped" && !i.block && (i.scope === "block" || isRework(i)))) continue;
     const key = `fill:${p.path}`.slice(0, 300);
     const mine = await query<{ type: string }>(`INSERT INTO apsomh_convert_topups (day, type, note) VALUES ($1, $2, 'started') ON CONFLICT (day, type) DO NOTHING RETURNING type`, [day, key]);
     if (!mine.rows.length) continue;

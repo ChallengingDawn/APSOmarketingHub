@@ -169,3 +169,16 @@ test("a CMS page's update goes through its own store view - production refuses /
   assert.equal(updateStore(undefined), "all");
   assert.equal(updateStore([987654]), "all");
 });
+
+test("a home page is reworked as a whole - one optimization, a version per angle; other pages stay per block", async () => {
+  const { REWORK_ANGLES, REWORK_PART, isRework, reworkPage } = await import("../src/lib/convert/blockRules");
+  assert.equal(reworkPage("home"), true);
+  assert.equal(reworkPage("category"), false);
+  assert.equal(reworkPage("cms"), false);
+  assert.equal(isRework({ scope: "page", part: REWORK_PART }), true);
+  assert.equal(isRework({ scope: "block", part: REWORK_PART }), false, "a block's optimization is never the rework");
+  assert.equal(isRework({ scope: "page", part: null }), false);
+  assert.equal(REWORK_ANGLES.length, 3);
+  assert.equal(new Set(REWORK_ANGLES.map((a) => a.label)).size, 3, "each version its own angle");
+  for (const a of REWORK_ANGLES) assert.match(a.request, /WHOLE page/);
+});
