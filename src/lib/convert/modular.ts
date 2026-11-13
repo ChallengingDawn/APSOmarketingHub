@@ -46,6 +46,8 @@ export type ModularIn = {
   others: { letter: string; summary: string }[] | null;
   /** a revision: the version's changes now */
   current: Change[] | null;
+  /** the whole page reworked (./blockRules.ts isRework) - many steps, every part a module does better */
+  rework?: boolean;
   /** an optimization of one block: its selector - the plan works on that block (./blockRules.ts) */
   target?: string | null;
 };
@@ -61,6 +63,16 @@ language and under 80 characters. Otherwise [].
 "drop" (a revision only): the version's own blocks to take out - when the person asks to remove one, or to MOVE one
 (take it out and add the same module, with the same words, where it should stand). Never a part of the page itself.
 "note" is the version's summary for the person approving it: ENGLISH, one line, under 16 words.`;
+
+/** A version of the WHOLE page (./blockRules.ts REWORK_PART - the home page, SARCLA 13.11.2026). */
+const FRAME_REWORK = `THIS PLAN IS ONE VERSION OF THE WHOLE PAGE, REWORKED, FOR AN A/B TEST (SARCLA: "the home page needs to be reworked
+completely"). The page is rebuilt from THE LIBRARY: every part of the page's main column that a module does better is
+REPLACED by one ("replace" at that part), in the order a buyer needs them - a slider of pictures, a row of banners, a wall
+of logos or text become modules a buyer acts on; a part a buyer needs exactly as it is (the H1, legal text, an address)
+stays. 4 to 8 steps, top to bottom. THE OPTIMIZATION below gives this version's ANGLE - the other versions take another:
+this one follows its angle from the first screen on. A button names the page it opens and links exactly there; never
+"all products" or "all categories". "tweaks": []. "drop": []. "note" is the version's summary for the person approving
+it: ENGLISH, one line, under 16 words, naming its angle.`;
 
 const cutLines = (lines: string[], max: number) => {
   const out: string[] = [];
@@ -193,9 +205,9 @@ asks - new words for a module, a better module in its place, one more - and leav
 
 THE PAGE'S ELEMENTS (for "tweaks" only - selector · its words):
 ${elements.join("\n") || "(none read)"}`;
-  const system = `${brain ? `${brandSystemPrompt(brain, "seo")}\n\n` : ""}${planSystem()}\n\n${FRAME}`;
+  const system = `${brain ? `${brandSystemPrompt(brain, "seo")}\n\n` : ""}${planSystem()}\n\n${a.rework ? FRAME_REWORK : FRAME}`;
   const schema = { ...PLAN_SCHEMA, required: [...PLAN_SCHEMA.required, "tweaks", "drop"], properties: { ...PLAN_SCHEMA.properties, tweaks: TWEAKS_SCHEMA, drop: DROP_SCHEMA } };
-  const r = await a.ask<Record<string, unknown>>(system, user, schema, 9000);
+  const r = await a.ask<Record<string, unknown>>(system, user, schema, a.rework ? 14000 : 9000);
   if (!r.ok) return { ok: false, error: r.error, budget: /times today/.test(r.error) };
 
   const facts = brain ? JSON.stringify([brain.brandVoice, brain.positioningGuard, brain.productContentRules]) : "";
