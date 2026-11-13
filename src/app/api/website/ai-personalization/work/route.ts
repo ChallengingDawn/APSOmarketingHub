@@ -164,7 +164,9 @@ export async function POST(req: NextRequest) {
         const ideaId = id("ideaId");
         if (!ideaId) return fail("Which optimization?", 400);
         const project = typeof b.projectId === "number" || typeof b.projectId === "string" ? String(b.projectId) : null;
-        const r = await markSent(ideaId, project && /^\d{1,12}$/.test(project) ? project : null, by);
+        // its Content to-do too, when Content gave it back (piece-add-convert) - its tests then carry the piece
+        const sentPiece = typeof b.piece === "number" && Number.isInteger(b.piece) && b.piece > 0 ? String(b.piece) : id("piece");
+        const r = await markSent(ideaId, project && /^\d{1,12}$/.test(project) ? project : null, by, sentPiece);
         return r ? NextResponse.json({ ok: true, data: r }) : fail("No such optimization (or it was dropped).", 404);
       }
       default:

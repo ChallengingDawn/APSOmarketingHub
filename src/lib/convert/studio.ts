@@ -15,6 +15,7 @@ import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
 import { isRework } from "./blockRules";
+import { leadTest, type TestBrief } from "./testState";
 import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfBlock, typeOfIdea, type ChangeType } from "./changeTypes";
 import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
@@ -256,7 +257,31 @@ export function pageKeyOf(path: string): string {
   return c.kind === "product" && c.product ? `product:${c.product}` : `page:${path}`;
 }
 
-export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[]; analysis: Analysis | null }> {
+/**
+ * EACH OPTIMIZATION'S TEST (13.11.2026 - the loop as one product): the tests made from its own versions, and those
+ * Content's Page builder made for its to-do (its piece); the live one, else the latest (./testState.ts). None when the
+ * tests' table is not there yet.
+ */
+export async function testsOfIdeas(ideas: Pick<Idea, "id" | "piece">[]): Promise<Record<string, TestBrief>> {
+  const num = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const ids = num(ideas.map((i) => i.id));
+  const pieces = num(ideas.map((i) => i.piece));
+  if (!ids.length && !pieces.length) return {};
+  type Row = { id: string; idea_id: string | null; piece_id: string | null; status: TestBrief["status"]; winner: TestBrief["winner"]; updated_at: Date };
+  const r = await query<Row>(
+    `SELECT id, idea_id, piece_id, status, winner, updated_at FROM apsomh_convert_tests
+      WHERE kind = 'test' AND (idea_id = ANY($1::bigint[]) OR piece_id = ANY($2::bigint[]))`, [ids, pieces]).catch(() => ({ rows: [] as Row[] }));
+  const out: Record<string, TestBrief> = {};
+  for (const i of ideas) {
+    const mine = r.rows.filter((t) => String(t.idea_id) === i.id || (!!i.piece && String(t.piece_id) === i.piece))
+      .map((t) => ({ id: String(t.id), status: t.status, winner: t.winner, updatedAt: iso(t.updated_at)! }));
+    const lead = leadTest(mine);
+    if (lead) out[i.id] = lead;
+  }
+  return out;
+}
+
+export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[]; analysis: Analysis | null; tests: Record<string, TestBrief> }> {
   await ensureStudioSchema();
   const [ideas, versions, analysis] = await Promise.all([
     query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 ORDER BY (status = 'dropped'), id DESC`, [env, path]),
@@ -264,10 +289,12 @@ export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[];
     query<{ text: string; by_whom: string | null; at: Date }>(`SELECT text, by_whom, at FROM apsomh_convert_analyses WHERE env = $1 AND path = $2`, [env, path]),
   ]);
   const a = analysis.rows[0];
-  return { ideas: ideas.rows.map(toIdea), versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null };
+  const all = ideas.rows.map(toIdea);
+  const tests = await testsOfIdeas(all).catch(() => ({}));
+  return { ideas: all, versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null, tests };
 }
 
-export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number };
+export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number; test?: TestBrief | null };
 /**
  * AN OPTIMIZATION CONTENT MADE ITSELF (13.11.2026): the Page builder's own test version (versionFromChanges - the person's,
  * with its piece) is not one of the AI's proposals - kept out of Insights, the Pages counts and the Preview's slider; its
@@ -287,7 +314,9 @@ export async function board(): Promise<BoardRow[]> {
       WHERE NOT (i.source = 'person' AND i.piece_id IS NOT NULL)
       ORDER BY COALESCE(v.updated_at, i.decided_at, i.created_at) DESC LIMIT 500`,
   );
-  return r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
+  const rows = r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
+  const tests = await testsOfIdeas(rows).catch(() => ({} as Record<string, TestBrief>));
+  return rows.map((x) => ({ ...x, test: tests[x.id] ?? null }));
 }
 
 export async function setIdeaStatus(id: string, status: IdeaStatus, by: string): Promise<Idea | null> {
@@ -1014,12 +1043,13 @@ meets it, with real short words in English; only what cannot be shown becomes ON
  * so approve is more sent to project"): the optimization and every version it has are approved by the send, and the
  * Content project made for it is kept with them. The project itself is made by the caller (Content's own API).
  */
-export async function markSent(ideaId: string, projectId: string | null, by: string): Promise<{ idea: Idea; versions: Version[] } | null> {
+export async function markSent(ideaId: string, projectId: string | null, by: string, pieceId: string | null = null): Promise<{ idea: Idea; versions: Version[] } | null> {
   await ensureStudioSchema();
   const i = await query<IdeaRow>(
     `UPDATE apsomh_convert_ideas SET status = 'approved', decided_by = COALESCE(decided_by, $2), decided_at = COALESCE(decided_at, now()),
-            sent_by = $2, sent_at = now(), project_id = COALESCE($3::bigint, project_id) WHERE id = $1 AND status <> 'dropped' RETURNING *`,
-    [ideaId, by, projectId]);
+            sent_by = $2, sent_at = now(), project_id = COALESCE($3::bigint, project_id), piece_id = COALESCE($4::bigint, piece_id)
+      WHERE id = $1 AND status <> 'dropped' RETURNING *`,
+    [ideaId, by, projectId, pieceId]);
   if (!i.rows[0]) return null;
   const v = await query<VersionRow>(
     `UPDATE apsomh_convert_versions SET status = 'approved', approved_by = COALESCE(approved_by, $2), approved_at = COALESCE(approved_at, now()), updated_at = now()
