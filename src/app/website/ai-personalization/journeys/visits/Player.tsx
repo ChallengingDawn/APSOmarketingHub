@@ -53,6 +53,8 @@ const NO_PICTURE: Partial<Record<JKind, string>> = {
   order: "The order went through",
   account: "Their own account pages - no picture of them",
   search: "The search results",
+  // a kind of its own since 13.11.2026 (src/lib/journeys/model.ts) - the customer's own list, like the cart
+  quickorder: "The quick order is the customer's own list - no picture of it",
   other: "A page of the shop without a picture",
   product: "This product's page is not in the shop's page list",
 };

@@ -8,6 +8,9 @@
 // shop's gateway counts (src/lib/convert/clicks.ts); when it does not answer, this page says so and shows nothing made up.
 // 13.11.2026: the three-step explanation on top is gone (SARCLA: "take out this"), and each page has "Find optimizations"
 // beside its clicks (SARCLA: "also here button find optimization") - the Preview opened with the AI asked (&ask=1).
+// A shop function clicked (the cart, the check-out, sign-in...) keeps its counts but gets no picture and no link to the
+// Preview - the Preview refuses it (SARCLA: "Preview did not answer (HTTP 400) - env must be prod or acc, and path a
+// shop page"; src/lib/journeys/model.ts canPreview).
 
 import { useState } from "react";
 import Link from "next/link";
@@ -29,6 +32,7 @@ import { PageShot } from "@/app/website/ai-personalization/PageShot";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
 import type { Env } from "@/lib/convert/model";
 import type { CartsFrom } from "@/lib/convert/clicks";
+import { KIND_COLOR, KIND_NAME, canPreview, journeyKind } from "@/lib/journeys/model";
 import { CartsBySource } from "@/app/website/ai-personalization/CartsBySource";
 import { AiButton } from "@/app/website/ai-personalization/AiButton";
 
@@ -47,9 +51,19 @@ const clicksHref = (env: Env, path: string) => `${previewHref(env, path)}&clicks
 const findHref = (env: Env, path: string) => `${previewHref(env, path)}&ask=1`;
 
 function PageCard({ env, path, children, note }: { env: Env; path: string; children: React.ReactNode; note: React.ReactNode }) {
+  const kind = journeyKind(path);
   return (
     <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden", bgcolor: "#fff", display: "flex", flexDirection: "column", minWidth: 0 }}>
-      <PageShot env={env} path={path} ratio={0.56} />
+      {canPreview(path)
+        ? <PageShot env={env} path={path} ratio={0.56} />
+        : (
+          <Box sx={{ aspectRatio: `${1 / 0.56}`, display: "grid", placeItems: "center", textAlign: "center", p: 1.5, bgcolor: `${KIND_COLOR[kind]}18`, borderBottom: `1px solid ${HAIRLINE}` }}>
+            <Box>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{KIND_NAME[kind]}</Typography>
+              <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>a shop function - the Preview shows the public pages only</Typography>
+            </Box>
+          </Box>
+        )}
       <Box sx={{ p: 1.5, display: "grid", gap: 0.75, flex: 1, alignContent: "start" }}>
         <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: INK, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{pageName(path)}</Typography>
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, fontFamily: "ui-monospace, Consolas, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={path}>{path}</Typography>
@@ -97,9 +111,13 @@ export default function ClickMapPage() {
                   return (
                     <PageCard key={`${x.host}:${x.path}`} env={env} path={x.path}
                       note={<><Chip tint="amber">{full(x.n)} click{x.n === 1 ? "" : "s"} · {full(x.d)} desktop · {full(x.m)} phone</Chip>{env === "acc" && <Chip tint="slate">ACC</Chip>}</>}>
-                      <Button component={Link} href={clicksHref(env, x.path)} size="small" variant="contained" color="warning" disableElevation startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />}
-                        sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>See the clicks on the page</Button>
-                      <AiButton size="small" href={findHref(env, x.path)}>Find optimizations</AiButton>
+                      {canPreview(x.path) && (
+                        <>
+                          <Button component={Link} href={clicksHref(env, x.path)} size="small" variant="contained" color="warning" disableElevation startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />}
+                            sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>See the clicks on the page</Button>
+                          <AiButton size="small" href={findHref(env, x.path)}>Find optimizations</AiButton>
+                        </>
+                      )}
                     </PageCard>
                   );
                 })}

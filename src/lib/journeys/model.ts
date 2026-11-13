@@ -20,27 +20,30 @@ import { classify, furthestByCompany, type ShopLook, type Step } from "../conver
 
 /* ── the kinds of page ────────────────────────────────────────────────── */
 
-export type JKind = "home" | "category" | "search" | "product" | "cms" | "account" | "other" | "cart" | "checkout" | "order";
+// the quick order (/quickorder: article numbers typed or pasted, straight into the cart) is a kind of its own since
+// 13.11.2026 - it was one of the "Other pages", and it is one of the ways to the cart (SARCLA: "how they come to the
+// cart, this is the real question")
+export type JKind = "home" | "category" | "search" | "product" | "quickorder" | "cms" | "account" | "other" | "cart" | "checkout" | "order";
 /** Top to bottom in every column of the flow: browsing first, the way to the order last. */
-export const JKINDS: JKind[] = ["home", "category", "search", "product", "cms", "account", "other", "cart", "checkout", "order"];
+export const JKINDS: JKind[] = ["home", "category", "search", "product", "quickorder", "cms", "account", "other", "cart", "checkout", "order"];
 /** A kind of page, or the end of a visit: they left the shop. */
 export type FlowKind = JKind | "left";
 export const FLOW_KINDS: FlowKind[] = [...JKINDS, "left"];
 export const isJKind = (x: unknown): x is JKind => typeof x === "string" && (JKINDS as string[]).includes(x);
 
 export const KIND_NAME: Record<FlowKind, string> = {
-  home: "Home page", category: "Category", search: "Search", product: "Product", cms: "Content page", account: "Account",
+  home: "Home page", category: "Category", search: "Search", product: "Product", quickorder: "Quick order", cms: "Content page", account: "Account",
   other: "Other page", cart: "Cart", checkout: "Check-out", order: "Order placed", left: "Left the shop",
 };
 /** "on a category", "on the home page" - for sentences. */
 export const KIND_ON: Record<FlowKind, string> = {
-  home: "on the home page", category: "on a category", search: "on the search results", product: "on a product",
+  home: "on the home page", category: "on a category", search: "on the search results", product: "on a product", quickorder: "on the quick order",
   cms: "on a content page", account: "in their account", other: "on another page", cart: "in the cart",
   checkout: "in the check-out", order: "on the order confirmation", left: "gone",
 };
 /** One colour per kind, the same on every page of the app. */
 export const KIND_COLOR: Record<FlowKind, string> = {
-  home: "#6a46c9", category: "#2459d1", search: "#c27c0e", product: "#0e8fb0", cms: "#b63a76", account: "#5d6b85",
+  home: "#6a46c9", category: "#2459d1", search: "#c27c0e", product: "#0e8fb0", quickorder: "#7b8a1e", cms: "#b63a76", account: "#5d6b85",
   other: "#9aa5b8", cart: "#e2672b", checkout: "#2f9e74", order: "#1b6e4a", left: "#c3cad6",
 };
 /** The kinds that count as "went to the cart": the cart page, the check-out (the mini cart skips the cart page), the order. */
@@ -56,6 +59,7 @@ export function journeyKind(path: string): JKind {
   const rest = c.rest.toLowerCase();
   const first = rest.split("/")[0];
   if (first === "catalogsearch") return "search";
+  if (first === "quickorder") return "quickorder";
   if (/^(checkout\/onepage\/success|multishipping\/checkout\/success)/.test(rest)) return "order";
   if (/^checkout\/cart(\/|$)/.test(rest)) return "cart";
   if (first === "checkout" || first === "multishipping" || first === "paypal") return "checkout";
@@ -121,6 +125,7 @@ export function pageName(path: string): string {
   const k = journeyKind(path);
   if (k === "home") return c.store ? `Home page · ${c.store}` : "Home page";
   if (k === "search") return "Search results";
+  if (k === "quickorder") return "Quick order";
   if (k === "cart") return "Cart";
   if (k === "checkout") return "Check-out";
   if (k === "order") return "Order placed";
@@ -134,6 +139,21 @@ export function pageName(path: string): string {
   const last = c.rest.split("/").filter(Boolean).pop() ?? c.rest;
   const words = last.replace(/\.html?$/i, "").replace(/^\d{8}-?/, "").replace(/[-_]+/g, " ").trim();
   return words ? words[0].toUpperCase() + words.slice(1) : c.rest || path;
+}
+
+/**
+ * Whether the Preview opens an address - and so whether a step gets a picture, Preview, Find optimizations and Click map
+ * (SARCLA 13.11.2026: "Preview did not answer (HTTP 400) - env must be prod or acc, and path a shop page"). The same rule
+ * as the Preview's own (src/lib/convert/studio.ts cleanPath): a path of the shop, not one of its functions - the cart,
+ * the check-out, the order placed, sign-in and the account, the search results, the quick order have a real address, but
+ * the Preview reads the shop as nobody signed in (an empty cart, a sign-in form) and refuses them. A way in (Google,
+ * no page before, another site) has no address of the shop at all.
+ */
+export function canPreview(path: string | null | undefined): boolean {
+  if (typeof path !== "string") return false;
+  const p = path.trim().split(/[?#]/)[0];
+  if (!p.startsWith("/") || p.startsWith("//") || p.length > 400 || /[\s<>"'\\]|\.\.\//.test(p)) return false;
+  return classify(p).kind !== "system";
 }
 
 /* ── the page before ──────────────────────────────────────────────────── */
@@ -474,6 +494,8 @@ export function ribbonPath(x0: number, sy: number, x1: number, ty: number, w: nu
 /* ── the main journeys, chained ───────────────────────────────────────── */
 
 export type Journey = {
+  /** where they came in from: another site or none (the ways to the cart, 13.11.2026) - absent: by the landing page */
+  way?: WayIn;
   /** the pages, by kind, from the way in */
   kinds: JKind[];
   /** how it ends: they left, they ordered, or it goes on past the last page shown */
@@ -520,9 +542,9 @@ export function topJourneys(entries: Record<JKind, number>, t: Transitions, o: {
   return out.sort((a, b) => b.visits - a.visits).slice(0, o.limit);
 }
 
-/** A journey in words: "Category → Product → Cart, then left". */
-export function journeyWords(j: Pick<Journey, "kinds" | "end">): string {
-  const path = j.kinds.map((k) => KIND_NAME[k]).join(" → ");
+/** A journey in words: "Category → Product → Cart, then left"; with its way in: "Google → Product → Cart → …". */
+export function journeyWords(j: Pick<Journey, "kinds" | "end" | "way">): string {
+  const path = [...(j.way ? [WAY_IN_NAME[j.way]] : []), ...j.kinds.map((k) => KIND_NAME[k])].join(" → ");
   return j.end === "left" ? `${path}, then left` : j.end === "on" ? `${path} → …` : path;
 }
 
@@ -810,13 +832,179 @@ export function leavesByKind(f: KindFlow): { kind: JKind; visits: number; share:
   return out.filter((x) => x.visits > 0).map((x) => ({ ...x, share: all ? x.visits / all : 0 })).sort((a, b) => b.visits - a.visits);
 }
 
+/* ══ the ways to the cart (SARCLA 13.11.2026: "Ordered · journey 1: Cart → Check-out → Order placed - how they come to
+   the cart, this is the real question") ══
+ *
+ * What Google Analytics gives the journeys: every page view with the page before it (pageReferrer) - pairs, no visitor
+ * followed. So the page RIGHT BEFORE the cart is measured; the pages before that one are chained, step by step, like
+ * every journey here. The journeys used to start on Google Analytics' landing page, and a visit restarted after 30
+ * minutes away "lands" on the cart - hence "Cart → Check-out → Order placed". Now a journey starts where the steps say
+ * a visit starts: a page reached from OUTSIDE the shop - from Google, Bing, an AI assistant, another site, or with no
+ * page before (typed, a bookmark, a link in an e-mail). Coming back from a payment page (or with no page before onto
+ * the check-out or the order placed - a payment's redirect) is the check-out's next step, never a way in. */
+
+export type WayIn = "google" | "bing" | "ai" | "search" | "social" | "ap" | "site" | "direct";
+export const WAYS_IN: WayIn[] = ["google", "bing", "ai", "search", "social", "ap", "site", "direct"];
+export const WAY_IN_NAME: Record<WayIn, string> = {
+  google: "Google", bing: "Bing", ai: "AI assistant", search: "Other search engine", social: "Social media",
+  ap: "Angst+Pfister", site: "Another site", direct: "Direct",
+};
+/** A way in for a sentence or a tooltip. */
+export const WAY_IN_NOTE: Record<WayIn, string> = {
+  google: "came in from Google", bing: "came in from Bing", ai: "came in from an AI assistant (ChatGPT, Gemini, Perplexity, Copilot)",
+  search: "came in from another search engine", social: "came in from social media or LinkedIn", ap: "came in from angst-pfister.com",
+  site: "came in from another site", direct: "no page before: typed, a bookmark, a link in an e-mail or an app",
+};
+
+/** Another site, by siteName's name, as a way in - null for a payment page: coming back from it is the check-out's next step. */
+export function wayInOf(site: string): WayIn | null {
+  switch (site) {
+    case "Google": return "google";
+    case "Bing": return "bing";
+    case "Gemini": case "ChatGPT": case "Perplexity": case "Copilot": return "ai";
+    case "Other search engines": return "search";
+    case "LinkedIn": case "Social media": return "social";
+    case "Angst+Pfister": return "ap";
+    case "A payment page": return null;
+    default: return "site";
+  }
+}
+
+/** Onto the cart, or straight onto the check-out (the mini cart skips the cart page): the doors of the cart. */
+const CART_DOOR = (k: JKind) => k === "cart" || k === "checkout";
+
+/** What was right before a page view onto the cart: a kind of page, or the way in (they came in on the cart). */
+export type BeforeCart = { key: string; kind: JKind | null; way: WayIn | null; views: number; share: number; checkout: number };
+
+export type CartWays = {
+  /** the steps by kind, a payment's way back counted as a step from the check-out */
+  flow: KindFlow;
+  /** the visits by their way in and the kind of page they came in on */
+  arrivals: Record<WayIn, Record<JKind, number>>;
+  /** the page views onto the cart (or straight onto the check-out) from outside the cart, by what was right before - the
+   *  most first; the moves inside the cart (the check-out back to the cart) are not a way to it. MEASURED, not chained. */
+  before: BeforeCart[];
+  /** their total */
+  toCart: number;
+};
+
+/** The ways to the cart of one store view (null: all): both ends of a step in the store view, as everywhere here. */
+export function cartWaysOf(g: StepGraph, store: string | null): CartWays {
+  const ok = inStore(store);
+  const kinds = new Map<string, JKind>();
+  const kindOf = (key: string) => { let k = kinds.get(key); if (!k) { k = journeyKind(key); kinds.set(key, k); } return k; };
+  const views = zeroKinds(), outside = zeroKinds();
+  const steps = Object.fromEntries(JKINDS.map((k) => [k, zeroKinds()])) as Record<JKind, Record<JKind, number>>;
+  const arrivals = Object.fromEntries(WAYS_IN.map((w) => [w, zeroKinds()])) as Record<WayIn, Record<JKind, number>>;
+  const before = new Map<string, BeforeCart>();
+  const onto = (key: string, kind: JKind | null, way: WayIn | null, v: number, door: JKind) => {
+    const b = before.get(key) ?? { key, kind, way, views: 0, share: 0, checkout: 0 };
+    b.views += v;
+    if (door === "checkout") b.checkout += v;
+    before.set(key, b);
+  };
+  for (const [key, t] of g.pages) {
+    if (!ok(key)) continue;
+    const k = kindOf(key);
+    views[k] += t.views - t.again;
+    // the payment's redirect lands on the check-out or the order placed - from the payment page or with no page before
+    const back = k === "checkout" || k === "order";
+    const came = (w: WayIn | null, v: number) => {
+      outside[k] += v;
+      if (w === null || back) { steps.checkout[k] += v; return; }
+      arrivals[w][k] += v;
+      if (CART_DOOR(k)) onto(`way:${w}`, null, w, v, k);
+    };
+    for (const [site, v] of t.sites) came(wayInOf(site), v);
+    if (t.none > 0) came("direct", t.none);
+  }
+  for (const [from, out] of g.steps) {
+    if (!ok(from)) continue;
+    const kf = kindOf(from);
+    for (const [to, n] of out) {
+      if (!ok(to)) continue;
+      const kt = kindOf(to);
+      steps[kf][kt] += n;
+      if (CART_DOOR(kt) && !CART_KINDS.includes(kf)) onto(`kind:${kf}`, kf, null, n, kt);
+    }
+  }
+  const list = [...before.values()].filter((b) => b.views > 0);
+  const toCart = sum(list.map((b) => b.views));
+  return {
+    flow: { views, steps, outside },
+    arrivals,
+    before: list.map((b) => ({ ...b, share: toCart ? b.views / toCart : 0 })).sort((a, b) => b.views - a.views || a.key.localeCompare(b.key)),
+    toCart,
+  };
+}
+
+export type CartJourneySet = JourneySet & {
+  /** the journeys that reached the cart (or the check-out) and ended with the visitor leaving, the most first */
+  lostCart: Journey[];
+  /** the visits chained to the cart, and of them the ones lost after it */
+  carts: number;
+  cartLost: number;
+};
+
+/**
+ * The main journeys from the WAY IN (Google, direct...) through the kinds of page on the way to the cart, to the order
+ * or to where they leave - a run of one kind is one step, up to `depth` pages after the way in. Won: ended in an order
+ * (`minWon` of the orders). Lost: left the shop (`minLost` of all visits); lostCart: left after the cart (`minWon` of
+ * those lost after the cart - rarer than all the leavings, its own bar). Built from page-to-page steps: chained, so the
+ * pages after the cart do not depend on the way to it - only the steps say what comes after a page, not who walked it.
+ */
+export function cartJourneys(w: Pick<CartWays, "flow" | "arrivals">, o: { depth: number; won: number; lost: number; minLost: number; minWon: number }): CartJourneySet {
+  const c = collapseRuns(transitionsOf(w.flow));
+  const toOrder = reachChances(c, ["order"]);
+  const toCart = reachChances(c, CART_KINDS);
+  let total = 0, orders = 0, carts = 0;
+  for (const way of WAYS_IN) for (const k of JKINDS) {
+    const v = Math.max(0, w.arrivals[way][k]);
+    total += v; orders += v * toOrder[k]; carts += v * toCart[k];
+  }
+  const cartLost = Math.max(0, carts - orders);
+  const empty: CartJourneySet = { won: [], lost: [], lostCart: [], total, orders, covered: 0, depth: o.depth, carts, cartLost };
+  if (total <= 0) return empty;
+  const minL = total * o.minLost;
+  const minW = Math.max(1e-9, orders * o.minWon);
+  const minC = Math.max(1e-9, cartLost * o.minWon);
+  const won: Journey[] = [], lost: Journey[] = [], lostCart: Journey[] = [];
+  const rec = (list: Journey[], way: WayIn, kinds: JKind[], end: "left" | "order", v: number, sawCart: boolean) =>
+    list.push({ way, kinds, end, visits: v, share: v / total, cart: sawCart ? v : 0, order: end === "order" ? v : 0 });
+  let guard = 0;
+  const walk = (way: WayIn, kinds: JKind[], v: number, sawCart: boolean) => {
+    if (++guard > 300_000) return;
+    const last = kinds[kinds.length - 1];
+    if (last === "order") { if (v >= minW) rec(won, way, kinds, "order", v, true); return; }
+    const e = v * c.exit[last];
+    if (e >= minL) rec(lost, way, kinds, "left", e, sawCart);
+    if (sawCart && e >= minC) rec(lostCart, way, kinds, "left", e, true);
+    if (kinds.length >= o.depth) return;
+    for (const k2 of JKINDS) {
+      const v2 = v * c.p[last][k2];
+      if (!(v2 > 0)) continue;
+      const saw2 = sawCart || CART_KINDS.includes(k2);
+      // walked on while one of the three lists can still take it
+      const lostAfterCart = saw2 ? 1 - toOrder[k2] : toCart[k2] - toOrder[k2];
+      if (v2 >= minL || v2 * toOrder[k2] >= minW || v2 * lostAfterCart >= minC) walk(way, [...kinds, k2], v2, saw2);
+    }
+  };
+  for (const way of WAYS_IN) for (const k of JKINDS) {
+    const v = w.arrivals[way][k];
+    if (v > 0) walk(way, [k], v, CART_KINDS.includes(k));
+  }
+  const by = (a: Journey, b: Journey) => b.visits - a.visits || a.kinds.length - b.kinds.length || WAYS_IN.indexOf(a.way!) - WAYS_IN.indexOf(b.way!);
+  const wn = won.sort(by).slice(0, o.won), ls = lost.sort(by).slice(0, o.lost), lc = lostCart.sort(by).slice(0, o.lost);
+  return { ...empty, won: wn, lost: ls, lostCart: lc, covered: (sum(wn.map((j) => j.visits)) + sum(ls.map((j) => j.visits))) / total };
+}
+
 /* ── a funnel of steps the person picks ───────────────────────────────── */
 
 /** A step: every visit (the way in), one or more kinds of page, or one page. */
 export type StepDef = { type: "in" } | { type: "kinds"; kinds: JKind[] } | { type: "page"; path: string };
 
 /** The kinds a step can be made of ("other" - the shop's odd functions - is never one). */
-export const STEP_KINDS: JKind[] = ["home", "category", "search", "product", "cms", "account", "cart", "checkout", "order"];
+export const STEP_KINDS: JKind[] = ["home", "category", "search", "product", "quickorder", "cms", "account", "cart", "checkout", "order"];
 /** The shop's own path: the way in, a category or the search, a product, the cart, the check-out, the order placed. */
 export const SHOP_PATH = ["in", "category.search", "product", "cart", "checkout", "order"];
 export const MAX_STEPS = 6;
@@ -1075,6 +1263,7 @@ const PAT = {
   catalog: `${PRE}/catalog/category/view/.*`,
   any: `${PRE}/.+`,
   search: `${PRE}/catalogsearch(?:/.*)?`,
+  quickorder: `${PRE}/quickorder(?:/.*)?`,
   order: `${PRE}/(?:checkout/onepage/success|multishipping/checkout/success).*`,
   cart: `${PRE}/checkout/cart(?:/.*)?`,
   checkout: `${PRE}/(?:checkout|multishipping|paypal)(?:/.*)?`,
@@ -1087,6 +1276,7 @@ export const KIND_PATTERNS: Record<Exclude<JKind, "other">, { yes: string[]; no:
   category: { yes: [PAT.html, PAT.catalog], no: [PAT.product, PAT.system] },
   cms: { yes: [PAT.any], no: [PAT.home, PAT.product, PAT.system, PAT.html, PAT.catalog] },
   search: { yes: [PAT.search], no: [] },
+  quickorder: { yes: [PAT.quickorder], no: [] },
   order: { yes: [PAT.order], no: [] },
   cart: { yes: [PAT.cart], no: [] },
   checkout: { yes: [PAT.checkout], no: [PAT.order, PAT.cart] },
@@ -1178,7 +1368,10 @@ export type JourneysBody = {
   entries: Entry[];
   /** chained from the steps */
   flow: FlowGraph;
-  journeys: JourneySet;
+  /** from the way in (Google, direct...) through the pages on the way to the cart, to the order or lost (13.11.2026) */
+  journeys: CartJourneySet;
+  /** the page right before the cart, measured: by kind of page, or the way in when they came in on the cart */
+  cart: { before: BeforeCart[]; toCart: number };
   /** where the visits leave the shop, by kind */
   leaves: { kind: JKind; visits: number; share: number }[];
   /** page views by kind, a page again not counted */
@@ -1191,11 +1384,13 @@ export function journeysOf(g: StepGraph, landing: LandingRow[], store: string | 
   const counts = Object.fromEntries(JKINDS.map((k) => [k, byKind[k].sessions])) as Record<JKind, number>;
   const kf = kindFlow(g, store);
   const t = transitionsOf(kf);
+  const ways = cartWaysOf(g, store);
   return {
     totals: landingTotals(landing, store),
     entries: JKINDS.map((k) => byKind[k]).filter((e) => e.sessions > 0).sort((a, b) => b.sessions - a.sessions),
     flow: foldFlow(chainFlow(counts, t, FLOW_COLUMNS), FOLD_SHARE),
-    journeys: completeJourneys(counts, t, JOURNEY_RULES),
+    journeys: cartJourneys(ways, JOURNEY_RULES),
+    cart: { before: ways.before, toCart: ways.toCart },
     leaves: leavesByKind(kf),
     views: kf.views,
     pages: topPagesByKind(g, landing, store, 30),

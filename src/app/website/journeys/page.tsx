@@ -8,6 +8,13 @@
 // drawn column by column, the most viewed pages of each kind. Store view (all 14), device and period kept in the
 // address; the figures against the period before. Built from Google Analytics' page-to-page steps, chained - the pages
 // say so; the visits, carts and orders of the tiles and the ways in are its own counts (src/lib/journeys/read.ts).
+//
+// HOW THEY COME TO THE CART, 13.11.2026 (SARCLA: "Ordered · journey 1: Cart → Check-out → Order placed - how they come to
+// the cart, this is the real question"): a journey now starts where the visit came in from - Google, Bing, an AI
+// assistant, another site, or no page before - then the kinds of page on the way (the search results, a category, a
+// product, the quick order...), the cart, and the order or where they leave (src/lib/journeys/model.ts cartJourneys).
+// Above them, the page right before the cart, MEASURED (Google Analytics gives every page with the page before it; the
+// pages further back are chained). Lost: after the cart, or all. A shop function (the cart, sign-in...) has no Preview.
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -21,6 +28,7 @@ import CircularProgress from "@mui/material/CircularProgress";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import AccountTreeOutlinedIcon from "@mui/icons-material/AccountTreeOutlined";
 import RouteOutlinedIcon from "@mui/icons-material/RouteOutlined";
+import ShoppingCartCheckoutOutlinedIcon from "@mui/icons-material/ShoppingCartCheckoutOutlined";
 import LoginOutlinedIcon from "@mui/icons-material/LoginOutlined";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import GroupsOutlinedIcon from "@mui/icons-material/GroupsOutlined";
@@ -43,8 +51,12 @@ import { CartsBySource } from "@/app/website/ai-personalization/CartsBySource";
 import type { CartsFrom } from "@/lib/convert/clicks";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
 import { PageShot } from "@/app/website/ai-personalization/PageShot";
+import { Chip } from "@/app/website/ai-personalization/Tag";
 import { journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
-import { FLOW_KINDS, KIND_COLOR, KIND_NAME, KIND_ON, journeyWords, type FlowKind, type JKind, type Journey } from "@/lib/journeys/model";
+import {
+  FLOW_KINDS, KIND_COLOR, KIND_NAME, KIND_ON, WAY_IN_NAME, WAY_IN_NOTE, canPreview, journeyWords,
+  type BeforeCart, type FlowKind, type JKind, type Journey,
+} from "@/lib/journeys/model";
 import type { JourneysData } from "@/lib/journeys/read";
 import { JourneyFlowChart, KindLegend, KindTag, NextBar, pct } from "./parts";
 import { ChoiceBar, jqs, useJQuery, type JQuery } from "./controls";
@@ -53,7 +65,9 @@ const linkSx = { color: ACCENT, fontWeight: 700, textDecoration: "none", "&:hove
 const btnSx = { borderRadius: "6px", textTransform: "none", fontWeight: 700, boxShadow: "none", whiteSpace: "nowrap" } as const;
 const day = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 /** The shop's functions are drawn as tiles, the pages as they look. */
-const FUNCTION_KINDS = new Set<JKind>(["search", "cart", "checkout", "order", "account", "other"]);
+const FUNCTION_KINDS = new Set<JKind>(["search", "quickorder", "cart", "checkout", "order", "account", "other"]);
+/** The way in, drawn apart from the pages: it is no page of the shop. */
+const WAY_COLOR = "#7d8aa3";
 
 /** A journey's tokens as a funnel: the way in first when there is room. */
 const funnelOf = (j: Journey) => (j.kinds.length < 6 ? ["in", ...j.kinds] : j.kinds.slice(0, 6));
@@ -63,9 +77,10 @@ const funnelOf = (j: Journey) => (j.kinds.length < 6 ? ["in", ...j.kinds] : j.ki
 function Steps({ j }: { j: Journey }) {
   return (
     <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 0.6, rowGap: 0.5, minWidth: 0 }} aria-label={journeyWords(j)}>
+      {j.way && <Box component="span" title={WAY_IN_NOTE[j.way]} sx={{ display: "inline-flex" }}><Chip tint="slate">{WAY_IN_NAME[j.way]}</Chip></Box>}
       {j.kinds.map((k, i) => (
         <Box key={i} component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-          {i > 0 && <Box component="span" aria-hidden sx={{ color: FAINT, fontSize: "0.8rem" }}>→</Box>}
+          {(i > 0 || j.way) && <Box component="span" aria-hidden sx={{ color: FAINT, fontSize: "0.8rem" }}>→</Box>}
           <KindTag kind={k} />
         </Box>
       ))}
@@ -119,7 +134,11 @@ function JourneyList({ rows, side, sel, onSel, total, orders }: {
 
 /** The chosen journey as visitors see it: each step's most viewed page of its kind, as it looks; the shop's functions as tiles. */
 function JourneySeen({ j, pages, jb, q }: { j: Journey; pages: JourneysData["pages"]; jb: string; q: JQuery }) {
-  const steps = j.kinds.map((k) => ({ kind: k, page: FUNCTION_KINDS.has(k) ? null : (pages[k] ?? [])[0] ?? null }));
+  // a picture only for a page the Preview opens: a shop function is a tile, never a frame that answers 400
+  const steps = j.kinds.map((k) => {
+    const page = FUNCTION_KINDS.has(k) ? null : (pages[k] ?? []).find((p) => canPreview(p.path)) ?? null;
+    return { kind: k, page };
+  });
   const firstPage = steps.find((s) => s.page)?.page ?? (pages[j.kinds[0]] ?? [])[0] ?? null;
   const tile = (k: FlowKind, label: string, sub: string) => (
     <Box sx={{ aspectRatio: "1.6", borderRadius: "10px", display: "grid", placeItems: "center", textAlign: "center", p: 1, bgcolor: `${KIND_COLOR[k]}18`, border: `1px solid ${KIND_COLOR[k]}55` }}>
@@ -127,21 +146,29 @@ function JourneySeen({ j, pages, jb, q }: { j: Journey; pages: JourneysData["pag
     </Box>
   );
   // at least five columns: a short journey keeps its pictures at the same size as a long one
-  const cols = Math.max(5, steps.length + 1);
+  const cols = Math.max(5, steps.length + 1 + (j.way ? 1 : 0));
   return (
     <Box sx={{ display: "grid", gap: 1.75 }}>
       <Box sx={{ display: "grid", gap: 1.25, alignItems: "start", gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", sm: "repeat(3, minmax(0,1fr))", lg: `repeat(${cols}, minmax(0,1fr))` } }}>
+        {j.way && (
+          <Box sx={{ display: "grid", gap: 0.6, minWidth: 0 }}>
+            <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT, lineHeight: "20px" }}>WAY IN</Typography>
+            <Box sx={{ aspectRatio: "1.6", borderRadius: "10px", display: "grid", placeItems: "center", textAlign: "center", p: 1, bgcolor: `${WAY_COLOR}18`, border: `1px solid ${WAY_COLOR}55` }}>
+              <Box><Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK }}>{WAY_IN_NAME[j.way]}</Typography><Typography sx={{ fontSize: "0.72rem", color: MUTED, lineHeight: 1.3 }}>{WAY_IN_NOTE[j.way]}</Typography></Box>
+            </Box>
+          </Box>
+        )}
         {steps.map((st, i) => (
           <Box key={i} sx={{ display: "grid", gap: 0.6, minWidth: 0 }}>
             <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", minWidth: 0 }}>
-              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT }}>{i === 0 ? "CAME IN" : `STEP ${i + 1}`}</Typography>
+              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: FAINT }}>{i === 0 ? "CAME IN ON" : `PAGE ${i + 1}`}</Typography>
               <KindTag kind={st.kind} />
             </Box>
             {st.page
               ? <Box component={Link} href={previewHref("prod", st.page.path)} title={`${st.page.name} - open it in the Preview`} sx={{ display: "block", borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}` }}>
                   <PageShot env="prod" path={st.page.path} ratio={0.62} label={st.page.name} />
                 </Box>
-              : tile(st.kind, KIND_NAME[st.kind], st.kind === "order" ? "the order is placed" : "a shop function")}
+              : tile(st.kind, KIND_NAME[st.kind], st.kind === "order" ? "the order is placed" : "a shop function - no picture")}
             <Typography sx={{ fontSize: "0.76rem", color: MUTED, lineHeight: 1.35, overflowWrap: "anywhere" }}>{st.page ? <>e.g. <Box component="span" sx={{ color: INK, fontWeight: 600 }}>{st.page.name}</Box></> : " "}</Typography>
           </Box>
         ))}
@@ -160,6 +187,58 @@ function JourneySeen({ j, pages, jb, q }: { j: Journey; pages: JourneysData["pag
         <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>Each step shows the most viewed page of its kind{q.store ? ` in ${q.store}` : ""}.</Typography>
       </Box>
     </Box>
+  );
+}
+
+/* ── how they come to the cart: the page right before it, measured ────── */
+
+const BEFORE_NAME: Partial<Record<JKind, string>> = {
+  home: "The home page", category: "A category", search: "The search results", product: "A product page", quickorder: "The quick order",
+  cms: "A content page", account: "Sign-in or their account", other: "Another page of the shop",
+};
+const beforeLabel = (b: BeforeCart) => (b.kind ? BEFORE_NAME[b.kind] ?? KIND_NAME[b.kind] : `Came in on the cart · ${WAY_IN_NAME[b.way!]}`);
+
+/** Of the views of the cart (or of the check-out straight from the mini cart), what was right before - Google
+ *  Analytics' own pairs, not chained (SARCLA 13.11.2026: "how they come to the cart, this is the real question"). */
+function BeforeCartCard({ before, toCart }: { before: BeforeCart[]; toCart: number }) {
+  const [all, setAll] = useState(false);
+  const rows = all ? before : before.slice(0, 8);
+  const max = Math.max(1e-9, ...before.map((b) => b.share));
+  return (
+    <GlassCard>
+      <CardTitle icon={<ShoppingCartCheckoutOutlinedIcon />} tint="amber" title="How they come to the cart"
+        note={`The page right before each of the ${full(toCart)} times a visitor came to the cart - or straight to the check-out from the mini cart. Measured, page by page.`} />
+      {before.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>Nobody came to the cart in this period.</Typography>}
+      <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)" }}>
+        {rows.map((b) => {
+          const color = b.kind ? KIND_COLOR[b.kind] : WAY_COLOR;
+          return (
+            <Box key={b.key} title={b.way ? WAY_IN_NOTE[b.way] : undefined} sx={{
+              display: "grid", gridTemplateColumns: { xs: "10px minmax(0,1fr) 52px 64px", md: "10px 230px minmax(0,1fr) 52px 64px" }, columnGap: 1.25, rowGap: 0.4,
+              alignItems: "center", py: 0.8, borderTop: `1px solid ${HAIRLINE}`,
+            }}>
+              <Box aria-hidden sx={{ width: 10, height: 10, borderRadius: "2px", bgcolor: color }} />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography noWrap sx={{ fontSize: "0.86rem", fontWeight: 650, color: INK }}>{beforeLabel(b)}</Typography>
+                {b.checkout > 0 && <Typography noWrap sx={{ fontSize: "0.72rem", color: MUTED }}>{full(b.checkout)} straight to the check-out</Typography>}
+              </Box>
+              <Box sx={{ display: { xs: "none", md: "block" }, height: 8, borderRadius: "3px", bgcolor: TRACK, overflow: "hidden" }}>
+                <Box sx={{ height: "100%", width: `${(b.share / max) * 100}%`, bgcolor: color, opacity: 0.85 }} />
+              </Box>
+              <Typography sx={{ fontSize: "0.86rem", fontWeight: 750, color: INK, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pct(b.share)}</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: MUTED, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{full(b.views)}</Typography>
+            </Box>
+          );
+        })}
+      </Box>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", mt: 1.25 }}>
+        {before.length > 8 && <Button size="small" variant="outlined" onClick={() => setAll((a) => !a)} sx={btnSx}>{all ? "Show fewer" : `Show all · ${before.length - 8} more`}</Button>}
+        <Typography sx={{ fontSize: "0.74rem", color: FAINT, flex: "1 1 320px" }}>
+          The chat and the search bar put articles in the cart from the page they are on - no page of their own: their add-to-carts are in &quot;Put in the cart - from where&quot;.
+          Coming back to the cart from the check-out is not counted as a way to it.
+        </Typography>
+      </Box>
+    </GlassCard>
   );
 }
 
@@ -199,14 +278,14 @@ function KindPages({ data, kind, setKind, jb, q }: { data: JourneysData; kind: J
       {slice.length === 0 && <Typography sx={{ fontSize: "0.86rem", color: MUTED }}>No page of this kind in this period.</Typography>}
       <Box sx={{ display: "grid" }}>
         {slice.length > 0 && (
-          <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "minmax(0,1fr) 90px 100px 240px 80px 150px", columnGap: 2, pb: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
+          <Box sx={{ display: { xs: "none", md: "grid" }, gridTemplateColumns: "minmax(0,1fr) 90px 100px 240px 80px 176px", columnGap: 2, pb: 1, borderBottom: `1px solid ${HAIRLINE}` }}>
             {["Page", "Views", "Came in here", "Went next", "Left here", ""].map((h, i) => (
               <Typography key={i} sx={{ fontSize: "0.68rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: ".05em", textAlign: i === 1 || i === 2 || i === 4 ? "right" : "left" }}>{h}</Typography>
             ))}
           </Box>
         )}
         {slice.map((p) => (
-          <Box key={p.path} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) 90px 100px 240px 80px 150px" }, columnGap: 2, rowGap: 0.75, alignItems: "center", py: 1.1, borderBottom: `1px solid ${HAIRLINE}` }}>
+          <Box key={p.path} sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) 90px 100px 240px 80px 176px" }, columnGap: 2, rowGap: 0.75, alignItems: "center", py: 1.1, borderBottom: `1px solid ${HAIRLINE}` }}>
             <Box sx={{ minWidth: 0 }}>
               <Box component={Link} href={`${jb}/page${jqs(q, { path: p.path })}`} sx={{ fontSize: "0.88rem", fontWeight: 650, color: INK, textDecoration: "none", overflowWrap: "anywhere", "&:hover": { color: ACCENT } }}>{p.name}</Box>
               <Typography sx={{ fontSize: "0.72rem", color: MUTED, overflowWrap: "anywhere" }}>{p.path}</Typography>
@@ -220,10 +299,10 @@ function KindPages({ data, kind, setKind, jb, q }: { data: JourneysData; kind: J
               </Typography>
             </Box>
             <Typography sx={{ fontSize: "0.86rem", fontVariantNumeric: "tabular-nums", textAlign: { md: "right" }, color: INK }}>{pct(p.left)}<Box component="span" sx={{ display: { md: "none" }, color: MUTED }}> left here</Box></Typography>
-            <Box sx={{ fontSize: "0.8rem", whiteSpace: "nowrap" }}>
-              <Box component={Link} href={`${jb}/page${jqs(q, { path: p.path })}`} sx={linkSx}>Page flow</Box>
-              <Box component="span" sx={{ color: FAINT }}> · </Box>
-              <Box component={Link} href={previewHref("prod", p.path)} sx={linkSx}>Preview</Box>
+            <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
+              <Button size="small" variant="outlined" component={Link} href={`${jb}/page${jqs(q, { path: p.path })}`} sx={btnSx}>Page flow</Button>
+              {/* the cart, sign-in, the search results... are no page the Preview opens (13.11.2026: it answered 400) */}
+              {canPreview(p.path) && <Button size="small" variant="outlined" component={Link} href={previewHref("prod", p.path)} sx={btnSx}>Preview</Button>}
             </Box>
           </Box>
         ))}
@@ -241,6 +320,8 @@ function MainJourneysInner() {
   const { window: win } = useReportingWindow();
   const [tick, setTick] = useState(0);
   const [pick, setPick] = useState<{ side: "won" | "lost"; i: number } | null>(null);
+  // the lost journeys: those that had reached the cart (the question of 13.11.2026), or all of them
+  const [lostView, setLostView] = useState<"cart" | "all">("cart");
   const [kind, setKind] = useState<JKind | null>(null);
   // three views, one at a time (SARCLA 10.11.2026: "main journeys needs to be split to bring more clarity, as the
   // current funnel which I really like")
@@ -281,8 +362,9 @@ function MainJourneysInner() {
     const rate = (n: number, of: number) => (of > 0 ? n / of : 0);
     const top = data.entries[0] ?? null;
     const J = data.journeys;
-    const sel = pick ?? (J.won.length ? { side: "won" as const, i: 0 } : J.lost.length ? { side: "lost" as const, i: 0 } : null);
-    const chosen = sel ? (sel.side === "won" ? J.won : J.lost)[sel.i] ?? null : null;
+    const lostRows = lostView === "cart" ? J.lostCart : J.lost;
+    const sel = pick ?? (J.won.length ? { side: "won" as const, i: 0 } : lostRows.length ? { side: "lost" as const, i: 0 } : null);
+    const chosen = sel ? (sel.side === "won" ? J.won : lostRows)[sel.i] ?? null : null;
     const leaving = data.leaves.reduce((a, x) => a + x.visits, 0);
     body = (
       <>
@@ -317,28 +399,45 @@ function MainJourneysInner() {
           ]} />
         )}
 
+        {t.visits > 0 && view === "journeys" && <BeforeCartCard before={data.cart.before} toCart={data.cart.toCart} />}
+
         {t.visits > 0 && view === "journeys" && (
           <GlassCard>
-            <CardTitle icon={<RouteOutlinedIcon />} tint="blue" title="The main journeys"
-              note={`From the way in to the order, or to where they leave - up to ${J.depth} steps, a step being one kind of page. Built from page-to-page steps.`} />
+            <CardTitle icon={<RouteOutlinedIcon />} tint="blue" title="The main journeys - how they come to the cart"
+              note={`Where they came in (Google, direct, another site), the pages on the way to the cart, then the order - or where they leave. Up to ${J.depth} pages, a run of one kind of page being one step.`} />
             <Grid container spacing={{ xs: 2, lg: 3 }}>
               <Grid size={{ xs: 12, lg: 6 }}>
-                <Box sx={{ display: "flex", alignItems: "baseline", columnGap: 1, rowGap: 0.25, flexWrap: "wrap", mb: 1, pb: 1, borderBottom: `2px solid ${GREEN}` }}>
+                <Box sx={{ display: "flex", alignItems: "center", columnGap: 1, rowGap: 0.25, flexWrap: "wrap", minHeight: 40, mb: 1, pb: 1, borderBottom: `2px solid ${GREEN}` }}>
                   <Typography sx={{ fontSize: "0.98rem", fontWeight: 750, color: GREEN }}>End in an order</Typography>
                   <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{pct(J.orders / Math.max(1, J.total))} of the visits · {full(J.orders)} orders by these steps</Typography>
                 </Box>
                 <JourneyList rows={J.won} side="won" sel={sel?.side === "won" ? sel.i : null} onSel={(i) => setPick({ side: "won", i })} total={J.total} orders={J.orders} />
               </Grid>
               <Grid size={{ xs: 12, lg: 6 }}>
-                <Box sx={{ display: "flex", alignItems: "baseline", columnGap: 1, rowGap: 0.25, flexWrap: "wrap", mb: 1, pb: 1, borderBottom: `2px solid ${RED}` }}>
+                <Box sx={{ display: "flex", alignItems: "center", columnGap: 1, rowGap: 0.75, flexWrap: "wrap", minHeight: 40, mb: 1, pb: 1, borderBottom: `2px solid ${RED}` }}>
                   <Typography sx={{ fontSize: "0.98rem", fontWeight: 750, color: RED }}>End lost</Typography>
-                  <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{pct(1 - J.orders / Math.max(1, J.total))} of the visits leave without an order</Typography>
+                  <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
+                    {lostView === "cart"
+                      ? `${pct(J.cartLost / Math.max(1, J.total))} of the visits reach the cart and leave without an order`
+                      : `${pct(1 - J.orders / Math.max(1, J.total))} of the visits leave without an order`}
+                  </Typography>
+                  <Box sx={{ ml: "auto" }}>
+                    <SquareChoice<"cart" | "all"> value={lostView} onChange={(v) => { setLostView(v); if (sel?.side === "lost") setPick(null); }} options={[
+                      { key: "cart", label: "After the cart", count: J.lostCart.length },
+                      { key: "all", label: "All", count: J.lost.length },
+                    ]} />
+                  </Box>
                 </Box>
-                <JourneyList rows={J.lost} side="lost" sel={sel?.side === "lost" ? sel.i : null} onSel={(i) => setPick({ side: "lost", i })} total={J.total} orders={J.orders} />
+                <JourneyList rows={lostRows} side="lost" sel={sel?.side === "lost" ? sel.i : null} onSel={(i) => setPick({ side: "lost", i })} total={J.total} orders={J.orders} />
               </Grid>
             </Grid>
             <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1.5 }}>
-              The journeys listed are {pct(J.covered)} of the visits; the rest go rarer ways. Click a journey to see it.
+              The journeys to the order and all the lost ones are {pct(J.covered)} of the visits; the rest go rarer ways. Click a journey to see it.
+            </Typography>
+            <Typography sx={{ fontSize: "0.74rem", color: FAINT, mt: 0.5 }}>
+              Built from Google Analytics&apos; page-to-page steps - each page with the page before it, no visitor followed one by one: the page right
+              before the cart is measured, the pages before it are chained, and what follows the cart is the same share whatever the way to it.
+              A visit starts on a page reached from outside the shop; coming back from a payment page is the check-out&apos;s next step.
             </Typography>
           </GlassCard>
         )}
