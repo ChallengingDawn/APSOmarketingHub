@@ -747,7 +747,7 @@ function ConvertPreview() {
   const ideas = d?.ideas ?? [];
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
   // the numbers on the page are the slider's: this page's own optimizations (a new page is not one of them)
-  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece)).map((i, k) => [i.id, k + 1])), [ranked]);
+  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece && !i.sentAt)).map((i, k) => [i.id, k + 1])), [ranked]);
   const spots: Spots = useMemo(() => ({
     list: showSpots ? ranked.filter((i) => i.status !== "dropped" && i.target).map((i) => ({ n: numberOf.get(i.id)!, sel: i.target!, lead: numberOf.get(i.id) === 1 && i.source === "ai", title: i.title })) : [],
     focus: spotFocus,
@@ -758,7 +758,7 @@ function ConvertPreview() {
     return m;
   }, [d]);
   const idea = ideas.find((i) => i.id === ideaSel) ?? null;
-  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped" && !isLanding(x) && !(x.source === "person" && x.piece))[n - 1]; if (i) { setCompare(false); select(i.id); } };
+  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped" && !isLanding(x) && !(x.source === "person" && x.piece && !x.sentAt))[n - 1]; if (i) { setCompare(false); select(i.id); } };
   const versions = idea ? versionsOf.get(idea.id) ?? [] : [];
   const version = versions.find((v) => v.letter === letterSel) ?? versions[0] ?? null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
@@ -812,6 +812,7 @@ function ConvertPreview() {
   }, []);
 
   const act = async (key: string, body: Record<string, unknown>): Promise<boolean> => {
+    if (body.action === "ideas") { asked.current = true; if (askTimer.current) { clearTimeout(askTimer.current); askTimer.current = null; } }
     setBusy(key);
     setErr(null);
     let send = body;
@@ -884,12 +885,14 @@ function ConvertPreview() {
   const asked = useRef(false);
   const askTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (askTimer.current) clearTimeout(askTimer.current); }, []);
+  // another page opened in the same Preview: its own once, never the last page's pending ask
+  useEffect(() => { if (askTimer.current) { clearTimeout(askTimer.current); askTimer.current = null; } asked.current = false; }, [path, env]);
   useEffect(() => {
-    if (asked.current || !d || !path) return;
+    if (asked.current || !d || !path || d.path !== path || d.env !== env) return;
     // a page opened in the Preview finds its optimizations by itself (SARCLA 13.11.2026: "open on Preview should also be
     // find optimization") - once, never on a product page (the theme's code)
     if (classify(path).kind === "product") return;
-    const has = seoMode ? d.ideas.some((i) => i.status !== "dropped" && isLanding(i)) : d.ideas.length > 0;
+    const has = seoMode ? d.ideas.some((i) => i.status !== "dropped" && isLanding(i)) : d.ideas.some((i) => !(i.source === "person" && i.piece && !i.sentAt));
     if (!d.canEdit || !d.ai || d.page.status !== 200 || has) return;
     asked.current = true;
     askTimer.current = setTimeout(() => {
@@ -926,7 +929,7 @@ function ConvertPreview() {
     // page - only one; on the current page they could have multiple"): the slider holds the page's own optimizations,
     // the new page is one, on its own side
     // Content's own test versions are not the AI's optimizations of this page (studio.ts fromContent)
-    const live = ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece));
+    const live = ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece && !i.sentAt));
     const newPage = ranked.find((i) => i.status !== "dropped" && isLanding(i)) ?? null;
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
     // ONE optimization's versions side by side, framed on its block, until one is picked (SARCLA 10.11.2026: "3 or 4
