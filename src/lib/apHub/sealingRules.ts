@@ -137,14 +137,92 @@ export class SealingSheet {
 /** The pilot's material family of a compound (revision.js materialOf). */
 export function materialOf(name: string): string {
   const s = String(name || "").toUpperCase();
-  if (/FFKM|KALREZ|EVOLAST/.test(s)) return "FFKM";
-  if (/HNBR/.test(s)) return "HNBR";
-  if (/FKM|FPM/.test(s)) return "FKM";
-  if (/EPDM/.test(s)) return "EPDM";
-  if (/NBR/.test(s)) return "NBR";
-  if (/VMQ|SILICONE/.test(s)) return "VMQ";
-  if (/PTFE/.test(s)) return "PTFE";
+  for (const [family, re] of MATERIAL_RULES) if (re.test(s)) return family;
   return "Unclassified";
+}
+
+/** A short code as a word of its own - "PA 66", "PU-92", not inside "PARKER" or "PERTEC". */
+const word = (codes: string) => new RegExp(`(?<![A-Z])(?:${codes})(?![A-Z])`);
+
+/**
+ * The material families by the compound's name, in the order they are tried (SARCLA 13.11.2026: "3 million unclassified?
+ * HOW") - the pilot's seven, then the standard names and trade names of the others: the more specific first (FFKM before
+ * FKM, HNBR before NBR, FVMQ before VMQ), a short code only as a word of its own. A family shows only when a compound
+ * has its name; any name no rule knows stays Unclassified.
+ */
+export const MATERIAL_RULES: [string, RegExp][] = [
+  ["FFKM", /FFKM|FFPM|KALREZ|EVOLAST|CHEMRAZ|PERLAST|SIMRIZ|ISOLAST|PAROFLUOR/],
+  ["FEPM", /AFLAS|(?<![A-Z])FEPM(?![A-Z])/],
+  ["FVMQ", /FLUOROSILICON|FLUORSILIKON|(?<![A-Z])(?:FVMQ|FMQ)(?![A-Z])/],
+  ["HNBR", /HNBR/],
+  ["FKM", /FKM|FPM|VITON/],
+  ["EPDM", /EPDM|(?<![A-Z])EPM(?![A-Z])/],
+  ["NBR", /XNBR|NBR/],
+  ["VMQ", /VMQ|MVQ|SILICON|SILIKON/],
+  ["PTFE", /PTFE|TEFLON/],
+  ["PU", /POLYURETHAN|(?<![A-Z])(?:TPU|PU|AU|EU)(?![A-Z])/],
+  ["ACM", word("ACM")],
+  ["AEM", /VAMAC|(?<![A-Z])AEM(?![A-Z])/],
+  ["CR", /NEOPREN|(?<![A-Z])CR(?![A-Z])/],
+  ["IIR", /BUTYL|(?<![A-Z])(?:IIR|BIIR|CIIR)(?![A-Z])/],
+  ["NR", /NATURAL RUBBER|NATURKAUTSCHUK|(?<![A-Z])NR(?![A-Z])/],
+  ["SBR", word("SBR")],
+  ["PEEK", /PEEK/],
+  ["POM", word("POM")],
+  ["PA", /POLYAMID|(?<![A-Z])PA(?![A-Z])/],
+  ["PE", /UHMW|(?<![A-Z])(?:PE|HDPE|LDPE)(?![A-Z])/],
+];
+
+/** A name as the pages show it - the trailing " -" some article texts carry left off. */
+export const cleanName = (name: string): string => String(name ?? "").replace(/\s*-+\s*$/, "").trim();
+
+/**
+ * A sales organisation's name, short enough for a chart's label - "Angst+Pfister Deutschland GmbH" → "A+P Deutschland"
+ * (SARCLA 13.11.2026: "name is cut on graph"); the full name stays in the tooltip.
+ */
+export function shortName(name: string): string {
+  const s = String(name ?? "")
+    .replace(/Angst\s*\+\s*Pfister/gi, "A+P")
+    .replace(/[,\s]+(?:GmbH(?:\s*&\s*Co\.?\s*KG)?|AG|SA|S\.A\.|SAS|S\.A\.S\.|S\.r\.l\.|Srl|B\.V\.|BV|N\.V\.|NV|Ltd\.?|Limited|Inc\.?|LLC|Sp\. z o\.o\.|s\.r\.o\.|Kft\.?|A\/S|AB|Oy|AS|S\.p\.A\.|SpA)\.?\s*$/i, "")
+    .trim();
+  return s || String(name ?? "");
+}
+
+/* -- an approval text read as its references (SARCLA 13.11.2026: approval texts "unreadable") --------------------- */
+
+export const PER_DATA_SHEET = "Per data sheet";
+/** "gemäss dem technischen Datenblatt", "acc. currently valid data sheet", "as per data sheet" - one reference. */
+const DATA_SHEET = /gem(?:ä|ae|a)ss?\s+(?:dem\s+)?(?:technischen\s+)?datenbla+tt|acc(?:\.|ording)?\s*(?:to\s+)?(?:the\s+)?(?:currently\s+)?(?:valid\s+)?(?:technical\s+)?data\s*-?sheet|as\s+per\s+(?:the\s+)?(?:technical\s+)?data\s*-?sheet|per\s+data\s*-?sheet/i;
+
+/**
+ * An approval text's separate references, in their order, each once: split at ";", a new line, ", " and " / " (a slash
+ * with spaces round it - "AS/NZS4020" and "1935/2004" stay whole), trimmed; the data-sheet phrases in any language
+ * become one "Per data sheet". No approval written: none.
+ */
+export function approvalParts(text: string): string[] {
+  if (noApproval(text)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (p: string) => {
+    const t = p.replace(/^[\s\-–•·]+|[\s\-–]+$/g, "").trim();
+    if (!t) return;
+    const k = t.toLowerCase().replace(/\s+/g, " ");
+    if (!seen.has(k)) { seen.add(k); out.push(t); }
+  };
+  for (const raw of String(text).split(/\s*[;\n\r]+\s*|,\s+|\s+\/\s+|\s+\|\s+/)) {
+    if (DATA_SHEET.test(raw)) {
+      add(raw.replace(DATA_SHEET, " ").replace(/\s+/g, " "));
+      add(PER_DATA_SHEET);
+    } else add(raw);
+  }
+  return out;
+}
+
+/** An approval text in one short line for a chart's label: its first references, then how many more. */
+export function approvalLabel(text: string, n = 3): string {
+  const parts = approvalParts(text);
+  if (!parts.length) return String(text ?? "").trim();
+  return parts.length <= n ? parts.join(" · ") : `${parts.slice(0, n).join(" · ")} +${parts.length - n} more`;
 }
 
 /** No compound named - the pilot's "missing" (index.html): left out of the compound and material views. */
@@ -614,7 +692,7 @@ export function familyFigures(compounds: Figure[]): FamilyFigure[] {
    could even be served in a separate tab") ----------------------------------------------------------------------- */
 
 /** "No compound named" - the articles' family of an article whose compound names none. */
-export const NO_COMPOUND_NAME = "No compound named";
+export const NO_COMPOUND_NAME = "No compound";
 /** The rows a page of a whole list holds (SARCLA: "pagination at 30"). */
 export const LIST_PAGE = 30;
 
@@ -710,15 +788,15 @@ export const SEALING_DEFINITIONS: { title: string; text: string }[] = [
   },
   {
     title: "Compound treatment",
-    text: "Compounds are shown as written on the article; no names are merged. \"No info\", \"Unknown\", \"TBD\", an empty field and drawing descriptions are unresolved entries: they are left out of the named ranking and of the material families, and Materials & compounds can include them.",
+    text: "Compounds are shown as written on the article; no names are merged. \"No info\", \"Unknown\", \"TBD\", an empty field and drawing descriptions are unresolved entries: they are left out of the compound ranking and of the material families (the charts of compounds and families count named compounds only), and Materials & compounds can include them.",
   },
   {
     title: "Material grouping",
-    text: "Families are derived from the compound's name, with Kalrez and Evolast treated as FFKM; HNBR, FKM (FPM), EPDM, NBR, VMQ (silicone) and PTFE by their letters. Unrecognised names stay Unclassified.",
+    text: "Families are derived from the compound's name, with Kalrez and Evolast treated as FFKM - as are Chemraz, Perlast, Simriz, Isolast, Parofluor and FFPM. Viton and FPM are FKM; Aflas is FEPM; fluorosilicone (FMQ) is FVMQ; MVQ, PVMQ and silicone are VMQ; XNBR is NBR; EPM is EPDM; Teflon is PTFE; AU, EU, TPU and polyurethane are PU; Vamac is AEM; neoprene is CR; butyl is IIR; then ACM, NR, SBR, PEEK, POM, PA and PE by their letters. A name no rule knows stays Unclassified - choose Unclassified on Materials & compounds to see its compounds. Compound designations and amounts are never changed, and entries with no compound are left out of the family totals.",
   },
   {
     title: "Accounts and approvals",
-    text: "Customer numbers remain separate even when two accounts carry the same name. Approvals are the texts written on the articles - not validated certification data. Their indicative categories come from keywords and need review. A text naming several references counts in each reference's card, so the references overlap; in the categories each text counts once.",
+    text: "Customer numbers remain separate even when two accounts carry the same name; with a business unit chosen in the Filters, a ranking covers only its accounts and articles. Compound labels are shown as written on the article, and apparent mismatches need validation; a compound's customers come from the same invoices, so their totals match its own. Approvals are the texts written on the articles - not validated certification data, and no proof of what caused a sale. Each text is read as its separate references; the data-sheet phrases in any language are one \"Per data sheet\". Explicit references: FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270, RoHS; datasheet: a technical datasheet named. Their indicative categories come from keywords and need review. A text naming several references counts in each reference's card, so the references overlap; in the categories each text counts once.",
   },
   {
     title: "Opportunity scenarios",

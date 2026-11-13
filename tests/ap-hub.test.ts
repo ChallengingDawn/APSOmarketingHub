@@ -5,6 +5,8 @@ import { accessAt, levelsOf } from "../src/lib/auth/tree";
 import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, monthsBetween, monthsSpan, noCompound, periodWords, priorities, rateMonths, sealingPeriod, sealingPresets, sumBy, sumMonths, tileSeries, topShare, yearBefore, type CompoundCustomer } from "../src/lib/apHub/sealingRules";
 import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
 import { SEALING_DEFINITIONS, actionsCaption, leadingRefs, matchesQuery, rankBy } from "../src/lib/apHub/sealingRules";
+import { MATERIAL_RULES, PER_DATA_SHEET, approvalLabel, approvalParts, cleanName, shortName } from "../src/lib/apHub/sealingRules";
+import { cacheKey, sealingCacheClear, sealingCacheSize, sealingCached, stableKey } from "../src/lib/apHub/sealingCache";
 import {
   LIST_PAGE, NO_COMPOUND_NAME, PRIORITY_STATUSES, STATUS_NAME, approvalCandidates, canMove, candidateKey, commercialCandidates, compoundsKept, familyCandidates, isPriorityStatus,
   listAskOf, nextStatuses, openCards, overviewCandidates, pagesOf, priorityKeyOf, reviewCandidates,
@@ -572,4 +574,76 @@ test("sealing: a whole list a page at a time - the request kept within bounds, t
   assert.deepEqual(pagesOf(7626, 7620), { pages: 255, page: 254 });
   assert.deepEqual(pagesOf(30, 0), { pages: 1, page: 0 });
   assert.deepEqual(pagesOf(0, 90), { pages: 1, page: 0 });
+});
+
+test("sealing: the material families by the standard and trade names - the specific first, short codes as words", () => {
+  const cases: [string, string][] = [
+    ["Kalrez® 6375", "FFKM"], ["Chemraz 505", "FFKM"], ["Perlast G75B", "FFKM"], ["Simriz 494", "FFKM"], ["Isolast J9503", "FFKM"], ["Parofluor V8545-75", "FFKM"], ["FFPM 75", "FFKM"],
+    ["Aflas 80", "FEPM"], ["FEPM 75", "FEPM"],
+    ["FVMQ 70.10-01", "FVMQ"], ["Fluorosilicone 60", "FVMQ"], ["FMQ 70", "FVMQ"],
+    ["HNBR 80.45-02", "HNBR"],
+    ["Viton® A 75", "FKM"], ["FPM 80", "FKM"], ["UP FKM 70.501-07 A", "FKM"], ["FKM 75.16-04", "FKM"],
+    ["DW EPDM 70.503-00", "EPDM"], ["EPM 70", "EPDM"],
+    ["XNBR 80", "NBR"], ["NBR 70.10-02", "NBR"],
+    ["PERTEC® UP VMQ 70.501-01", "VMQ"], ["MVQ 60", "VMQ"], ["PVMQ 70", "VMQ"], ["Silikon 60 Shore A", "VMQ"], ["Silicone red", "VMQ"],
+    ["PTFE virgin", "PTFE"], ["Teflon® FEP", "PTFE"],
+    ["PU 92", "PU"], ["TPU 95 ShA", "PU"], ["AU 90", "PU"], ["Polyurethane blue", "PU"],
+    ["ACM 70", "ACM"], ["Vamac G", "AEM"], ["AEM 70", "AEM"], ["CR 65", "CR"], ["Neoprene 60", "CR"], ["Butyl 70", "IIR"], ["IIR 60", "IIR"],
+    ["NR 40", "NR"], ["SBR 70", "SBR"], ["PEEK GF30", "PEEK"], ["POM-C", "POM"], ["PA 6.6", "PA"], ["UHMW-PE", "PE"], ["PE 1000", "PE"],
+    ["LUBROSEAL", "Unclassified"], ["PERTEC® CIP 70.100-01", "Unclassified"], ["something else", "Unclassified"],
+  ];
+  for (const [name, family] of cases) assert.equal(materialOf(name), family, name);
+  // a short code never inside a word: PERTEC is not PE, PARKER is not PA, CRANE is not CR
+  assert.equal(materialOf("PERTEC special"), "Unclassified");
+  assert.equal(materialOf("PARKER 5100"), "Unclassified");
+  assert.equal(materialOf("CRANE ring"), "Unclassified");
+  assert.ok(MATERIAL_RULES.every(([, re]) => re instanceof RegExp));
+  // the pilot's seven come first and keep their order
+  assert.deepEqual(MATERIAL_RULES.map(([f]) => f).filter((f) => ["FFKM", "HNBR", "FKM", "EPDM", "NBR", "VMQ", "PTFE"].includes(f)), ["FFKM", "HNBR", "FKM", "EPDM", "NBR", "VMQ", "PTFE"]);
+});
+
+test("sealing: names as the pages show them - no trailing dash, the organisations short", () => {
+  assert.equal(cleanName("Radial-shaft seal 13×19×3,SA,HNBR 80±5 ShA 6466P222.009 -"), "Radial-shaft seal 13×19×3,SA,HNBR 80±5 ShA 6466P222.009");
+  assert.equal(cleanName("PERTEC O-Ring ID 5.60 × 2.40 mm UP FKM 70.501-07 A -"), "PERTEC O-Ring ID 5.60 × 2.40 mm UP FKM 70.501-07 A");
+  assert.equal(cleanName("FKM 75.16-04"), "FKM 75.16-04", "a dash inside the name stays");
+  assert.equal(shortName("Angst+Pfister Deutschland GmbH"), "A+P Deutschland");
+  assert.equal(shortName("Angst + Pfister AG"), "A+P");
+  assert.equal(shortName("Angst+Pfister S.A."), "A+P");
+  assert.equal(shortName("Angst+Pfister Sp. z o.o."), "A+P");
+  assert.equal(shortName("APSOparts web shop"), "APSOparts web shop");
+});
+
+test("sealing: an approval text read as its references - split where safe, the data-sheet phrases one, each once", () => {
+  const t = "3-A Sanitary Standard; ACS; ADI free; AS/NZS4020; BfR XXI Category 4; DVGW W534;DVGW W270; EC 1935/2004, FDA 21 CFR 177.2600\nNSF 61 / NSF 51; ACS; gemäss dem technischen Datenblatt / acc. currently valid data sheet";
+  assert.deepEqual(approvalParts(t), [
+    "3-A Sanitary Standard", "ACS", "ADI free", "AS/NZS4020", "BfR XXI Category 4", "DVGW W534", "DVGW W270", "EC 1935/2004", "FDA 21 CFR 177.2600",
+    "NSF 61", "NSF 51", PER_DATA_SHEET,
+  ]);
+  assert.deepEqual(approvalParts("as per data sheet"), [PER_DATA_SHEET]);
+  assert.deepEqual(approvalParts("FDA acc. currently valid data sheet"), ["FDA", PER_DATA_SHEET]);
+  assert.deepEqual(approvalParts(""), []);
+  assert.deepEqual(approvalParts("(blank)"), []);
+  assert.equal(approvalLabel("FDA; WRAS"), "FDA · WRAS");
+  assert.equal(approvalLabel(t), "3-A Sanitary Standard · ACS · ADI free +9 more");
+});
+
+test("sealing: the answers kept - one stable key for the same question, a new delivery a new key, one reading shared", async () => {
+  assert.equal(stableKey({ to: "2026-11", from: "2026-01", bus: ["APDE", "APCH"] }), stableKey({ bus: ["APCH", "APDE"], from: "2026-01", to: "2026-11" }));
+  assert.notEqual(cacheKey("overview", "a", { from: "2026-01" }), cacheKey("overview", "b", { from: "2026-01" }));
+  assert.notEqual(cacheKey("list", "a", { offset: 0 }), cacheKey("list", "a", { offset: 30 }));
+  assert.equal(stableKey({ a: undefined, b: 1 }), stableKey({ b: 1 }));
+  let runs = 0;
+  const compute = async () => { runs++; await new Promise((r) => setTimeout(r, 5)); return { n: runs }; };
+  const [x, y] = await Promise.all([sealingCached("test", "s1", { q: 1 }, compute), sealingCached("test", "s1", { q: 1 }, compute)]);
+  assert.equal(runs, 1, "two requests at once share one reading");
+  assert.deepEqual(x.value, y.value);
+  const z = await sealingCached("test", "s1", { q: 1 }, compute);
+  assert.equal(z.hit, true);
+  assert.equal(runs, 1);
+  const w = await sealingCached("test", "s2", { q: 1 }, compute);
+  assert.equal(w.hit, false, "a new delivery is a new question");
+  assert.equal(runs, 2);
+  assert.equal(sealingCacheSize("test"), 1, "the older delivery's answers let go");
+  sealingCacheClear();
+  assert.equal(sealingCacheSize("test"), 0);
 });

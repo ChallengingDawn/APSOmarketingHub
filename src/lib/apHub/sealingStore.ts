@@ -7,6 +7,7 @@
 
 import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
+import { sealingCacheClear } from "./sealingCache";
 import {
   approvalKinds, approvalRefs, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
   type CompoundCustomer, type DetailKind, type ListAsk, type ListKind, type Figure, type KeyMonth, type Priority, type SealingRow,
@@ -32,6 +33,11 @@ export function ensureSealingTable(): Promise<void> {
         gp NUMERIC(16,2) NOT NULL DEFAULT 0
       )`);
     await query(`CREATE INDEX IF NOT EXISTS idx_${TABLE}_month ON ${TABLE}(month)`);
+    // the columns the pages filter and group by, each with the month (SARCLA 13.11.2026: "takes a lot of time")
+    for (const col of ["bu", "channel", "customer", "article", "compound"]) {
+      await query(`CREATE INDEX IF NOT EXISTS idx_${TABLE}_${col}_month ON ${TABLE}(${col}, month)`);
+    }
+    await query(`CREATE INDEX IF NOT EXISTS idx_${TABLE}_month_bu ON ${TABLE}(month, bu)`);
     await query(`
       CREATE TABLE IF NOT EXISTS ${TABLE}_meta (
         id INT PRIMARY KEY DEFAULT 1,
@@ -74,6 +80,8 @@ export async function saveSealing(rows: SealingRow[], from: { file: string; shee
       [from.file, from.sheet, rows.length, from.skipped, months[0], months[months.length - 1]],
     );
     await client.query("COMMIT");
+    // the answers kept of the day before are of no use now (the stamp changed too - this lets them go at once)
+    sealingCacheClear();
     return { kept: true, rows: rows.length, skipped: from.skipped, first_month: months[0], last_month: months[months.length - 1] };
   } catch (e) {
     await client.query("ROLLBACK").catch(() => {});
@@ -311,13 +319,20 @@ async function negativeOf(col: "customer" | "article", f: SealingFilter, from: s
 export async function readSealing(f: SealingFilter): Promise<SealingView> {
   await ensureSealingTable();
   const prevFrom = yearBefore(f.from), prevTo = yearBefore(f.to);
-  const meta = (await query<{ loaded_at: Date | null; first_month: string | null; last_month: string | null; rows: number | null; file: string | null; sheet: string | null }>(
-    `SELECT loaded_at, first_month, last_month, rows, file, sheet FROM ${TABLE}_meta WHERE id = 1`,
-  )).rows[0];
-  const bus = (await query<{ bu: string }>(`SELECT DISTINCT bu FROM ${TABLE} WHERE bu <> '' ORDER BY bu`)).rows.map((r) => r.bu);
-  const channels = (await query<{ channel: string }>(`SELECT DISTINCT channel FROM ${TABLE} WHERE channel <> '' ORDER BY channel`)).rows.map((r) => r.channel);
-
-  const [buNow, buBefore, chNow, chBefore, compNow, compBefore, custNow, custBefore, artNow, artBefore, appr, apprBefore, unitsNow, unitsBefore, chMonthsNow, chMonthsBefore, buList, chList] = await Promise.all([
+  const w = where(f, f.from, f.to);
+  const wb = where(f, prevFrom, prevTo);
+  type Counts = { customers: string; articles: string };
+  // one round: every reading that needs nothing from another, at once (SARCLA 13.11.2026: "takes a lot of time")
+  const [
+    metaRows, busRows, channelRows,
+    buNow, buBefore, chNow, chBefore, compNow, compBefore, custNow, custBefore, artNow, artBefore, appr, apprBefore,
+    unitsNow, unitsBefore, chMonthsNow, chMonthsBefore, buList, chList,
+    countsNow, countsPrev, negCust, negArt, negCustPrev, negArtPrev,
+  ] = await Promise.all([
+    query<{ loaded_at: Date | null; first_month: string | null; last_month: string | null; rows: number | null; file: string | null; sheet: string | null }>(
+      `SELECT loaded_at, first_month, last_month, rows, file, sheet FROM ${TABLE}_meta WHERE id = 1`),
+    query<{ bu: string }>(`SELECT DISTINCT bu FROM ${TABLE} WHERE bu <> '' ORDER BY bu`),
+    query<{ channel: string }>(`SELECT DISTINCT channel FROM ${TABLE} WHERE channel <> '' ORDER BY channel`),
     grouped("bu", "bu", f, f.from, f.to), grouped("bu", "bu", f, prevFrom, prevTo),
     grouped("channel", "channel", f, f.from, f.to), grouped("channel", "channel", f, prevFrom, prevTo),
     grouped("compound", "compound", f, f.from, f.to), grouped("compound", "compound", f, prevFrom, prevTo),
@@ -328,26 +343,15 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
     byMonth("channel", f, f.from, f.to), byMonth("channel", f, prevFrom, prevTo),
     // the Filters window's lists: a business unit chosen never hides the others, nor a sales organisation the others
     grouped("bu", "bu", { ...f, bus: [] }, f.from, f.to), grouped("channel", "channel", { ...f, channels: [] }, f.from, f.to),
+    query<Counts>(`SELECT COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles FROM ${TABLE} WHERE ${w.sql}`, w.vals),
+    query<Counts>(`SELECT COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles FROM ${TABLE} WHERE ${wb.sql}`, wb.vals),
+    negativeOf("customer", f, f.from, f.to), negativeOf("article", f, f.from, f.to),
+    negativeOf("customer", f, prevFrom, prevTo), negativeOf("article", f, prevFrom, prevTo),
   ]);
-  const w = where(f, f.from, f.to);
-  const counts = (await query<{ customers: string; articles: string }>(
-    `SELECT COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles FROM ${TABLE} WHERE ${w.sql}`, w.vals,
-  )).rows[0];
-  const wb = where(f, prevFrom, prevTo);
-  const countsBefore = (await query<{ customers: string; articles: string }>(
-    `SELECT COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles FROM ${TABLE} WHERE ${wb.sql}`, wb.vals,
-  )).rows[0];
-  // each article's compound, for the articles' list
-  const artCompound = new Map((await query<{ article: string; compound: string }>(
-    `SELECT article, MAX(compound) AS compound FROM ${TABLE} WHERE ${w.sql} GROUP BY article`, w.vals,
-  )).rows.map((r) => [r.article, r.compound]));
-  // the leading compounds' customers, for the priorities
-  const topCompounds = compNow.filter((c) => !noCompound(c.name)).slice(0, 20).map((c) => c.key);
-  const pairs: CompoundCustomer[] = topCompounds.length ? (await query<{ compound: string; customer: string; name: string; rev: string; gp: string }>(
-    `SELECT compound, customer, MAX(customer_name) AS name, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE}
-      WHERE ${w.sql} AND compound = ANY($${w.vals.length + 1}) GROUP BY compound, customer`,
-    [...w.vals, topCompounds],
-  )).rows.map((r) => ({ compound: r.compound, customer: r.customer, customerName: r.name || r.customer, rev: Number(r.rev), gp: Number(r.gp) })) : [];
+  const meta = metaRows.rows[0];
+  const bus = busRows.rows.map((r) => r.bu);
+  const channels = channelRows.rows.map((r) => r.channel);
+  const counts = countsNow.rows[0], countsBefore = countsPrev.rows[0];
 
   const sum = (a: Figure[]) => a.reduce((t, x) => ({ rev: t.rev + x.rev, gp: t.gp + x.gp }), { rev: 0, gp: 0 });
   const now = sum(buNow), before = sum(buBefore);
@@ -364,12 +368,28 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   const familyOf = new Map([...named, ...namedBefore].map((c) => [c.key, materialOf(c.name)]));
   // the period's largest customer account, article and named compound - their months, now and a year earlier
   const leaders = { customer: custNow[0]?.key ?? null, article: artNow[0]?.key ?? null, compound: named[0]?.key ?? null };
-  const [mNow, mBefore, famNow, famBefore, leadNow, leadBefore] = await Promise.all([
+  // the leading compounds' customers, for the priorities
+  const topCompounds = named.slice(0, 20).map((c) => c.key);
+  const artKeys = artNow.map((a) => a.key);
+  // the second round: what needs the first's keys - again all at once
+  const [mNow, mBefore, famNow, famBefore, leadNow, leadBefore, pairRows, artRows] = await Promise.all([
     monthFigures(f, f.from, f.to, noCompKeys, noApprKeys), monthFigures(f, prevFrom, prevTo, noCompKeys, noApprKeys),
     familyByMonth(f, f.from, f.to, [...familyOf.keys()], [...familyOf.values()]),
     familyByMonth(f, prevFrom, prevTo, [...familyOf.keys()], [...familyOf.values()]),
     leaderByMonth(f, f.from, f.to, leaders), leaderByMonth(f, prevFrom, prevTo, leaders),
+    topCompounds.length ? query<{ compound: string; customer: string; name: string; rev: string; gp: string }>(
+      `SELECT compound, customer, MAX(customer_name) AS name, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE}
+        WHERE ${w.sql} AND compound = ANY($${w.vals.length + 1}) GROUP BY compound, customer`,
+      [...w.vals, topCompounds],
+    ) : Promise.resolve({ rows: [] as { compound: string; customer: string; name: string; rev: string; gp: string }[] }),
+    // each listed article's compound - the 200 shown, not every article invoiced
+    artKeys.length ? query<{ article: string; compound: string }>(
+      `SELECT article, MAX(compound) AS compound FROM ${TABLE} WHERE ${w.sql} AND article = ANY($${w.vals.length + 1}) GROUP BY article`,
+      [...w.vals, artKeys],
+    ) : Promise.resolve({ rows: [] as { article: string; compound: string }[] }),
   ]);
+  const pairs: CompoundCustomer[] = pairRows.rows.map((r) => ({ compound: r.compound, customer: r.customer, customerName: r.name || r.customer, rev: Number(r.rev), gp: Number(r.gp) }));
+  const artCompound = new Map(artRows.rows.map((r) => [r.article, r.compound]));
   // a month a year before the figures' first month is not known, never a zero
   const firstHeld = meta?.first_month ?? null;
   const period = monthsBetween(f.from, f.to);
@@ -388,10 +408,7 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   });
   // the 10 largest a year earlier only when the whole of those months is in the figures
   const prevAll = !!firstHeld && prevFrom >= firstHeld;
-  const [negCust, negArt, negCustBefore, negArtBefore] = await Promise.all([
-    negativeOf("customer", f, f.from, f.to), negativeOf("article", f, f.from, f.to),
-    prevAll ? negativeOf("customer", f, prevFrom, prevTo) : null, prevAll ? negativeOf("article", f, prevFrom, prevTo) : null,
-  ]);
+  const negCustBefore = prevAll ? negCustPrev : null, negArtBefore = prevAll ? negArtPrev : null;
 
   return {
     meta: {
@@ -456,16 +473,25 @@ const many = (p: URLSearchParams, key: string, width: number) =>
  * month the morning delivery carries.
  */
 export async function sealingFilterOf(p: URLSearchParams): Promise<SealingFilter> {
+  return (await sealingAsk(p)).f;
+}
+
+/**
+ * The filter as sealingFilterOf reads it, and the stamp of the data it will be read from - the morning delivery's
+ * loaded_at (sealingCache: a new delivery, a new stamp, no answer of the old one found). One small reading of the meta.
+ */
+export async function sealingAsk(p: URLSearchParams): Promise<{ f: SealingFilter; stamp: string }> {
   await ensureSealingTable();
-  const held = (await query<{ first_month: string | null; last_month: string | null }>(
-    `SELECT first_month, last_month FROM ${TABLE}_meta WHERE id = 1`,
+  const held = (await query<{ first_month: string | null; last_month: string | null; loaded_at: Date | null; rows: number | null }>(
+    `SELECT first_month, last_month, loaded_at, rows FROM ${TABLE}_meta WHERE id = 1`,
   )).rows[0];
   const { from, to } = sealingPeriod(
     { from: p.get("from"), to: p.get("to") },
     { first: held?.first_month ?? null, last: held?.last_month ?? null },
     new Date().toISOString().slice(0, 7),
   );
-  return { from, to, bus: many(p, "bu", 20), channels: many(p, "channel", 60) };
+  const stamp = held?.loaded_at ? `${new Date(held.loaded_at).toISOString()}#${held.rows ?? 0}` : "none";
+  return { f: { from, to, bus: many(p, "bu", 20), channels: many(p, "channel", 60) }, stamp };
 }
 
 /* -- one customer, article or compound: the pilot's drawer ("Click an entry to inspect its available detail") ----- */
