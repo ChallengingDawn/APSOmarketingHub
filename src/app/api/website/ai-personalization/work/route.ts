@@ -141,12 +141,13 @@ export async function POST(req: NextRequest) {
         return r.version ? NextResponse.json({ ok: true, data: r }) : fail(r.problems.join("; "));
       }
       case "version": {
-        // the Page builder's own changes as a version (no AI) - {env, path, changes, title?, summary?, piece?}; then
+        // the Page builder's own changes as a version (no AI) - {env, path, changes, title?, summary?, piece?, letter?: A-D}; then
         // "approve" and a test (Website > A/B testing > Page tests: create, start)
         const path = cleanPath(b.path);
         if (!isEnv(b.env) || !path) return fail("env and path, please", 400);
         const piece = typeof b.piece === "number" && Number.isInteger(b.piece) && b.piece > 0 ? String(b.piece) : id("piece");
-        const r = await versionFromChanges(b.env, path, { changes: b.changes, title: text(b.title, 200), summary: text(b.summary, 600), piece }, by);
+        const letter = typeof b.letter === "string" && /^[A-D]$/.test(b.letter) ? b.letter : null;
+        const r = await versionFromChanges(b.env, path, { changes: b.changes, title: text(b.title, 200), summary: text(b.summary, 600), piece, letter }, by);
         if (r.version) console.log(`[convert] version ${r.version.id} rev ${r.version.rev} from the Page builder${piece ? ` (piece ${piece})` : ""} on ${b.env}${path} by ${by}`);
         return r.version ? NextResponse.json({ ok: true, data: r }) : fail(r.problems.join("; "));
       }

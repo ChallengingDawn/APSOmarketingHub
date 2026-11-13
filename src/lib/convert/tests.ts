@@ -185,22 +185,27 @@ export async function ideaOf(t: Test): Promise<IdeaBrief | null> {
  * its piece (its project and title, read from Content's table - none when Content is away) and the env of the
  * optimization it tests.
  */
-export type TestOrigin = { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null };
-export async function originsOf(tests: Pick<Test, "id" | "piece" | "ideaId">[]): Promise<Record<string, TestOrigin>> {
+export type TestOrigin = { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null; letter: string | null };
+export async function originsOf(tests: Pick<Test, "id" | "piece" | "ideaId" | "versionId">[]): Promise<Record<string, TestOrigin>> {
   const nums = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
   const pieces = nums(tests.map((t) => t.piece));
   const ideas = nums(tests.map((t) => t.ideaId));
-  const [p, i] = await Promise.all([
+  const versions = nums(tests.map((t) => t.versionId));
+  const [p, i, v] = await Promise.all([
     pieces.length
       ? query<{ id: number; project_id: number; title: string }>(`SELECT id, project_id, title FROM apsomh_content_pieces WHERE id = ANY($1::int[])`, [pieces]).catch(() => ({ rows: [] as { id: number; project_id: number; title: string }[] }))
       : Promise.resolve({ rows: [] as { id: number; project_id: number; title: string }[] }),
     ideas.length
       ? query<{ id: string; env: Env }>(`SELECT id, env FROM apsomh_convert_ideas WHERE id = ANY($1::bigint[])`, [ideas]).catch(() => ({ rows: [] as { id: string; env: Env }[] }))
       : Promise.resolve({ rows: [] as { id: string; env: Env }[] }),
+    versions.length
+      ? query<{ id: string; letter: string }>(`SELECT id, letter FROM apsomh_convert_versions WHERE id = ANY($1::bigint[])`, [versions]).catch(() => ({ rows: [] as { id: string; letter: string }[] }))
+      : Promise.resolve({ rows: [] as { id: string; letter: string }[] }),
   ]);
+  const letter = new Map(v.rows.map((x) => [String(x.id), x.letter || "A"]));
   const todo = new Map(p.rows.map((x) => [String(x.id), { pieceId: String(x.id), projectId: Number(x.project_id), title: x.title }]));
   const env = new Map(i.rows.map((x) => [String(x.id), x.env]));
-  return Object.fromEntries(tests.map((t) => [t.id, { todo: t.piece ? todo.get(t.piece) ?? null : null, ideaEnv: t.ideaId ? env.get(t.ideaId) ?? null : null }]));
+  return Object.fromEntries(tests.map((t) => [t.id, { todo: t.piece ? todo.get(t.piece) ?? null : null, ideaEnv: t.ideaId ? env.get(t.ideaId) ?? null : null, letter: t.versionId ? letter.get(t.versionId) ?? null : null }]));
 }
 
 export type Candidate = { versionId: string; rev: number; env: Env; path: string; kind: PageKind; summary: string; approvedBy: string | null; approvedAt: string | null; ideaId: string; title: string };
@@ -413,6 +418,8 @@ export async function act(id: string, action: Action, by: string, extra: { winne
     const v = await versionInfo(t.versionId);
     if (!v) throw new ConvertError("Its version is gone.");
     if (v.status !== "approved") throw new ConvertError(`The version was changed after it was approved (now revision ${v.rev}, a draft) - approve it again in the Preview.`);
+    // a test made in Content runs exactly the version it was made from (13.11.2026): the Page builder sent another one since
+    if (t.piece && v.rev !== t.versionRev) throw new ConvertError(`The version was changed in Content after this test was made (revision ${t.versionRev}, now ${v.rev}) - make the test again from the Page builder's A/B section.`);
     return { changes: v.changes, rev: v.rev };
   };
 
@@ -558,6 +565,24 @@ export async function undoEveryone(testId: string, by: string): Promise<void> {
 }
 
 /** A way out that happens elsewhere (the code sent to dotSource), written down. */
+/**
+ * A WINNER PUBLISHED, THE TEST CLOSED (13.11.2026 - the loop as one product: only "on for everyone" ever set a test to
+ * shipped; a winner written into Magento, handed to dotSource, or made the page by Content's own "Make B the page" /
+ * "Update all" stayed "stopped - the version won" for ever, so Winners and Performance kept asking for it). The test whose
+ * version won is set to shipped, said in its history; Mission control reads it as ended.
+ */
+export async function markPublished(testId: string, by: string, how: string): Promise<Test> {
+  await ensureTestsSchema();
+  const t = await testById(testId);
+  if (!t) throw new ConvertError("No such test.", 404);
+  if (t.status === "shipped") return t;
+  if (t.winner !== "b") throw new ConvertError("Only a test its version won is published - decide it first.");
+  if (t.status === "running" || t.status === "paused") throw new ConvertError("The test is still live - end it first.");
+  await query(`UPDATE apsomh_convert_tests SET status = 'shipped', updated_at = now() WHERE id = $1`, [testId]);
+  await log(testId, by, "published", how.slice(0, 300));
+  return (await testById(testId))!;
+}
+
 export async function markHanded(testId: string, how: "dotsource", by: string): Promise<void> {
   const t = await testById(testId);
   if (!t) throw new ConvertError("No such test.", 404);
