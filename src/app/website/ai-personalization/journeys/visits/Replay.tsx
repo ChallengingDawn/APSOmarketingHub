@@ -117,6 +117,15 @@ export function ReplayPlayer({ row, embedded = false, play = false, rate = 2, on
     ended.current = true;
     if (embedded) onEnded?.(); else setOwn(false);
   }, [t, end, playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // played again inside the visit (its Play pressed once more on this same step): from the start, not stuck at its end
+  const wasPlaying = useRef(playing);
+  useEffect(() => {
+    if (embedded && playing && !wasPlaying.current && t >= end) { ended.current = false; setT(0); }
+    wasPlaying.current = playing;
+  }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a recording that cannot be read never holds the visit up: its next step comes
+  const failed = held.result !== null && held.result !== undefined && held.result.state !== "ok";
+  useEffect(() => { if (embedded && playing && failed) onEnded?.(); }, [embedded, playing, failed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the ring of a click lasts about a second of the screen's time, at any speed
   const ring = 900 * sp;

@@ -300,8 +300,8 @@ export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" |
  * with its piece) is not one of the AI's proposals - kept out of Insights, the Pages counts and the Preview's slider; its
  * test shows in Page tests with its to-do. An AI optimization sent to Content keeps source 'ai', whatever piece it gets.
  */
-export const FROM_CONTENT_SQL = "(source = 'person' AND piece_id IS NOT NULL)";
-export const fromContent = (i: Pick<Idea, "source" | "piece">) => i.source === "person" && !!i.piece;
+export const FROM_CONTENT_SQL = "(source = 'person' AND piece_id IS NOT NULL AND sent_at IS NULL)";
+export const fromContent = (i: Pick<Idea, "source" | "piece" | "sentAt">) => i.source === "person" && !!i.piece && !i.sentAt;
 
 export async function board(): Promise<BoardRow[]> {
   await ensureStudioSchema();
@@ -311,7 +311,7 @@ export async function board(): Promise<BoardRow[]> {
             (SELECT count(*)::int FROM apsomh_convert_versions x WHERE x.idea_id = i.id) AS v_n
        FROM apsomh_convert_ideas i
        LEFT JOIN LATERAL (SELECT * FROM apsomh_convert_versions y WHERE y.idea_id = i.id ORDER BY y.letter LIMIT 1) v ON true
-      WHERE NOT (i.source = 'person' AND i.piece_id IS NOT NULL)
+      WHERE NOT (i.source = 'person' AND i.piece_id IS NOT NULL AND i.sent_at IS NULL)
       ORDER BY COALESCE(v.updated_at, i.decided_at, i.created_at) DESC LIMIT 500`,
   );
   const rows = r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
@@ -493,7 +493,8 @@ export async function versionFromChanges(env: Env, path: string, input: { change
   const summary = input.summary.trim().slice(0, 600) || title;
   let idea: Idea | null = null;
   if (input.piece) {
-    const r = await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 AND piece_id = $3 AND status <> 'dropped' ORDER BY id DESC LIMIT 1`, [env, path, input.piece]);
+    // Content's own optimization only - never the AI's (or a person's) sent one that carries the same to-do (review 13.11.2026)
+    const r = await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 AND piece_id = $3 AND source = 'person' AND sent_at IS NULL AND status <> 'dropped' ORDER BY id DESC LIMIT 1`, [env, path, input.piece]);
     idea = r.rows[0] ? toIdea(r.rows[0]) : null;
   }
   if (!idea) {
