@@ -2112,32 +2112,41 @@ function ApprovalsTab({ f }: { f: Frame }) {
 
 type AllCol = { head: string; cell: (r: Row) => React.ReactNode; width: string };
 
-/** An approval text's references as chips - the first few, then how many more (the whole list in the detail window). */
-function RefChips({ text, n = 4 }: { text: string; n?: number }) {
+/** A name over up to two lines - whole wherever two lines hold it; the whole of it in the tooltip either way. */
+const twoLines = (text: React.ReactNode, title: string, lines = 2) => (
+  <Box component="span" title={title} sx={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", overflowWrap: "anywhere", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: lines, WebkitBoxOrient: "vertical" }}>{text}</Box>
+);
+/** A change as the All tables write it in their chips - compact, no arrow: "+9.1%", "−1.8pp". */
+const pctChip = (cur: number, prev: number) => { const r = cur / prev - 1; return { text: `${r > 0 ? "+" : r < 0 ? "−" : "±"}${Math.abs(r * 100).toFixed(1)}%`, color: tone(r, 0.005) }; };
+const ppChip = (cur: number, prev: number) => { const d = (cur - prev) * 100; return { text: `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)}pp`, color: tone(cur - prev) }; };
+/** The All tables' figure columns: net revenue with its chip, the year before, gross profit, GM with its chip, share. */
+const ALL_WIDTHS = (two: boolean) => ["150px", ...(two ? ["88px"] : []), "116px", "106px", "54px"];
+
+/** An approval text's references as chips - over up to two lines, then how many more (the whole list in the detail window). */
+function RefChips({ text, n = 6 }: { text: string; n?: number }) {
   const parts = approvalParts(text);
-  if (!parts.length) return oneLine(text);
+  if (!parts.length) return twoLines(text, text);
   const shown = parts.slice(0, n);
   return (
-    <Box component="span" title={parts.join(" · ")} sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0, flex: "1 1 auto" }}>
-      <Box component="span" sx={{ display: "flex", flexWrap: "nowrap", gap: 0.5, minWidth: 0, overflow: "hidden", flex: "0 1 auto" }}>
-        {shown.map((p) => (
-          <Box key={p} component="span" sx={{ flex: "0 1 auto", minWidth: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.72rem", fontWeight: 600, color: INK, bgcolor: "#eef2f8", border: `1px solid ${HAIRLINE}`, px: 0.75, borderRadius: "8px", lineHeight: 1.7, whiteSpace: "nowrap" }}>{p}</Box>
-        ))}
-      </Box>
-      {parts.length > n && <Box component="span" sx={{ flex: "0 0 auto", fontSize: "0.72rem", fontWeight: 700, color: MUTED, lineHeight: 1.7, whiteSpace: "nowrap" }}>+{parts.length - n} more</Box>}
+    <Box component="span" title={parts.join(" · ")} sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, minWidth: 0, flex: "1 1 auto" }}>
+      {shown.map((p) => (
+        <Box key={p} component="span" sx={{ flex: "0 1 auto", minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", fontSize: "0.72rem", fontWeight: 600, color: INK, bgcolor: "#eef2f8", border: `1px solid ${HAIRLINE}`, px: 0.75, borderRadius: "8px", lineHeight: 1.6, whiteSpace: "nowrap" }}>{p}</Box>
+      ))}
+      {parts.length > n && <Box component="span" sx={{ flex: "0 0 auto", fontSize: "0.72rem", fontWeight: 700, color: MUTED, lineHeight: 1.6, whiteSpace: "nowrap" }}>+{parts.length - n} more</Box>}
     </Box>
   );
 }
 
 /**
  * Every one of a kind in a table, 30 a page from the hub - searched, ranked by net revenue or gross profit, a click opens
- * it; one line a row: the name cut with an ellipsis (the whole in its tooltip), the changes as small chips beside the
- * figures, short heads, fixed widths - sideways only when the window is narrower than the columns.
+ * it. The name has most of the width and two lines (an article three) - shown whole (SARCLA 13.11.2026: no cut names); the changes as
+ * small chips beside the figures, short heads, fixed figure columns.
  */
-function AllList({ f, kind, title, first, what, extra = [], pick, family, nameCell }: {
+function AllList({ f, kind, title, first, what, extra = [], pick, family, nameCell, firstWidth = "minmax(300px, 3fr)" }: {
   f: Frame; kind: ListKind; title: string; first: string; what: string; extra?: AllCol[]; pick?: DetailPick["kind"]; family?: string | null;
-  /** the first column's cell when not the name on one line (the approvals' chips) */
+  /** the first column's cell when not the name (the article's number and name, the approvals' chips) */
   nameCell?: (r: Row) => React.ReactNode;
+  firstWidth?: string;
 }) {
   const inspect = useContext(InspectCtx);
   const [q, setQ] = useState("");
@@ -2149,21 +2158,20 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family, nameCe
   const heads = figureHeads(f);
   const head = [first, ...extra.map((c) => c.head), heads.cur, ...(two ? [heads.prev] : []), "Gross profit", "GM", "Share"];
   const revCol = 1 + extra.length, gpCol = revCol + (two ? 2 : 1);
-  const firstWidth = "minmax(200px, 3fr)";
-  const widths = [...extra.map((c) => c.width), ...FIGURE_WIDTHS(two)];
+  const widths = [...extra.map((c) => c.width), ...ALL_WIDTHS(two)];
   const rows = list.rows.map((r, i) => ({
     key: `${r.key}|${i}`,
     onPick: pick ? () => inspect(pickOf(pick, r)) : undefined,
     cells: [
-      <Box key="n" component="span" sx={{ display: "flex", gap: 1, alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
-        <Box component="span" sx={{ flex: "0 0 auto", color: FAINT, fontSize: "0.74rem", fontVariantNumeric: "tabular-nums", minWidth: 30 }}>{int(offset + i + 1)}</Box>
-        {nameCell ? nameCell(r) : oneLine(r.label, r.full)}
+      <Box key="n" component="span" sx={{ display: "flex", gap: 0.75, alignItems: "center", minWidth: 0, flex: "1 1 auto" }}>
+        <Box component="span" sx={{ flex: "0 0 auto", color: FAINT, fontSize: "0.72rem", fontVariantNumeric: "tabular-nums", minWidth: 24 }}>{int(offset + i + 1)}</Box>
+        {nameCell ? nameCell(r) : twoLines(r.label, r.full ?? r.label)}
       </Box>,
       ...extra.map((c) => c.cell(r)),
-      two ? inlineChange(eur(r.rev), r.prev ? change(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev),
+      two ? inlineChange(eur(r.rev), r.prev ? pctChip(r.rev, r.prev) : r.rev > 0 ? { text: "new", color: GREEN } : null) : eur(r.rev),
       ...(two ? [eur(r.prev)] : []),
       eur(r.gp),
-      (() => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : inlineChange(pct(r.margin), { text: points(r.margin, p), color: tone(r.margin - p) }); })(),
+      (() => { const p = two ? prevMargin(r) : null; return p == null ? pct(r.margin) : inlineChange(pct(r.margin), ppChip(r.margin, p)); })(),
       whole > 0 ? pct(r.rev / whole) : "—",
     ],
   }));
@@ -2192,17 +2200,19 @@ function AllList({ f, kind, title, first, what, extra = [], pick, family, nameCe
 
 function AllCustomers({ f }: { f: Frame }) {
   return <AllList f={f} kind="customer" title="All customers" first="Customer" what="customers or numbers" pick="customer"
-    extra={[{ head: "Number", cell: (r) => oneLine(r.key || "—"), width: "100px" }]} />;
+    extra={[{ head: "Number", cell: (r) => oneLine(r.key || "—"), width: "84px" }]} />;
 }
 function AllArticles({ f }: { f: Frame }) {
   const family = useSearchParams().get("family");
-  return <AllList f={f} kind="article" title="All articles" first="Article" what="articles, numbers or compounds" pick="article" family={family || null}
-    extra={[{ head: "Number", cell: (r) => oneLine(r.key || "—"), width: "112px" }, { head: "Compound", cell: (r) => oneLine(r.compound || "—"), width: "120px" }]} />;
+  // the article's number before its name, in grey - one column for both, so the name keeps its width
+  return <AllList f={f} kind="article" title="All articles" first="Article" what="articles, numbers or compounds" pick="article" family={family || null} firstWidth="minmax(320px, 3fr)"
+    nameCell={(r) => twoLines(<><Box component="span" sx={{ color: FAINT, fontVariantNumeric: "tabular-nums", mr: 0.75 }}>{r.key}</Box>{r.label}</>, `${r.key} · ${r.full ?? r.label}`, 3)}
+    extra={[{ head: "Compound", cell: (r) => twoLines(r.compound || "—", r.compound || ""), width: "156px" }]} />;
 }
 function AllCompounds({ f }: { f: Frame }) {
   const family = useSearchParams().get("family");
   return <AllList f={f} kind="compound" title="All compounds" first="Compound" what="compounds" pick="compound" family={family && f.d.byFamily.some((x) => x.key === family) ? family : null}
-    extra={[{ head: "Family", cell: (r) => oneLine(noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)), width: "110px" }]} />;
+    extra={[{ head: "Family", cell: (r) => oneLine(noCompound(r.key) ? NO_COMPOUND : materialOf(r.key)), width: "100px" }]} />;
 }
 function AllApprovals({ f }: { f: Frame }) {
   return <AllList f={f} kind="approval" title="All approval texts" first="Approval references" what="approval texts" pick="approval"
