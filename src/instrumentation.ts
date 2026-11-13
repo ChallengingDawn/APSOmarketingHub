@@ -136,6 +136,12 @@ export async function register() {
     const { startChatSummaries } = await import("./lib/chat/summaryMail");
     startChatSummaries();
 
+    // Website > A/B testing > Mission control: the record of every test kept up from APSOconvert, the shop chat's rounds
+    // and Webyn's tests as the shop sees them (src/lib/experiments/sync.ts, every 30 min). EXPERIMENTS_SYNC=off stops it.
+    // SARCLA, 13.11.2026.
+    const { startExperimentsSync } = await import("./lib/experiments/sync");
+    startExperimentsSync();
+
     // Satisfaction: the hub's copy of every HubSpot survey answer, every 30 min (src/lib/satisfaction) - the Satisfaction
     // KPI page and the chat's Satisfaction tab. SATISFACTION=off stops it. SARCLA, 27.10.2026.
     const { startSatisfaction } = await import("./lib/satisfaction/sync");

@@ -18,6 +18,8 @@ export type SubApp = {
   fg: string;
   /** A part of the app the entry belongs to (Connectors & Integration: one per connector). */
   group?: string;
+  /** A Website section's own heading in its side panel (A/B testing: Pages, Microservices, Record - 13.11.2026). */
+  heading?: string;
   /** The label on a chip, when the name is spelled out for the search. */
   short?: string;
   /** false = kept in the access tree (its grant holds) and reachable from the app's own pages, but not listed in the
@@ -127,13 +129,20 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     ],
   },
   {
-    slug: "ab-testing", name: "A/B testing", line: "What we test on the site, and what it shows", icon: "science", ...PINK,
-    // the first one: the shop chat's e-mail before the chat, as APSOassistant Chat > A/B test has it (SARCLA 03.11.2026:
-    // "contains a copy of the first A/B test on the chat, and then more")
+    slug: "ab-testing", name: "A/B testing", line: "Mission control of every test: pages, microservices, Webyn, the record", icon: "science", ...PINK,
+    // SARCLA 13.11.2026: "develop a mission control A/B testing, then completely different categories: pages that are sent
+    // to test, and microservices; it should record the past tests as well, and be connected with the tests in Webyn". The
+    // front page is Mission control (src/lib/experiments); the chat's test (03.11.2026: "a copy of the first A/B test on
+    // the chat") moved to Microservices > Chat; APSOconvert's page tests (07.11.2026) with Webyn's under Pages.
     pages: [
-      { name: "Chat: e-mail first", note: "E-mail before the chat or during it: do we lose chats, do we gain e-mails", href: "/website/ab-testing", icon: "chat", ...PINK },
-      // APSOconvert's tests of shop pages (SARCLA 07.11.2026: the approved idea goes to "the A/B testing app")
-      { name: "Page tests", note: "A version of a shop page against the page as it is: the add-to-carts decide", href: "/website/ab-testing/pages", icon: "science", ...PINK },
+      { name: "Mission control", note: "Every test: what runs and how it stands, what needs a decision, clashes, the timeline, what's next", href: "/website/ab-testing", icon: "target", ...PINK },
+      { name: "Page tests", heading: "Pages", note: "APSOconvert's and Webyn's tests of shop pages: a version against the page as it is", href: "/website/ab-testing/pages", icon: "science", ...PINK },
+      { name: "By page", heading: "Pages", note: "What each shop page went through, test after test, whichever tool ran it", href: "/website/ab-testing/by-page", icon: "layers", ...BLUE },
+      { name: "All services", heading: "Microservices", note: "The chat, the search bar, DirectUP, the 3D gateway - each with its tests", href: "/website/ab-testing/microservices", icon: "bolt", ...PURPLE },
+      { name: "Chat: the e-mail", heading: "Microservices", note: "E-mail first, later, or the summary mid-chat: do we lose chats, do we gain e-mails", href: "/website/ab-testing/chat", icon: "chat", ...TEAL },
+      { name: "History", heading: "Record", note: "Every ended test: its result, the decision, what we learned - past tests typed in too", href: "/website/ab-testing/history", icon: "loop", ...PURPLE },
+      { name: "Ideas", heading: "Record", note: "What to test next, scored (impact, confidence, ease) and in order", href: "/website/ab-testing/ideas", icon: "bolt", ...AMBER },
+      { name: "A test", note: "One test's record: versions, outcome, decision, what we learned, its log", href: "/website/ab-testing/test", icon: "science", ...PINK, menu: false },
     ],
   },
   {

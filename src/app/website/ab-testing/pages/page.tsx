@@ -4,7 +4,8 @@
 // a shop page (APSOconvert's Preview) against the page as it is: a share of the visitors gets it - half and half, or
 // more to the better one as results come in - and the add-to-carts decide (src/lib/convert/tests.ts, stats.ts). The
 // tests with their figures; "Start a test" from the approved versions still waiting for one. A test is made as a draft;
-// starting it - on its own page - is the approval that puts the version on the shop.
+// starting it - on its own page - is the approval that puts the version on the shop. Webyn's tests as the shop sees them
+// below (13.11.2026, ../xp/WebynTests.tsx).
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -42,6 +43,7 @@ import { Chip } from "@/app/website/ai-personalization/Tag";
 import { KIND_LABEL, type Env } from "@/lib/convert/model";
 import { ANY_AUDIENCE } from "@/lib/convert/contract";
 import { convertPost, previewHref } from "../../ai-personalization/Flow";
+import WebynTests from "../xp/WebynTests";
 import { testsBase, useInConvert } from "../../ai-personalization/base";
 import { SquareChoice } from "../../ai-personalization/SquareChoice";
 import {
@@ -266,6 +268,7 @@ export default function PageTests() {
         }
       />
       {body}
+      <WebynTests />
     </Box>
   );
 }
