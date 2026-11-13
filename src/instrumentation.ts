@@ -130,6 +130,12 @@ export async function register() {
     const { startChatTopics } = await import("./lib/chat/topics");
     startChatTopics();
 
+    // APSOassistant Chat > A/B test, version 3: the conversation's summary by e-mail the shop chat offered in variant
+    // "mid" - pulled from the gateway once a chat is quiet, written by Claude, sent through the hub's SMTP
+    // (src/lib/chat/summaryMail.ts, every 5 min). CHAT_SUMMARY=off stops it. SARCLA, 13.11.2026.
+    const { startChatSummaries } = await import("./lib/chat/summaryMail");
+    startChatSummaries();
+
     // Satisfaction: the hub's copy of every HubSpot survey answer, every 30 min (src/lib/satisfaction) - the Satisfaction
     // KPI page and the chat's Satisfaction tab. SATISFACTION=off stops it. SARCLA, 27.10.2026.
     const { startSatisfaction } = await import("./lib/satisfaction/sync");

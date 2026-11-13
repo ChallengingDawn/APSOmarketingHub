@@ -9,13 +9,14 @@
 //       | topics&days= | topic-chats&topic=&days=&offset= (filed by the hub after each chat: src/lib/chat/topics.ts)
 //       | steering&days=&channel=hs|bar (the topic tabs: each Enquiry Category's route and figures, src/lib/chat/steering.ts)
 //       | topic-chats&topic=&days=&channel=hs|bar&handed=1 (one topic's chats, HubSpot's or the search bar's)
-//       | ab (the A/B test of the e-mail before the chat: setting + figures, from the shop chat's gateway - abtest.ts)
+//       | ab&v= (the A/B test of the e-mail in the chat: setting + figures of a round, from the shop chat's gateway - abtest.ts)
 //       | sb-conversations&archived=0|1 (the search bar's AI conversations, each with its filing)
 //       | hs-changes&state=would-write|written|kept|same|error&offset= (the HubSpot side of the filing)
 //   POST { action: "topic-set", key, category, sub1? } (anyone with Website: a person's Enquiry Category, never filed over, written to HubSpot)
 //        | { action: "topics-run" } | { action: "filing-write", on } (admins: write the filing into the tickets, or only preview)
 //        | { action: "steering-save", steering } (admins: the topics' routes; the previous ones kept in kv chat:steering:log:*)
-//        | { action: "ab-save", ab: { on, countries, split, restart? } } (admins: the A/B test on the shop chat's gateway)
+//        | { action: "ab-save", ab: { on, countries, shares: { first, later, mid }, restart? } } (admins: the A/B test on the shop chat's gateway)
+//        | { action: "summary-run" } (admins: send the A/B test's chat summaries that are due now - summaryMail.ts)
 //        | { action: "web-mode-save", mode: off|acc|preview|live } (admins: who sees the chat window on the shop)
 //        { action: "test", message, language, country, conversationId? }   anyone with Website - a test writes
 //          nothing (the orchestrator's /dashboard/test-dry, 18.10.2026); an orchestrator without that fix
@@ -34,6 +35,8 @@ import { fileNow, hubspotChanges, setCategory, setWriteSwitch, topicChats, topic
 import type { HsState } from "@/lib/chat/shape";
 import { saveSteering, steeringData } from "@/lib/chat/steering";
 import { abData, saveAb } from "@/lib/chat/abtest";
+import { KV_SUMMARY_RUN, sendDueSummaries, type SummaryRun } from "@/lib/chat/summaryMail";
+import { kvGet, kvSet } from "@/lib/db/init";
 import { setWebMode, webMode } from "@/lib/chat/webmode";
 import { satisfactionData } from "@/lib/satisfaction/figures";
 import { CHAT_TOUCHPOINTS } from "@/lib/satisfaction/rules";
@@ -97,7 +100,10 @@ export async function GET(req: NextRequest) {
     if (part === "ab") {
       // the A/B test of the e-mail before the chat: its setting and figures, from the shop chat's gateway (abtest.ts)
       if (!directupKey()) return NextResponse.json({ configured: false, missing: ["DIRECTUP_ADMIN_KEY"] });
-      return ok({ ...(await abData()), isAdmin });
+      // ?v= an earlier round (version 3, 13.11.2026); the summaries' last run (summaryMail.ts)
+      const round = int(q.get("v"), 0, 0, 10_000);
+      const [d, lastSummaryRun] = await Promise.all([abData(round || null), kvGet<SummaryRun>(KV_SUMMARY_RUN).catch(() => null)]);
+      return ok({ ...d, isAdmin, lastSummaryRun: lastSummaryRun ?? null });
     }
     if (part === "steering") {
       // the topic tabs: each Enquiry Category's route when a person is needed, and its figures (steering.ts)
@@ -223,8 +229,17 @@ export async function POST(req: NextRequest) {
       // admins: the A/B test's switch, countries and split on the shop chat's gateway
       if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
       const s = await saveAb(body.ab, who);
-      console.log(`[chat-ab] ${s.on ? "ON" : "off"} · ${s.countries.join(",") || "no country"} · ${s.split}% e-mail first · version ${s.v} - by ${who}`);
+      const sh = s.shares ?? { first: s.split, later: 100 - s.split, mid: 0 };
+      console.log(`[chat-ab] ${s.on ? "ON" : "off"} · ${s.countries.join(",") || "no country"} · first ${sh.first}% / later ${sh.later}% / summary ${sh.mid}% · round ${s.v} - by ${who}`);
       return NextResponse.json({ ok: true, data: s });
+    }
+    if (body.action === "summary-run") {
+      // admins: send the chat summaries that are due now, instead of waiting for the 5-minute run (summaryMail.ts)
+      if (access.role !== "admin") return NextResponse.json({ ok: false, error: "Admins only." }, { status: 403 });
+      const r = await sendDueSummaries();
+      if (r.sent || r.failed || r.skipped || r.error) await kvSet(KV_SUMMARY_RUN, r).catch(() => {});
+      console.log(`[chat-summary] run by ${who}: ${r.sent} sent, ${r.failed} failed, ${r.skipped} skipped${r.error ? ` (${r.error})` : ""}`);
+      return NextResponse.json({ ok: r.ok, data: r, error: r.ok ? undefined : r.error ?? undefined });
     }
     if (body.action === "steering-save") {
       // admins: the topics' routes - checked against HubSpot's options, the old ones kept in the hub's log
