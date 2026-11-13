@@ -100,7 +100,7 @@ export default function ConvertPerformance() {
     }
     for (const r of ideas ?? []) {
       if (r.status === "dropped") continue;
-      if (r.sentAt && r.version && !withTest.has(r.version.id)) out.push({ key: `t${r.id}`, tone: "#2459d1", head: "In Content - ready for its test", line: r.title, href: `${CONVERT}/tests?make=${r.version.id}`, go: "Make the test" });
+      if (r.sentAt && r.version && r.kind !== "cms" && !withTest.has(r.version.id)) out.push({ key: `t${r.id}`, tone: "#2459d1", head: "In Content - ready for its test", line: r.title, href: `${CONVERT}/tests?make=${r.version.id}`, go: "Make the test" });
       else if (!r.sentAt && r.versions > 0) out.push({ key: `s${r.id}`, tone: "#6a46c9", head: `${r.versions === 1 ? "Its version is" : `Its ${r.versions} versions are`} ready - send it to Content`, line: r.title, href: previewHref(r.env, r.path, r.id), go: "Open it" });
     }
     const waiting = (ideas ?? []).filter((r) => r.status === "proposed");

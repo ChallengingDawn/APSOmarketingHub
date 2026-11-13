@@ -9,7 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { isEnv } from "@/lib/convert/model";
-import { ACTIONS, act, approvedVersionPath, candidates, createDraft, gatewayState, gatewayTests, languagePaths, listTests, testById, updateSettings, type Action } from "@/lib/convert/tests";
+import { ACTIONS, act, approvedVersionPath, candidates, createDraft, gatewayState, gatewayTests, languagePaths, listTests, originsOf, testById, updateSettings, type Action } from "@/lib/convert/tests";
 import { body, fail, failOf, figuresOf, idOf, inTurns, ok, who } from "@/lib/convert/api";
 
 export const runtime = "nodejs";
@@ -33,14 +33,14 @@ export async function GET(req: NextRequest) {
     }
     const piece = idOf(sp.get("piece"));
     const [tests, cands, live] = await Promise.all([listTests("test", piece), piece ? Promise.resolve([]) : candidates("test"), gatewayTests()]);
-    const figures = await inTurns(tests, 4, (t) => figuresOf(t).catch(() => null));
+    const [figures, origins] = await Promise.all([inTurns(tests, 4, (t) => figuresOf(t).catch(() => null)), originsOf(tests).catch(() => ({} as Awaited<ReturnType<typeof originsOf>>))]);
     const held = new Map((live.tests ?? []).map((c) => [String(c.id), c]));
     return ok({
       tests: tests.map((t, i) => {
         const g = held.get(t.id);
         // the hub says live, the gateway does not hold it (or an older round): it can be sent again
         const drift = live.tests && (t.status === "running" || t.status === "paused") ? (!g ? "missing" : g.v !== t.v || g.status !== t.status ? "behind" : null) : null;
-        return { ...t, results: undefined, figures: figures[i], drift, weights: g?.weights ?? null };
+        return { ...t, results: undefined, figures: figures[i], drift, weights: g?.weights ?? null, origin: origins[t.id] ?? null };
       }),
       candidates: cands,
       gateway: { ...gatewayState(), error: live.error },

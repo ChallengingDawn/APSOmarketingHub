@@ -39,7 +39,7 @@ import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { ACCENT, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, KpiTile, MUTED, Notice, RED, bodyCell, clip, headCell } from "@/app/uc/report/ui";
 import { ago } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
-import { ENVS, KIND_LABEL } from "@/lib/convert/model";
+import { ENVS, KIND_LABEL, type Env } from "@/lib/convert/model";
 import { allocationWords, audienceWords, shareWords, type Audience, type Results } from "@/lib/convert/contract";
 import { RULES, SEGMENT_LABEL, VERDICT_TINT, type Analysis, type SegmentDim } from "@/lib/convert/stats";
 import { OP_LABEL, describe, type Change } from "@/lib/convert/versions";
@@ -50,7 +50,7 @@ import { PageShot } from "../../../ai-personalization/PageShot";
 import { ContentProjectLink } from "../../../ai-personalization/ContentLink";
 import {
   AudienceBuilder, COLOR, ConfirmDialog, DailyCharts, Gauge, GatewayNotice, IntervalBars, NAME, PagePicker, StatusChip, UpliftBar,
-  dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, type Confirm, type GatewayView, type SplitKey, type TestView,
+  dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, todoHref, type Confirm, type GatewayView, type SplitKey, type TestView,
 } from "../../../ai-personalization/TestParts";
 
 const API = "/api/website/ab-testing/pages";
@@ -64,6 +64,7 @@ type Detail = {
   drift: "missing" | "behind" | null;
   gateway: GatewayView;
   history: { at: string; by: string | null; action: string; detail: string }[];
+  origin?: { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null } | null;
   shippedAs: { id: string; status: string } | null;
   copies: { id: string; env: string; status: string; name: string }[];
   canEdit: boolean;
@@ -84,6 +85,7 @@ function Row({ k, children }: { k: string; children: React.ReactNode }) {
 /** A draft's conditions, changed before it starts. */
 function DraftSettings({ d, onSaved }: { d: Detail; onSaved: () => void }) {
   const t = d.test;
+  const seeEnv: Env = d.origin?.ideaEnv ?? (d.version?.env === "acc" || d.version?.env === "prod" ? d.version.env : t.env);
   const [env, setEnv] = useState(t.env);
   const [pages, setPages] = useState<string[]>(t.pages);
   const [split, setSplit] = useState<SplitKey>(splitKeyOf(t.allocation));
@@ -118,6 +120,7 @@ function DraftSettings({ d, onSaved }: { d: Detail; onSaved: () => void }) {
 function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
   const base = testsBase(useInConvert());
   const t = d.test;
+  const seeEnv: Env = d.origin?.ideaEnv ?? (d.version?.env === "acc" || d.version?.env === "prod" ? d.version.env : t.env);
   const an = d.analysis;
   const c = an?.comparison ?? null;
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -189,7 +192,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
       <GlassCard>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start", flexWrap: "wrap" }}>
           {t.pages[0] && (
-            <Box component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)} title="See it in the Preview" sx={{ width: { xs: "100%", sm: 220 }, flexShrink: 0, borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, display: "block" }}>
+            <Box component={Link} href={previewHref(seeEnv, t.pages[0], t.ideaId ?? undefined)} title="See it in the Preview" sx={{ width: { xs: "100%", sm: 220 }, flexShrink: 0, borderRadius: "10px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, display: "block" }}>
               <PageShot env={t.env} path={t.pages[0]} />
             </Box>
           )}
@@ -209,8 +212,10 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             )}
           </Box>
           <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", alignItems: "center", justifyContent: { xs: "flex-start", md: "flex-end" }, flex: "1 1 300px" }}>
-            <Button size="small" component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
-            <ContentProjectLink env={t.env} path={t.pages[0]} testId={t.id} />
+            <Button size="small" component={Link} href={previewHref(seeEnv, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
+            {d.origin?.todo
+              ? <Button size="small" variant="outlined" component={Link} href={todoHref(d.origin.todo)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Open its to-do in Content</Button>
+              : <ContentProjectLink env={t.env} path={t.pages[0]} testId={t.id} />}
             {d.canEdit && t.status === "draft" && <>
               <Button size="small" onClick={() => setEditing((x) => !x)}>{editing ? "Close the settings" : "Change the settings"}</Button>
               <Button size="small" color="error" onClick={ask.del}>Delete</Button>
@@ -232,7 +237,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
               <Button size="small" onClick={ask.remove}>Take it off the gateway</Button>
             </>}
             {d.canEdit && d.drift && <Button size="small" variant="outlined" onClick={ask.sync}>Send it again</Button>}
-            {(t.status === "shipped" || (t.winner === "b" && t.status === "stopped")) && <Button size="small" variant="contained" disableElevation component={Link} href="/website/ai-personalization/ship">Open in Winners</Button>}
+            {(t.status === "shipped" || (t.winner === "b" && t.status === "stopped")) && <Button size="small" variant="contained" disableElevation component={Link} href={`/website/ai-personalization/ship?test=${t.id}`}>Open in Winners</Button>}
           </Box>
         </Box>
         {d.canEdit && !t.winner && (t.status === "running" || t.status === "paused" || t.status === "stopped") && (
@@ -330,7 +335,7 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             <Row k="Where">{t.host} {envChip(t.env)}</Row>
             <Row k={`Pages · ${t.pages.length}`}>
               <Box sx={{ display: "grid", gap: 0.25 }}>
-                {t.pages.map((p) => <Box key={p} component={Link} href={previewHref(t.env, p, t.ideaId ?? undefined)} sx={{ color: ACCENT, textDecoration: "none", fontSize: "0.8rem", ...clip(560) }} title={p}>{p}</Box>)}
+                {t.pages.map((p) => <Box key={p} component={Link} href={previewHref(seeEnv, p, t.ideaId ?? undefined)} sx={{ color: ACCENT, textDecoration: "none", fontSize: "0.8rem", ...clip(560) }} title={p}>{p}</Box>)}
               </Box>
             </Row>
             <Row k="Visitors">{allocationWords(t.allocation)}{bandit && weights ? ` · now ${pct(weights.b, 0)} get the version` : ""}</Row>
