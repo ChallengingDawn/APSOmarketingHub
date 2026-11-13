@@ -20,7 +20,9 @@ test("journeyKind: the shop functions told apart, the rest as APSOconvert classi
   assert.equal(journeyKind("/de-CH/checkout/onepage/success/"), "order");
   assert.equal(journeyKind("/de-CH/customer/account/login/"), "account");
   assert.equal(journeyKind("/de-CH/wishlist/"), "account");
-  assert.equal(journeyKind("/de-CH/quickorder/"), "other");
+  // the quick order is a kind of its own since 13.11.2026 (one of the ways to the cart)
+  assert.equal(journeyKind("/de-CH/quickorder/"), "quickorder");
+  assert.equal(journeyKind("/de-CH/persistent/index/unsetCookie"), "other");
   assert.equal(journeyKind("(not set)"), "other");
   assert.equal(journeyKind("/de-CH/eur/checkout/cart"), "cart");
   assert.equal(storeOf("/de-CH/eur/antriebstechnik.html"), "de-CH");
