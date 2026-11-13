@@ -738,7 +738,7 @@ function ConvertPreview() {
   const ideas = d?.ideas ?? [];
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
   // the numbers on the page are the slider's: this page's own optimizations (a new page is not one of them)
-  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped" && !isLanding(i)).map((i, k) => [i.id, k + 1])), [ranked]);
+  const numberOf = useMemo(() => new Map(ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece)).map((i, k) => [i.id, k + 1])), [ranked]);
   const spots: Spots = useMemo(() => ({
     list: showSpots ? ranked.filter((i) => i.status !== "dropped" && i.target).map((i) => ({ n: numberOf.get(i.id)!, sel: i.target!, lead: numberOf.get(i.id) === 1 && i.source === "ai", title: i.title })) : [],
     focus: spotFocus,
@@ -749,7 +749,7 @@ function ConvertPreview() {
     return m;
   }, [d]);
   const idea = ideas.find((i) => i.id === ideaSel) ?? null;
-  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped" && !isLanding(x))[n - 1]; if (i) { setCompare(false); select(i.id); } };
+  byNumber.current = (n) => { const i = ranked.filter((x) => x.status !== "dropped" && !isLanding(x) && !(x.source === "person" && x.piece))[n - 1]; if (i) { setCompare(false); select(i.id); } };
   const versions = idea ? versionsOf.get(idea.id) ?? [] : [];
   const version = versions.find((v) => v.letter === letterSel) ?? versions[0] ?? null;
   useEffect(() => { setHit(null); setRev(null); }, [version?.id, version?.rev]);
@@ -914,7 +914,8 @@ function ConvertPreview() {
     // should split between new page and optimization of the current page; not multiple optimizations to create a new
     // page - only one; on the current page they could have multiple"): the slider holds the page's own optimizations,
     // the new page is one, on its own side
-    const live = ranked.filter((i) => i.status !== "dropped" && !isLanding(i));
+    // Content's own test versions are not the AI's optimizations of this page (studio.ts fromContent)
+    const live = ranked.filter((i) => i.status !== "dropped" && !isLanding(i) && !(i.source === "person" && i.piece));
     const newPage = ranked.find((i) => i.status !== "dropped" && isLanding(i)) ?? null;
     const withVersions = live.filter((i) => (versionsOf.get(i.id)?.length ?? 0) > 0);
     // ONE optimization's versions side by side, framed on its block, until one is picked (SARCLA 10.11.2026: "3 or 4
@@ -928,6 +929,8 @@ function ConvertPreview() {
     const landing = isLanding(idea);
     // product pages come later: their layout is the theme's code (SARCLA 10.11.2026: "beside product pages")
     const productPage = classify(path).kind === "product";
+    // Content tests a content page itself (its A/B section); a home, category or product page's test is made here
+    const contentTests = classify(path).kind === "cms";
     const btn ={ borderRadius: "6px", textTransform: "none", fontWeight: 700 } as const;
     const nums = numbers ? [
       numbers.views ? `${full(numbers.views)} views` : null,
@@ -995,7 +998,8 @@ function ConvertPreview() {
             {idea && data.canEdit && st !== "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "dropped" })} sx={{ ...btn, fontWeight: 600, color: MUTED }}>Drop</Button>}
             {idea && data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ ...btn, fontWeight: 600 }}>Bring back</Button>}
             {idea?.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={btn}>Open the project</Button>}
-            {idea && st === "sent" && version && <Button size="small" variant="outlined" href={`${CONVERT}/tests?make=${version.id}`} sx={btn}>Test Version {version.letter}</Button>}
+            {/* one test path per page (13.11.2026): a content page is tested in Content's A/B section */}
+            {idea && st === "sent" && version && !contentTests && <Button size="small" variant="outlined" href={`${CONVERT}/tests?make=${version.id}`} sx={btn}>Test Version {version.letter}</Button>}
             {idea && data.canEdit && st !== "dropped" && (
               <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length && !landing ? "Its version comes first - the AI is making it" : landing ? "An SEO landing page project in Content with the brief to write the new page" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
                 <span>
@@ -1007,7 +1011,7 @@ function ConvertPreview() {
               </Tooltip>
             )}
             {idea && <SendDialog open={sendOpen} onClose={() => setSendOpen(false)} onSend={(c) => void send(c)} env={data.env} path={data.path}
-              versions={versions.length} landing={landing} busy={busy === "send"} error={sendErr} />}
+              versions={versions.length} landing={landing} contentTests={contentTests} busy={busy === "send"} error={sendErr} />}
           </Box>
           <OptimizationSlider items={idea && pos >= 0 ? live : []} at={pos} onGo={(k) => step(k - pos)}>
             <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>

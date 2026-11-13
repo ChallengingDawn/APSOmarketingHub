@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { query } from "@/lib/db/client";
-import { baseRateOf, gatewayState, gatewayTests, history, ideaOf, listTests, resultsOf, shippedAs, testById } from "@/lib/convert/tests";
+import { baseRateOf, gatewayState, gatewayTests, history, ideaOf, listTests, originsOf, resultsOf, shippedAs, testById } from "@/lib/convert/tests";
 import { fail, failOf, idOf, ok } from "@/lib/convert/api";
 import type { Change } from "@/lib/convert/versions";
 
@@ -38,6 +38,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     ]);
     const results = await resultsOf(t, { fresh: req.nextUrl.searchParams.get("fresh") === "1", baseRate: await baseRateOf(t).catch(() => null) });
     const g = live.tests?.find((c) => String(c.id) === t.id) ?? null;
+    const origin = (await originsOf([t]).catch(() => ({} as Awaited<ReturnType<typeof originsOf>>)))[t.id] ?? null;
     return ok({
       test: { ...t, results: undefined, changes },
       idea,
@@ -53,6 +54,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       history: log,
       shippedAs: shipped ? { id: shipped.id, status: shipped.status } : null,
       copies,
+      origin,
       canEdit: access.levelAt(PAGE) === "write",
     });
   } catch (e) {

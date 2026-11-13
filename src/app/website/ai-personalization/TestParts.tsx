@@ -56,7 +56,11 @@ export type TestView = {
   decidedBy: string | null; decidedAt: string | null; syncedAt: string | null; syncError: string | null; resultsAt: string | null; notes: string; updatedAt: string;
   pageKind: PageKind;
   figures?: Figures | null; drift?: "missing" | "behind" | null; weights?: { a: number; b: number } | null;
+  /** the Content to-do it came from, and the optimization's own shop (src/lib/convert/tests.ts originsOf) */
+  piece?: string | null; origin?: { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null } | null;
 };
+/** A Content to-do's own address. */
+export const todoHref = (todo: { projectId: number; pieceId: string }) => `/projects/${todo.projectId}/pieces/${todo.pieceId}`;
 export type CandidateView = { versionId: string; rev: number; env: Env; path: string; kind: PageKind; summary: string; approvedBy: string | null; approvedAt: string | null; ideaId: string; title: string };
 export type GatewayView = { configured: boolean; missing: string[]; error?: string | null };
 
