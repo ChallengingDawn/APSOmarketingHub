@@ -366,7 +366,7 @@ const navSections: NavSection[] = [
     back: { href: "/website", label: "Website" },
     icon: <HubIconGlyph name={x.icon} fontSize={22} />,
     color: x.fg,
-    items: x.pages.filter((pg) => pg.menu !== false).map((pg) => ({ label: pg.name, href: pg.href, icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}), ...(WEBSITE_CHILDREN[pg.href] ? { children: WEBSITE_CHILDREN[pg.href] } : {}) })),
+    items: x.pages.filter((pg) => pg.menu !== false).map((pg) => ({ label: pg.name, href: pg.href, ...(pg.heading ? { group: pg.heading } : {}), icon: WEBSITE_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />, ...(pg.href === "/live" ? { badge: "Live" } : {}), ...(WEBSITE_CHILDREN[pg.href] ? { children: WEBSITE_CHILDREN[pg.href] } : {}) })),
   })),
   // Marketing & Content, a section per main topic (SARCLA 07.11.2026: "split it like website or UC by main categories" -
   // Content, SEO, SEA, GEO, AEO and LLM Optimizer), from MARKETING_SECTIONS in hubApps.ts: inside one, the panel shows
