@@ -268,6 +268,14 @@ export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[];
 }
 
 export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number };
+/**
+ * AN OPTIMIZATION CONTENT MADE ITSELF (13.11.2026): the Page builder's own test version (versionFromChanges - the person's,
+ * with its piece) is not one of the AI's proposals - kept out of Insights, the Pages counts and the Preview's slider; its
+ * test shows in Page tests with its to-do. An AI optimization sent to Content keeps source 'ai', whatever piece it gets.
+ */
+export const FROM_CONTENT_SQL = "(source = 'person' AND piece_id IS NOT NULL)";
+export const fromContent = (i: Pick<Idea, "source" | "piece">) => i.source === "person" && !!i.piece;
+
 export async function board(): Promise<BoardRow[]> {
   await ensureStudioSchema();
   // an idea once, with its first version (A) and how many it has
@@ -276,6 +284,7 @@ export async function board(): Promise<BoardRow[]> {
             (SELECT count(*)::int FROM apsomh_convert_versions x WHERE x.idea_id = i.id) AS v_n
        FROM apsomh_convert_ideas i
        LEFT JOIN LATERAL (SELECT * FROM apsomh_convert_versions y WHERE y.idea_id = i.id ORDER BY y.letter LIMIT 1) v ON true
+      WHERE NOT (i.source = 'person' AND i.piece_id IS NOT NULL)
       ORDER BY COALESCE(v.updated_at, i.decided_at, i.created_at) DESC LIMIT 500`,
   );
   return r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
@@ -372,7 +381,7 @@ export async function optimizationsOn(env: Env, paths: string[]): Promise<Record
   const r = await query<{ path: string; waiting: number; approved: number; blocks: number }>(
     `SELECT path, count(*) FILTER (WHERE status = 'proposed')::int AS waiting, count(*) FILTER (WHERE status = 'approved')::int AS approved,
             count(*) FILTER (WHERE status <> 'dropped' AND scope = 'block')::int AS blocks
-       FROM apsomh_convert_ideas WHERE env = $1 AND path = ANY($2::text[]) GROUP BY path`, [env, paths.slice(0, 200)]);
+       FROM apsomh_convert_ideas WHERE env = $1 AND path = ANY($2::text[]) AND NOT ${FROM_CONTENT_SQL} GROUP BY path`, [env, paths.slice(0, 200)]);
   return Object.fromEntries(r.rows.map((x) => [x.path, { waiting: x.waiting, approved: x.approved, blocks: x.blocks }]));
 }
 

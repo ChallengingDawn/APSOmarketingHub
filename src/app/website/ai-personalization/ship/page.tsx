@@ -32,7 +32,7 @@ import { markerOf, projectForPage } from "@/lib/convert/handoff";
 import type { CmsBackup } from "@/lib/convert/cms";
 import { convertPost, previewHref } from "../Flow";
 import { PageShot } from "../PageShot";
-import { ConfirmDialog, GatewayNotice, dayTime, envChip, n, pct, signed, type Confirm, type GatewayView, type TestView } from "../TestParts";
+import { ConfirmDialog, GatewayNotice, dayTime, envChip, n, pct, signed, todoHref, type Confirm, type GatewayView, type TestView } from "../TestParts";
 
 const API = "/api/website/ai-personalization/ship";
 type ListData = { tests: (TestView & { shippedAs: { id: string; status: string } | null })[]; gateway: GatewayView; cms: { acc: boolean; prod: boolean; missing: string[] }; canEdit: boolean };
@@ -46,6 +46,7 @@ type One = {
   idea: { title: string; why: string; change: string; expect: string; numbers: Record<string, unknown> | null } | null;
   figures: { rateA: number | null; rateB: number | null; uplift: { mid: number | null; low: number | null; high: number | null }; pB: number | null; visitors: { a: number; b: number }; days: number; verdict: string } | null;
   content: { url: string; path: string; env: Env };
+  origin?: { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null } | null;
   gateway: GatewayView; canEdit: boolean; canContent: boolean;
 };
 const since = (iso: string | null) => (iso ? ago(Date.parse(iso) / 1000) : "–");
@@ -108,7 +109,7 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
         {f && <Typography sx={{ fontSize: "0.88rem", color: INK, mt: 0.5 }}>{pct(f.rateB, 2)} of the visitors who saw the version put something in the cart, against {pct(f.rateA, 2)} on the page as it is - <b style={{ color: GREEN }}>{signed(f.uplift.mid)}</b>{f.pB !== null ? `, ${pct(f.pB, 0)} certain` : ""} · {n(f.visitors.a + f.visitors.b)} visitors over {n(f.days)} days.</Typography>}
         <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 1.25 }}>
           <Button size="small" component={Link} href={`/website/ai-personalization/tests/${t.id}`}>The test</Button>
-          <Button size="small" component={Link} href={previewHref(t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
+          <Button size="small" component={Link} href={previewHref(d.origin?.ideaEnv ?? t.env, t.pages[0], t.ideaId ?? undefined)}>See it</Button>
           {d.canEdit && t.winner === null && (
             <Button size="small" variant="contained" color="success" disableElevation onClick={() => setConfirm({
               title: "End the test: the version won?", lines: ["The test stops - every visitor sees the page as it is until it is published from Content."], go: "The version won",
@@ -124,7 +125,9 @@ function ShipOne({ id, onChanged }: { id: string; onChanged: () => void }) {
         <CardTitle icon={<EditNoteOutlinedIcon />} tint="green" title="Publish it from Content"
           note="Content shows the winner laid over the page, lets you adjust it with the AI - a change after the test is marked as not tested - and publishes it once approved" />
         <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap", mt: 1.25 }}>
-          {project
+          {d.origin?.todo
+            ? <Button variant="contained" disableElevation component={Link} href={todoHref(d.origin.todo)} startIcon={<EditNoteOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Open its to-do in Content</Button>
+            : project
             ? <Button variant="contained" disableElevation component={Link} href={`/create?project=${project.id}&type=${project.type}`} startIcon={<EditNoteOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Open it in Content</Button>
             : d.canContent
               ? <Button variant="contained" disableElevation disabled={sending || t.winner !== "b"} onClick={() => void toContent()} startIcon={sending ? <CircularProgress size={14} sx={{ color: "inherit" }} /> : <EditNoteOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>Hand it over to Content</Button>

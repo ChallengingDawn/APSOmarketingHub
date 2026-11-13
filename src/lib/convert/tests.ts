@@ -179,6 +179,30 @@ export async function ideaOf(t: Test): Promise<IdeaBrief | null> {
   return r.rows[0] ? { ...r.rows[0], id: String(r.rows[0].id) } : null;
 }
 
+/**
+ * WHERE A TEST CAME FROM (13.11.2026 - the loop as one product: the Tests list never said which Content to-do a test came
+ * from, and "See it" opened the test's shop - ACC - for an optimization that lives on production): the Content to-do of
+ * its piece (its project and title, read from Content's table - none when Content is away) and the env of the
+ * optimization it tests.
+ */
+export type TestOrigin = { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null };
+export async function originsOf(tests: Pick<Test, "id" | "piece" | "ideaId">[]): Promise<Record<string, TestOrigin>> {
+  const nums = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
+  const pieces = nums(tests.map((t) => t.piece));
+  const ideas = nums(tests.map((t) => t.ideaId));
+  const [p, i] = await Promise.all([
+    pieces.length
+      ? query<{ id: number; project_id: number; title: string }>(`SELECT id, project_id, title FROM apsomh_content_pieces WHERE id = ANY($1::int[])`, [pieces]).catch(() => ({ rows: [] as { id: number; project_id: number; title: string }[] }))
+      : Promise.resolve({ rows: [] as { id: number; project_id: number; title: string }[] }),
+    ideas.length
+      ? query<{ id: string; env: Env }>(`SELECT id, env FROM apsomh_convert_ideas WHERE id = ANY($1::bigint[])`, [ideas]).catch(() => ({ rows: [] as { id: string; env: Env }[] }))
+      : Promise.resolve({ rows: [] as { id: string; env: Env }[] }),
+  ]);
+  const todo = new Map(p.rows.map((x) => [String(x.id), { pieceId: String(x.id), projectId: Number(x.project_id), title: x.title }]));
+  const env = new Map(i.rows.map((x) => [String(x.id), x.env]));
+  return Object.fromEntries(tests.map((t) => [t.id, { todo: t.piece ? todo.get(t.piece) ?? null : null, ideaEnv: t.ideaId ? env.get(t.ideaId) ?? null : null }]));
+}
+
 export type Candidate = { versionId: string; rev: number; env: Env; path: string; kind: PageKind; summary: string; approvedBy: string | null; approvedAt: string | null; ideaId: string; title: string };
 /** Approved versions without a test (or without a personalisation) of their own yet. */
 export async function candidates(kind: TestKind): Promise<Candidate[]> {
@@ -187,6 +211,9 @@ export async function candidates(kind: TestKind): Promise<Candidate[]> {
     `SELECT v.id, v.rev, v.env, v.path, v.summary, v.approved_by, v.approved_at, i.id AS idea_id, i.title
        FROM apsomh_convert_versions v JOIN apsomh_convert_ideas i ON i.id = v.idea_id
       WHERE v.status = 'approved' AND ($1 = 'personalisation' OR NOT EXISTS (SELECT 1 FROM apsomh_convert_tests t WHERE t.version_id = v.id AND t.kind = $1))
+        -- one test path per page (13.11.2026): a content page sent to Content is tested in its A/B section; Content's own
+        -- test versions get their test from Content; home, category and product pages keep this way (Content cannot test them)
+        AND NOT (i.sent_at IS NOT NULL AND i.kind = 'cms') AND NOT (i.source = 'person' AND i.piece_id IS NOT NULL)
       ORDER BY v.approved_at DESC NULLS LAST LIMIT 200`, [kind]);
   return r.rows.map((x) => ({ versionId: String(x.id), rev: x.rev, env: x.env, path: x.path, kind: classify(x.path).kind, summary: x.summary, approvedBy: x.approved_by,
     approvedAt: iso(x.approved_at), ideaId: String(x.idea_id), title: x.title }));
