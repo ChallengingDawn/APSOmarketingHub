@@ -57,7 +57,7 @@ export type TestView = {
   pageKind: PageKind;
   figures?: Figures | null; drift?: "missing" | "behind" | null; weights?: { a: number; b: number } | null;
   /** the Content to-do it came from, and the optimization's own shop (src/lib/convert/tests.ts originsOf) */
-  piece?: string | null; origin?: { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null } | null;
+  piece?: string | null; origin?: { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null; letter?: string | null } | null;
 };
 /** A Content to-do's own address. */
 export const todoHref = (todo: { projectId: number; pieceId: string }) => `/projects/${todo.projectId}/pieces/${todo.pieceId}`;
