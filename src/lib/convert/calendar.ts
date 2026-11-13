@@ -6,6 +6,7 @@
 // to the log and the test goes on.
 
 import { putCalendarEvent, removeCalendarEvent } from "@/lib/content/calendarEvents";
+import { query } from "@/lib/db/client";
 import { swissNow } from "./scanRules";
 import { RULES } from "./stats";
 import type { Test } from "./tests";
@@ -21,14 +22,23 @@ function pageName(path: string | undefined): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path ?? "a shop page";
 }
 
+/** The Content project of a test made for a to-do (its piece) - so its days link the project (13.11.2026: a test made in
+ * Content never linked its project on the calendar, though the to-do knows it). */
+async function projectOfPiece(piece: string | null | undefined): Promise<number | null> {
+  if (!piece || !/^\d{1,12}$/.test(piece)) return null;
+  const r = await query<{ project_id: number }>(`SELECT project_id FROM apsomh_content_pieces WHERE id = $1`, [Number(piece)]).catch(() => ({ rows: [] as { project_id: number }[] }));
+  return r.rows[0] ? Number(r.rows[0].project_id) : null;
+}
+
 async function quietly(what: string, f: () => Promise<void>): Promise<void> {
   try { await f(); } catch (e) { console.warn(`[convert-calendar] ${what}: ${(e as Error).message}`); }
 }
 
 /** A test went on the shop (started, or started again from zero): its day and its earliest decision day. */
-export async function calendarStarted(t: Pick<Test, "id" | "env" | "pages" | "kind">, at = Date.now()): Promise<void> {
+export async function calendarStarted(t: Pick<Test, "id" | "env" | "pages" | "kind"> & { piece?: string | null }, at = Date.now()): Promise<void> {
   if (t.kind !== "test") return;
-  const base = { source: "convert" as const, env: t.env, path: t.pages[0], testId: t.id, href: href(t.id) };
+  const projectId = await projectOfPiece(t.piece);
+  const base = { source: "convert" as const, env: t.env, path: t.pages[0], testId: t.id, href: href(t.id), ...(projectId ? { projectId } : {}) };
   const name = pageName(t.pages[0]);
   await quietly(`#${t.id} start`, () => putCalendarEvent({ ...base, key: `test:${t.id}:start`, kind: "test-start", day: zurichDay(at), title: `Page test #${t.id} starts: ${name}` }));
   await quietly(`#${t.id} end`, () => putCalendarEvent({ ...base, key: `test:${t.id}:end`, kind: "test-end-planned", day: zurichDay(at + RULES.minDays * DAY_MS), title: `Page test #${t.id} can be decided: ${name}` }));
@@ -42,8 +52,9 @@ export async function calendarEnded(t: Pick<Test, "id" | "kind">, all = false): 
 }
 
 /** A test's winner went out to the shop (from Content): its day. */
-export async function calendarPublished(t: Pick<Test, "id" | "env" | "pages">, way: string, projectId: number | null = null, at = Date.now()): Promise<void> {
+export async function calendarPublished(t: Pick<Test, "id" | "env" | "pages"> & { piece?: string | null }, way: string, projectId: number | null = null, at = Date.now()): Promise<void> {
   const name = pageName(t.pages[0]);
+  projectId = projectId ?? await projectOfPiece(t.piece);
   await quietly(`#${t.id} published`, () => putCalendarEvent({
     source: "convert", key: `test:${t.id}:published`, kind: "winner-published", day: zurichDay(at),
     title: `Winner of page test #${t.id} published (${way === "cms" ? "Magento" : way === "everyone" ? "on for everyone" : "code for dotSource"}): ${name}`,
