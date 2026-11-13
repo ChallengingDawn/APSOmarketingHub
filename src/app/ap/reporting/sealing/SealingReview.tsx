@@ -89,6 +89,7 @@ import { Badge, CardTitle, FAINT, GREEN, GlassCard, HAIRLINE, INK, MUTED, RED, T
 import { ReportTabs } from "@/app/uc/report/Tabs";
 import { ChartFrame, type TableTwin } from "@/app/charts/ChartFrame";
 import { GroupedColumns } from "@/app/charts/GroupedColumns";
+import { MultiLine } from "@/app/charts/MultiLine";
 import { StackedColumns, type StackRow } from "@/app/charts/StackedColumns";
 import { BarList } from "@/app/charts/BarList";
 import { ShareBar } from "@/app/charts/ShareBar";
@@ -379,24 +380,186 @@ function keyView(f: Frame, id: string, rows: KeyMonth[], keys: string[], definit
   return sumView(f, id, "eur", keyPairs(rows, keys, f.d.months.map((m) => m.month)), { definition });
 }
 
-/** The pilot's "largest" cards: the name in the title, its net revenue against the same months a year earlier. */
-function largestView(f: Frame, title: string, x: Figure | undefined, definition: string): SView | null {
-  if (!x) return null;
-  return wholeView(f, title, "eur", x.rev, x.prev ?? null, { definition });
+/* ── a figure with its real graph (SARCLA 13.11.2026: "this block still completely shit, put real graphs") ──
+   Each figure one card: its name, the figure and its change on one line, then its months - this period's against the same
+   months a year earlier, paired bars for counts and amounts, two lines for shares - a small legend, one short line. */
+
+/** A figure's card: its view, how its months are drawn, its one line. */
+type Trend = { v: SView; kind: "bars" | "lines"; note?: string; t: Topic };
+
+/** A figure in a chart's axis and tooltip - short: €1.6M, 2.4K, 21.6%. */
+const shortFmt = (fmt: Fmt) => (x: number | null) => (x == null ? "" : fmt === "eur" ? `€${compact(x)}` : fmt === "pct" ? `${(x * 100).toFixed(1)}%` : compact(x));
+
+/** The change against the same months a year earlier, read as the figure cards read it - like for like where only some are known. */
+function changeOf(v: SView): { text: string; tone: string } | null {
+  const same = v.sameYtd != null && !!v.pyNote?.startsWith("same months");
+  const cur = same ? v.sameYtd! : v.ytd;
+  if (cur == null || v.pyYtd == null || v.pyYtd === 0) return null;
+  const isPct = v.measure.fmt === "pct";
+  const d = isPct ? (cur - v.pyYtd) * 100 : (cur / v.pyYtd - 1) * 100;
+  const flat = Math.abs(d) < 0.05;
+  const good = (d > 0) === (v.measure.goodWhenUp !== false);
+  return { text: `${flat ? "±" : d > 0 ? "↑" : "↓"} ${Math.abs(d).toFixed(1)}${isPct ? " pts" : "%"}`, tone: flat ? FAINT : good ? GREEN : RED };
 }
 
-/** A tile or a KPI card: its figure, and the graph drawn under it when not its months. */
-type Item = { v: SView; chart?: React.ReactNode };
-const item = (v: SView | null, chart?: React.ReactNode): Item | null => (v ? { v, chart } : null);
+/** The month still running in a figure's months - drawn faded (GroupedColumns' partial) - or none. */
+function runningAt(f: Frame, v: SView): number {
+  const now = new Date().toISOString().slice(0, 7);
+  if (f.d.period.to !== now) return -1;
+  return v.labels ? f.d.months.length - 1 : Number(now.slice(5, 7)) - 1;
+}
+
+/** A figure's card - the name, the figure and its change on one line, its months as a real chart, one short line. */
+function TrendCard({ f, it, compact: small = false }: { f: Frame; it: Trend; compact?: boolean }) {
+  const { v, t } = it;
+  const labels = v.labels ?? MONTHS;
+  const ch = changeOf(v);
+  const fmt = shortFmt(v.measure.fmt);
+  const before = v.series.py.some((x) => x != null);
+  const run = runningAt(f, v);
+  const has = v.series.months.some((x) => x != null && x !== 0) || before;
+  return (
+    <Box sx={{ ...glass, borderRadius: "20px", p: small ? 1.75 : 2, display: "flex", flexDirection: "column", gap: 1, minWidth: 0, height: "100%" }}>
+      {(() => {
+        const name = small
+          ? <Typography title={v.id} sx={{ flex: "1 1 auto", minWidth: 0, fontSize: "0.9rem", fontWeight: 700, color: INK, lineHeight: 1.3, minHeight: "2.6em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{v.id}</Typography>
+          : <Typography noWrap title={v.id} sx={{ flex: "1 1 auto", minWidth: 0, fontSize: "0.9rem", fontWeight: 700, color: INK }}>{v.id}</Typography>;
+        const figure = (
+          <>
+            <Typography noWrap sx={{ flex: "0 0 auto", fontSize: small ? "1.3rem" : "1.25rem", fontWeight: 700, color: INK, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em", lineHeight: 1.2 }}>
+              {fmtValue(v.measure.fmt, v.ytd)}
+            </Typography>
+            {ch && <Typography noWrap title={`against ${v.pyNote ?? f.before}`} sx={{ flex: "0 0 auto", fontSize: "0.78rem", fontWeight: 700, color: ch.tone }}>{ch.text}</Typography>}
+          </>
+        );
+        // a quarter of the row: the name on its line, the figure and its change under it; half a row: all on one line
+        return small ? (
+          <Box sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}><Badge icon={t.icon} tint={t.tint} size={26} />{name}</Box>
+            <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, minWidth: 0 }}>{figure}</Box>
+          </Box>
+        ) : (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}><Badge icon={t.icon} tint={t.tint} size={28} />{name}{figure}</Box>
+        );
+      })()}
+      <Box sx={{ minWidth: 0, flex: "1 1 auto" }}>
+        {!has ? <Typography sx={{ fontSize: "0.8rem", color: FAINT, py: 4, textAlign: "center" }}>No months to draw yet.</Typography>
+          : small ? <MiniBars v={v} labels={labels} height={78} />
+            : it.kind === "bars" ? (
+              <GroupedColumns height={170} format={fmt} currentLabel={f.now} priorLabel={f.before}
+                data={labels.map((x, i) => ({ x: x.length > 3 ? x : x.slice(0, 3), current: v.series.months[i], prior: before ? v.series.py[i] : null, partial: i === run }))} />
+            ) : (
+              <MultiLine height={170} labels={labels} format={fmt}
+                series={[{ key: "cur", label: f.now, values: v.series.months }, ...(before ? [{ key: "prev", label: f.before, values: v.series.py, rest: true }] : [])]} />
+            )}
+      </Box>
+      <Typography noWrap title={it.note} sx={{ fontSize: "0.76rem", color: MUTED, minHeight: "1.2em" }}>{it.note ?? ""}</Typography>
+    </Box>
+  );
+}
+
+/** A page's figures with their graphs: two to a row - the charts stay readable (SARCLA 13.11.2026). */
+function TrendCards({ f, items, four = false }: { f: Frame; items: (Trend | null)[]; four?: boolean }) {
+  const shown = items.filter((x): x is Trend => !!x && x.v.ytd != null);
+  if (!shown.length) return null;
+  return (
+    <Box sx={{ display: "grid", gap: 1.5, alignItems: "stretch", gridTemplateColumns: four ? { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" } : { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" } }}>
+      {shown.map((it) => <TrendCard key={it.v.id} f={f} it={it} compact={four} />)}
+    </Box>
+  );
+}
+
+/* each figure's months */
+
+/** The period's largest customer account, article or named compound, month by month (net revenue) - a year earlier where known. */
+const leaderPairs = (f: Frame, kind: "customer" | "article" | "compound"): MonthPair[] => {
+  const rows = f.d.leaderMonths?.[kind] ?? [];
+  return f.d.months.map(({ month }) => { const r = rows.find((x) => x.month === month); return { month, cur: r?.rev ?? 0, prev: r ? r.prevRev : null }; });
+};
+/** Some keys' gross profit added together month by month (a family's, the named compounds'). */
+const keyGpPairs = (rows: KeyMonth[], keys: string[], months: string[]): MonthPair[] => months.map((month) => {
+  const of = rows.filter((r) => r.month === month && keys.includes(r.key));
+  const prev = of.length && of.every((r) => r.prevGp != null) ? of.reduce((a, r) => a + (r.prevGp ?? 0), 0) : null;
+  return { month, cur: of.reduce((a, r) => a + r.gp, 0), prev };
+});
+const monthKeys = (f: Frame) => f.d.months.map((m) => m.month);
+
+const TOPIC_COMPOUND: Topic = { title: "Compounds", icon: <ScienceOutlinedIcon />, tint: "purple" };
+
+/** The figures with their graphs, by page. */
+const TR = {
+  customers: (f: Frame): Trend => ({ v: { ...V.customers(f), id: "Customers invoiced" }, kind: "bars", note: "The accounts with a sealing invoice each month", t: TOPIC.customers }),
+  largestCustomer: (f: Frame): Trend | null => {
+    const x = f.d.customers[0];
+    return x ? { v: sumView(f, "Largest customer account", "eur", leaderPairs(f, "customer")), kind: "bars", note: x.name || x.key, t: TOPIC.customers } : null;
+  },
+  customerShare: (f: Frame): Trend | null => {
+    const x = f.d.customers[0];
+    return x ? { v: rateView(f, "Largest account's share", leaderPairs(f, "customer"), revPairs(f), { goodWhenUp: false }), kind: "lines", note: `${x.name || x.key} · of the net revenue`, t: TOPIC.customers } : null;
+  },
+  negCustomers: (f: Frame): Trend => ({
+    v: wholeView(f, "Accounts at a negative margin", "int", f.d.negative.customers.count, f.d.negative.prevCustomers?.count ?? null, {
+      goodWhenUp: false, months: pairsOf(f.d.months, (m) => m.negCustomers ?? 0, (m) => (m.prevRev == null ? null : m.prevNegCustomers ?? null)),
+    }),
+    kind: "bars", note: `${eur(f.d.negative.customers.rev)} with them · each bar, that month's losses`, t: TOPIC.customers,
+  }),
+  articles: (f: Frame): Trend => ({ v: { ...V.articles(f), id: "Articles invoiced" }, kind: "bars", note: "The articles with a sealing invoice each month", t: TOPIC.articles }),
+  largestArticle: (f: Frame): Trend | null => {
+    const x = f.d.articles[0];
+    return x ? { v: sumView(f, "Largest article", "eur", leaderPairs(f, "article")), kind: "bars", note: `${x.key || "—"} · ${x.name || ""}`, t: TOPIC.articles } : null;
+  },
+  articleShare: (f: Frame): Trend | null => {
+    const x = f.d.articles[0];
+    return x ? { v: rateView(f, "Largest article's share", leaderPairs(f, "article"), revPairs(f), { goodWhenUp: false }), kind: "lines", note: `${x.key || "—"} · of the net revenue`, t: TOPIC.articles } : null;
+  },
+  negArticles: (f: Frame): Trend => ({
+    v: wholeView(f, "Articles at a negative margin", "int", f.d.negative.articles.count, f.d.negative.prevArticles?.count ?? null, {
+      goodWhenUp: false, months: pairsOf(f.d.months, (m) => m.negArticles ?? 0, (m) => (m.prevRev == null ? null : m.prevNegArticles ?? null)),
+    }),
+    kind: "bars", note: `${eur(f.d.negative.articles.rev)} with them · each bar, that month's losses`, t: TOPIC.articles,
+  }),
+  named: (f: Frame, family: string | null): Trend => {
+    const keys = family ? [family] : f.d.byFamily.map((x) => x.key);
+    return { v: keyView(f, family ? `${family} net revenue` : "Named compound revenue", f.d.familyMonths, keys), kind: "bars", note: family ? `The ${family} compounds` : "Every named compound", t: TOPIC_COMPOUND };
+  },
+  namedMargin: (f: Frame, family: string | null): Trend => {
+    const keys = family ? [family] : f.d.byFamily.map((x) => x.key);
+    const ms = monthKeys(f);
+    return { v: rateView(f, family ? `${family} gross margin` : "Named compounds' gross margin", keyGpPairs(f.d.familyMonths, keys, ms), keyPairs(f.d.familyMonths, keys, ms)), kind: "lines", note: "Gross profit over their net revenue", t: TOPIC_COMPOUND };
+  },
+  compounds: (f: Frame): Trend => ({
+    v: wholeView(f, "Compounds named", "int", f.d.totals.compounds, f.d.totals.prev.compounds, { months: pairsOf(f.d.months, (m) => m.compounds ?? 0, (m) => (m.prevRev == null ? null : m.prevCompounds ?? null)) }),
+    kind: "bars", note: "The named compounds invoiced each month", t: TOPIC_COMPOUND,
+  }),
+  noCompound: (f: Frame): Trend => ({ v: V.noCompound(f), kind: "lines", note: "Of the net revenue - \"No info\", \"Unknown\", \"TBD\", a drawing", t: TOPIC.materials }),
+  leadFamily: (f: Frame): Trend | null => {
+    const x = leadFamily(f);
+    return x ? { v: keyView(f, "Leading material family", f.d.familyMonths, [x.key]), kind: "bars", note: `${x.name} · ${pct(namedRev(f) > 0 ? x.rev / namedRev(f) : 0)} of the named compounds`, t: TOPIC.materials } : null;
+  },
+  leadCompound: (f: Frame): Trend | null => {
+    const x = f.d.compounds[0];
+    return x ? { v: sumView(f, "Leading identified compound", "eur", leaderPairs(f, "compound")), kind: "bars", note: `${x.name} · ${pct(x.margin)} gross margin`, t: TOPIC_COMPOUND } : null;
+  },
+  noApproval: (f: Frame): Trend => ({ v: V.noApproval(f), kind: "lines", note: "Of the net revenue, no approval written on the article", t: TOPIC.approvals }),
+  noApprovalRev: (f: Frame): Trend => ({
+    v: sumView(f, "Net revenue with no approval", "eur", pairsOf(f.d.months, (m) => m.noApproval, (m) => m.prevNoApproval), { goodWhenUp: false }),
+    kind: "bars", note: "No approval written on the article", t: TOPIC.approvals,
+  }),
+  withApproval: (f: Frame): Trend => ({ v: { ...V.withApproval(f), id: "Net revenue with an approval" }, kind: "bars", note: "At least one approval written on the article", t: TOPIC.approvals }),
+  approvals: (f: Frame): Trend => ({
+    v: wholeView(f, "Approval texts written", "int", f.d.totals.approvals, f.d.totals.prev.approvals, { months: pairsOf(f.d.months, (m) => m.approvals ?? 0, (m) => (m.prevRev == null ? null : m.prevApprovals ?? null)) }),
+    kind: "bars", note: "The different texts on the articles invoiced each month", t: TOPIC.approvals,
+  }),
+  rev: (f: Frame): Trend => ({ v: V.rev(f), kind: "bars", note: "Every business unit's sealing invoices", t: TOPIC.revenue }),
+  gp: (f: Frame): Trend => ({ v: V.gp(f), kind: "bars", note: "Net revenue less the cost of the goods", t: TOPIC.revenue }),
+  margin: (f: Frame): Trend => ({ v: V.margin(f), kind: "lines", note: "Gross profit over net revenue", t: TOPIC.revenue }),
+};
 
 /* ── the overview: Digital Growth's macro page ─────────────────────────── */
 
 /** One grid for a panel's tiles, twelve columns: a tile takes two on a wide screen (six to a row) - as the macro page's. */
 const GRID = { display: "grid", gap: 1.5, gridTemplateColumns: "repeat(12, minmax(0, 1fr))", gridAutoFlow: "row" } as const;
-const TILE_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", md: "span 4", lg: "span 3", xl: "span 2" } };
 const THIRD_SPAN = { gridColumn: { xs: "span 12", lg: "span 4" } };
-/** The pilot's four overview cards, four to a row on a wide screen (revision.css .cards). */
-const QUARTER_SPAN = { gridColumn: { xs: "span 12", sm: "span 6", lg: "span 3" } };
 /** A topic's charts under its tiles, two to a row - the macro page's half-width cards. */
 const PAIR = { display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } } as const;
 
@@ -410,34 +573,6 @@ const TOPIC: Record<"revenue" | "priorities" | Exclude<SealingSlug, "overview">,
   materials: { title: "Materials", icon: <CategoryOutlinedIcon />, tint: "blue" },
   approvals: { title: "Approvals", icon: <VerifiedOutlinedIcon />, tint: "slate" },
 };
-
-/** A tile of the macro page (tiles/KpiStyled KpiTileChart): the badge, the name, the figure, the comparison, its months. */
-function Tile({ f, it, t, span = TILE_SPAN }: { f: Frame; it: Item; t: Topic; span?: object }) {
-  const chart = it.chart ?? (it.v.labels ? <MiniBars v={it.v} labels={it.v.labels} /> : undefined);
-  return (
-    <Box sx={{ minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", ...span }}>
-      <KpiTileChart v={it.v} slug="sealing" tint={t.tint} icon={t.icon} upTo={f.upTo} title={it.v.id} chart={chart} />
-    </Box>
-  );
-}
-
-/** A part of the whole as a thin bar and its words - the pilot's "accounts for x% of revenue", an article's margin beside it. */
-function ShareLine({ share, of, margin, lead, tint, name }: { share: number | null; of: string; margin?: number | null; lead?: string; tint: Tint; name?: string }) {
-  if (share == null || !Number.isFinite(share)) return null;
-  return (
-    <Box sx={{ display: "grid", gap: 0.6 }}>
-      {/* the one it is about - the pilot card's line under its figure ("Sonceboz Motion Boncourt SA") */}
-      {name && <Typography title={name} sx={{ fontSize: "0.84rem", fontWeight: 700, color: INK, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{name}</Typography>}
-      <Box sx={{ height: 8, borderRadius: 99, bgcolor: "rgba(21,34,58,.07)", overflow: "hidden" }}>
-        <Box sx={{ width: `${Math.min(100, Math.max(0, share * 100))}%`, minWidth: 3, height: "100%", bgcolor: TINT[tint].fg, borderRadius: 99 }} />
-      </Box>
-      <Typography sx={{ fontSize: "0.74rem", color: MUTED, lineHeight: 1.4 }}>
-        {lead ? `${lead} · ` : ""}<b style={{ color: INK }}>{pct(share)}</b> {of}
-        {margin != null && <> · gross margin <b style={{ color: margin < 0 ? RED : INK }}>{pct(margin)}</b></>}
-      </Typography>
-    </Box>
-  );
-}
 
 /* ── "From results to action": the pilot's cards ───────────────────────── */
 
@@ -661,33 +796,6 @@ function MoreLink({ href, children = "Explore all" }: { href: string; children?:
   );
 }
 
-/* the pilot's "largest" tiles, with the share of the whole they carry */
-const largestCustomer = (f: Frame) => {
-  const x = f.d.customers[0], all = f.d.totals.rev;
-  return item(largestView(f, "Largest customer account", x, "The customer account with the most net revenue"),
-    x ? <ShareLine name={x.name || x.key || NOT_KNOWN} share={all > 0 ? x.rev / all : null} of="of the net revenue" tint={TOPIC.customers.tint} /> : undefined);
-};
-const largestArticle = (f: Frame) => {
-  const x = f.d.articles[0], all = f.d.totals.rev;
-  return item(largestView(f, "Largest article", x, "The article with the most net revenue, and its gross margin"),
-    x ? <ShareLine name={x.name || x.key || NOT_KNOWN} share={all > 0 ? x.rev / all : null} of="of the net revenue" margin={x.margin} lead={`article ${x.key || "—"}`} tint={TOPIC.articles.tint} /> : undefined);
-};
-const leadingFamily = (f: Frame) => {
-  const x = leadFamily(f), named = namedRev(f);
-  return item(largestView(f, "Leading material family", x, "The material family with the most net revenue - named compounds, unclassified left out"),
-    x ? <ShareLine name={x.name || x.key} share={named > 0 ? x.rev / named : null} of="of the named compounds' net revenue" tint={TOPIC.materials.tint} /> : undefined);
-};
-const leadingCompound = (f: Frame) => {
-  const x = f.d.compounds[0], named = namedRev(f);
-  return item(largestView(f, "Leading identified compound", x, "The named compound with the most net revenue"),
-    x ? <ShareLine name={x.name || x.key} share={named > 0 ? x.rev / named : null} of="of the named compounds' net revenue" margin={x.margin} tint={TOPIC.materials.tint} /> : undefined);
-};
-const negativeItem = (f: Frame, what: "customers" | "articles") => {
-  const n = f.d.negative[what], all = f.d.totals.rev;
-  return item(what === "customers" ? V.negCustomers(f) : V.negArticles(f),
-    <ShareLine share={all > 0 ? n.rev / all : null} of={`of the net revenue sits with them · ${eur(n.rev)}`} tint={what === "customers" ? TOPIC.customers.tint : TOPIC.articles.tint} />);
-};
-
 /**
  * The pilot's Overview (revision.js overview), in its order: "Understand the business." - its four cards, "Where does
  * revenue come from?" and "Which materials sell most?", "From results to action" (the commercial priorities), "The
@@ -702,8 +810,6 @@ function Overview({ f, busy, err, again }: { f: Frame; busy: boolean; err: strin
   const open = (w: Win) => { setPick(null); setWin((x) => (x === w ? null : w)); };
   const pri = usePriorities();
   const custRows = rowsOf(f.d.customers), artRows = rowsOf(f.d.articles), compRows = rowsOf(f.d.compounds);
-  const compound = { ...TOPIC.materials, icon: <ScienceOutlinedIcon />, tint: "purple" as Tint };
-  const cards: [Item | null, Topic][] = [[largestCustomer(f), TOPIC.customers], [leadingFamily(f), TOPIC.materials], [leadingCompound(f), compound], [largestArticle(f), TOPIC.articles]];
   return (
     <PriorityCtx.Provider value={pri}>
     <InspectCtx.Provider value={inspect}>
@@ -714,9 +820,7 @@ function Overview({ f, busy, err, again }: { f: Frame; busy: boolean; err: strin
         <Trouble err={err} again={again} />
         <Box sx={{ display: "grid", gap: 2.5, minWidth: 0, gridTemplateColumns: "minmax(0, 1fr)", opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }} aria-busy={busy}>
           {/* 1 · the pilot's cards: the largest customer account, the leading material family and compound, the largest article */}
-          <Box sx={GRID}>
-            {cards.filter((c): c is [Item, Topic] => !!c[0] && c[0].v.ytd != null).map(([it, t]) => <Tile key={it.v.id} f={f} it={it} t={t} span={QUARTER_SPAN} />)}
-          </Box>
+          <TrendCards f={f} four items={[TR.largestCustomer(f), TR.leadFamily(f), TR.leadCompound(f), TR.largestArticle(f)]} />
           {/* 2 · where revenue comes from, which materials sell most */}
           <Box sx={PAIR}>
             <BuMix f={f} title="Where does revenue come from?" hint="Click an organisation to explore its customer accounts"
@@ -1383,21 +1487,14 @@ function ApprovalShare({ f, href }: { f: Frame; href: string }) {
   const s = f.d.noApprovalShare, all = f.d.totals.rev;
   const named = leadingRefs(f.d.approvalRefs);
   return (
-    <ChartBox title="Which approvals matter?" hint="Current evidence from the approvals written on the articles" right={<MoreLink href={href}>Inspect</MoreLink>}>
+    <ChartBox title="Which approvals matter?" hint={`${pct(s)} of the net revenue has no approval written`} right={<MoreLink href={href}>Inspect</MoreLink>}
+      foot={named.length ? `Most named: ${andList(named)}. A text is not proof of what caused a sale.` : "A text is not proof of what caused a sale."}>
       {all > 0 ? (
-        <>
-          <Typography sx={{ fontSize: "2rem", fontWeight: 700, color: INK, letterSpacing: "-0.02em", lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>{pct(s)}</Typography>
-          <Typography sx={{ fontSize: "0.86rem", color: MUTED, mb: 1.5 }}>of the net revenue has no approval written on the article.</Typography>
-          <ShareBar keepOrder format={eur} segments={[
-            { label: "No approval written", value: all * s, color: DEEMPHASIS },
-            { label: "An approval written", value: all * (1 - s), color: ACCENT },
-          ]} />
-        </>
+        <ShareBar keepOrder format={eur} segments={[
+          { label: "No approval written", value: all * s, color: DEEMPHASIS },
+          { label: "An approval written", value: all * (1 - s), color: ACCENT },
+        ]} />
       ) : NONE()}
-      <Typography sx={{ fontSize: "0.78rem", color: MUTED, mt: 1.25 }}>
-        {named.length ? `${andList(named)} appear in some texts. ` : ""}The figures cannot establish which approvals caused sales.
-      </Typography>
-      <Box sx={{ mt: 1 }}><MoreLink href={href}>Explore the available evidence</MoreLink></Box>
     </ChartBox>
   );
 }
@@ -1436,40 +1533,69 @@ function References({ f, onPick }: { f: Frame; onPick?: (ref: string) => void })
 }
 
 /**
- * The pilot's material cards (revision.js materialCards: "Materials first. Compounds next."), as the macro page's tiles -
- * each family's revenue, its compounds and margin, its share of the named compounds; the family list on the right, the
- * family chosen outlined; a click opens (or filters) its compounds.
+ * The pilot's "Materials first. Compounds next." (revision.js materialCards) as a real chart (SARCLA 13.11.2026: "put
+ * real graphs"): a bar per material family by its named compounds' net revenue, the same months a year earlier as a
+ * ghost bar behind it, the change and the gross margin in short columns at the right - and beside it the gross margin
+ * of each family as bars. A click on a bar chooses the family (its compounds below); "All materials" is the way back.
  */
-function FamilyTiles({ f, active = null, onPick }: { f: Frame; active?: string | null; onPick: (family: string | null) => void }) {
-  const figs = familyFigures(f.d.compounds);
+function FamilyChart({ f, active = null, onPick }: { f: Frame; active?: string | null; onPick: (family: string | null) => void }) {
+  const rows = f.d.byFamily.filter((x) => x.rev > 0 || (x.prev ?? 0) > 0);
   const t = TOPIC.materials;
-  if (!figs.length) return null;
-  const pickList = (
-    <Select size="small" value={active ?? ""} displayEmpty onChange={(e) => onPick(String(e.target.value) || null)} inputProps={{ "aria-label": "Material family" }}
-      sx={{ height: 34, minWidth: 170, fontSize: "0.84rem", fontWeight: 600, borderRadius: "10px", bgcolor: "#fff" }}>
-      <MenuItem value="">All materials</MenuItem>
-      {figs.map((x) => <MenuItem key={x.key} value={x.key}>{x.name}</MenuItem>)}
-    </Select>
-  );
+  if (!rows.length) return null;
+  const two = hasBefore(f);
+  const max = Math.max(1, ...rows.map((x) => Math.max(x.rev, two ? x.prev ?? 0 : 0)));
+  const counts = new Map(familyFigures(f.d.compounds).map((x) => [x.key, x.count]));
+  const cols = "minmax(80px, 110px) minmax(0, 1fr) 100px 62px 54px";
+  const head = { fontSize: "0.66rem", fontWeight: 700, color: FAINT, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" } as const;
+  const back = active ? (
+    <Button size="small" onClick={() => onPick(null)} startIcon={<ArrowBackIcon />} sx={{ textTransform: "none", fontWeight: 700, whiteSpace: "nowrap" }}>All materials</Button>
+  ) : undefined;
   return (
-    <GlassCard sx={{ display: "grid", gap: 2, gridTemplateColumns: "minmax(0, 1fr)" }}>
-      <CardTitle icon={t.icon} tint={t.tint} title="Materials first. Compounds next." note="Choose a family to explore the compounds underneath it" right={pickList} />
-      <Box sx={{ ...GRID, mt: -1 }}>
-        {figs.map((x) => {
-          const on = active === x.key;
-          return (
-            <Box key={x.key} component="button" type="button" onClick={() => onPick(on ? null : x.key)} aria-pressed={on} title={on ? "Click again for all materials" : `Open the ${x.name} compounds`}
-              sx={{
-                ...TILE_SPAN, minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", p: 0, border: 0, bgcolor: "transparent", font: "inherit", textAlign: "left", cursor: "pointer", borderRadius: "20px",
-                opacity: active && !on ? 0.6 : 1,
-                "& > div": on ? { boxShadow: `inset 0 0 0 2px ${TINT[t.tint].fg}` } : {},
-                "&:hover > div": { boxShadow: `inset 0 0 0 1.5px ${TINT[t.tint].fg}` }, "&:hover": { opacity: 1 }, "&:focus-visible": { outline: `2px solid ${TINT[t.tint].fg}`, outlineOffset: 2 },
-              }}>
-              <KpiTileChart v={keyView(f, x.name, f.d.familyMonths, [x.key], `The ${x.name} compounds' net revenue`)} slug="sealing" tint={t.tint} icon={t.icon} upTo={f.upTo} title={x.name}
-                chart={<ShareLine share={x.share} of="of named-entry revenue" margin={x.margin} lead={`${int(x.count)} compound ${x.count === 1 ? "entry" : "entries"}`} tint={t.tint} />} />
+    <GlassCard sx={{ display: "grid", gap: 1.5, gridTemplateColumns: "minmax(0, 1fr)" }}>
+      <CardTitle icon={t.icon} tint={t.tint} title="Materials first. Compounds next." note="Choose a family to explore the compounds underneath it" right={back} />
+      {/* side by side where the bars keep their room, one under the other below */}
+      <Box sx={{ display: "grid", gap: 1.5, mt: -1, gridTemplateColumns: { xs: "minmax(0, 1fr)", xl: "minmax(0, 1.5fr) minmax(0, 1fr)" } }}>
+        <ChartBox title="Net revenue by material family" hint={two ? `${f.now}, the same months a year earlier in grey · click a family` : `${f.now} · click a family`}
+          table={{ columns: ["Material family", "Net revenue", ...(two ? ["A year earlier", "Change"] : []), "Gross margin", "Compounds"], rows: rows.map((x) => [x.name, Math.round(x.rev), ...(two ? [Math.round(x.prev ?? 0), x.prev ? signedPct(x.rev / x.prev - 1) : "new"] : []), pct(x.margin), int(counts.get(x.key) ?? 0)]), numeric: two ? [1, 2, 3, 4, 5] : [1, 2, 3] }}>
+          <Box sx={{ display: "grid", gap: 0.25 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: cols, columnGap: 1.25, px: 0.75, pb: 0.5 }}>
+              <Typography sx={head}>Family</Typography><span />
+              <Typography sx={{ ...head, textAlign: "right" }}>Net revenue</Typography>
+              <Typography sx={{ ...head, textAlign: "right" }}>{two ? "Change" : ""}</Typography>
+              <Typography sx={{ ...head, textAlign: "right" }}>GM %</Typography>
             </Box>
-          );
-        })}
+            {rows.map((x) => {
+              const on = active === x.key;
+              const ch = two && x.prev ? x.rev / x.prev - 1 : null;
+              return (
+                <Box key={x.key} component="button" type="button" onClick={() => onPick(on ? null : x.key)} aria-pressed={on}
+                  title={`${x.name}: ${eur(x.rev)}${two ? ` · a year earlier ${eur(x.prev ?? 0)}` : ""} · gross margin ${pct(x.margin)} · ${int(counts.get(x.key) ?? 0)} compounds`}
+                  sx={{
+                    display: "grid", gridTemplateColumns: cols, columnGap: 1.25, alignItems: "center", width: "100%", border: 0, font: "inherit", textAlign: "left",
+                    cursor: "pointer", px: 0.75, py: 0.6, borderRadius: "10px", color: INK,
+                    bgcolor: on ? TINT.blue.bg : "transparent", boxShadow: on ? `inset 0 0 0 1.5px ${TINT.blue.fg}` : "none",
+                    opacity: active && !on ? 0.55 : 1, "&:hover": { bgcolor: on ? TINT.blue.bg : "rgba(42,120,214,0.05)", opacity: 1 },
+                    "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
+                  }}>
+                  <Typography noWrap sx={{ fontSize: "0.84rem", fontWeight: on ? 700 : 600 }}>{x.name}</Typography>
+                  <Box sx={{ position: "relative", height: 18 }}>
+                    {two && <Box sx={{ position: "absolute", left: 0, top: 0, height: 18, width: `${(Math.max(0, x.prev ?? 0) / max) * 100}%`, bgcolor: DEEMPHASIS, opacity: 0.45, borderRadius: "0 4px 4px 0" }} />}
+                    <Box sx={{ position: "absolute", left: 0, top: 4, height: 10, width: `${(Math.max(0, x.rev) / max) * 100}%`, minWidth: x.rev > 0 ? 2 : 0, bgcolor: ACCENT, borderRadius: "0 3px 3px 0" }} />
+                  </Box>
+                  <Typography noWrap sx={{ fontSize: "0.82rem", fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{eur(x.rev)}</Typography>
+                  <Typography noWrap sx={{ fontSize: "0.76rem", fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums", color: ch == null ? FAINT : tone(ch) }}>{two ? (ch == null ? (x.rev > 0 ? "new" : "—") : signedPct(ch)) : ""}</Typography>
+                  <Typography noWrap sx={{ fontSize: "0.76rem", fontWeight: 600, textAlign: "right", fontVariantNumeric: "tabular-nums", color: x.margin < 0 ? RED : MUTED }}>{pct(x.margin)}</Typography>
+                </Box>
+              );
+            })}
+          </Box>
+        </ChartBox>
+        <ChartBox title="Gross margin by material family" hint="Gross profit over net revenue · click a family"
+          table={{ columns: ["Material family", "Gross margin", "Gross profit"], rows: rows.map((x) => [x.name, pct(x.margin), Math.round(x.gp)]), numeric: [1, 2] }}>
+          <BarList format={pct} labelWidth={110} heads={{ label: "Family", value: "Gross margin" }} selectedLabel={active ? rows.find((x) => x.key === active)?.name ?? null : null}
+            onSelect={(label) => { const x = rows.find((r) => r.name === label); if (x) onPick(active === x.key ? null : x.key); }}
+            rows={[...rows].sort((a, b) => b.margin - a.margin).map((x) => ({ label: x.name, value: Math.max(0, x.margin), color: x.margin < 0 ? DELTA.bad : undefined }))} />
+        </ChartBox>
       </Box>
       <Typography sx={{ fontSize: "0.76rem", color: FAINT, mt: -0.5 }}>
         Material families are derived from compound names (Kalrez → FFKM). Compound designations and amounts remain unchanged. Unresolved entries are excluded from family totals.
@@ -1626,33 +1752,6 @@ function Breakdown({ t, title, note, charts, table, foot }: { t: Topic; title: s
 }
 const Wide = ({ children }: { children: React.ReactNode }) => <Box sx={{ minWidth: 0, gridColumn: "1 / -1" }}>{children}</Box>;
 
-/** A figure's months as Digital Growth's KPI card draws them (data.tsx KpiCard): the period's bars, the year before in grey. */
-function MonthsChart({ f, v }: { f: Frame; v: SView }) {
-  const labels = v.labels ?? MONTHS;
-  if (!v.series.months.some((x) => x != null)) return null;
-  const fmt = (x: number | null) => fmtValue(v.measure.fmt, x);
-  return (
-    <ChartFrame table={{ columns: ["Month", f.now, f.before], rows: labels.map((x, i) => [x, v.series.months[i] ?? "", v.series.py[i] ?? ""]), numeric: [1, 2] }}>
-      <GroupedColumns height={180} format={fmt} data={labels.map((x, i) => ({ x, current: v.series.months[i], prior: v.series.py[i] }))} currentLabel={f.now} priorLabel={f.before} />
-    </ChartFrame>
-  );
-}
-
-/** The page's KPI cards (data.tsx KpiCard): the figure, against the same months a year earlier, its months - or its own graph. */
-function KpiCards({ f, t, items }: { f: Frame; t: Topic; items: (Item | null)[] }) {
-  const shown = items.filter((x): x is Item => !!x && x.v.ytd != null);
-  if (!shown.length) return null;
-  return (
-    <Box sx={{ display: "grid", gap: 2, alignItems: "start", gridTemplateColumns: shown.length === 4 ? { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))", xl: "repeat(4, minmax(0, 1fr))" } : { xs: "minmax(0, 1fr)", md: `repeat(${Math.min(3, shown.length)}, minmax(0, 1fr))` } }}>
-      {shown.map(({ v, chart }) => (
-        <KpiCard key={v.id} v={v} icon={t.icon} tint={t.tint} upTo={f.upTo} title={v.id} stacked>
-          {chart ?? (v.series.months.some((x) => x != null) ? <MonthsChart f={f} v={v} /> : undefined)}
-        </KpiCard>
-      ))}
-    </Box>
-  );
-}
-
 /* ── the topic pages: the pilot's views, in Digital Growth's stage-page frame ── */
 
 type TabDef = { id: string; label: string; count?: (f: Frame) => string | null; Body: (p: { f: Frame }) => React.ReactNode };
@@ -1665,20 +1764,6 @@ type PageFigure = { label: string; icon: React.ReactNode; tint: Tint; v: SView |
 type PageDef = { title: string; lead: string; topic: Topic; figures: (f: Frame) => PageFigure[]; tabs: TabDef[] };
 
 const glyph = (I: typeof EuroOutlinedIcon) => <I />;
-
-/** The pilot's third card, "Reporting period" - drawn as a figure card (ExplorerKit FigureCards) with the period's words. */
-function PeriodFigure({ f }: { f: Frame }) {
-  return (
-    <Box sx={{ ...glass, borderRadius: "16px", px: 1.5, py: 1.1, minWidth: 124, maxWidth: 200, display: "grid", gap: 0.25, alignContent: "start" }}>
-      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-        <Badge icon={<CalendarMonthOutlinedIcon />} tint="slate" size={22} />
-        <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: MUTED, lineHeight: 1.25 }}>Reporting period</Typography>
-      </Box>
-      <Typography sx={{ fontSize: "1.15rem", fontWeight: 700, color: INK, lineHeight: 1.25, letterSpacing: "-0.01em" }}>{f.now}</Typography>
-      <Typography sx={{ fontSize: "0.7rem", color: FAINT, lineHeight: 1.3 }}>{hasBefore(f) ? `against ${f.before}` : "month by month"}</Typography>
-    </Box>
-  );
-}
 
 /** The hub's own, after the pilot's content on a page: its heading. */
 const HubAfter = ({ hint }: { hint: string }) => <SectionHead title="Against a year earlier" hint={hint} />;
@@ -1713,7 +1798,7 @@ function OrgBreakdown({ f, kind }: { f: Frame; kind: "units" | "orgs" }) {
 function MonthsTab({ f }: { f: Frame }) {
   return (
     <>
-      <KpiCards f={f} t={TOPIC.revenue} items={[item(V.rev(f)), item(V.gp(f)), item(V.margin(f))]} />
+      <TrendCards f={f} items={[TR.rev(f), TR.gp(f), TR.margin(f), TR.customers(f)]} />
       <Breakdown t={TOPIC.revenue} title={`Net revenue month by month, ${f.now}`} note={`Each month's invoices · ${against(f)}`}
         charts={<Wide><MonthStack f={f} rows={f.d.unitMonths} order={f.d.byBu.map((x) => ({ key: x.key, name: x.name || NOT_KNOWN }))} title="Net revenue month by month, by business unit" /></Wide>}
         table={null} />
@@ -1761,7 +1846,7 @@ function CustomersTab({ f }: { f: Frame }) {
       <Actions items={reviewCandidates("customers", positions(found(all, st.q)), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The customer accounts against the same months a year earlier" />
-      <KpiCards f={f} t={t} items={[item(V.customers(f)), largestCustomer(f), item(V.customerShare(f)), negativeItem(f, "customers")]} />
+      <TrendCards f={f} items={[TR.customers(f), TR.largestCustomer(f), TR.customerShare(f), TR.negCustomers(f)]} />
       <Breakdown t={t} title={`The customer accounts against a year earlier, ${f.now}`} note={`The ${int(all.length)} accounts with the most net revenue of ${int(f.d.totals.customers)} invoiced · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={all} what="customer" labelWidth={240} />} table={null} />
     </>
@@ -1802,7 +1887,7 @@ function ArticlesTab({ f }: { f: Frame }) {
       <Actions items={reviewCandidates("articles", positions(found(ofFamily, st.q)), f.d.totals.rev, compareCompound(f))} title={actionsCaption(f.bus)} />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The articles against the same months a year earlier" />
-      <KpiCards f={f} t={t} items={[item(V.articles(f)), largestArticle(f), negativeItem(f, "articles")]} />
+      <TrendCards f={f} items={[TR.articles(f), TR.largestArticle(f), TR.articleShare(f), TR.negArticles(f)]} />
       <Breakdown t={t} title={`The articles against a year earlier${family ? ` · ${family}` : ""}, ${f.now}`} note={`The ${int(ofFamily.length)} articles with the most net revenue${family ? ` of the family` : ` of ${int(f.d.totals.articles)} invoiced`} · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={ofFamily} what="article" labelWidth={280} />} table={null} />
     </>
@@ -1828,7 +1913,7 @@ function CompoundsTab({ f }: { f: Frame }) {
   const chipSx = (on: boolean) => ({ height: 30, fontSize: "0.78rem", fontWeight: 600, bgcolor: on ? TINT.purple.bg : "#fff", color: on ? TINT.purple.fg : INK, border: `1px solid ${on ? TINT.purple.fg : "rgba(21,34,58,.14)"}` });
   return (
     <>
-      <FamilyTiles f={f} active={family} onPick={(x) => { setParam("family", x); st.setOffset(0); }} />
+      <FamilyChart f={f} active={family} onPick={(x) => { setParam("family", x); st.setOffset(0); }} />
       {/* the pilot's breadcrumb: "All materials / FKM / Compounds" */}
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", fontSize: "0.84rem", color: MUTED, mt: -0.75 }}>
         <Button size="small" onClick={() => setParam("family", null)} sx={{ textTransform: "none", fontWeight: 700, minWidth: 0, px: 0.5 }}>All materials</Button>
@@ -1841,6 +1926,7 @@ function CompoundsTab({ f }: { f: Frame }) {
       <Actions items={familyCandidates(commercial(f), family, list)} title="Commercial priorities" />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The compounds against the same months a year earlier" />
+      <TrendCards f={f} items={[TR.named(f, family), TR.namedMargin(f, family), TR.compounds(f), TR.noCompound(f)]} />
       <Breakdown t={t} title={`The compounds against a year earlier${family ? ` · ${family}` : ""}, ${f.now}`}
         note={`${int(all.length)} compound${all.length === 1 ? "" : "s"}${unresolved ? ", the unresolved entries included" : " named"} · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={all} what="compound" labelWidth={240} />} table={null}
@@ -1856,7 +1942,7 @@ function FamiliesTab({ f }: { f: Frame }) {
   const toCompounds = (family: string) => setQuery((q) => { q.delete("tab"); q.set("family", family); });
   return (
     <>
-      <KpiCards f={f} t={t} items={[leadingFamily(f), leadingCompound(f), item(V.noCompound(f)), item(V.compounds(f))]} />
+      <TrendCards f={f} items={[TR.leadFamily(f), TR.leadCompound(f), TR.namedMargin(f, null), TR.noCompound(f)]} />
       <Breakdown t={t} title={`The material families against a year earlier, ${f.now}`}
         note={`Named compounds only - ${pct(f.d.noCompoundShare)} of the net revenue names none · ${against(f)}`}
         charts={<>
@@ -1899,7 +1985,7 @@ function ApprovalsTab({ f }: { f: Frame }) {
       <Actions items={approvalCandidates(f.d.approvalRefs, noApprovalRev(f), f.d.totals.rev)} title="What should we do?" first />
       {/* the hub's own, after the pilot's */}
       <HubAfter hint="The approvals against the same months a year earlier" />
-      <KpiCards f={f} t={t} items={[item(V.noApproval(f)), item(V.withApproval(f)), item(V.approvals(f))]} />
+      <TrendCards f={f} items={[TR.noApproval(f), TR.noApprovalRev(f), TR.withApproval(f), TR.approvals(f)]} />
       <Breakdown t={t} title={`The approvals against a year earlier, ${f.now}`} note={`The ${int(all.length)} texts with the most net revenue · ${against(f)}`}
         charts={<FigureGraphs f={f} rows={all} what="approval text" labelWidth={300} />} table={null}
         foot="A text can name several approvals, and the figures cannot tell which approval caused a sale." />
@@ -2083,7 +2169,6 @@ function TopicPage({ slug, f, busy, err, again }: { slug: Exclude<SealingSlug, "
             </Box>
             <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "stretch", justifyContent: "flex-end", flex: "0 1 auto", opacity: busy ? 0.55 : 1, transition: "opacity .15s ease" }}>
               <FigureCards items={figures.map((x, i) => ({ id: `${i}-${x.label}`, ...x }))} />
-              <PeriodFigure f={f} />
               <Box sx={{ display: "flex", alignItems: "flex-start" }}><FiltersButton f={f} open={win === "filters"} onClick={() => openWin("filters")} /></Box>
             </Box>
           </Box>
