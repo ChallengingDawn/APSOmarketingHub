@@ -98,12 +98,17 @@ export type SealingFilter = {
 /**
  * A month of the period: its figures, and the same month a year before (`prev...` null: before the first month the
  * figures hold). customers / articles: the distinct ones invoiced that month; noCompound / noApproval: the net revenue
- * whose article names no compound / has no approval written.
+ * whose article names no compound / has no approval written; compounds / approvals: the named compounds and the
+ * approvals written invoiced that month; negCustomers / negArticles: those at a negative gross margin that month, and
+ * their net revenue (negCustomersRev, negArticlesRev).
  */
 export type SealingMonth = {
   month: string; rev: number; gp: number; prevRev: number | null; prevGp: number | null;
   customers: number; articles: number; noCompound: number; noApproval: number;
   prevCustomers: number | null; prevArticles: number | null; prevNoCompound: number | null; prevNoApproval: number | null;
+  compounds?: number; approvals?: number; prevCompounds?: number | null; prevApprovals?: number | null;
+  negCustomers?: number; negCustomersRev?: number; negArticles?: number; negArticlesRev?: number;
+  prevNegCustomers?: number | null; prevNegCustomersRev?: number | null; prevNegArticles?: number | null; prevNegArticlesRev?: number | null;
 };
 
 export type SealingView = {
@@ -150,6 +155,9 @@ export type SealingView = {
   priorities: Priority[];
   /** every commercial priority the figures hold, ranked, each with its stable key - the overview takes the open ones */
   candidates: Priority[];
+  /** the period's largest customer account, article and named compound (customers[0], articles[0], compounds[0]), each
+   *  month and the same month a year earlier - their graphs */
+  leaderMonths?: { customer: KeyMonth[]; article: KeyMonth[]; compound: KeyMonth[] };
   /** the compound entries that name none ("No info", "Unknown", "TBD", a drawing) - the pilot's unresolved entries */
   unresolved: Figure[];
   /** the net revenue of the approval texts naming each reference the pilot ranks (FDA, WRAS ...) - they overlap */
@@ -222,26 +230,72 @@ async function familyByMonth(f: SealingFilter, from: string, to: string, compoun
   return r.rows.map((x) => ({ month: String(x.month).trim(), key: x.key, rev: Number(x.rev), gp: Number(x.gp) }));
 }
 
-type MonthRow = { rev: number; gp: number; customers: number; articles: number; noCompound: number; noApproval: number };
+type MonthRow = {
+  rev: number; gp: number; customers: number; articles: number; noCompound: number; noApproval: number;
+  compounds: number; approvals: number; negCustomers: number; negCustomersRev: number; negArticles: number; negArticlesRev: number;
+};
 
-/** The period month by month: the figures, the distinct customers and articles, the revenue with no compound or no approval. */
+/**
+ * The period month by month: the figures, the distinct customers and articles, the revenue with no compound or no
+ * approval, the named compounds and the approvals written - and each month's customers and articles at a negative
+ * gross margin that month, with their revenue.
+ */
 async function monthFigures(f: SealingFilter, from: string, to: string, noComp: string[], noAppr: string[]): Promise<Map<string, MonthRow>> {
   const w = where(f, from, to);
   const n = w.vals.length;
-  const r = await query<{ month: string; rev: string; gp: string; customers: string; articles: string; no_compound: string | null; no_approval: string | null }>(
-    `SELECT month, SUM(rev) AS rev, SUM(gp) AS gp, COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles,
-            SUM(rev) FILTER (WHERE compound = ANY($${n + 1})) AS no_compound,
-            SUM(rev) FILTER (WHERE approval = ANY($${n + 2})) AS no_approval
-       FROM ${TABLE} WHERE ${w.sql} GROUP BY month`,
-    [...w.vals, noComp, noAppr],
-  );
-  return new Map(r.rows.map((x) => [String(x.month).trim(), {
-    rev: Number(x.rev), gp: Number(x.gp), customers: Number(x.customers), articles: Number(x.articles),
-    noCompound: Number(x.no_compound ?? 0), noApproval: Number(x.no_approval ?? 0),
-  }]));
+  const [r, neg] = await Promise.all([
+    query<{ month: string; rev: string; gp: string; customers: string; articles: string; no_compound: string | null; no_approval: string | null; compounds: string; approvals: string }>(
+      `SELECT month, SUM(rev) AS rev, SUM(gp) AS gp, COUNT(DISTINCT customer) AS customers, COUNT(DISTINCT article) AS articles,
+              SUM(rev) FILTER (WHERE compound = ANY($${n + 1})) AS no_compound,
+              SUM(rev) FILTER (WHERE approval = ANY($${n + 2})) AS no_approval,
+              COUNT(DISTINCT compound) FILTER (WHERE NOT (compound = ANY($${n + 1}))) AS compounds,
+              COUNT(DISTINCT approval) FILTER (WHERE NOT (approval = ANY($${n + 2}))) AS approvals
+         FROM ${TABLE} WHERE ${w.sql} GROUP BY month`,
+      [...w.vals, noComp, noAppr],
+    ),
+    // a month's losses: the customers and the articles whose gross profit that month is below zero on a positive revenue
+    query<{ month: string; kind: string; n: string; rev: string | null }>(
+      `SELECT month, kind, COUNT(*) FILTER (WHERE rev > 0 AND gp < 0) AS n, SUM(rev) FILTER (WHERE rev > 0 AND gp < 0) AS rev FROM (
+         SELECT month, 'customer' AS kind, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} GROUP BY month, customer
+         UNION ALL
+         SELECT month, 'article' AS kind, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} GROUP BY month, article
+       ) x GROUP BY month, kind`,
+      w.vals,
+    ),
+  ]);
+  const loss = new Map(neg.rows.map((x) => [`${x.kind}|${String(x.month).trim()}`, { n: Number(x.n), rev: Number(x.rev ?? 0) }]));
+  return new Map(r.rows.map((x) => {
+    const month = String(x.month).trim();
+    const c = loss.get(`customer|${month}`), a = loss.get(`article|${month}`);
+    return [month, {
+      rev: Number(x.rev), gp: Number(x.gp), customers: Number(x.customers), articles: Number(x.articles),
+      noCompound: Number(x.no_compound ?? 0), noApproval: Number(x.no_approval ?? 0),
+      compounds: Number(x.compounds), approvals: Number(x.approvals),
+      negCustomers: c?.n ?? 0, negCustomersRev: c?.rev ?? 0, negArticles: a?.n ?? 0, negArticlesRev: a?.rev ?? 0,
+    }];
+  }));
 }
 
-const NO_MONTH: MonthRow = { rev: 0, gp: 0, customers: 0, articles: 0, noCompound: 0, noApproval: 0 };
+const NO_MONTH: MonthRow = { rev: 0, gp: 0, customers: 0, articles: 0, noCompound: 0, noApproval: 0, compounds: 0, approvals: 0, negCustomers: 0, negCustomersRev: 0, negArticles: 0, negArticlesRev: 0 };
+
+/** One customer's, article's and named compound's figures by month - the period's largest (the leaders' months). */
+async function leaderByMonth(f: SealingFilter, from: string, to: string, keys: { customer: string | null; article: string | null; compound: string | null }) {
+  const w = where(f, from, to);
+  const n = w.vals.length;
+  const r = await query<{ kind: string; month: string; rev: string; gp: string }>(
+    `SELECT 'customer' AS kind, month, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} AND customer = $${n + 1} GROUP BY month
+     UNION ALL
+     SELECT 'article' AS kind, month, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} AND article = $${n + 2} GROUP BY month
+     UNION ALL
+     SELECT 'compound' AS kind, month, SUM(rev) AS rev, SUM(gp) AS gp FROM ${TABLE} WHERE ${w.sql} AND compound = $${n + 3} GROUP BY month`,
+    [...w.vals, keys.customer ?? "", keys.article ?? "", keys.compound ?? ""],
+  );
+  const of = (kind: "customer" | "article" | "compound") => {
+    const key = keys[kind];
+    return key == null ? [] : r.rows.filter((x) => x.kind === kind).map((x) => ({ key, month: String(x.month).trim(), rev: Number(x.rev), gp: Number(x.gp) }));
+  };
+  return { customer: of("customer"), article: of("article"), compound: of("compound") };
+}
 
 /** The customers or the articles whose gross margin is negative over the months, and their net revenue. */
 async function negativeOf(col: "customer" | "article", f: SealingFilter, from: string, to: string): Promise<Negative> {
@@ -308,10 +362,13 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   const noCompKeys = [...new Set([...compNow, ...compBefore].filter((c) => noCompound(c.name)).map((c) => c.key))];
   const noApprKeys = [...new Set([...appr, ...apprBefore].filter((a) => noApproval(a.name)).map((a) => a.key))];
   const familyOf = new Map([...named, ...namedBefore].map((c) => [c.key, materialOf(c.name)]));
-  const [mNow, mBefore, famNow, famBefore] = await Promise.all([
+  // the period's largest customer account, article and named compound - their months, now and a year earlier
+  const leaders = { customer: custNow[0]?.key ?? null, article: artNow[0]?.key ?? null, compound: named[0]?.key ?? null };
+  const [mNow, mBefore, famNow, famBefore, leadNow, leadBefore] = await Promise.all([
     monthFigures(f, f.from, f.to, noCompKeys, noApprKeys), monthFigures(f, prevFrom, prevTo, noCompKeys, noApprKeys),
     familyByMonth(f, f.from, f.to, [...familyOf.keys()], [...familyOf.values()]),
     familyByMonth(f, prevFrom, prevTo, [...familyOf.keys()], [...familyOf.values()]),
+    leaderByMonth(f, f.from, f.to, leaders), leaderByMonth(f, prevFrom, prevTo, leaders),
   ]);
   // a month a year before the figures' first month is not known, never a zero
   const firstHeld = meta?.first_month ?? null;
@@ -323,6 +380,10 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
       month, rev: x.rev, gp: x.gp, customers: x.customers, articles: x.articles, noCompound: x.noCompound, noApproval: x.noApproval,
       prevRev: y?.rev ?? null, prevGp: y?.gp ?? null, prevCustomers: y?.customers ?? null, prevArticles: y?.articles ?? null,
       prevNoCompound: y?.noCompound ?? null, prevNoApproval: y?.noApproval ?? null,
+      compounds: x.compounds, approvals: x.approvals, prevCompounds: y?.compounds ?? null, prevApprovals: y?.approvals ?? null,
+      negCustomers: x.negCustomers, negCustomersRev: x.negCustomersRev, negArticles: x.negArticles, negArticlesRev: x.negArticlesRev,
+      prevNegCustomers: y?.negCustomers ?? null, prevNegCustomersRev: y?.negCustomersRev ?? null,
+      prevNegArticles: y?.negArticles ?? null, prevNegArticlesRev: y?.negArticlesRev ?? null,
     };
   });
   // the 10 largest a year earlier only when the whole of those months is in the figures
@@ -371,6 +432,11 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
     },
     priorities: priorities(named, pairs),
     candidates: commercialCandidates(named, pairs),
+    leaderMonths: {
+      customer: keyMonths(period, leadNow.customer, leadBefore.customer, firstHeld),
+      article: keyMonths(period, leadNow.article, leadBefore.article, firstHeld),
+      compound: keyMonths(period, leadNow.compound, leadBefore.compound, firstHeld),
+    },
     unresolved: withPrev(compNow.filter((c) => noCompound(c.name)), compBefore.filter((c) => noCompound(c.name))),
     approvalRefs: approvalRefs(appr),
     approvalKinds: approvalKinds(appr),
