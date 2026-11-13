@@ -47,7 +47,7 @@ import WebynTests from "../xp/WebynTests";
 import { testsBase, useInConvert } from "../../ai-personalization/base";
 import { SquareChoice } from "../../ai-personalization/SquareChoice";
 import {
-  COLOR, GatewayNotice, PagePicker, StatusChip, VerdictChip, envChip, n, pct, splitOf, todoHref,
+  COLOR, GatewayNotice, PagePicker, StatusChip, VerdictChip, envChip, n, pct, recordHref, splitOf, todoHref,
   type CandidateView, type GatewayView, type SplitKey, type TestView,
 } from "../../ai-personalization/TestParts";
 
@@ -229,6 +229,7 @@ export default function PageTests() {
                             {t.origin?.todo
                               ? <Box component={Link} href={todoHref(t.origin.todo)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ display: "inline-flex", mt: 0.5, textDecoration: "none" }}><Chip tint="purple">From Content · {t.origin.todo.title.slice(0, 48)}</Chip></Box>
                               : t.ideaId ? <Box sx={{ mt: 0.5 }}><Chip tint="blue">From an optimization</Chip></Box> : null}
+                            <Box component={Link} href={recordHref(t.id)} onClick={(e: React.MouseEvent) => e.stopPropagation()} sx={{ display: "inline-flex", ml: 0.75, mt: 0.5, textDecoration: "none" }}><Chip tint="slate">Its record</Chip></Box>
                           </TableCell>
                           <TableCell sx={{ ...bodyCell, fontSize: "0.8rem", color: MUTED, whiteSpace: "nowrap" }}>rev {t.versionRev} · {t.changeCount} {t.changeCount === 1 ? "change" : "changes"}<br />{t.allocation.mode === "bandit" ? "more to the better" : t.allocation.split.b === 50 ? "half and half" : `${t.allocation.split.b}% get it`}</TableCell>
                           <TableCell sx={{ ...bodyCell, fontSize: "0.82rem", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{f ? <>{n(f.a.visitors)} · <b style={{ color: COLOR.b }}>{n(f.b.visitors)}</b></> : "–"}</TableCell>

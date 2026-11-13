@@ -50,7 +50,7 @@ import { PageShot } from "../../../ai-personalization/PageShot";
 import { ContentProjectLink } from "../../../ai-personalization/ContentLink";
 import {
   AudienceBuilder, COLOR, ConfirmDialog, DailyCharts, Gauge, GatewayNotice, IntervalBars, NAME, PagePicker, StatusChip, UpliftBar,
-  dayTime, envChip, n, pagesLine, pct, signed, splitKeyOf, splitOf, todoHref, type Confirm, type GatewayView, type SplitKey, type TestView,
+  dayTime, envChip, n, pagesLine, pct, signed, recordHref, splitKeyOf, splitOf, todoHref, type Confirm, type GatewayView, type SplitKey, type TestView,
 } from "../../../ai-personalization/TestParts";
 
 const API = "/api/website/ab-testing/pages";
@@ -216,6 +216,8 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             {d.origin?.todo
               ? <Button size="small" variant="outlined" component={Link} href={todoHref(d.origin.todo)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Open its to-do in Content</Button>
               : <ContentProjectLink env={t.env} path={t.pages[0]} testId={t.id} />}
+            {/* its record in Mission control: the decision, the learning, its history (dev-c3's one overview) */}
+            <Button size="small" variant="outlined" component={Link} href={recordHref(t.id)} sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 600 }}>Its record in Mission control</Button>
             {d.canEdit && t.status === "draft" && <>
               <Button size="small" onClick={() => setEditing((x) => !x)}>{editing ? "Close the settings" : "Change the settings"}</Button>
               <Button size="small" color="error" onClick={ask.del}>Delete</Button>
