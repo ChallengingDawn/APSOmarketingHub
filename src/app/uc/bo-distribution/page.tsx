@@ -50,6 +50,7 @@ import { GUTTER, LoadingPanel, UpstreamPanel } from "@/app/analytics/Shell";
 import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, RED, bodyCell, headCell } from "@/app/uc/report/ui";
 import { ReportTabs, useHashTab } from "@/app/uc/report/Tabs";
+import { AvailabilityCard, AvailabilitySettings } from "./Availability";
 import { WindowPicker, useReportingWindow } from "@/app/window/ReportingWindow";
 import { Chip, when } from "@/app/connectors/parts";
 import type { Person, RosterKey } from "@/lib/boDistribution/rules";
@@ -245,6 +246,9 @@ export default function BoDistribution() {
   if (view === "gqs-approvals") body = <ApprovalsTab from={win.from} to={win.to} />;
   // the way in (Back Office Ticket Created | Notification, SARCLA 05-06.11.2026: "a new tab that we can steer") - its own API
   else if (view === "way-in") body = <WayInTab />;
+  // Availability (SARCLA 12.11.2026: "create a new tab availability to put the logic inside") - its own API
+  // (src/lib/boAvailability): who is Available or Away on the tickets, and how it runs
+  else if (view === "availability") body = <><AvailabilityCard /><AvailabilitySettings /></>;
   else if (GQS_KPI_VIEWS.includes(view)) {
     body = withStore((s) => <GqsKpis key={view} view={view as GqsView} store={s} from={win.from} to={win.to} />);
   } else if (r === null || !all || !bo) {
@@ -286,6 +290,7 @@ export default function BoDistribution() {
     { id: "sentiment", label: "Sentiment", count: null },
     { id: "priority", label: "Priority", count: null },
     { id: "people", label: "People", count: null },
+    { id: "availability", label: "Availability", count: null },
     { id: "settings", label: "Settings", count: null },
   ];
   const busy = r === null || held.stale || (pipe === "gqs" && (g === null || gqsHeld.stale));

@@ -116,6 +116,10 @@ export async function register() {
     // SARCLA | REGION TO COUNTRY CUSTOM brought in (11.11.2026).
     const { startCompanyCountry } = await import("./lib/companyCountry/engine");
     startCompanyCountry();
+    // Back Office distribution > People: Available or Away on the open tickets (src/lib/boAvailability; BO_AVAILABILITY=off),
+    // the workflow SARCLA | DISPLAY AVAILABITY BO brought in (12.11.2026).
+    const { startBoAvailability } = await import("./lib/boAvailability/engine");
+    startBoAvailability();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
     // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
     const { startTicketValue } = await import("./lib/ticketValue/engine");

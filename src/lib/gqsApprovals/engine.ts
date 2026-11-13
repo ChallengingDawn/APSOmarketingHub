@@ -5,8 +5,8 @@
 // Sales" at least 2 minutes ago (the form's fields are in by then - the workflow waited too) and that the hub has not
 // looked at for this entry. Each gets what the workflow gave it: the subject, the requester, TYPE OF SALES TICKET, an
 // O-number (and the RFQ sheet for DT - New Business), the Sales follow-up ticket, then the rule - the line manager's
-// review (status + the two mails) or "Automatically Approved" (stage New for Back-Office, owner Backoffice Team, the
-// mail). Paused (shadow): the hub only works it out and, once the workflow has acted, puts its answer next to the
+// review (status + the two mails) or "Automatically Approved" (stage New for Back-Office, owner Backoffice Team - no
+// mail: the team's address is the Back Office inbox, a hub mail there becomes a ticket, 12.11.2026). Paused (shadow): the hub only works it out and, once the workflow has acted, puts its answer next to the
 // hub's. Live: writes - only while the workflow is switched off, and only requests that entered after Live was
 // switched on. Every write is logged (kv gqsApprovals:log, the last 500).
 // The tab's year (history): every GQS request of the last 400 days with how it was decided, from status_of_gqs's
@@ -159,7 +159,7 @@ function planOf(t: Obj, l: Links | null, limits: Limits, list: Owner[]): Omit<Ro
   const sales = l?.tickets.find((x) => x.pipeline === ESO || x.pipeline === TSA);
   plan.push(sales ? `Follow-up: ticket ${sales.id} renamed and labelled GQS` : `Follow-up: a new ${requester && TSA_OWNERS.includes(requester) ? "TSA" : "ESO"} ticket`);
   if (v.review) plan.push(`To ${nameOf(list, p.price_tier_approver) ?? "the line manager (none chosen)"}: ${reasonText(v.reason, limits)} - mails to the requester and the line manager`);
-  else plan.push("Approved automatically: New for Back-Office, owner Backoffice Team, a mail to the Backoffice Team");
+  else plan.push("Approved automatically: New for Back-Office, owner Backoffice Team");
   return { ...base, review: v.review, reason: v.review ? v.reason : null, plan };
 }
 
@@ -260,8 +260,12 @@ async function write(t: Obj, l: Links, row: Row, limits: Limits, list: Owner[]):
   } else {
     await patch(id, { status_of_gqs: STATUS.auto, hs_pipeline_stage: STAGE.newForBackOffice, hubspot_owner_id: BACKOFFICE_TEAM });
     done.push("approved automatically: New for Back-Office, Backoffice Team");
-    done.push(await mail(ownerOf(list, BACKOFFICE_TEAM)?.email ?? null, "❗Special Request GQS Created", "A GQS request was approved automatically",
-      `${reqName ?? "Sales"} has made a GQS request; it was approved automatically and is now in "New for Back-Office".`, mailFields(q), id));
+    // No mail to the Backoffice Team (SARCLA 12.11.2026, "still a mail still sent to support"): its address is
+    // support@apsoparts.com, the Back Office's HubSpot inbox, so the hub's "❗Special Request GQS Created" came back as a
+    // new Back Office ticket "BO | Email | ❗Special Request GQS Created |" for every automatically approved request. The
+    // workflow's internal notification did not, because HubSpot sent it. The request itself is already in "New for
+    // Back-Office" with owner Backoffice Team - that is where the team sees it.
+    done.push("no mail to the Backoffice Team (its address is the Back Office inbox; the request is already there)");
   }
   return done;
 }
