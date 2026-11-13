@@ -50,6 +50,7 @@ import {
   REACHES, REACH_LABEL, durWords, filterRows, reachAtLeast, stopWords, type CustomerRow, type Reach, type Stop, type Visit,
 } from "@/lib/convert/visitRules";
 import type { CustomerVisits, VisitorsList } from "@/lib/convert/visits";
+import type { ReplayRow } from "@/lib/convert/replays";
 import type { CustomerReading, PeriodReading } from "@/lib/convert/visitsAi";
 import { Player } from "./Player";
 import { Kick, KindTag, MiniStrip, ReachTag, SourceTags, VISITS, ddmmyyyy, hhmm, hsCompany, mono, strong, weekday, when } from "./parts";
@@ -443,6 +444,10 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
   const held = useHeld<CustomerData>(url, [url]);
   const [who, setWho] = useState<string>("all");
   const [playReq, setPlayReq] = useState(0);
+  // the page views the shop recorded for this customer (./Recorded.tsx reads them): the visit played back plays a step's
+  // own recording - the pointer and the clicks on the page (SARCLA 13.11.2026: "on video we still don't see where the
+  // customer clicks")
+  const [recorded, setRecorded] = useState<ReplayRow[]>([]);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
   const names = useMemo(() => new Map((d?.contacts ?? []).map((c) => [c.id, c.name])), [d]);
@@ -517,7 +522,7 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
           <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: "minmax(0,2.4fr) minmax(300px,1fr)" }, alignItems: "start" }}>
             <GlassCard sx={{ p: { xs: 1.5, md: 2.5 } }}>
               <CardTitle icon={<SlideshowOutlinedIcon />} tint="blue" title="The visit, played back" />
-              {current && <Player visit={current} names={names} start={playReq} />}
+              {current && <Player visit={current} names={names} start={playReq} recorded={recorded} />}
             </GlassCard>
             <GlassCard sx={{ p: { xs: 1.5, md: 2 } }}>
               <CardTitle icon={<ScheduleOutlinedIcon />} tint="slate" title={`${plural(visits.length, "visit")}`} note="The latest first" />
@@ -536,7 +541,7 @@ function CustomerView({ id, visitId }: { id: string; visitId: string | null }) {
 
         {/* the page views the shop recorded - the pointer, the scroll, the clicks (SARCLA 10.11.2026: "don't see the
             mouse and behaviour on the shop") */}
-        <Recorded company={d.id} from={win.from} to={win.to} />
+        <Recorded company={d.id} from={win.from} to={win.to} onRows={setRecorded} />
 
         {d.visits.length > 0 && <NextCard d={d} from={win.from} to={win.to} visits={d.visits} />}
       </>

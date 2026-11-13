@@ -4,6 +4,11 @@
 // played back step by step - the page as it looks (ONE picture at a time: each costs the hub requests, and the load
 // balancer locks the office out past 2,000 in five minutes), what they did on it, the time they spent there, and the
 // strip of every step below. Play / pause, previous / next, 1x 2x 4x; 1x plays ten times faster than the visit was.
+// THE CLICKS (SARCLA 13.11.2026: "on video we still don't see where the customer clicks"): a step whose page view the
+// shop recorded (the same page, opened within 5 minutes - src/lib/convert/replayRules.ts recordedSteps) plays that
+// recording in place of the still picture - the page scrolled as they scrolled it, the pointer, each click marked where it
+// was made and listed (when, what) - at twice the visit's speed in real time (1x: 2x), and the next step comes when it
+// ends. A step without a recording stays the picture: the visit's other sources say which page, never where on it.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -33,7 +38,10 @@ import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
 import { KIND_COLOR, KIND_NAME, type JKind } from "@/lib/journeys/model";
 import { SOURCE_NAME, durWords, hasPicture, replayMs, type Speed, type VStep, type Visit } from "@/lib/convert/visitRules";
+import { recordedSteps } from "@/lib/convert/replayRules";
+import type { ReplayRow } from "@/lib/convert/replays";
 import { KindLegend, LookTag, ReachTag, ddmmyyyy, hhmm, mono, weekday } from "./parts";
+import { ReplayPlayer } from "./Replay";
 
 const ICON: Partial<Record<JKind, React.ReactNode>> = {
   cart: <ShoppingCartOutlinedIcon />, checkout: <PaymentsOutlinedIcon />, order: <TaskAltOutlinedIcon />, account: <AccountCircleOutlinedIcon />,
@@ -68,9 +76,11 @@ function Placeholder({ step }: { step: VStep }) {
   );
 }
 
-/** `start`: a number that changes each time a person asks to play this visit from its start (0: shown, not played). */
-export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; names: Map<string, string>; start?: number; onEnded?: () => void }) {
+/** `start`: a number that changes each time a person asks to play this visit from its start (0: shown, not played);
+ *  `recorded`: the customer's page views the shop recorded (the pointer, the scroll, the clicks). */
+export function Player({ visit, names, start = 0, onEnded, recorded }: { visit: Visit; names: Map<string, string>; start?: number; onEnded?: () => void; recorded?: ReplayRow[] }) {
   const steps = visit.steps;
+  const recs = useMemo(() => recordedSteps(steps, recorded ?? []), [steps, recorded]);
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(start > 0);
   const [ended, setEnded] = useState(false);
@@ -83,6 +93,7 @@ export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; nam
   useEffect(() => { const t = setTimeout(() => setShown(i), 300); return () => clearTimeout(t); }, [i]);
 
   const step = steps[Math.min(i, steps.length - 1)];
+  const rec = recs.get(Math.min(i, steps.length - 1)) ?? null;
   const pic = steps[Math.min(shown, steps.length - 1)];
   const total = useMemo(() => steps.reduce((n, s) => n + weight(s), 0), [steps]);
   const dur = replayMs(step.secs, speed);
@@ -145,7 +156,19 @@ export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; nam
       </Box>
 
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "minmax(0,1.75fr) minmax(0,1fr)" }, alignItems: "start" }}>
-        {/* the page, as it looks */}
+        {/* the page as they used it - its recording, the clicks on it */}
+        {rec ? (
+          <Box sx={{ display: "grid", gap: 0.75, minWidth: 0 }}>
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+              <Box sx={{ px: 1, py: 0.35, borderRadius: "6px", bgcolor: "rgba(21,34,58,.86)", color: "#fff", fontSize: "0.78rem", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                {i + 1} / {steps.length} · {hhmm(step.at)}
+              </Box>
+              <Box sx={{ px: 1, py: 0.35, borderRadius: "6px", bgcolor: KIND_COLOR[step.kind], color: "#fff", fontSize: "0.74rem", fontWeight: 700 }}>{KIND_NAME[step.kind]}</Box>
+              <Chip tint="amber">Recorded on the shop - the pointer and the clicks</Chip>
+            </Box>
+            <ReplayPlayer key={rec.pv} row={rec} embedded play={playing} rate={2 * speed} onEnded={advance} />
+          </Box>
+        ) : (
         <Box sx={{ position: "relative", borderRadius: "14px", overflow: "hidden", border: `1px solid ${HAIRLINE}`, bgcolor: "#fff", minWidth: 0 }}>
           <Box sx={{ position: "relative", width: "100%", aspectRatio: `${1 / 0.62}` }}>
             {pictured
@@ -184,6 +207,7 @@ export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; nam
                 "@keyframes apsoVisitFill": { from: { width: "0%" }, to: { width: "100%" } } }} />
           </Box>
         </Box>
+        )}
 
         {/* what they did on it */}
         <Box sx={{ display: "grid", gap: 1.25, alignContent: "start", minWidth: 0 }}>
@@ -242,7 +266,7 @@ export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; nam
           {steps.map((s, k) => {
             const on = k === i;
             return (
-              <Tooltip key={k} title={`${hhmm(s.at)} · ${s.name} · ${s.secs === null ? "the last page" : durWords(s.secs)}`}>
+              <Tooltip key={k} title={`${hhmm(s.at)} · ${s.name} · ${s.secs === null ? "the last page" : durWords(s.secs)}${recs.has(k) ? " · recorded: the pointer and the clicks" : ""}`}>
                 <Box component="button" type="button" onClick={() => go(k)} aria-label={`Step ${k + 1}: ${s.name}`} aria-current={on ? "step" : undefined} sx={{
                   all: "unset", cursor: "pointer", flex: `${weight(s) / total} 1 0`, minWidth: 30, height: 40, borderRadius: "6px", position: "relative",
                   bgcolor: KIND_COLOR[s.kind], opacity: k <= i ? 1 : 0.42, boxShadow: on ? `0 0 0 2px #fff, 0 0 0 4px ${INK}` : "none",
@@ -252,6 +276,7 @@ export function Player({ visit, names, start = 0, onEnded }: { visit: Visit; nam
                   <Typography component="span" sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textShadow: "0 1px 1px rgba(0,0,0,.25)" }}>
                     {hhmm(s.at)}{s.looks.length ? ` · ${s.looks.length} art.` : ""}
                   </Typography>
+                  {recs.has(k) && <Box component="span" aria-hidden sx={{ position: "absolute", right: 4, top: 4, width: 7, height: 7, borderRadius: "50%", bgcolor: "#e0491f", border: "1.5px solid #fff" }} />}
                 </Box>
               </Tooltip>
             );
