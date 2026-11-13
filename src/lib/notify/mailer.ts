@@ -37,7 +37,8 @@ export const addressOf = (from: string) => /<([^>]+)>/.exec(from)?.[1] ?? from.t
 const BACK_OFFICE_INBOX = "support@apsoparts.com";
 const OWN_INBOXES = (): Set<string> =>
   new Set([addressOf(FROM), BACK_OFFICE_INBOX].map((a) => a.trim().toLowerCase()).filter(Boolean));
-const splitAddresses = (list: string): string[] => list.split(/[,;]/).map((a) => a.trim()).filter(Boolean);
+// Split on , and ; outside quotes only, so "Smith, John" <j@x> stays one recipient (3a's review, 12.11.2026).
+const splitAddresses = (list: string): string[] => (list.match(/(?:"[^"]*"|[^,;])+/g) ?? []).map((a) => a.trim()).filter(Boolean);
 export const isOwnInbox = (address: string | null | undefined): boolean =>
   !!address && OWN_INBOXES().has(addressOf(address).trim().toLowerCase());
 
@@ -56,7 +57,7 @@ export async function sendHubMail(m: {
   attachments?: { filename: string; content: Buffer; contentType?: string }[];
 }): Promise<void> {
   const dropped = [...splitAddresses(m.to), ...splitAddresses(m.cc ?? "")].filter((a) => isOwnInbox(a));
-  // Untouched when nothing is dropped, so a display name with a comma in it is never split.
+  // Untouched when nothing is dropped: the mail goes out exactly as its sender built it.
   const to = dropped.length ? splitAddresses(m.to).filter((a) => !isOwnInbox(a)).join(", ") : m.to;
   const cc = dropped.length ? splitAddresses(m.cc ?? "").filter((a) => !isOwnInbox(a)).join(", ") : (m.cc ?? "");
   if (dropped.length) console.warn(`[mailer] "${m.subject.slice(0, 80)}": not to ${dropped.join(", ")} - the Back Office inbox, a mail there becomes a ticket`);

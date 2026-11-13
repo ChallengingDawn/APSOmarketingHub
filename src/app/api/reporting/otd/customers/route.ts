@@ -1,12 +1,13 @@
 // OTD Reports > Customers (lib/reporting/otdLines.ts): every customer's OTD in the period and filters asked, or - with ?c= -
-// one customer's lines, for its KPIs, orders and articles; with ?view= every supplier's lead times, or GLC's customers. The
+// one customer's lines, for its KPIs, orders and articles; with ?view= every supplier's lead times, GLC's customers, every
+// article or the lead-time bands. Read by OTD Reports and by Back-Office Reports > OTD. The
 // lines are kept by erp_revenue's run on each ERP delivery (otdStore.ts KV_OTD_LINES).
 
 import { NextResponse, type NextRequest } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { accessAt } from "@/lib/auth/tree";
 import { otdLinesNow } from "@/lib/reporting/otdStore";
-import { articleList, customerLines, customerList, glcCustomers, supplierList, type LineFilter } from "@/lib/reporting/otdLines";
+import { articleList, customerLines, customerList, glcCustomers, leadBands, supplierList, type LineFilter } from "@/lib/reporting/otdLines";
 import { OTD_PAGES } from "@/lib/reporting/otdPages";
 
 export const runtime = "nodejs";
@@ -17,7 +18,9 @@ const YM = /^\d{4}-\d{2}$/;
 export async function GET(req: NextRequest) {
   const access = await myAccess();
   if (!access) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!OTD_PAGES.some((p) => accessAt(p.href, access.levels).level !== "none")) return NextResponse.json({ error: "No access" }, { status: 403 });
+  // an OTD Reports page, or Back-Office Reports > OTD, which draws the same views (SARCLA 12.11.2026)
+  const opens = (href: string) => accessAt(href, access.levels).level !== "none";
+  if (!OTD_PAGES.some((p) => opens(p.href)) && !opens("/reporting/back-office/otd")) return NextResponse.json({ error: "No access" }, { status: 403 });
   const q = req.nextUrl.searchParams;
   const from = q.get("from") ?? "", to = q.get("to") ?? "";
   if (!YM.test(from) || !YM.test(to)) return NextResponse.json({ error: "from and to (YYYY-MM) are needed" }, { status: 400 });
@@ -32,6 +35,7 @@ export async function GET(req: NextRequest) {
     if (view === "suppliers") return NextResponse.json({ at: store.at, suppliers: supplierList(store, f) });
     if (view === "glc") return NextResponse.json({ at: store.at, ...glcCustomers(store, f) });
     if (view === "articles") return NextResponse.json({ at: store.at, articles: articleList(store, f) });
+    if (view === "leads") return NextResponse.json({ at: store.at, dist: leadBands(store, f) });
     // the list draws no month: the month map stays home (about a third of the answer)
     return NextResponse.json({ at: store.at, customers: customerList(store, f).map(({ m: _m, ...x }) => x) });
   } catch (e) {

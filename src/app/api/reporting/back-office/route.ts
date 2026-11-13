@@ -2,12 +2,12 @@
 // on what is missing or due; every GQS task on its own for the GQS page in full, boGqs.ts); the ESO's and the TSA's inbound tickets from the ESO Reports' own read (the sales actions
 // left out) and, from the same read, their win rate, first contact and the rest (boInbound.ts); and what HubSpot does not
 // hold, typed in per month - the hours the Back Office
-// worked (on Team totals) and the OTD, the pass rate, the manual price adjustments and the stopped orders (on their pages),
+// worked (on Team totals) and the OTD, the price pass rate, the manual price adjustments and the stopped orders (on their pages),
 // the workbook's own figures until someone types a month in (SARCLA 02.11.2026: "Live, file = the KPI list"). GET for
 // anyone with one of the report's pages; PUT for whoever may change the page the figure is typed on. And the delivery speed
 // the chain's order_sync keeps from the ERP's order file (boDelivery.ts) for OTD > Delivery speed. And the manual price
 // adjustments, the shop's prices against the ERP's (boPrices.ts, read every 12 hours - boPricesRead.ts) for KPI autonomy.
-// And the ERP's order lines from its BI model, kept by the chain's ERP revenue step (boErpLines.ts): the pass rate, the
+// And the ERP's order lines from its BI model, kept by the chain's ERP revenue step (boErpLines.ts): the price pass rate, the
 // manual prices and OTD counted.
 
 import { NextRequest, NextResponse } from "next/server";

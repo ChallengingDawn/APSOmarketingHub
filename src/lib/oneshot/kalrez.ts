@@ -150,6 +150,13 @@ export function kzTicketProperties(t: KzTarget): Record<string, string> {
     [`${KZ.prefix}_last_order`]: t.lastKalrez,
     [`${KZ.prefix}_offer`]: offerText(t),
     [`${KZ.prefix}_sae`]: t.sae,
+    // the sales potential = the title's figure in EUR, given directly: the Ticket value scorer keeps an
+    // order_potential_ as "direct_field" (its Tier 1A) - without it, it priced the linked orders instead
+    // (11.11.2026: "product_lookup", e.g. 136,008 EUR on a 163,379 CHF customer; SARCLA: "sale potential is wrong")
+    order_potential_: String(Math.round(toEur(t.value, t.cur))),
+    sales_potential_estimate: String(Math.round(toEur(t.value, t.cur))),
+    sales_potential_confidence: "high",
+    sales_potential_source: "direct_field",
   };
   if (t.ownerId) props.hubspot_owner_id = t.ownerId;
   return props;

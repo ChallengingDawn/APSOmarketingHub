@@ -393,12 +393,12 @@ const OTD_ROWS: [string, string][] = [["online-special", "Online - Special"], ["
   ...["DT", "KT", "FT", "ST", "AT"].flatMap((pc): [string, string][] => [[`${pc.toLowerCase()}-standard`, `Online - ${pc} - Standard`], [`${pc.toLowerCase()}-special`, `Online - ${pc} - Special`]])];
 /**
  * Not in HubSpot (03.11.2026: no order carries a first confirmation date, a red/green status or its cause): the workbook's
- * OTD - with early call-offs, by the first confirmation date - its "KPI autonomy" (pass rate, target 95 %; manual price
+ * OTD - with early call-offs, by the first confirmation date - its "KPI autonomy" (price pass rate, target 95 %; manual price
  * adjustments, target under 2.5 %; per mandant) and its stopped orders.
  */
 export const TYPED: TypedSeries[] = [
   { id: "otd", title: "OTD", note: "On time against the first confirmation date, early call-offs counted", unit: "pct", rows: OTD_ROWS.map(([id, label]) => ({ id, label })) },
-  { id: "pass", title: "Pass rate", note: "Orders through without a hand on them", unit: "pct", target: { value: 0.95 }, rows: [{ id: "m100", label: "Mandant 100" }, { id: "m110", label: "Mandant 110" }] },
+  { id: "pass", title: "Price pass rate", note: "Orders through without a hand on them", unit: "pct", target: { value: 0.95 }, rows: [{ id: "m100", label: "Mandant 100" }, { id: "m110", label: "Mandant 110" }] },
   { id: "price", title: "Manual price adjustments", note: "Order lines whose price was changed by hand", unit: "pct", target: { value: 0.025, lower: true }, rows: [{ id: "m100", label: "Mandant 100" }, { id: "m110", label: "Mandant 110" }] },
   { id: "stopped", title: "Stopped orders", note: "Magento orders transferred to the Back Office, those stopped, and why", unit: "n",
     rows: [{ id: "transferred", label: "Orders transferred" }, { id: "stopped", label: "Orders stopped" }, { id: "credit", label: "Stopped: credit limit" }, { id: "denomination", label: "Stopped: denomination" }, { id: "price", label: "Stopped: price missing" }] },
@@ -406,7 +406,7 @@ export const TYPED: TypedSeries[] = [
 export type Typed = Record<string, Record<string, number>>;
 export const typedKey = (series: string, row: string) => `${series}.${row}`;
 const months26 = (xs: number[], scale = 1) => Object.fromEntries(xs.map((v, i) => [`2026-${String(i + 1).padStart(2, "0")}`, Math.round(v * scale * 10000) / 10000]));
-/** The workbook's own figures (BO KPI, read 03.11.2026): OTD R4:Z16, pass rate and manual price adjustments from its
+/** The workbook's own figures (BO KPI, read 03.11.2026): OTD R4:Z16, price pass rate and manual price adjustments from its
  *  pictures, the stopped orders' 2025 history (Magento BO transferred, stopped). */
 export const WORKBOOK_TYPED: Typed = {
   "otd.online-special": months26([0.66, 0.81, 0.78, 0.41, 0.43, 0.33, 0.736, 0.652, 0.724]),

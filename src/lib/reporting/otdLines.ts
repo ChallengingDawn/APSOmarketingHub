@@ -3,7 +3,7 @@
 // by click customer KPI article order and so forth"). Pure: the rows, their dictionaries and the reads of them; kept by
 // otdStore.ts (columnar, gzipped, one kv entry) and read by /api/reporting/otd/customers.
 
-import { lateDays, srcOf, type OtdLine } from "./otdRules";
+import { lateDays, leadBucket, srcOf, type OtdLine } from "./otdRules";
 
 /* ── the days: whole numbers from 1 January 2020 (-1: none) ─────────────────────────── */
 
@@ -192,6 +192,14 @@ export function glcCustomers(s: LineStore, f: LineFilter): { kinds: GlcKindRow[]
   }
   kinds.forEach((t, i) => { t[4] = seen[i].size; });
   return { kinds, customers: [...by.values()].sort((a, b) => b.n - a.n) };
+}
+
+/** the lines per lead-time band (otdRules LEAD_MEASURES x LEAD_BUCKETS: promised, processing, transport, real), as the cube
+ *  counts them - for a page that has the kept lines but not the cube (Back-Office Reports > OTD, SARCLA 12.11.2026) */
+export function leadBands(s: LineStore, f: LineFilter): number[][] {
+  const dist = Array.from({ length: 4 }, () => Array(7).fill(0) as number[]);
+  for (const r of pick(s, f)) { const l = leadsOf(r); for (let i = 0; i < 4; i++) dist[i][leadBucket(l[i])]++; }
+  return dist;
 }
 
 /** an article in the period: its number and name, groups, profit centre and supplier, its lines and how many customers and

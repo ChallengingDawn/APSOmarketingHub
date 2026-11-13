@@ -175,6 +175,8 @@ export function kalrezData(opts: { refresh?: boolean } = {}): Promise<KzData> {
 
 export type KzPlanRow = {
   un: string; name: string; subject: string; owner: string; team: string; value: number; cur: string; orders: number; ticketId: string | null;
+  /** The ticket's title in HubSpot is not the action's (a workflow renamed it). */
+  renamed: boolean;
 };
 export type KzRun = {
   at: string; by: string; mode: "dry" | "apply"; created: number; skipped: number; failed: { un: string; error: string }[];
@@ -189,6 +191,7 @@ export async function kalrezPlan(): Promise<{ rows: KzPlanRow[]; lastRun: KzRun 
   const rows = KZ_TARGETS.map((t) => ({
     un: t.un, name: t.name, subject: kzSubject(t), owner: t.ownerId ? t.ownerName : "Unassigned (TSA Team = helpline inbox)",
     team: t.team, value: t.value, cur: t.cur, orders: t.orderIds.length, ticketId: tickets.get(t.un)?.id ?? done?.[kzKey(t)] ?? null,
+    renamed: !!tickets.get(t.un) && tickets.get(t.un)!.subject !== kzSubject(t),
   }));
   return { rows, lastRun: lastRun ?? null };
 }
@@ -254,22 +257,60 @@ async function createOne(t: KzTarget, warn: (w: string) => void): Promise<string
   return tid;
 }
 
-/** Put a renamed subject back (a workflow has renamed fresh ESO tickets before). */
-async function guardSubjects(ids: Map<string, KzTarget>) {
-  if (!ids.size) return;
-  const r = await hubspotFetchJson<{ results?: Row[] }>({
-    path: "/crm/v3/objects/tickets/batch/read", method: "POST", useTicketsToken: true,
-    body: { inputs: [...ids.keys()].map((id) => ({ id })), properties: ["subject"] },
-  });
-  for (const row of r.results ?? []) {
-    const t = ids.get(row.id);
-    if (!t) continue;
-    const want = kzSubject(t);
-    if ((row.properties?.subject ?? "") !== want) {
-      await hubspotFetchJson({ path: `/crm/v3/objects/tickets/${row.id}`, method: "PATCH", useTicketsToken: true, body: { properties: { subject: want } } })
-        .then(() => console.log(`[oneshot] kalrez: subject of ticket ${row.id} put back`))
-        .catch((e) => console.warn(`[oneshot] kalrez: could not put back the subject of ${row.id}: ${(e as Error).message}`));
+/**
+ * Put renamed subjects back ("ESO CREATION TICKETS 1.0" renamed every fresh ESO ticket of this action to
+ * "Direct ESO request | |" on 11.11.2026). Reads and writes 100 at a time - HubSpot's batch limit; the first
+ * version read all 109 in one call, got a 400 and repaired nothing.
+ */
+async function guardSubjects(ids: Map<string, KzTarget>): Promise<{ checked: number; fixed: number; failed: string[] }> {
+  const all = [...ids.keys()];
+  const fix: { id: string; properties: { subject: string } }[] = [];
+  for (let i = 0; i < all.length; i += 100) {
+    const r = await hubspotFetchJson<{ results?: Row[] }>({
+      path: "/crm/v3/objects/tickets/batch/read", method: "POST", useTicketsToken: true,
+      body: { inputs: all.slice(i, i + 100).map((id) => ({ id })), properties: ["subject"] },
+    });
+    for (const row of r.results ?? []) {
+      const t = ids.get(row.id);
+      if (t && (row.properties?.subject ?? "") !== kzSubject(t)) fix.push({ id: row.id, properties: { subject: kzSubject(t) } });
     }
+  }
+  const failed: string[] = [];
+  let fixed = 0;
+  for (let i = 0; i < fix.length; i += 100) {
+    const chunk = fix.slice(i, i + 100);
+    try {
+      await hubspotFetchJson({ path: "/crm/v3/objects/tickets/batch/update", method: "POST", useTicketsToken: true, body: { inputs: chunk } });
+      fixed += chunk.length;
+    } catch (e) {
+      failed.push(`${chunk.length} tickets: ${String((e as Error).message).slice(0, 200)}`);
+    }
+  }
+  console.log(`[oneshot] kalrez: titles checked ${all.length}, put back ${fixed}${failed.length ? `, FAILED ${failed.join("; ")}` : ""}`);
+  return { checked: all.length, fixed, failed };
+}
+
+/** Admins: put every renamed title of the action back, now. null = a run holds the lock. */
+export async function kalrezRepairTitles(): Promise<{ checked: number; fixed: number; failed: string[] } | null> {
+  const client = await getPool().connect();
+  try {
+    const got = await client.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1) AS ok", [LOCK]);
+    if (!got.rows[0]?.ok) return null;
+    try {
+      const tickets = await actionTickets();
+      const ids = new Map<string, KzTarget>();
+      for (const t of KZ_TARGETS) {
+        const k = tickets.get(t.un);
+        if (k) ids.set(k.id, t);
+      }
+      const r = await guardSubjects(ids);
+      cache = null;
+      return r;
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK]).catch(() => {});
+    }
+  } finally {
+    client.release();
   }
 }
 
