@@ -63,10 +63,20 @@ export async function chatTranscript(ticketId: string): Promise<Transcript | nul
     path: `/crm/v4/objects/tickets/${ticketId}/associations/conversations`,
   });
   for (const id of (assoc.results ?? []).map((r) => String(r.toObjectId))) {
+    const t = await threadTranscript(id);                 // an archived thread answers 404 - try the next
+    if (t) return t;
+  }
+  return null;
+}
+
+/** One conversation thread's whole chat, or null when HubSpot no longer has it (the A/B test's summary mail reads the
+ *  shop chat's thread by the id the gateway kept - 13.11.2026). */
+export async function threadTranscript(id: string): Promise<Transcript | null> {
+  {
     let thread: RawThread;
     try {
       thread = await hubspotFetchJson<RawThread>({ path: `/conversations/v3/conversations/threads/${id}` });
-    } catch { continue; }                                 // an archived thread answers 404 - try the next
+    } catch { return null; }
     const raw = await messages(id);
     const who = await names([...raw.flatMap((x) => (x.senders ?? []).map((s) => s.actorId ?? "")), ...raw.map((x) => x.assignedTo ?? "")]);
 
@@ -102,5 +112,4 @@ export async function chatTranscript(ticketId: string): Promise<Transcript | nul
       link: `https://app-eu1.hubspot.com/live-messages/${PORTAL}/inbox/${id}`,
     };
   }
-  return null;
 }
