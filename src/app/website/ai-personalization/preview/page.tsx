@@ -66,6 +66,7 @@ import { convertPost, previewHref } from "../Flow";
 import { SquareChoice } from "../SquareChoice";
 import { PageShot } from "../PageShot";
 import { ClicksBar, type ClickDev, type ClicksData } from "../ClicksBar";
+import { heatPick, pctOf } from "@/lib/convert/heatDraw";
 import { CONVERT } from "../base";
 import { AI_GRADIENT, AiButton } from "../AiButton";
 import { SendDialog, type SendChoice } from "./SendDialog";
@@ -79,7 +80,7 @@ type StudioData = {
 type Spots = { list: { n: number; sel: string; lead: boolean; title: string }[]; focus: number | null };
 type Msg = { apsoPreview: "ready"; title: string } | { apsoPreview: "applied"; hit: number[] } | { apsoPreview: "go"; href: string } | { apsoPreview: "scroll"; y: number }
   | { apsoPreview: "picked"; selector: string; tag: string; text: string } | { apsoPreview: "styles"; total: number; nfailed: number; failed: string[] }
-  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number } | { apsoPreview: "heat"; missing: string[]; names?: Record<string, string> }
+  | { apsoPreview: "drawn"; lines: string[] } | { apsoPreview: "body" } | { apsoPreview: "spot"; n: number } | { apsoPreview: "heat"; missing: string[]; names?: Record<string, string>; shown?: string[] }
   | { apsoPreview: "goto"; found: boolean };
 /** Scroll the page in a frame to a block: the change a version makes, the block an optimization is about. */
 type Goto = { sel: string; n: number };
@@ -88,8 +89,10 @@ type Device = "desktop" | "phone";
 type Zoom = "fit" | "full";
 type Sync = { y: number; from: string; n: number };
 type View = "both" | "after" | "before";
-/** The click map's heat on the page as it is (the frame draws it): an item per element and its tenths. */
-type HeatMsg = { list: { s: string; n: number; c: number[] }[]; max: number; focus: string | null };
+/** The click map's heat on the page as it is (the frame draws it): an item per element and its tenths - with `d` 1 for the
+ *  few that are drawn and `p` their share in words (SARCLA 13.11.2026: "preview on click is not clean and clear"); the
+ *  others are only looked for, so the legend can say which are not on the page as drawn. */
+type HeatMsg = { list: { s: string; n: number; c: number[]; d: 0 | 1; p: string }[]; max: number; focus: string | null };
 
 const API = "/api/website/ai-personalization/work";
 const since = (iso: string) => ago(Date.parse(iso) / 1000);
@@ -684,6 +687,8 @@ function ConvertPreview() {
   const [heatFocus, setHeatFocus] = useState<string | null>(null);
   const [heatMissing, setHeatMissing] = useState<string[]>([]);
   const [heatNames, setHeatNames] = useState<Record<string, string>>({});
+  // the elements the frame drew (it leaves out those of the page's header that are not among the very top) - null until it says
+  const [heatShown, setHeatShown] = useState<string[] | null>(null);
   const [making, setMaking] = useState<{ done: number; of: number } | null>(null);
   useEffect(() => { setClickDev(device === "phone" ? "m" : "d"); }, [device]);
   const told = useRef(false);
@@ -719,7 +724,12 @@ function ConvertPreview() {
   const ch = useHeld<ClicksData>(clicks ? clicksUrl : null, [clicks, clicksUrl]);
   const clickData = ch.result?.state === "ok" ? ch.result.data : null;
   const clickErr = ch.result && ch.result.state !== "ok" ? (ch.result.state === "error" ? ch.result.error : "The hub could not read the clicks.") : null;
-  const heatMsg: HeatMsg | null = clicks && clickData?.heat?.list.length ? { list: clickData.heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c })), max: clickData.heat.max, focus: heatFocus } : null;
+  // only the elements that matter are drawn (src/lib/convert/heatDraw.ts); every one is still looked for on the page
+  const heat = clickData?.heat ?? null;
+  const heatDrawn = useMemo(() => (heat ? heatPick(heat.list, heat.total, heatFocus) : []), [heat, heatFocus]);
+  const heatMsg: HeatMsg | null = clicks && heat?.list.length
+    ? { list: heat.list.map((i) => ({ s: i.s, n: i.n, c: i.c, d: heatDrawn.includes(i.s) ? 1 : 0, p: pctOf(i.n, heat.total) })), max: heat.max, focus: heatFocus }
+    : null;
 
   const ideas = d?.ideas ?? [];
   const ranked = useMemo(() => [...ideas].sort((x, y) => (x.status === "dropped" ? 1 : 0) - (y.status === "dropped" ? 1 : 0) || (iceScore(y) ?? -1) - (iceScore(x) ?? -1)), [ideas]);
@@ -765,6 +775,7 @@ function ConvertPreview() {
       const nm: Record<string, string> = {};
       for (const [k, v] of Object.entries(m.names && typeof m.names === "object" ? m.names : {}).slice(0, 40)) if (typeof v === "string" && v) nm[k] = v.slice(0, 48);
       setHeatNames(nm);
+      setHeatShown(Array.isArray(m.shown) ? m.shown.filter((x) => typeof x === "string").slice(0, 40) : null);
     }
     if (m.apsoPreview === "drawn" && Array.isArray(m.lines) && (from === "before" || drawn.current?.from !== "before")) drawn.current = { from, lines: m.lines.slice(0, 160) };
     if (m.apsoPreview === "picked" && typeof m.selector === "string") {
@@ -1063,7 +1074,10 @@ function ConvertPreview() {
             {clicks && !idea && path && (
               <Box sx={{ mt: 1.5 }}>
                 <ClicksBar data={clickData} error={clickErr} loading={!ch.result || ch.stale} dev={clickDev} onDev={setClickDev} env={env} path={path}
-                  focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames}
+                  focus={heatFocus} onFocus={(s) => setHeatFocus((f) => (f === s ? null : s))} missing={heatMissing} names={heatNames} drawn={heatShown ?? heatDrawn}
+                  action={data.canEdit && live.length > 0 && !seoMode && !productPage
+                    ? <AiButton size="small" busy={busy === "ideas"} disabled={!data.ai || pg.status !== 200} onClick={() => void act("ideas", ideasBody(false))}>{busy === "ideas" ? "The AI is reading…" : "Find optimizations"}</AiButton>
+                    : undefined}
                   onChanged={() => setClickTick((n) => n + 1)} />
               </Box>
             )}
