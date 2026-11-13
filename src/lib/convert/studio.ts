@@ -456,7 +456,7 @@ async function saveRevision(idea: Idea, changes: Change[], summary: string, requ
  * piece and page: it is the person's (approved), made once; every later call gives its Version A a new revision, back to
  * draft - "approve" again before a test. Without a piece, each call makes a new optimization.
  */
-export async function versionFromChanges(env: Env, path: string, input: { changes: unknown; title: string; summary: string; piece: string | null }, by: string): Promise<{ idea: Idea | null; version: Version | null; problems: string[] }> {
+export async function versionFromChanges(env: Env, path: string, input: { changes: unknown; title: string; summary: string; piece: string | null; letter?: string | null }, by: string): Promise<{ idea: Idea | null; version: Version | null; problems: string[] }> {
   await ensureStudioSchema();
   const { changes, problems } = validateChanges(input.changes);
   if (!changes.length) return { idea: null, version: null, problems: problems.length ? problems : ["the list is empty"] };
@@ -475,7 +475,10 @@ export async function versionFromChanges(env: Env, path: string, input: { change
       ? toIdea((await query<IdeaRow>(`UPDATE apsomh_convert_ideas SET piece_id = $2 WHERE id = $1 RETURNING *`, [made.id, input.piece])).rows[0])
       : made;
   }
-  const version = await saveRevision(idea, changes, summary, "from the Page builder", by, "A");
+  // each of the Page builder's versions keeps its own letter here (13.11.2026: sending B, then C, revised ONE version - an
+  // older test of B would have run C's changes)
+  const letter = input.letter && /^[A-D]$/.test(input.letter) ? input.letter : "A";
+  const version = await saveRevision(idea, changes, summary, "from the Page builder", by, letter);
   return { idea, version, problems };
 }
 
