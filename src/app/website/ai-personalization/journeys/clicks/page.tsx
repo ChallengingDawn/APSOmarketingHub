@@ -6,6 +6,8 @@
 // I'm not getting how we can only have these clicks"). Here: the add-to-carts by where they were made (the search bar,
 // the chat, the pages' own buttons), and the pages clicked most, each opening its clicks drawn on it in Preview. The
 // shop's gateway counts (src/lib/convert/clicks.ts); when it does not answer, this page says so and shows nothing made up.
+// 13.11.2026: the three-step explanation on top is gone (SARCLA: "take out this"), and each page has "Find optimizations"
+// beside its clicks (SARCLA: "also here button find optimization") - the Preview opened with the AI asked (&ask=1).
 
 import { useState } from "react";
 import Link from "next/link";
@@ -24,16 +26,15 @@ import { full } from "@/app/charts/format";
 import { CardTitle, GlassCard, HAIRLINE, INK, MUTED, Notice } from "@/app/uc/report/ui";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { PageShot } from "@/app/website/ai-personalization/PageShot";
-import { HeatLegend } from "@/app/website/ai-personalization/ClicksBar";
 import { previewHref } from "@/app/website/ai-personalization/Flow";
 import type { Env } from "@/lib/convert/model";
 import type { CartsFrom } from "@/lib/convert/clicks";
 import { CartsBySource } from "@/app/website/ai-personalization/CartsBySource";
+import { AiButton } from "@/app/website/ai-personalization/AiButton";
 
 type Total = { host: string; path: string; n: number; d: number; m: number; days: number };
 type MapsData = { deployed: boolean; error: string | null; totals: { from: string; to: string; pages: Total[] } | null; canEdit: boolean };
 
-const ORANGE = "#b45309";
 const envOf = (host: string): Env => (host === "acc.apsoparts.com" ? "acc" : "prod");
 const day = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}`;
 function pageName(path: string): string {
@@ -43,12 +44,7 @@ function pageName(path: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 const clicksHref = (env: Env, path: string) => `${previewHref(env, path)}&clicks=1`;
-
-const STEPS = [
-  { n: 1, title: "Every page, every visit with consent", text: "The shop counts on all its pages, for every visitor who accepts statistics cookies: which element, and where inside it. No person, no text typed." },
-  { n: 2, title: "Add-to-carts by where", text: "A click that puts something in the cart is kept with where it was made: the search bar, the chat or the page's own button." },
-  { n: 3, title: "Preview draws it on the page", text: "Each clicked element tinted where it was clicked, its count above it - on desktop, on a phone, or both." },
-];
+const findHref = (env: Env, path: string) => `${previewHref(env, path)}&ask=1`;
 
 function PageCard({ env, path, children, note }: { env: Env; path: string; children: React.ReactNode; note: React.ReactNode }) {
   return (
@@ -81,26 +77,9 @@ export default function ClickMapPage() {
   else if (d) {
     body = (
       <>
-        <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
-          <Box sx={{ mb: 1.5 }}>
-            <CardTitle icon={<TouchAppOutlinedIcon />} tint="amber" right={<HeatLegend />}
-              title={d.deployed ? "Counting on every page of the shop" : "The shop's gateway does not answer for the click map"} />
-          </Box>
-          {!d.deployed && (d.error
-            ? <Notice tone="warn">The shop&apos;s gateway could not be read: {d.error}</Notice>
-            : <Notice tone="warn">The shop&apos;s gateway does not answer for the click map right now - nothing is counted, and no number here is guessed.</Notice>)}
-          <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" }, mt: d.deployed ? 0 : 1.5 }}>
-            {STEPS.map((s) => (
-              <Box key={s.n} sx={{ display: "flex", gap: 1.25, alignItems: "flex-start", p: 1.25, borderRadius: "10px", bgcolor: "rgba(250,190,40,.07)", border: "1px solid rgba(180,83,9,.18)" }}>
-                <Box sx={{ width: 24, height: 24, flex: "none", borderRadius: "4px", bgcolor: ORANGE, color: "#fff", fontWeight: 700, fontSize: "0.8rem", display: "grid", placeItems: "center" }}>{s.n}</Box>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: INK }}>{s.title}</Typography>
-                  <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.45 }}>{s.text}</Typography>
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        </GlassCard>
+        {!d.deployed && (d.error
+          ? <Notice tone="warn">The shop&apos;s gateway could not be read: {d.error}</Notice>
+          : <Notice tone="warn">The shop&apos;s gateway does not answer for the click map right now - nothing is counted, and no number here is guessed.</Notice>)}
 
         <GlassCard sx={{ p: { xs: 2, md: 2.5 } }}>
           <CardTitle icon={<AddShoppingCartOutlinedIcon />} tint="green" title="Put in the cart - from where" note="The last 28 days" />
@@ -120,6 +99,7 @@ export default function ClickMapPage() {
                       note={<><Chip tint="amber">{full(x.n)} click{x.n === 1 ? "" : "s"} · {full(x.d)} desktop · {full(x.m)} phone</Chip>{env === "acc" && <Chip tint="slate">ACC</Chip>}</>}>
                       <Button component={Link} href={clicksHref(env, x.path)} size="small" variant="contained" color="warning" disableElevation startIcon={<TouchAppOutlinedIcon sx={{ fontSize: 16 }} />}
                         sx={{ borderRadius: "6px", textTransform: "none", fontWeight: 700 }}>See the clicks on the page</Button>
+                      <AiButton size="small" href={findHref(env, x.path)}>Find optimizations</AiButton>
                     </PageCard>
                   );
                 })}
