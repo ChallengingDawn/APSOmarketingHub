@@ -242,7 +242,8 @@ export async function candidates(kind: TestKind): Promise<Candidate[]> {
       WHERE v.status = 'approved' AND ($1 = 'personalisation' OR NOT EXISTS (SELECT 1 FROM apsomh_convert_tests t WHERE t.version_id = v.id AND t.kind = $1))
         -- one test path per page (13.11.2026): a content page sent to Content is tested in its A/B section; Content's own
         -- test versions get their test from Content; home, category and product pages keep this way (Content cannot test them)
-        AND NOT (i.sent_at IS NOT NULL AND i.kind = 'cms') AND NOT (i.source = 'person' AND i.piece_id IS NOT NULL)
+        AND ($1 = 'personalisation' OR NOT (i.sent_at IS NOT NULL AND i.kind = 'cms'))
+        AND NOT (i.source = 'person' AND i.piece_id IS NOT NULL AND i.sent_at IS NULL)
       ORDER BY v.approved_at DESC NULLS LAST LIMIT 200`, [kind]);
   return r.rows.map((x) => ({ versionId: String(x.id), rev: x.rev, env: x.env, path: x.path, kind: classify(x.path).kind, summary: x.summary, approvedBy: x.approved_by,
     approvedAt: iso(x.approved_at), ideaId: String(x.idea_id), title: x.title }));
@@ -443,7 +444,10 @@ export async function act(id: string, action: Action, by: string, extra: { winne
     if (!v) throw new ConvertError("Its version is gone.");
     if (v.status !== "approved") throw new ConvertError(`The version was changed after it was approved (now revision ${v.rev}, a draft) - approve it again in the Preview.`);
     // a test made in Content runs exactly the version it was made from (13.11.2026): the Page builder sent another one since
-    if (t.piece && v.rev !== t.versionRev) throw new ConvertError(`The version was changed in Content after this test was made (revision ${t.versionRev}, now ${v.rev}) - make the test again from the Page builder's A/B section.`);
+    const own = t.piece && v.rev !== t.versionRev && t.ideaId
+      ? (await query<{ own: boolean }>(`SELECT (source = 'person' AND piece_id IS NOT NULL AND sent_at IS NULL) AS own FROM apsomh_convert_ideas WHERE id = $1`, [t.ideaId])).rows[0]?.own === true
+      : false;
+    if (own) throw new ConvertError(`The version was changed in Content after this test was made (revision ${t.versionRev}, now ${v.rev}) - make the test again from the Page builder's A/B section.`);
     return { changes: v.changes, rev: v.rev };
   };
 

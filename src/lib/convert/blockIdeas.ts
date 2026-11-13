@@ -220,6 +220,8 @@ async function proposeRework(env: Env, path: string, numbers: Numbers | null, by
     await setIdeaStatus(idea.id, "dropped", "the AI's rework: no version could be built");
     return { ok: false, error: problems[0] ?? "No version of the rework could be built." };
   }
+  // writeVersion approves a proposed optimization - the AI's rework waits for a person's yes, as every proposal does
+  await query(`UPDATE apsomh_convert_ideas SET status = 'proposed', decided_by = NULL, decided_at = NULL WHERE id = $1 AND status = 'approved' AND source = 'ai'`, [idea.id]);
   console.log(`[convert-blocks] ${path}: the whole page reworked - ${made} versions${problems.length ? `; ${problems.slice(0, 3).join(" | ")}` : ""}`);
   return { ok: true, data: [idea] };
 }
