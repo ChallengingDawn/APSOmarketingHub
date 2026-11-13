@@ -28,6 +28,7 @@ import {
 } from "./contract";
 import { DEFAULT_MDE, analyse, type Analysis } from "./stats";
 import type { Change } from "./versions";
+import { leadTest, type TestBrief } from "./testState";
 import { calendarEnded, calendarStarted } from "./calendar";
 
 const SCHEMA = `
@@ -206,6 +207,29 @@ export async function originsOf(tests: Pick<Test, "id" | "piece" | "ideaId" | "v
   const todo = new Map(p.rows.map((x) => [String(x.id), { pieceId: String(x.id), projectId: Number(x.project_id), title: x.title }]));
   const env = new Map(i.rows.map((x) => [String(x.id), x.env]));
   return Object.fromEntries(tests.map((t) => [t.id, { todo: t.piece ? todo.get(t.piece) ?? null : null, ideaEnv: t.ideaId ? env.get(t.ideaId) ?? null : null, letter: t.versionId ? letter.get(t.versionId) ?? null : null }]));
+}
+
+/**
+ * THE TEST OF A PAGE THE HUB PUBLISHED (13.11.2026 - Pages > Published by the hub showed no test): the tests of its
+ * Content to-do (its piece) or of its address on that shop, the live one first, else the latest. Keyed "env path".
+ */
+export async function testsOfPages(pages: { env: Env; path: string; pieceId: number | string }[]): Promise<Record<string, TestBrief>> {
+  if (!pages.length) return {};
+  await ensureTestsSchema();
+  const pieces = [...new Set(pages.map((p) => Number(p.pieceId)).filter((n) => Number.isInteger(n) && n > 0))];
+  const paths = [...new Set(pages.map((p) => p.path))].slice(0, 500);
+  type Row = { id: string; env: Env; pages: string[]; piece_id: string | null; status: TestBrief["status"]; winner: TestBrief["winner"]; updated_at: Date };
+  const r = await query<Row>(
+    `SELECT id, env, pages, piece_id, status, winner, updated_at FROM apsomh_convert_tests
+      WHERE kind = 'test' AND (piece_id = ANY($1::bigint[]) OR pages && $2::text[])`, [pieces, paths]).catch(() => ({ rows: [] as Row[] }));
+  const out: Record<string, TestBrief> = {};
+  for (const p of pages) {
+    const mine = r.rows.filter((t) => String(t.piece_id) === String(p.pieceId) || (t.env === p.env && (t.pages ?? []).includes(p.path)))
+      .map((t) => ({ id: String(t.id), status: t.status, winner: t.winner, updatedAt: iso(t.updated_at)! }));
+    const lead = leadTest(mine);
+    if (lead) out[`${p.env} ${p.path}`] = lead;
+  }
+  return out;
 }
 
 export type Candidate = { versionId: string; rev: number; env: Env; path: string; kind: PageKind; summary: string; approvedBy: string | null; approvedAt: string | null; ideaId: string; title: string };

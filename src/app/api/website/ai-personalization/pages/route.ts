@@ -7,6 +7,7 @@ import { getOptionalUser } from "@/lib/auth/guard";
 import { isEnv, isKind } from "@/lib/convert/model";
 import { hubPublished, isWhere, lastReads, listPages, pagesSummary, readShop } from "@/lib/convert/pages";
 import { optimizationsOn } from "@/lib/convert/studio";
+import { testsOfPages } from "@/lib/convert/tests";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,11 +28,12 @@ export async function GET(req: NextRequest) {
     // ?published=1: the pages the hub itself put on the shop (Content's Page builder), with their optimizations
     if (sp.get("published") === "1") {
       const pages = await hubPublished();
-      const [prodWork, accWork] = await Promise.all([
+      const [prodWork, accWork, tests] = await Promise.all([
         optimizationsOn("prod", pages.filter((p) => p.env === "prod").map((p) => p.path)).catch(() => ({})),
         optimizationsOn("acc", pages.filter((p) => p.env === "acc").map((p) => p.path)).catch(() => ({})),
+        testsOfPages(pages).catch(() => ({})),
       ]);
-      return NextResponse.json({ configured: true, ok: true, data: { pages, work: { prod: prodWork, acc: accWork } } });
+      return NextResponse.json({ configured: true, ok: true, data: { pages, work: { prod: prodWork, acc: accWork }, tests } });
     }
     const [reads, summary, list] = await Promise.all([
       lastReads(),
