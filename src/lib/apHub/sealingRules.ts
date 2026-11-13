@@ -241,6 +241,8 @@ export type Priority = {
   compound: string;
   /** the pilot's "Suggested owner" */
   owner?: string;
+  /** its stable key - kind, entity, rule (candidateKey): the status a cross-admin gives it is kept under it */
+  id?: string;
 };
 
 /** A compound and one customer's part of it: revenue and gross profit. */
@@ -259,57 +261,78 @@ const pc = (v: number) => `${(v * 100).toFixed(1)}%`;
  * Compounds with no name are never a priority; nothing qualifies, no box.
  */
 export function priorities(compounds: Figure[], pairs: CompoundCustomer[]): Priority[] {
-  const out: Priority[] = [];
+  const all = commercialCandidates(compounds, pairs);
+  return (["margin", "growth", "spread"] as const)
+    .map((k) => all.find((c) => c.kind === k))
+    .filter((c): c is Priority => !!c)
+    .map(({ id: _id, ...p }) => p);
+}
+
+/** A card's stable key - its kind, what it is about, the rule that found it (SARCLA 11.11.2026: a status per card). */
+export const candidateKey = (kind: Priority["kind"], entity: string, rule: string): string => `${kind}|${entity}|${rule}`;
+const keyed = (p: Priority, entity: string, rule: string): Priority => ({ ...p, id: candidateKey(p.kind, entity, rule) });
+
+/** Several ranked lists one after the other in turn - the first of each, then the second of each ... */
+function interleave<T>(lists: T[][]): T[] {
+  const out: T[] = [];
+  for (let i = 0; lists.some((l) => i < l.length); i++) for (const l of lists) if (i < l.length) out.push(l[i]);
+  return out;
+}
+
+/**
+ * Every commercial priority the figures hold, ranked - the pilot's three kinds in turn (a refused one leaves, the next
+ * comes in, SARCLA 11.11.2026: "should be able to accept, refuse, and more come"):
+ *   margin  each account buying a sizeable compound (>= €100k) more than 10 points below that compound's own margin,
+ *           the most gross profit at stake (the gap × its revenue) first - +5 pp at its current sales, illustrative;
+ *   growth  each compound of at least €1m, the best margin first - +10 % sales at its margin, illustrative;
+ *   spread  each of the five leading compounds whose two farthest larger accounts (>= €50k each) are 15 points or more
+ *           apart - explained before any repricing.
+ * Compounds with no name are never a priority.
+ */
+export function commercialCandidates(compounds: Figure[], pairs: CompoundCustomer[]): Priority[] {
   const named = compounds.filter((c) => !noCompound(c.name));
   const marginOf = new Map(named.map((c) => [c.name, c.margin]));
 
-  let worst: { p: CompoundCustomer; gap: number } | null = null;
-  for (const p of pairs) {
-    if (noCompound(p.compound) || p.rev < 100_000) continue;
-    const own = marginOf.get(p.compound);
-    if (own === undefined) continue;
-    const gap = own - p.gp / p.rev;
-    if (gap > 0.1 && (!worst || gap * p.rev > worst.gap * worst.p.rev)) worst = { p, gap };
-  }
-  if (worst) {
-    const { p } = worst, m = p.gp / p.rev, own = marginOf.get(p.compound)!;
-    out.push({
-      kind: "margin", compound: p.compound,
-      title: `Review ${p.customerName}'s ${p.compound} economics`,
-      evidence: `${p.customerName} buys ${eur(p.rev)} of ${p.compound} at ${pc(m)} GM, versus ${pc(own)} for the compound overall. The comparison may reflect different article mixes.`,
-      next: "Review article mix, costs and price conditions with the account manager. Test a 5 percentage-point margin improvement without assuming it is achievable.",
-      effect: p.rev * 0.05, effectLabel: "Illustrative +5 pp at current sales", owner: "Account manager + product manager",
+  const margins = pairs
+    .filter((p) => !noCompound(p.compound) && p.rev >= 100_000 && marginOf.has(p.compound))
+    .map((p) => ({ p, gap: marginOf.get(p.compound)! - p.gp / p.rev }))
+    .filter((x) => x.gap > 0.1)
+    .sort((a, b) => b.gap * b.p.rev - a.gap * a.p.rev || a.p.customer.localeCompare(b.p.customer))
+    .map(({ p }) => {
+      const m = p.gp / p.rev, own = marginOf.get(p.compound)!;
+      return keyed({
+        kind: "margin", compound: p.compound,
+        title: `Review ${p.customerName}'s ${p.compound} economics`,
+        evidence: `${p.customerName} buys ${eur(p.rev)} of ${p.compound} at ${pc(m)} GM, versus ${pc(own)} for the compound overall. The comparison may reflect different article mixes.`,
+        next: "Review article mix, costs and price conditions with the account manager. Test a 5 percentage-point margin improvement without assuming it is achievable.",
+        effect: p.rev * 0.05, effectLabel: "Illustrative +5 pp at current sales", owner: "Account manager + product manager",
+      }, `${p.customer}@${p.compound}`, "below-compound-margin");
     });
-  }
 
-  const big = named.filter((c) => c.rev >= 1_000_000).sort((a, b) => b.margin - a.margin)[0];
-  if (big) {
-    out.push({
-      kind: "growth", compound: big.name,
-      title: "Test growth in a sizeable, high-margin compound",
-      evidence: `${big.name} generates ${eur(big.rev)} at ${pc(big.margin)} GM.`,
-      next: "Ask sales to identify application-matched opportunities around existing accounts and validate capacity, pricing and demand before setting a target.",
-      effect: big.rev * 0.1 * big.margin, effectLabel: "Illustrative +10% sales at current GM", owner: "Sales leads + product manager",
-    });
-  }
+  const growth = named.filter((c) => c.rev >= 1_000_000).sort((a, b) => b.margin - a.margin || b.rev - a.rev).map((big) => keyed({
+    kind: "growth", compound: big.name,
+    title: "Test growth in a sizeable, high-margin compound",
+    evidence: `${big.name} generates ${eur(big.rev)} at ${pc(big.margin)} GM.`,
+    next: "Ask sales to identify application-matched opportunities around existing accounts and validate capacity, pricing and demand before setting a target.",
+    effect: big.rev * 0.1 * big.margin, effectLabel: "Illustrative +10% sales at current GM", owner: "Sales leads + product manager",
+  }, big.name, "high-margin-1m"));
 
+  const spreads: Priority[] = [];
   for (const c of named.slice(0, 5)) {
     const accounts = pairs.filter((p) => p.compound === c.name && p.rev >= 50_000);
     if (accounts.length < 2) continue;
     const byMargin = [...accounts].sort((a, b) => b.gp / b.rev - a.gp / a.rev);
     const hi = byMargin[0], lo = byMargin[byMargin.length - 1];
-    const spread = hi.gp / hi.rev - lo.gp / lo.rev;
-    if (spread < 0.15) continue;
-    out.push({
+    if (hi.gp / hi.rev - lo.gp / lo.rev < 0.15) continue;
+    spreads.push(keyed({
       kind: "spread", compound: c.name,
       title: `Explain the ${materialOf(c.name) === "Unclassified" ? c.name : materialOf(c.name)} margin spread`,
       evidence: `For ${c.name}, ${hi.customerName} reports ${pc(hi.gp / hi.rev)} GM and ${lo.customerName} ${pc(lo.gp / lo.rev)}. These are different account and article mixes, not a like-for-like price comparison.`,
       next: "Compare article-level profitability and service costs. Identify whether mix, transfer costs or commercial terms explain the gap before proposing changes.",
       effect: 0, effectLabel: "Validate causes before any repricing", owner: "Account managers + controlling",
-    });
-    break;
+    }, c.name, "account-spread"));
   }
-  return out;
+  return interleave([margins, growth, spreads]);
 }
 
 /* -- the pilot's other "From results to action" cards (revision.js analysis, index.html analysis) ---------------- */
@@ -390,6 +413,147 @@ export const APPROVAL_ACTIONS: Priority[] = [
   },
 ];
 
+/* -- each block's cards, ranked: a refused one leaves and the next comes in (SARCLA 11.11.2026) ------------------- */
+
+/** A position a block reads: a customer, an article, a family. */
+export type Position = { key: string; name: string; rev: number; margin: number };
+
+/** The cards once each - the first of two with the same key wins. */
+function once(cards: Priority[]): Priority[] {
+  const seen = new Set<string>();
+  return cards.filter((c) => { const k = c.id ?? `${c.kind}|${c.title}`; if (seen.has(k)) return false; seen.add(k); return true; });
+}
+
+const LOW_NEXT = "Review article mix, pricing and cost allocation. Prioritise positions where sales and controlling can validate a specific improvement.";
+
+/** A loss: back to break-even is the illustrative effect (the pilot's "Review the largest article first"). */
+function lossCard(r: Position, ent: string): Priority {
+  return keyed({
+    kind: "profit", compound: "", owner: "Account manager + controlling",
+    title: `Explain the loss on ${r.name}`,
+    evidence: `${r.name} has ${eur(r.rev)} net revenue at ${pc(r.margin)} GM.`,
+    next: "Check cost allocation, pricing and contract conditions before pursuing more volume.",
+    effect: -r.rev * r.margin, effectLabel: "Back to break-even at current sales",
+  }, `${ent}:${r.key}`, "negative-margin");
+}
+
+/**
+ * The customers' or the articles' cards, ranked: the pilot's three first (reviewActions - the sizeable low-margin
+ * position, the concentration, the compound comparison), then each loss and each other low-margin position in turn,
+ * the largest first.
+ */
+export function reviewCandidates(what: "customers" | "articles", rows: Position[], total: number, compound = ""): Priority[] {
+  if (!rows.length) return [];
+  const ent = what === "customers" ? "customer" : "article";
+  const [profit, retain, compare] = reviewActions(what, rows, total, compound);
+  const low = lowMarginLead(rows);
+  const largest = [...rows].sort((a, b) => b.rev - a.rev)[0];
+  const first = [
+    keyed(profit, `${ent}:${(low ?? largest).key}`, low ? "low-margin" : "largest-exposure"),
+    keyed(retain, `${ent}:${largest.key}`, "concentration"),
+    keyed(compare, `compound:${compound}`, "compound-comparison"),
+  ];
+  const losses = rows.filter((r) => r.rev > 0 && r.margin < 0).sort((a, b) => b.rev - a.rev).map((r) => lossCard(r, ent));
+  const lows = rows.filter((r) => r.rev > 0 && r.margin >= 0 && r.margin < 0.2 && r.key !== low?.key).sort((a, b) => b.rev - a.rev).map((r) => keyed({
+    kind: "profit", compound: "", owner: "Account manager + controlling",
+    title: `Review the margin on ${r.name}`,
+    evidence: `${r.name} has ${eur(r.rev)} net revenue at ${pc(r.margin)} GM. The 20% screen is a review filter, not an agreed target.`,
+    next: LOW_NEXT, effect: r.rev * 0.05, effectLabel: "Illustrative +5 pp on this position",
+  }, `${ent}:${r.key}`, "low-margin"));
+  return once([...first, ...interleave([losses, lows])]);
+}
+
+/**
+ * The overview's commercial priorities, ranked: the pilot's three kinds from the figures (commercialCandidates), then in
+ * turn the largest losses among the customers, the largest account's concentration, the revenue with no approval
+ * written, and the leading material families' portfolio reviews.
+ */
+export function overviewCandidates(o: { commercial: Priority[]; customers: Position[]; total: number; noApprovalRev: number; families: Position[] }): Priority[] {
+  const losses = o.customers.filter((r) => r.rev > 0 && r.margin < 0).sort((a, b) => b.rev - a.rev).slice(0, 5).map((r) => lossCard(r, "customer"));
+  const largest = [...o.customers].sort((a, b) => b.rev - a.rev)[0];
+  const conc = largest ? [keyed(reviewActions("customers", o.customers, o.total)[1], `customer:${largest.key}`, "concentration")] : [];
+  const none = approvalGap(o.noApprovalRev, o.total);
+  const fams = o.families.filter((x) => x.key !== "Unclassified" && x.rev > 0).sort((a, b) => b.rev - a.rev).slice(0, 3).map((x) => keyed({
+    kind: "portfolio", compound: "", owner: "Product manager + sales leads",
+    title: `Review ${x.name} account exposure`,
+    evidence: `The named ${x.name} compounds represent ${eur(x.rev)} of net revenue at ${pc(x.margin)} GM.`,
+    next: "Open the leading compounds and review their customers. Confirm application fit, purchasing conditions and customer needs before proposing expansion.",
+    effect: 0, effectLabel: "",
+  }, `family:${x.key}`, "portfolio-review"));
+  return once([...o.commercial, ...interleave([losses, conc, none, fams])]);
+}
+
+/** Materials & compounds' cards: the commercial priorities on the family's compounds, then its portfolio review. */
+export function familyCandidates(commercial: Priority[], family: string | null, rows: { name: string; rev: number }[]): Priority[] {
+  const mine = commercial.filter((p) => !family || materialOf(p.compound) === family);
+  const port = family && rows.length ? familyActions([], family, rows).map((p) => keyed(p, `family:${family}`, "portfolio-review")) : [];
+  return once([...mine, ...port]);
+}
+
+/** The revenue with no approval written - a card when there is some. */
+function approvalGap(noApprovalRev: number, total: number): Priority[] {
+  if (!(noApprovalRev > 0) || !(total > 0)) return [];
+  return [keyed({
+    kind: "capture", compound: "", effect: 0, effectLabel: "", owner: "Product managers + data owners",
+    title: "Write the approvals on the articles sold without one",
+    evidence: `${pc(noApprovalRev / total)} of the net revenue (${eur(noApprovalRev)}) has no approval written on the article. Start with the largest articles.`,
+  }, "approvals:none", "revenue-without-approval")];
+}
+
+/** "What should we do?" on the approvals, ranked: the pilot's three, the revenue with none written, then each reference with revenue. */
+export function approvalCandidates(refs: { name: string; rev: number }[], noApprovalRev: number, total: number): Priority[] {
+  const rules = ["explicit-fields", "commercial-relevance", "no-double-count"];
+  const base = APPROVAL_ACTIONS.map((p, i) => keyed(p, "approvals", rules[i]));
+  const perRef = refs.filter((r) => r.rev > 0).sort((a, b) => b.rev - a.rev).map((r) => keyed({
+    kind: "validate", compound: "", effect: 0, effectLabel: "", owner: "Product managers",
+    title: `Check where ${r.name} matters commercially`,
+    evidence: `The texts mentioning ${r.name} carry ${eur(r.rev)} of net revenue. Confirm with product managers where ${r.name} is mandatory for the customer's application.`,
+  }, `ref:${r.name}`, "reference-relevance"));
+  return once([...base, ...approvalGap(noApprovalRev, total), ...perRef]);
+}
+
+/* -- a card's status: accepted, in progress, done - or refused (SARCLA 11.11.2026) --------------------------------- */
+
+export type PriorityStatus = "accepted" | "in_progress" | "done" | "refused";
+export const PRIORITY_STATUSES: PriorityStatus[] = ["accepted", "in_progress", "done", "refused"];
+export const STATUS_NAME: Record<PriorityStatus, string> = { accepted: "Accepted", in_progress: "In progress", done: "Done", refused: "Refused" };
+export const isPriorityStatus = (s: unknown): s is PriorityStatus => typeof s === "string" && (PRIORITY_STATUSES as string[]).includes(s);
+
+/**
+ * Where a card may go from its status - null: proposed, none given. Proposed: accepted or refused. Accepted: in
+ * progress, done, or back to proposed. In progress: done, or back to accepted. Done: back in progress. Refused: back.
+ */
+export function nextStatuses(s: PriorityStatus | null): (PriorityStatus | null)[] {
+  switch (s) {
+    case null: return ["accepted", "refused"];
+    case "accepted": return ["in_progress", "done", null];
+    case "in_progress": return ["done", "accepted"];
+    case "done": return ["in_progress"];
+    case "refused": return [null];
+  }
+}
+export const canMove = (from: PriorityStatus | null, to: PriorityStatus | null): boolean => from !== to && nextStatuses(from).includes(to);
+
+/**
+ * A block's cards by their statuses: the first `n` neither refused nor done (proposed, accepted or in progress - a
+ * refused one leaves and the next comes in), the refused and the done ones to look back at, and how many are waiting.
+ */
+export function openCards<T extends { id?: string }>(cards: T[], statuses: Record<string, PriorityStatus | undefined>, n = 3): { shown: T[]; refused: T[]; done: T[]; waiting: number } {
+  const st = (c: T) => (c.id ? statuses[c.id] ?? null : null);
+  const open = cards.filter((c) => { const s = st(c); return s !== "refused" && s !== "done"; });
+  return { shown: open.slice(0, n), refused: cards.filter((c) => st(c) === "refused"), done: cards.filter((c) => st(c) === "done"), waiting: Math.max(0, open.length - n) };
+}
+
+/** A card's key read back from the request: its three parts, each within the column's width - null when not one. */
+export function priorityKeyOf(kind: unknown, entity: unknown, rule: unknown): { kind: Priority["kind"]; entity: string; rule: string; id: string } | null {
+  const KINDS: Priority["kind"][] = ["margin", "growth", "spread", "profit", "retain", "compare", "portfolio", "capture", "validate", "interpret"];
+  if (typeof kind !== "string" || !(KINDS as string[]).includes(kind)) return null;
+  if (typeof entity !== "string" || entity.length > 400) return null;
+  if (typeof rule !== "string" || !/^[a-z0-9-]{1,60}$/.test(rule)) return null;
+  const k = kind as Priority["kind"];
+  return { kind: k, entity, rule, id: candidateKey(k, entity, rule) };
+}
+
 /* -- the pilot's approval evidence (index.html approvalCategory, mentionSummary) --------------------------------- */
 
 /** The references the pilot ranks, in its order. */
@@ -444,6 +608,60 @@ export function familyFigures(compounds: Figure[]): FamilyFigure[] {
   return sumBy(named, (c) => materialOf(c.name)).map((x) => ({
     ...x, count: named.filter((c) => materialOf(c.name) === x.key).length, share: total > 0 ? x.rev / total : 0,
   }));
+}
+
+/* -- a whole list a page at a time: every customer, article, compound or approval (SARCLA 11.11.2026: "all customers
+   could even be served in a separate tab") ----------------------------------------------------------------------- */
+
+/** "No compound named" - the articles' family of an article whose compound names none. */
+export const NO_COMPOUND_NAME = "No compound named";
+/** The rows a page of a whole list holds (SARCLA: "pagination at 30"). */
+export const LIST_PAGE = 30;
+
+export type ListKind = "customer" | "article" | "compound" | "approval";
+export const isListKind = (s: unknown): s is ListKind => s === "customer" || s === "article" || s === "compound" || s === "approval";
+
+/** What a page of a list asks: ranked by revenue or gross profit, a search, where it starts and how many, a family. */
+export type ListAsk = { kind: ListKind; by: "rev" | "gp"; q: string; offset: number; limit: number; family: string | null; unresolved: boolean };
+
+const intIn = (s: string | null, dflt: number, lo: number, hi: number) => {
+  const n = Number(s);
+  return s != null && s !== "" && Number.isFinite(n) ? Math.min(hi, Math.max(lo, Math.floor(n))) : dflt;
+};
+
+/**
+ * A list's page as the request asks it - ?kind=customer|article|compound|approval&by=rev|gp&q=&offset=&limit=&family=
+ * &unresolved=1 - every value kept within bounds (a page holds 1 to 100 rows); null when the kind is none of them.
+ */
+export function listAskOf(p: URLSearchParams): ListAsk | null {
+  const kind = p.get("kind");
+  if (!isListKind(kind)) return null;
+  return {
+    kind,
+    by: p.get("by") === "gp" ? "gp" : "rev",
+    q: (p.get("q") ?? "").trim().slice(0, 100),
+    offset: intIn(p.get("offset"), 0, 0, 1_000_000),
+    limit: intIn(p.get("limit"), LIST_PAGE, 1, 100),
+    family: (p.get("family") ?? "").trim().slice(0, 40) || null,
+    unresolved: p.get("unresolved") === "1",
+  };
+}
+
+/**
+ * The compounds a list keeps, from those the period holds: a family's named ones, the unnamed ones for "No compound
+ * named", the named ones only for the compounds' list unless the unresolved are asked - null: keep all.
+ */
+export function compoundsKept(all: string[], a: Pick<ListAsk, "kind" | "family" | "unresolved">): string[] | null {
+  if (a.family === NO_COMPOUND_NAME) return all.filter((c) => noCompound(c));
+  if (a.family) return all.filter((c) => !noCompound(c) && materialOf(c) === a.family);
+  if (a.kind === "compound" && !a.unresolved) return all.filter((c) => !noCompound(c));
+  return null;
+}
+
+/** The pages of a list: how many, and the one an offset falls on (from 0). */
+export function pagesOf(total: number, offset: number, size = LIST_PAGE): { pages: number; page: number } {
+  const pages = Math.max(1, Math.ceil(Math.max(0, total) / size));
+  return { pages, page: Math.min(pages - 1, Math.max(0, Math.floor(offset / size))) };
 }
 
 /* -- the pilot's rankings and their controls (index.html chart, controls, detailView) ------------------------------ */
