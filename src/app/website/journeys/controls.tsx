@@ -5,6 +5,10 @@
 // each with its visits; one without visits is shown and cannot be picked, never hidden (SARCLA 09.11.2026: "not all
 // store views are in Store view") - the device, and the search over the shop's pages (APSOconvert's page index, the
 // most viewed pages of the period first).
+//
+// ONE compact row since 13.11.2026 (SARCLA on Page flow: "Page flow layout is pure shit - still wrong" - the store views
+// were a wall of buttons over two rows): the search, the store view as one list grouped by language with each one's
+// visits (all 14 still in it, one without visits shown and not choosable), the device as a small squared choice.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -12,16 +16,15 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import Autocomplete from "@mui/material/Autocomplete";
+import MenuItem from "@mui/material/MenuItem";
+import ListSubheader from "@mui/material/ListSubheader";
 import SearchOutlinedIcon from "@mui/icons-material/SearchOutlined";
-import { full } from "@/app/charts/format";
-import { FAINT, HAIRLINE, INK, MUTED } from "@/app/uc/report/ui";
+import { FAINT, INK, MUTED } from "@/app/uc/report/ui";
 import { SquareChoice } from "@/app/website/ai-personalization/SquareChoice";
 import {
   DEVICES, DEVICE_NAME, KIND_COLOR, STORE_VIEWS, isDevice, isStoreView, journeyKind, pageName, pathKey,
   type Device, type StoreChoice,
 } from "@/lib/journeys/model";
-
-const BLUE = "#2459d1";
 
 export type JQuery = { store: string | null; device: Device | null };
 
@@ -62,15 +65,19 @@ export function jqs(q: JQuery, more: Record<string, string | string[] | null | u
 /** A count for a small button: 840, 4.3k, 21k. */
 export const short = (n: number) => (n < 1000 ? String(Math.round(n)) : n < 10_000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${Math.round(n / 1000)}k`);
 
-const LANGUAGE: Record<string, string> = { de: "DE", fr: "FR", it: "IT", en: "EN", nl: "NL", pl: "PL" };
+const LANGUAGE: Record<string, string> = { de: "German", fr: "French", it: "Italian", en: "English", nl: "Dutch", pl: "Polish" };
 
 /**
- * The store view: all stores, then the shop's 14 by language, each with its visits in the period (an extra store view
- * with visits after them). Squared buttons on a wide screen, one list on a phone.
+ * The store view: ONE list - all stores, then the shop's 14 by language, each with its visits in the period (an extra
+ * store view with visits after them, under "Other"). A store view without visits is in the list and cannot be chosen.
  */
 export function StoreViewPicker({ value, onChange, stores }: { value: string | null; onChange: (s: string | null) => void; stores: StoreChoice[] | null }) {
-  const list: StoreChoice[] = stores ?? STORE_VIEWS.map((key) => ({ key, sessions: -1, listed: true }));
-  const total = stores ? stores.reduce((a, s) => a + s.sessions, 0) : null;
+  const list: StoreChoice[] = useMemo(() => {
+    const l = stores ?? STORE_VIEWS.map((key) => ({ key, sessions: -1, listed: true }));
+    // a store view the address names and the list does not have: kept, so the choice shows what is chosen
+    return value && !l.some((s) => s.key === value) ? [...l, { key: value, sessions: 0, listed: false }] : l;
+  }, [stores, value]);
+  const total = stores ? stores.reduce((a, s) => a + Math.max(0, s.sessions), 0) : null;
   const groups = useMemo(() => {
     const m = new Map<string, StoreChoice[]>();
     for (const s of list) {
@@ -79,69 +86,52 @@ export function StoreViewPicker({ value, onChange, stores }: { value: string | n
     }
     return [...m];
   }, [list]);
+  const byKey = new Map(list.map((s) => [s.key, s]));
   const off = (s: StoreChoice) => stores !== null && s.sessions <= 0 && s.key !== value;
-  const btn = (key: string | null, label: string, n: number | null, disabled: boolean, first: boolean) => {
-    const on = (value ?? null) === key;
-    return (
-      <Box key={key ?? "all"} component="button" type="button" role="radio" aria-checked={on} disabled={disabled}
-        title={disabled ? `${label}: no visits in this period` : n !== null ? `${label}: ${full(n)} visits` : label}
-        onClick={() => onChange(key)} sx={{
-          all: "unset", cursor: disabled ? "default" : "pointer", px: 1.1, py: 0.5, fontSize: "0.8rem", fontWeight: 600, lineHeight: 1.35,
-          borderLeft: first ? "none" : `1px solid ${HAIRLINE}`, color: on ? "#fff" : disabled ? "#b3bccb" : INK, bgcolor: on ? BLUE : "transparent",
-          whiteSpace: "nowrap", "&:hover": on || disabled ? {} : { bgcolor: "rgba(36,89,209,.07)", color: BLUE },
-          "&:focus-visible": { outline: `2px solid ${BLUE}`, outlineOffset: -2 },
-        }}>
-        {label}
-        {n !== null && <Box component="span" sx={{ ml: 0.6, fontWeight: 700, color: on ? "rgba(255,255,255,.85)" : disabled ? "#c6cdd8" : MUTED, fontVariantNumeric: "tabular-nums" }}>{n > 0 ? short(n) : "0"}</Box>}
-      </Box>
-    );
+  const count = (n: number | null) => (n === null || n < 0 ? "" : n > 0 ? short(n) : "no visits");
+  const item = (key: string, label: string, n: number | null, disabled: boolean) => (
+    <MenuItem key={key} value={key} disabled={disabled} sx={{ fontSize: "0.86rem", py: 0.55, minHeight: 0, display: "flex", gap: 2, pl: key === "all" ? 2 : 3 }}>
+      <Box component="span" sx={{ flex: 1, fontWeight: 600 }}>{label}</Box>
+      <Box component="span" sx={{ color: MUTED, fontWeight: 700, fontSize: "0.8rem", fontVariantNumeric: "tabular-nums" }}>{count(n)}</Box>
+    </MenuItem>
+  );
+  const shown = (v: string) => {
+    if (v === "all") return total !== null ? `All stores · ${short(total)}` : "All stores";
+    const s = byKey.get(v);
+    return s && s.sessions > 0 ? `${v} · ${short(s.sessions)}` : v;
   };
-  const seg = { display: "inline-flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.75)" } as const;
   return (
-    <>
-      <Box role="radiogroup" aria-label="Store view" sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 1, rowGap: 0.75, flexWrap: "wrap", minWidth: 0 }}>
-        <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em", mr: 0.25 }}>Store view</Typography>
-        <Box sx={seg}>{btn(null, "All stores", total, false, true)}</Box>
-        {groups.map(([g, items]) => (
-          <Box key={g} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}>
-            <Typography component="span" sx={{ fontSize: "0.68rem", fontWeight: 700, color: FAINT }}>{g}</Typography>
-            <Box sx={seg}>{items.map((s, i) => btn(s.key, s.key, s.sessions >= 0 ? s.sessions : null, off(s), i === 0))}</Box>
-          </Box>
-        ))}
-      </Box>
-      <Box sx={{ display: { xs: "block", md: "none" } }}>
-        <TextField select fullWidth size="small" label="Store view" value={value ?? "all"} onChange={(e) => onChange(e.target.value === "all" ? null : e.target.value)}
-          SelectProps={{ native: true }} sx={{ "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.8)", fontSize: "0.9rem" } }}>
-          <option value="all">All stores{total !== null ? ` · ${full(total)} visits` : ""}</option>
-          {list.map((s) => (
-            <option key={s.key} value={s.key} disabled={off(s)}>
-              {s.key}{s.sessions < 0 ? "" : s.sessions > 0 ? ` · ${full(s.sessions)} visits` : " · no visits"}
-            </option>
-          ))}
-        </TextField>
-      </Box>
-    </>
+    <TextField select size="small" label="Store view" value={value ?? "all"} onChange={(e) => onChange(e.target.value === "all" ? null : e.target.value)}
+      SelectProps={{ renderValue: (v) => shown(String(v)), MenuProps: { slotProps: { paper: { sx: { maxHeight: 440, borderRadius: "8px", minWidth: 220 } } } } }}
+      sx={{ width: 190, flexShrink: 0, "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.9)", fontSize: "0.88rem" } }}>
+      {[
+        item("all", "All stores", total, false),
+        ...groups.flatMap(([g, items]) => [
+          <ListSubheader key={`h-${g}`} sx={{ fontSize: "0.68rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: FAINT, lineHeight: "28px" }}>{g}</ListSubheader>,
+          ...items.map((s) => item(s.key, s.key, s.sessions >= 0 ? s.sessions : null, off(s))),
+        ]),
+      ]}
+    </TextField>
   );
 }
 
 export function DevicePicker({ value, onChange }: { value: Device | null; onChange: (d: Device | null) => void }) {
   return (
     <SquareChoice<string> label="Device" value={value ?? "all"} onChange={(k) => onChange(isDevice(k) ? k : null)}
-      options={[{ key: "all", label: "All devices" }, ...DEVICES.map((d) => ({ key: d, label: DEVICE_NAME[d] }))]} />
+      options={[{ key: "all", label: "All" }, ...DEVICES.map((d) => ({ key: d, label: DEVICE_NAME[d] }))]} />
   );
 }
 
-/** The store view and the device, as one bar under the page's title. */
-export function ChoiceBar({ q, set, stores, children }: {
-  q: JQuery; set: (patch: Record<string, string | null>) => void; stores: StoreChoice[] | null; children?: React.ReactNode;
+/** The page's choices as ONE row: the search (when the page has one) taking the room, the store view, the device. */
+export function ChoiceBar({ q, set, stores, search, children }: {
+  q: JQuery; set: (patch: Record<string, string | null>) => void; stores: StoreChoice[] | null; search?: React.ReactNode; children?: React.ReactNode;
 }) {
   return (
-    <Box sx={{ display: "grid", gap: 1.25, minWidth: 0 }}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, rowGap: 1.25, flexWrap: "wrap", minWidth: 0 }}>
+      {search && <Box sx={{ flex: "1 1 320px", minWidth: 0 }}>{search}</Box>}
       <StoreViewPicker value={q.store} stores={stores} onChange={(s) => set({ store: s })} />
-      <Box sx={{ display: "flex", gap: 2, rowGap: 1.25, flexWrap: "wrap", alignItems: "center" }}>
-        <DevicePicker value={q.device} onChange={(d) => set({ device: d })} />
-        {children}
-      </Box>
+      <DevicePicker value={q.device} onChange={(d) => set({ device: d })} />
+      {children}
     </Box>
   );
 }
@@ -169,8 +159,10 @@ type IndexRow = { store: string; rest: string; prod: { url: string } | null; acc
  * A page of the shop: typed (a name, a product number, an address - pasted whole or not) over APSOconvert's page index,
  * the `suggest`ed ones first while nothing is typed. Enter on an address opens it as it is.
  */
-export function PageSearch({ onPick, suggest, store, placeholder, autoFocus }: {
+export function PageSearch({ onPick, suggest, store, placeholder, autoFocus, size = "medium" }: {
   onPick: (path: string) => void; suggest: PageHit[]; store: string | null; placeholder?: string; autoFocus?: boolean;
+  /** small: in the row of choices, as tall as the store view */
+  size?: "small" | "medium";
 }) {
   const [input, setInput] = useState("");
   const [hits, setHits] = useState<PageHit[]>([]);
@@ -204,7 +196,7 @@ export function PageSearch({ onPick, suggest, store, placeholder, autoFocus }: {
   ];
   return (
     <Autocomplete<PageHit, false, false, true>
-      freeSolo fullWidth options={options} loading={busy} filterOptions={(x) => x} inputValue={input}
+      freeSolo fullWidth size={size} options={options} loading={busy} filterOptions={(x) => x} inputValue={input}
       onInputChange={(_, v) => setInput(v)}
       getOptionLabel={(o) => (typeof o === "string" ? o : o.name)}
       isOptionEqualToValue={(a, b) => a.path === b.path}
@@ -231,7 +223,7 @@ export function PageSearch({ onPick, suggest, store, placeholder, autoFocus }: {
       renderInput={(params) => (
         <TextField {...params} autoFocus={autoFocus} placeholder={placeholder ?? "Find a page: a name, a product number, or paste its address"}
           InputProps={{ ...params.InputProps, startAdornment: <SearchOutlinedIcon sx={{ color: MUTED, fontSize: 20, ml: 0.5, mr: 0.25 }} /> }}
-          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.9)", fontSize: "0.92rem" } }} />
+          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "6px", bgcolor: "rgba(255,255,255,.9)", fontSize: size === "small" ? "0.88rem" : "0.92rem" } }} />
       )}
     />
   );

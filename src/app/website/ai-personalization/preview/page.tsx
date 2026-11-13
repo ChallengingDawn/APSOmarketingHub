@@ -70,6 +70,7 @@ import { heatPick, pctOf } from "@/lib/convert/heatDraw";
 import { CONVERT } from "../base";
 import { AI_GRADIENT, AiButton } from "../AiButton";
 import { SendDialog, type SendChoice } from "./SendDialog";
+import { KIND_NAME, canPreview, journeyKind } from "@/lib/journeys/model";
 
 type StudioData = {
   env: Env; path: string;
@@ -706,7 +707,10 @@ function ConvertPreview() {
   // the optimizations a person slides through do not start the AI by themselves (a block's come with their versions)
   const slid = useRef(false);
 
-  const url = path ? `${API}?env=${env}&path=${encodeURIComponent(path)}&n=${tick}${fresh ? "&fresh=1" : ""}` : null;
+  // a shop function (the cart, sign-in, the search results...) is no page the Preview reads: said plainly, never asked of
+  // the route (SARCLA 13.11.2026: "Preview did not answer (HTTP 400) - env must be prod or acc, and path a shop page")
+  const refused = !!path && path.startsWith("/") && !canPreview(path);
+  const url = path && !refused ? `${API}?env=${env}&path=${encodeURIComponent(path)}&n=${tick}${fresh ? "&fresh=1" : ""}` : null;
   const held = useHeld<StudioData>(url, [url]);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
@@ -886,6 +890,13 @@ function ConvertPreview() {
   let body: React.ReactNode;
   if (!path) {
     body = <Picker env={env} onOpen={(e, p) => go(e, p)} problems={problems} />;
+  } else if (refused) {
+    body = (
+      <Notice tone="warn">
+        {KIND_NAME[journeyKind(path)]} ({path}) is a function of the shop, each customer&apos;s own - the Preview shows the shop&apos;s public pages
+        only: the home page, the categories, the products, the content pages.
+      </Notice>
+    );
   } else if (r === null) {
     body = <LoadingPanel label="Reading the page from the shop…" />;
   } else if (r.state !== "ok") {
