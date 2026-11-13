@@ -182,3 +182,18 @@ test("a home page is reworked as a whole - one optimization, a version per angle
   assert.equal(new Set(REWORK_ANGLES.map((a) => a.label)).size, 3, "each version its own angle");
   for (const a of REWORK_ANGLES) assert.match(a.request, /WHOLE page/);
 });
+
+test("an optimization's test in one word, the live test first - so the result comes back to Insights and the Preview", async () => {
+  const { leadTest, testState } = await import("../src/lib/convert/testState");
+  assert.equal(testState({ status: "draft", winner: null }).label, "Test planned");
+  assert.equal(testState({ status: "running", winner: null }).key, "testing");
+  assert.equal(testState({ status: "stopped", winner: "b" }).key, "won");
+  assert.equal(testState({ status: "shipped", winner: "b" }).key, "published");
+  assert.equal(testState({ status: "stopped", winner: "a" }).key, "kept");
+  assert.equal(testState({ status: "stopped", winner: "none" }).key, "flat");
+  assert.equal(testState({ status: "stopped", winner: null }).key, "ended");
+  const t = (id: string, status: "draft" | "running" | "stopped", at: string) => ({ id, status, winner: null, updatedAt: at });
+  assert.equal(leadTest([t("1", "stopped", "2026-11-13T10:00:00Z"), t("2", "running", "2026-11-01T10:00:00Z"), t("3", "draft", "2026-11-13T11:00:00Z")])?.id, "2", "a live test speaks first");
+  assert.equal(leadTest([t("1", "stopped", "2026-11-13T10:00:00Z"), t("3", "draft", "2026-11-13T11:00:00Z")])?.id, "3", "else the latest");
+  assert.equal(leadTest([]), null);
+});

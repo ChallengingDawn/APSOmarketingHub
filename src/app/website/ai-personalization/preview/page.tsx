@@ -53,6 +53,7 @@ import { ago } from "@/app/connectors/parts";
 import { Chip } from "@/app/website/ai-personalization/Tag";
 import { useReportingWindow } from "@/app/window/ReportingWindow";
 import { ENVS, KIND_LABEL, STEP_LABEL, classify, type Env, type PageKind, type Step } from "@/lib/convert/model";
+import { testState, type TestBrief } from "@/lib/convert/testState";
 import type { ProblemsData } from "@/lib/convert/problems";
 import type { PageRow, PagesList } from "@/lib/convert/pages";
 import type { Analysis, BoardRow, Idea, Numbers, Revision, Version } from "@/lib/convert/studio";
@@ -76,6 +77,8 @@ type StudioData = {
   env: Env; path: string;
   page: { status: number; error: string | null; title: string; h1: string[]; description: string; lines: string[]; truncated: boolean; kind: PageKind | null; product: string | null; url: string | null };
   ideas: Idea[]; versions: Version[]; analysis: Analysis | null; canEdit: boolean; canContent: boolean; ai: boolean;
+  /** each optimization's test (its own, or the one Content made for its to-do) - src/lib/convert/studio.ts testsOfIdeas */
+  tests?: Record<string, TestBrief>;
 };
 /** The ideas' numbered callouts on the page (the frame draws them, ../../../lib/convert/preview.ts shimSource). */
 type Spots = { list: { n: number; sel: string; lead: boolean; title: string }[]; focus: number | null };
@@ -543,13 +546,17 @@ async function sendToProject(x: { data: StudioData; numbers: Numbers | null; ide
   });
   // a to-do of the page added to a project (Content's piece-add-convert, 3b 11.11.2026): the project chosen, or the new
   // one when a ticket is asked for it - with every version (Content decides which is tested), its ticket made or linked
+  // the to-do Content made is kept with the optimization (13.11.2026 - the loop as one product: the optimization never
+  // knew its to-do, so its test and its result could not come back to it)
+  let piece: number | null = null;
   const addTo = async (projectId: number): Promise<{ ok: true; url: string | null; note: string } | { ok: false; error: string }> => {
     const r = await fetch(`/api/content/projects/${projectId}/work`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "piece-add-convert", env: x.data.env, path: x.data.path, versionId: ordered[0]?.id, ideaTitle: x.idea.title, brief: p.brief, contentType: p.contentType, ticket: x.to.ticket }),
     });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string; ticketError?: string | null } | null;
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; url?: string; error?: string; ticketError?: string | null; piece?: { id?: number } | null } | null;
     if (!j?.ok) return { ok: false, error: j?.error ?? `Content answered ${r.status}.` };
+    if (typeof j.piece?.id === "number") piece = j.piece.id;
     return { ok: true, url: j.url ?? null, note: j.ticketError ? ` The ticket was not made: ${j.ticketError}` : "" };
   };
   try {
@@ -572,7 +579,7 @@ async function sendToProject(x: { data: StudioData; numbers: Numbers | null; ide
         if (!a.ok) return { ok: false, error: `The project was made (#${projectId}), but its ticket was not: ${a.error}` };
       }
     }
-    const m = await convertPost<unknown>(API, { action: "sent", ideaId: x.idea.id, projectId });
+    const m = await convertPost<unknown>(API, { action: "sent", ideaId: x.idea.id, projectId, ...(piece ? { piece } : {}) });
     if (!m.ok) return { ok: false, error: `It is in Content (project #${projectId}), but marking the optimization sent failed: ${m.error}` };
     return { ok: true, url };
   } catch {
@@ -1022,6 +1029,10 @@ function ConvertPreview() {
               {idea && pos === 0 && idea.source === "ai" && live.length > 1 && <Chip tint="pink">The lead</Chip>}
               {idea && <Chip tint="purple">{CHANGE_LABEL[typeOfIdea(idea)]}</Chip>}
               {st && <Chip tint={STATE_TINT[st]}>{STATE_LABEL[st]}</Chip>}
+              {/* its test and where it stands (13.11.2026 - the result comes back to the optimization) */}
+              {idea && data.tests?.[idea.id] && (() => { const tb = data.tests![idea.id]; const ts = testState(tb); return (
+                <Tooltip title="Open the test"><Box component={Link} href={`${CONVERT}/tests/${tb.id}`} sx={{ display: "inline-flex", textDecoration: "none" }}><Chip tint={ts.tint}>{ts.label} · test #{tb.id}</Chip></Box></Tooltip>
+              ); })()}
               {idea && (versionsOf.get(idea.id)?.length ?? 0) > 1 && <Chip tint="slate">{versionsOf.get(idea.id)!.length} versions</Chip>}
               {block && <Chip tint="amber">Block · {block.name}</Chip>}
               <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>

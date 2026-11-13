@@ -37,6 +37,7 @@ import { ENVS, KIND_LABEL, sortProblems } from "@/lib/convert/model";
 import type { BoardRow } from "@/lib/convert/studio";
 import type { ProblemsData } from "@/lib/convert/problems";
 import { iceScore } from "@/lib/convert/ice";
+import { testState } from "@/lib/convert/testState";
 import { CHANGE_LABEL, CHANGE_TYPES, isChangeType, typeOfIdea, type ChangeType } from "@/lib/convert/changeTypes";
 import { Chip } from "../Tag";
 import { PageShot } from "../PageShot";
@@ -174,6 +175,7 @@ function IdeaGrid({ rows, onOpen, resetKey }: { rows: BoardRow[]; onOpen: (id: s
                   <PrioTag p={priorityOf(x)} />
                   <Chip tint={TYPE_TINT[t]}>{CHANGE_LABEL[t]}</Chip>
                   {st && <Chip tint={st === "Dropped" ? "slate" : "green"}>{st}</Chip>}
+                  {x.test && <Chip tint={testState(x.test).tint}>{testState(x.test).label}</Chip>}
                   {x.versions > 0 && <Chip tint="purple">{x.versions} {x.versions === 1 ? "version" : "versions"}</Chip>}
                   {x.source === "ai" && <Tooltip title="Found by the AI"><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: "#6a46c9", ml: "auto" }} /></Tooltip>}
                 </Box>
