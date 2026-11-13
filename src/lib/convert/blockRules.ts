@@ -171,3 +171,18 @@ export function spreadStores<T extends { path: string }>(pages: T[], storeOf: (p
   for (let k = 0; lists.some((l) => k < l.length); k++) for (const l of lists) if (k < l.length) out.push(l[k]);
   return out;
 }
+
+/**
+ * THE WHOLE PAGE, NOT ITS BLOCKS (SARCLA 13.11.2026, on the home page's pile of block optimizations: "here the whole page
+ * needs to be reworked - the home page needs to be reworked completely; a recommendation of blocks makes no sense"): a
+ * home page gets ONE optimization, the page reworked from the library's modules, with a version per angle. The shop
+ * blocks on it (the home slider, the newsletter band) keep their own optimizations.
+ */
+export const REWORK_PART = "The whole page";
+export const reworkPage = (kind: PageKind) => kind === "home";
+export const isRework = (i: { scope?: string | null; part?: string | null }) => i.scope !== "block" && i.part === REWORK_PART;
+export const REWORK_ANGLES = [
+  { label: "Products first", request: "Rework the WHOLE page around the shop's products: its most bought products and its ranges where a buyer starts, then the ways into the technologies, then the shop's promises." },
+  { label: "Technologies first", request: "Rework the WHOLE page around the shop's technologies and categories as the way in: a buyer finds his range first, then its products, then the shop's tools and promises." },
+  { label: "Service and proof first", request: "Rework the WHOLE page around what makes buying here easy: the shop's promises and its tools (configurator, quick order, the experts) up top, proof from the shop's own facts, then the ranges and products." },
+] as const;

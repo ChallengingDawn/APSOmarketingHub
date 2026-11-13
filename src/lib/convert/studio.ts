@@ -14,6 +14,7 @@ import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
+import { isRework } from "./blockRules";
 import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfBlock, typeOfIdea, type ChangeType } from "./changeTypes";
 import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
@@ -346,6 +347,21 @@ export async function setAsideExtraNewPages(): Promise<number> {
      UPDATE apsomh_convert_ideas i SET status = 'dropped', decided_by = $1, decided_at = now()
        FROM ranked WHERE i.id = ranked.id AND ranked.k > 1 AND ranked.status = 'proposed'
      RETURNING i.id`, [ONE_NEW_PAGE_BY]);
+  return r.rows.length;
+}
+
+/**
+ * THE HOME PAGE REWORKED AS A WHOLE (SARCLA 13.11.2026: "the home page needs to be reworked completely; a recommendation
+ * of blocks makes no sense"): once, the AI's block optimizations of home pages still waiting for a yes or no are set aside
+ * - dropped, so "Bring back" still finds them; the shop blocks' own (the home slider, the newsletter band: their "block"
+ * key) stay. The pages are read again for one whole-page rework (./blockIdeas.ts proposeRework). Returns how many.
+ */
+export const HOME_REWORK_BY = "set aside: the home page is reworked as a whole (13.11.2026)";
+export async function setAsideHomeBlocks(): Promise<number> {
+  await ensureStudioSchema();
+  const r = await query<{ id: string }>(
+    `UPDATE apsomh_convert_ideas SET status = 'dropped', decided_by = $1, decided_at = now()
+      WHERE status = 'proposed' AND source = 'ai' AND scope = 'block' AND kind = 'home' AND block IS NULL RETURNING id`, [HOME_REWORK_BY]);
   return r.rows.length;
 }
 
@@ -923,12 +939,15 @@ Expected: ${idea.expect}`,
       others: opts.another && others.length ? others.map((v) => ({ letter: v.letter || "A", summary: v.summary })) : null,
       current: !opts.another && cur && request ? cur.changes : null,
       target: idea.scope === "block" ? idea.target ?? null : null,
+      rework: isRework(idea),
     });
     if (m.ok) {
       const version = await saveRevision(idea, m.changes, m.summary, opts.another ? (request ?? "another version") : request, by, letter);
       return { ok: true, data: { version, problems: m.problems } };
     }
     if (m.budget) return { ok: false, error: m.error };
+    // the whole page reworked is modules or nothing - never loose HTML in their place
+    if (isRework(idea)) return { ok: false, error: m.error };
     planNote = m.error;
     console.warn(`[convert-version] ${idea.path}: the module plan brought nothing (${m.error}) - written the other way`);
   }

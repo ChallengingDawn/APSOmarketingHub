@@ -126,7 +126,8 @@ export function HubPublished({ data }: { data: Published }) {
                       {work && (work.waiting || work.approved)
                         ? <Button size="small" variant="outlined" component={Link} href={previewHref(p.env, p.path)} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px" }}>Preview</Button>
                         : <AiButton size="small" href={`${previewHref(p.env, p.path)}&ask=1`}>Find optimizations</AiButton>}
-                      <Button size="small" component={Link} href={`/projects/${p.projectId}`} sx={{ textTransform: "none", fontWeight: 600 }}>Its project</Button>
+                      {/* a real button, not a link of text (SARCLA 13.11.2026) */}
+                      <Button size="small" variant="outlined" component={Link} href={`/projects/${p.projectId}`} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px", whiteSpace: "nowrap" }}>Open its project</Button>
                     </Box>
                   </TableCell>
                 </TableRow>

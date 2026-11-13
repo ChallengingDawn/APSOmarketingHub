@@ -599,6 +599,39 @@ function withSeo(n: (Numbers & { name?: string }) | null, seo: SeoData | null, p
   return { ...(n ?? {}), reasons: [...(n?.reasons ?? []), ...row.reasons, line].slice(0, 4) };
 }
 
+/**
+ * A NEW PAGE, STEP BY STEP (SARCLA 13.11.2026, on "A new page - Content writes it. Below is the page Google shows...":
+ * "change this text layout, and don't call it before / optimization for new pages, because it goes to Content"): what
+ * the searches are, what the new page holds, and that Content writes it - three steps; the page Google shows today
+ * comes below, named as that.
+ */
+function NewPageSteps({ idea }: { idea: Idea }) {
+  const steps: [string, string][] = [
+    ["The searches it is for", idea.why],
+    ["What the new page holds", idea.change],
+    ["Content writes it", "Send to Content: its SEO landing page studio gets this brief and writes the new page there - nothing changes on this page."],
+  ];
+  return (
+    <Box sx={{ mt: 1.5, display: "grid", gap: 1 }}>
+      <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexWrap: "wrap" }}>
+        <Chip tint="purple">A new page</Chip>
+        <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Not a change of the page below - a page of its own</Typography>
+      </Box>
+      <Box component="ol" sx={{ listStyle: "none", m: 0, p: 0, display: "grid", gap: 0.75, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(3, minmax(0,1fr))" } }}>
+        {steps.map(([k, t], i) => (
+          <Box component="li" key={k} sx={{ minWidth: 0, p: 1.25, borderRadius: "10px", border: `1px solid ${HAIRLINE}`, bgcolor: "rgba(255,255,255,.7)", display: "grid", gap: 0.5, alignContent: "start" }}>
+            <Box sx={{ display: "flex", gap: 0.75, alignItems: "center" }}>
+              <Box sx={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", bgcolor: "rgba(106,70,201,.12)", color: "#6a46c9", fontSize: "0.72rem", fontWeight: 800, display: "grid", placeItems: "center" }}>{i + 1}</Box>
+              <Typography sx={{ fontSize: "0.8rem", fontWeight: 800, color: INK }}>{k}</Typography>
+            </Box>
+            <Typography sx={{ fontSize: "0.8rem", color: INK, lineHeight: 1.45 }}>{t}</Typography>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // THE PAGE
 
@@ -827,7 +860,9 @@ function ConvertPreview() {
   useEffect(() => () => { if (askTimer.current) clearTimeout(askTimer.current); }, []);
   useEffect(() => {
     if (asked.current || !d || !path) return;
-    if (sp.get("ask") !== "1" && !(numbers?.reasons?.length)) return;
+    // a page opened in the Preview finds its optimizations by itself (SARCLA 13.11.2026: "open on Preview should also be
+    // find optimization") - once, never on a product page (the theme's code)
+    if (classify(path).kind === "product") return;
     const has = seoMode ? d.ideas.some((i) => i.status !== "dropped" && isLanding(i)) : d.ideas.length > 0;
     if (!d.canEdit || !d.ai || d.page.status !== 200 || has) return;
     asked.current = true;
@@ -889,7 +924,7 @@ function ConvertPreview() {
     const pictures = pg.status !== 200 ? null : own && idea ? (
       // ONE block's versions side by side, each framed on the block - pick one to work on it
       <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", md: "repeat(2, minmax(0,1fr))", xl: versions.length >= 3 ? "repeat(4, minmax(0,1fr))" : "repeat(3, minmax(0,1fr))" } }}>
-        <StillBefore env={env} path={path} focus={blockSel ?? block?.focus ?? null} label="Before · the block as it is" />
+        <StillBefore env={env} path={path} focus={blockSel ?? block?.focus ?? null} label={blockSel || block ? "Before · the block as it is" : "Before · the page as it is"} />
         {versions.map((v) => (
           <Box key={v.id} sx={{ minWidth: 0, cursor: "pointer", borderRadius: "12px", "&:hover": { boxShadow: `0 0 0 2px ${ACCENT}` } }} onClick={() => { setCompare(false); visit(idea.id, v.letter); }}>
             <OnScreen h={470}>
@@ -919,7 +954,7 @@ function ConvertPreview() {
           ? <Frame src={srcOf(version, rev)} device={device} zoom="fit" name="after" sync={null} pick={pick} marks={marks} goto={afterGoto}
               address={pg.url ?? path} label={`After · Version ${version.letter}${rev !== null && rev !== version.rev ? ` · revision ${rev}` : ""}`} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />
           : <Frame src={base} device={device} zoom="fit" name="before" sync={null} pick={pick} marks={false} spots={null} heat={!idea && clicks ? heatMsg : null} goto={beforeGoto}
-              address={pg.url ?? path} label={landing ? "The page Google shows for these searches today" : idea ? "The page as it is - the version comes beside it" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
+              address={pg.url ?? path} label={landing ? "Today Google shows this page for these searches" : idea ? "The page as it is - the version comes beside it" : "The page as it is"} onMsg={onMsg} onRetry={() => setFresh((n) => n + 1)} />}
       </Box>
     );
 
@@ -964,6 +999,7 @@ function ConvertPreview() {
               {idea && (versionsOf.get(idea.id)?.length ?? 0) > 1 && <Chip tint="slate">{versionsOf.get(idea.id)!.length} versions</Chip>}
               {block && <Chip tint="amber">Block · {block.name}</Chip>}
               <Chip tint={env === "prod" ? "green" : "amber"}>{ENVS[env].label}</Chip>
+              {productPage && !idea && <Tooltip title="A product page's layout is the theme's code (dotSource) - no optimization is proposed here for now."><span><Chip tint="slate">Product page · no optimization yet</Chip></span></Tooltip>}
               <Typography component="span" sx={{ fontSize: "0.78rem", color: MUTED, overflowWrap: "anywhere" }}>{pg.h1[0] || pg.title || path}</Typography>
               {pg.url && <Tooltip title="Open on the shop"><IconButton size="small" component="a" href={pg.url} target="_blank" rel="noopener"><OpenInNewIcon sx={{ fontSize: 15, color: MUTED }} /></IconButton></Tooltip>}
             </Box>
@@ -983,10 +1019,9 @@ function ConvertPreview() {
         )}
 
         {/* no optimization yet (from Google's view: no new landing page yet): the page, and the AI's button */}
-        {(seoMode || landing ? !newPage && !(idea && !landing) : live.length === 0) && pg.status === 200 && (
+        {(seoMode || landing ? !newPage && !(idea && !landing) : live.length === 0 && !productPage) && pg.status === 200 && (
           <GlassCard sx={{ display: "grid", gap: 1.25, justifyItems: "start" }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page's blocks and their clicks, and building 3-4 versions of each block it picks"} - about a minute` : seoMode ? "No new page proposed from this page's Google searches yet" : productPage ? "Product pages come later" : "No optimization on this page yet"}</Typography>
-            {!seoMode && productPage && busy !== "ideas" && <Typography sx={{ fontSize: "0.84rem", color: INK, lineHeight: 1.45 }}>A product page&apos;s layout is the theme&apos;s code, so the AI proposes no optimization here for now. Home, category and content pages get block optimizations: a block of the page and 3-4 modules to replace it.</Typography>}
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: INK }}>{busy === "ideas" ? `The AI is reading ${block ? "the block" : seoMode ? "the searches Google shows this page for" : "the page's blocks and their clicks, and building 3-4 versions of each block it picks"} - about a minute` : seoMode ? "No new page proposed from this page's Google searches yet" : "No optimization on this page yet"}</Typography>
             {busy === "ideas" && <LinearProgress sx={{ width: "100%", height: 4, borderRadius: 2, bgcolor: "rgba(106,70,201,.12)", "& .MuiLinearProgress-bar": { backgroundImage: AI_GRADIENT } }} />}
             {data.canEdit && (seoMode || !productPage) && <AiButton busy={busy === "ideas"} disabled={!data.ai} onClick={() => void act("ideas", ideasBody())}>{seoMode ? "Find the new page" : "Find optimizations"}</AiButton>}
             {!data.ai && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No AI key on this hub - optimizations can be added by hand, under More.</Typography>}
@@ -996,7 +1031,7 @@ function ConvertPreview() {
         {/* the work: the page is the show; on its right the AI helper, then why / what / what it should move, then what
             the version changes (SARCLA 10.11.2026: "all the features come to the right side, after the AI helper - the
             page in the show") */}
-        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: idea ? "minmax(0,1fr) 380px" : "minmax(0,1fr)" }, alignItems: "start" }}>
+        <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0,1fr)", xl: idea && !(landing && !version) ? "minmax(0,1fr) 380px" : "minmax(0,1fr)" }, alignItems: "start" }}>
           <GlassCard sx={{ p: { xs: 1.5, md: 2 }, minWidth: 0 }}>
             <Box sx={{ display: "flex", gap: 1, rowGap: 1, alignItems: "center", flexWrap: "wrap" }}>
               {idea && versions.length > 0 && (
@@ -1044,12 +1079,7 @@ function ConvertPreview() {
             {idea && !version && !building && data.canEdit && st !== "dropped" && !landing && (
               <Box sx={{ mt: 1.5 }}><AiButton disabled={!data.ai} onClick={() => void build(idea)}>Make the version</AiButton></Box>
             )}
-            {idea && landing && !version && (
-              <Typography sx={{ mt: 1.5, fontSize: "0.84rem", color: INK, lineHeight: 1.45 }}>
-                <b>A new page - Content writes it.</b> Below is the page Google shows for these searches today. Send it to Content: the
-                landing page studio gets the brief and writes the new page there.
-              </Typography>
-            )}
+            {idea && landing && !version && <NewPageSteps idea={idea} />}
             {styles && styles.nfailed > 0 && (
               <Box sx={{ mt: 1.5 }}><Notice tone="warn">Your browser drew {styles.total - styles.nfailed} of the shop&apos;s {styles.total} stylesheets - the page can look raw. Read it again under More.</Notice></Box>
             )}
@@ -1057,7 +1087,7 @@ function ConvertPreview() {
             {version && !gallery && <Typography sx={{ fontSize: "0.78rem", color: INK, mt: 1.25 }}><b>Version {version.letter}:</b> {version.summary}</Typography>}
           </GlassCard>
 
-          {idea && (
+          {idea && !(landing && !version) && (
             <Box sx={{ display: "grid", gap: 1.5, minWidth: 0 }}>
               {data.canEdit && st !== "dropped" && data.ai && (!landing || version) && !own && (
                 <AiHelper version={version} ask={ask} setAsk={setAsk} busy={building} picked={picked} pick={pick} onPick={() => setPick((x) => !x)}
