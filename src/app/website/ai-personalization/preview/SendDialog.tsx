@@ -68,8 +68,6 @@ export function SendDialog({ open, onClose, onSend, env, path, versions, landing
         <Typography sx={{ fontSize: "0.86rem", color: INK, lineHeight: 1.45 }}>
           {landing
             ? <>The new page goes to Content as an <b>SEO landing page</b> with its brief - Content writes it there.</>
-            : !contentTests
-            ? <>{versions > 1 ? <>All <b>{versions} versions</b> go</> : <>The version goes</>} to Content&apos;s Page builder to be built. This page is the theme&apos;s (a home, category or product page), so its A/B test is made here afterwards - &quot;Test Version …&quot; in the Preview.</>
             : versions > 1
             ? <>All <b>{versions} versions</b> go to Content as the page&apos;s A/B versions - which one is tested, and the test itself, are decided there.</>
             : <>The version goes to Content&apos;s Page builder, where it is built and tested.</>}
