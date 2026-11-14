@@ -34,13 +34,15 @@ export type LibraryKind = {
   one: string;
   /** what the page says it holds */
   note: string;
-  /** where "Make one" goes (Content's Make, lib/../projects/make/makeKinds.ts) */
+  /** where "New <one>" goes (the studio made at once, lib/../projects/make/makeKinds.ts) */
   make: string;
+  /** another way to make one, beside it (14.11.2026: the sidebar's Make went - Pages also makes an SEO landing page) */
+  also?: { label: string; href: string };
 };
 
 /** The library's pages, in the menu's order - one per studio there is (./studio/kinds.ts). */
 export const LIBRARY_KINDS: LibraryKind[] = [
-  { slug: "pages", kind: "page", label: "Pages", one: "page", note: "Every page made in the Page builder - where it is on the shop, per store view", make: "/projects/make/page-refresh" },
+  { slug: "pages", kind: "page", label: "Pages", one: "page", note: "Every page made in the Page builder - where it is on the shop, per store view", make: "/projects/make/page-refresh", also: { label: "New SEO landing page", href: "/projects/make/landing-page" } },
   { slug: "banners", kind: "banner", label: "Banners", one: "banner", note: "Every banner - its picture, and the pages it is on", make: "/projects/make/banner" },
   { slug: "blog", kind: "blog", label: "Blog posts", one: "blog post", note: "Every blog article - as the reader sees it", make: "/projects/make/blog-article" },
   { slug: "newsletters", kind: "newsletter", label: "Newsletters", one: "newsletter", note: "Every newsletter - and its draft in HubSpot", make: "/projects/make/newsletter" },

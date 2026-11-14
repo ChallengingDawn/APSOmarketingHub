@@ -32,6 +32,8 @@ export async function GET(req: NextRequest, c: { params: Promise<{ pieceId: stri
   // a store view ("fr-CH") - or, from an older page, a language ("fr")
   // the Swiss shop in EUR is a store view of its own: "de-CH/eur" (Content v6)
   const lang = /^[a-z]{2}(-[A-Z]{2,3}(\/[a-z]{3})?)?$/.test(sp.get("lang") ?? "") ? sp.get("lang") : null;
-  const out = await previewOf(stored?.doc ?? null, side, sp.get("fresh") === "1", lang);
+  // a new page's frame: the shop it goes to, sent with the ask (the stored page may not be the new one yet)
+  const env = sp.get("env") === "acc" ? "acc" : sp.get("env") === "prod" ? "prod" : null;
+  const out = await previewOf(stored?.doc ?? null, side, sp.get("fresh") === "1", lang, side === "shell" ? env : null);
   return NextResponse.json(out, { headers: { "Cache-Control": "no-store" } });
 }

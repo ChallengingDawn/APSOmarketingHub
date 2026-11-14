@@ -36,9 +36,9 @@ import {
 } from "@/app/website/ai-personalization/TestParts";
 import { addVersion, openVersion, promoteVersion, versionList, type PageDoc } from "@/lib/content/studio/kinds/page/model";
 import { SHOP_LABEL, abTestHref, liveOn } from "@/lib/content/studio/kinds/page/published";
-import { AB_FROM_PAGE, abActionsOf, abRows, changeWords, testsOfPage, variantChanges, type AbAction, type ChangeLite } from "@/lib/content/studio/kinds/page/publishView";
+import { AB_FROM_PAGE, abActionsOf, abRows, changeWords, isOwnTest, pageTestsQuery, testsOfPage, variantChanges, type AbAction, type ChangeLite } from "@/lib/content/studio/kinds/page/publishView";
 import {
-  allocationOf, audienceOf, blocksChanged, differsLine, flowStep, sendWhy, sparkPoints, testDefaults, upliftLine, type AbEnv, type SplitKey, type TestDraft,
+  allocationOf, armLetterOf, audienceOf, blocksChanged, differsLine, flowStep, needsDecide, sendWhy, sparkPoints, testDefaults, upliftLine, withWon, type AbEnv, type SplitKey, type TestDraft,
 } from "@/lib/content/studio/kinds/page/abFlow";
 import { PINK, btn, mainBtn } from "../../parts";
 import type { StudioApi } from "../../useStudio";
@@ -129,14 +129,16 @@ export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, 
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+  // every test of the to-do OR on a page it is published on (dev-eb's page filter, 14.11.2026) - in one query
+  const query = useMemo(() => (AB_FROM_PAGE ? pageTestsQuery(pieceId, doc.magento) : ""), [pieceId, doc.magento]);
   const load = useCallback(async () => {
     setLoading(true);
-    const r = await readJson<Data>(`${API}${AB_FROM_PAGE ? `?piece=${encodeURIComponent(String(pieceId))}` : ""}`);
+    const r = await readJson<Data>(`${API}${query}`);
     setLoading(false);
     if (!r.ok) { setErr(r.error); return; }
     setErr(null);
     setData(r.data);
-  }, [pieceId]);
+  }, [query]);
   useEffect(() => { void load(); }, [load]);
 
   // the page's tests: read by its to-do (the app records it), else the tests on its published addresses
@@ -192,6 +194,9 @@ export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, 
     setSending("Making the version in AI testing & personalization…");
     const made = await convertPost<{ version: { id: string | number; rev: number } }>(WORK, {
       action: "version", env: draft.env, path: startPage.path, changes: v.result.changes, title: draft.name.trim(), summary: changed.length ? `Version ${letter} from the Page builder: ${changed.join(", ")}` : `Version ${letter} from the Page builder`, piece: pieceId,
+      // each letter its own version in A/B testing (dev-eb 13.11): B then C never revise one version - an older test of B
+      // keeps running B
+      letter,
     });
     if (!made.ok) { setSending(null); setSaid({ ok: false, text: made.error }); return; }
     const versionId = String(made.data.version.id);
@@ -222,20 +227,25 @@ export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, 
       return true;
     },
   });
-  const makeBThePage = (t: TestView) => setConfirm({
-    title: `Make ${letter} the page?`, go: `Make ${letter} the page`,
+  // the letter each test's version arm is (A/B testing's origin.letter - never the letter open here, dev-eb 13.11)
+  const letters = all.map((v) => v.letter);
+  // a test of this page made elsewhere (another to-do, A/B testing itself): its version is none of this page's letters
+  const armOf = (t: TestView) => (isOwnTest(t, pieceId) ? armLetterOf(t.origin, letters) : null);
+  const makeBThePage = (t: TestView, L: string) => setConfirm({
+    title: `Make ${L} the page?`, go: `Make ${L} the page`,
     lines: [
-      `The test stops and ${letter} is recorded as its winner in A/B testing. ${letter}'s content becomes the page's version A here - A as it was is replaced.`,
-      "Nothing is written to the shop yet: Pages then shows the page changed - Update all on ACC, look at it there, then production.",
+      `The test stops and ${L} is recorded as its winner in A/B testing. ${L}'s content becomes the page's version A here - A as it was is replaced.`,
+      "Nothing is written to the shop yet: Pages then shows the page changed - Update all on ACC, look at it there, then production. Production written closes the test in A/B testing as published.",
       `"${t.name}" · ${SHOP_LABEL[t.env]}`,
     ],
     run: async () => {
-      if (t.status === "running" || t.status === "paused" || t.status === "stopped") {
+      if (needsDecide(t)) {
         const r = await convertPost(API, { action: "decide", id: t.id, winner: "b" });
         if (!r.ok) { setSaid({ ok: false, text: r.error }); return true; }
       }
-      setView(promoteVersion(d, letter));
-      setSaid({ ok: true, text: `${letter} is the page now - update it on ACC, then production, from Pages.` });
+      const me = api.data.me ?? "";
+      setView({ ...promoteVersion(d, L), abWon: withWon(d.abWon, { testId: t.id, letter: L, view: lang, at: new Date().toISOString(), by: me }) });
+      setSaid({ ok: true, text: `${L} is the page now - update it on ACC, then production, from Pages. Production written closes "${t.name}" in A/B testing.` });
       await load();
       onPromoted();
       return true;
@@ -318,7 +328,12 @@ export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, 
           <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>No test of this page yet - send one above.</Typography>
         ) : (
           <Box sx={{ display: "grid", gap: 1 }}>
-            {tests.map((t) => <TestCard key={t.id} t={t} canAct={canAct} canPromote={hasB && canEditPage && !!data?.canEdit} letter={letter} onAct={(a) => ask(t, a)} onPromote={() => makeBThePage(t)} />)}
+            {tests.map((t) => {
+              const L = armOf(t);
+              const waiting = doc.abWon.find((m) => m.testId === t.id) ?? null;
+              return <TestCard key={t.id} t={t} canAct={canAct} canPromote={!!L && letters.includes(L) && canEditPage && !!data?.canEdit && !waiting} letter={L} waiting={!!waiting} own={isOwnTest(t, pieceId)}
+                onAct={(a) => ask(t, a)} onPromote={() => L && makeBThePage(t, L)} />;
+            })}
           </Box>
         )}
         {data && !data.canEdit && tests.length > 0 && <Hint mt={0.75}>Starting, pausing and stopping need the write level of A/B testing &gt; Page tests.</Hint>}
@@ -356,9 +371,12 @@ export function AbSection({ api, doc, d, setView, lang, pieceId, title, abPart, 
 
 /** A test of the page, followed here: its status and days, A and B side by side, the uplift with its range, the verdict
  * in plain words, the day-by-day line - and what may be done with it. */
-function TestCard({ t, canAct, canPromote, letter, onAct, onPromote }: {
-  t: TestView; canAct: boolean; canPromote: boolean; letter: string; onAct: (a: AbAction) => void; onPromote: () => void;
+function TestCard({ t, canAct, canPromote, letter: L, waiting, own, onAct, onPromote }: {
+  /** `letter`: the page's letter its version arm is (armLetterOf), null for an older test whose letter is not known;
+   * `own`: made from this to-do (else a test of the same page made elsewhere, followed here) */
+  t: TestView; canAct: boolean; canPromote: boolean; letter: string | null; waiting: boolean; own: boolean; onAct: (a: AbAction) => void; onPromote: () => void;
 }) {
+  const letter = L ?? "The version";
   const f = t.figures;
   const acts = abActionsOf(t.status);
   const [daily, setDaily] = useState<Daily | null>(null);
@@ -384,7 +402,7 @@ function TestCard({ t, canAct, canPromote, letter, onAct, onPromote }: {
       {f?.counted && (
         <>
           <Box sx={{ mt: 0.75, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1 }}>
-            {([["A - the page", f.a], [`${letter} - the version`, f.b]] as const).map(([k, arm]) => (
+            {([["A - the page", f.a], [L ? `${L} - the version` : "The version", f.b]] as const).map(([k, arm]) => (
               <Box key={k} sx={{ minWidth: 0, p: 0.75, borderRadius: "8px", bgcolor: "#f6f8fb" }}>
                 <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: MUTED }}>{k}</Typography>
                 <Typography sx={{ fontSize: "0.86rem", fontWeight: 800, color: INK, fontVariantNumeric: "tabular-nums" }}>{arm.rate === null ? "–" : `${(arm.rate * 100).toFixed(1)}%`} add to cart</Typography>
@@ -400,13 +418,26 @@ function TestCard({ t, canAct, canPromote, letter, onAct, onPromote }: {
                   <polyline points={spark.a} fill="none" stroke="#7d8aa3" strokeWidth={1.6} />
                   <polyline points={spark.b} fill="none" stroke={PINK} strokeWidth={2} />
                 </Box>
-                <Typography component="span" sx={{ fontSize: "0.68rem", color: MUTED, lineHeight: 1.3 }}>day by day<br /><Box component="span" sx={{ color: PINK, fontWeight: 700 }}>{letter}</Box> · <Box component="span" sx={{ color: "#7d8aa3", fontWeight: 700 }}>A</Box></Typography>
+                <Typography component="span" sx={{ fontSize: "0.68rem", color: MUTED, lineHeight: 1.3 }}>day by day<br /><Box component="span" sx={{ color: PINK, fontWeight: 700 }}>{L ?? "version"}</Box> · <Box component="span" sx={{ color: "#7d8aa3", fontWeight: 700 }}>A</Box></Typography>
               </Box>
             )}
           </Box>
         </>
       )}
       {f && !f.counted && t.status !== "draft" && <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: MUTED }}>No visitor counted yet.</Typography>}
+      {waiting && t.status !== "shipped" && (
+        <Typography sx={{ mt: 0.5, fontSize: "0.76rem", color: GREEN, fontWeight: 600 }}>
+          {letter} is the page here - Update all on production in Pages, and this test is closed in A/B testing as published.
+        </Typography>
+      )}
+      {!own && (
+        <Typography sx={{ mt: 0.5, fontSize: "0.74rem", color: MUTED }}>
+          Made {t.origin?.todo ? `in the to-do «${t.origin.todo.title}»` : "in A/B testing"} - followed here because it runs on this page; its winner is made the page there.
+        </Typography>
+      )}
+      {own && !L && t.status !== "draft" && t.status !== "shipped" && (
+        <Typography sx={{ mt: 0.5, fontSize: "0.74rem", color: MUTED }}>Made before A/B testing kept each version&apos;s letter - its winner is made the page from A/B testing, or test it again from here.</Typography>
+      )}
       <Box sx={{ mt: 0.75, display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
         {f?.verdict && <VerdictChip v={f.verdict} />}
         {f?.verdict?.why && <Typography component="span" sx={{ fontSize: "0.74rem", color: MUTED, flex: "1 1 200px", minWidth: 0 }}>{f.verdict.why}</Typography>}

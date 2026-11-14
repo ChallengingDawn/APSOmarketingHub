@@ -108,8 +108,13 @@ export default function Library({ slug, initial }: { slug: string; initial?: Dat
             <Typography sx={{ fontSize: "0.8rem", color: MUTED, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
               {data ? `${shown.length} ${shown.length === 1 ? kind.one : kind.label.toLowerCase()}` : ""}
             </Typography>
+            {kind.also && (
+              <Box component={Link} href={kind.also.href} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, height: 34, px: 1.5, borderRadius: "8px", border: `1px solid ${PINK}`, color: PINK, fontSize: "0.84rem", fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap", "&:hover": { bgcolor: "rgba(194,44,110,.06)" }, "& svg": { fontSize: 18 } }}>
+                <AddIcon />{kind.also.label}
+              </Box>
+            )}
             <Box component={Link} href={kind.make} sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, height: 34, px: 1.5, borderRadius: "8px", bgcolor: PINK, color: "#fff", fontSize: "0.84rem", fontWeight: 650, textDecoration: "none", whiteSpace: "nowrap", "&:hover": { bgcolor: "#a3245c" }, "& svg": { fontSize: 18 } }}>
-              <AddIcon />Make one
+              <AddIcon />New {kind.one}
             </Box>
           </Box>
         </Box>
@@ -122,7 +127,7 @@ export default function Library({ slug, initial }: { slug: string; initial?: Dat
               {filtered ? `No ${kind.one} shows that.` : `No ${kind.one} made in the hub yet - or none in a project you are in.`}
             </Typography>
             <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>
-              {filtered ? "Try another filter, or clear the search." : `Make one, or open a project's ${kind.one} in its studio - it shows here from then on.`}
+              {filtered ? "Try another filter, or clear the search." : `"New ${kind.one}" makes one, or open a project's ${kind.one} in its studio - it shows here from then on.`}
             </Typography>
           </Box>
         )}
