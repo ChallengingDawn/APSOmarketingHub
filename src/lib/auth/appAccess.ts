@@ -12,7 +12,7 @@ import { redirect } from "next/navigation";
 import { query } from "@/lib/db/client";
 import { ensureSchema } from "@/lib/db/init";
 import { getOptionalUser } from "./guard";
-import { APP_KEYS, STARTER_GRANTS, asCross, asRole, crossHiddenApi, type AppKey, type Cross, type Level, type Role } from "./access";
+import { APP_KEYS, CROSS_FULL_APPS, STARTER_GRANTS, asCross, asRole, crossHiddenApi, type AppKey, type Cross, type Level, type Role } from "./access";
 import { accessAt, levelsOf, opensAt, type Grants } from "./tree";
 
 export type MyAccess = {
@@ -67,7 +67,8 @@ export async function myAccess(): Promise<MyAccess | null> {
     grants,
     levels,
     canOpen: (app) => !(viewOnly && path !== null && crossHiddenApi(path)) && opensAt(app, path, levels),
-    canWrite: (app) => !viewOnly && (sub !== null ? sub === "write" : levels[app] === "write"),
+    // ... but Pricing, theirs in full (access.ts CROSS_FULL_APPS)
+    canWrite: (app) => (!viewOnly || CROSS_FULL_APPS.includes(app)) && (sub !== null ? sub === "write" : levels[app] === "write"),
     levelAt: (p) => accessAt(p, levels).level,
   };
 }

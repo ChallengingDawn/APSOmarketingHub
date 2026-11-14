@@ -126,6 +126,16 @@ import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined
 import LogoutIcon from "@mui/icons-material/Logout";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import PaidOutlinedIcon from "@mui/icons-material/PaidOutlined";
+import PriceChangeOutlinedIcon from "@mui/icons-material/PriceChangeOutlined";
+import NotificationsActiveOutlinedIcon from "@mui/icons-material/NotificationsActiveOutlined";
+import TableChartOutlinedIcon from "@mui/icons-material/TableChartOutlined";
+import InsightsOutlinedIcon from "@mui/icons-material/InsightsOutlined";
+import DocumentScannerOutlinedIcon from "@mui/icons-material/DocumentScannerOutlined";
+import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import JoinInnerIcon from "@mui/icons-material/JoinInner";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import LinkOffIcon from "@mui/icons-material/LinkOff";
+import WarehouseOutlinedIcon from "@mui/icons-material/WarehouseOutlined";
 import Link from "next/link";
 
 import { AP_HUB_HOME, adminOnlyPath, asCross, asRole, crossClosed, planClosedTo, type Cross, type Level, type Role } from "@/lib/auth/access";
@@ -135,7 +145,7 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS, MARKETING_SECTIONS, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
+import { APPS, MARKETING_SECTIONS, PRICING_PAGES, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
 
 const DRAWER_WIDTH = 300;
 
@@ -234,6 +244,27 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
   "/uc/marc-push": { label: "Marc CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
   "/uc/nancy-push": { label: "Nancy CH Push", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
   "/uc/kalrez-switch": { label: "Kalrez 6221/6230", icon: <PhoneCallbackOutlinedIcon fontSize="small" /> },
+};
+
+/** Pricing's pages with the glyphs they had in the PricingHub's own menu. */
+const PRICING_ICON: Record<string, React.ReactNode> = {
+  "/pricing": <DashboardIcon fontSize="small" />,
+  "/pricing/recommendations": <NotificationsActiveOutlinedIcon fontSize="small" />,
+  "/pricing/products": <Inventory2OutlinedIcon fontSize="small" />,
+  "/pricing/repricing": <PriceChangeOutlinedIcon fontSize="small" />,
+  "/pricing/benchmark": <TableChartOutlinedIcon fontSize="small" />,
+  "/pricing/prices": <InsightsOutlinedIcon fontSize="small" />,
+  "/pricing/purchasing/ocr": <DocumentScannerOutlinedIcon fontSize="small" />,
+  "/pricing/purchasing/benchmark": <TableChartOutlinedIcon fontSize="small" />,
+  "/pricing/purchasing/price-index": <TimelineIcon fontSize="small" />,
+  "/pricing/purchasing/logs": <ReceiptLongOutlinedIcon fontSize="small" />,
+  "/pricing/matches": <JoinInnerIcon fontSize="small" />,
+  "/pricing/matches/pending": <PendingActionsIcon fontSize="small" />,
+  "/pricing/matches/unmatched": <LinkOffIcon fontSize="small" />,
+  "/pricing/matches/logs": <HistoryIcon fontSize="small" />,
+  "/pricing/scrapers": <SyncAltIcon fontSize="small" />,
+  "/pricing/competitors": <StorefrontIcon fontSize="small" />,
+  "/pricing/stock": <WarehouseOutlinedIcon fontSize="small" />,
 };
 
 /**
@@ -452,6 +483,19 @@ const navSections: NavSection[] = [
     color: x.fg,
     items: x.pages.map((pg) => ({ label: UC_NAV[pg.href]?.label ?? pg.name, href: pg.href, icon: UC_NAV[pg.href]?.icon ?? <HubIconGlyph name={pg.icon} fontSize={20} /> })),
   })),
+  {
+    // The PricingHub's menu, moved into the hub (SARCLA 13.11.2026) - its groups and its order. The title matches the
+    // tile (hubApps.ts APPS), so the panel wears the app's colour.
+    title: "Pricing",
+    home: "/pricing",
+    icon: <PriceChangeOutlinedIcon />,
+    color: "#c8463a",
+    items: PRICING_PAGES.map((pg) => ({
+      group: pg.group, label: pg.name, href: pg.href,
+      icon: PRICING_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />,
+      ...(pg.href === "/pricing/matches" ? { badge: "AI" } : {}),
+    })),
+  },
   {
     title: "Datatracker",
     icon: <StorefrontIcon />,

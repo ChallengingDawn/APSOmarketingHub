@@ -63,7 +63,7 @@ test("a sales leader: views every app and sub-app, edits only the Advanced repor
   assert.equal(accessAt("/reporting/tsa-benchmark/new-customers", lv).level, "read");
   // a grant outside Advanced reporting gives no Edit
   assert.equal(accessAt("/uc/map-assignment", lv).level, "read");
-  for (const a of ["datatracker", "website", "marketing", "journey", "reporting", "uc", "connectors"] as const) assert.equal(appOpen(a, lv), true);
+  for (const a of ["datatracker", "website", "marketing", "journey", "reporting", "uc", "connectors", "pricing"] as const) assert.equal(appOpen(a, lv), true);
 });
 
 test("a sales leader: a report, a team's reports or a whole app can be taken away (SARCLA 01.11.2026: \"i can't deny one of the reports - that's the point\")", () => {
@@ -132,4 +132,40 @@ test("a tile's or a view's page key leads to its report", () => {
   assert.equal(reportPathOfPage("reach"), "/reporting/marketing-kpis/reach");
   assert.equal(reportPathOfPage("nutshell"), "/reporting/marketing-kpis");
   assert.equal(reportPathOfPage(null), null);
+});
+
+// SARCLA 13.11.2026: the PricingHub's pages move into the hub as the app Pricing
+test("Pricing: its pages are its sub-apps, under the PricingHub's own groups; the report is the Prices page's", () => {
+  assert.equal(nodeFor("pricing", "/pricing")?.key, "pricing");
+  assert.equal(nodeFor("pricing", "/pricing/matches/pending")?.name, "Pending review");
+  assert.equal(nodeFor("pricing", "/pricing/matches/pending")?.parent, "pricing#Product matching");
+  assert.equal(nodeFor("pricing", "/pricing/matches")?.name, "Match overview");
+  assert.equal(nodeFor("pricing", "/pricing/prices/report")?.name, "Prices · Trends · Stock");
+  assert.equal(nodeFor("pricing", "/pricing/competitors/trelleborg")?.name, "Competitors");
+  // its data's route answers to the app, not to a page: anything open in Pricing reads it
+  const lv = levelsOf("user", { "pricing:/pricing/benchmark": "read" });
+  assert.equal(accessAt("/api/pricing/api/products/filters", lv).specific, false);
+  assert.equal(opensAt("pricing", "/api/pricing/api/products/filters", lv), true);
+  assert.equal(accessAt("/pricing/repricing", lv).level, "none");
+  assert.equal(firstOpenPage("pricing", lv), "/pricing/benchmark");
+});
+
+test("Pricing: nobody has it until it is given; an admin edits; a sales leader views (SARCLA 14.11.2026)", () => {
+  assert.equal(appOpen("pricing", levelsOf("user", { datatracker: "read" })), false);
+  assert.equal(accessAt("/pricing/repricing", levelsOf("admin", {})).level, "write");
+  assert.equal(accessAt("/pricing/repricing", levelsOf("sales_leader", {})).level, "read");
+  assert.equal(accessAt("/pricing/repricing", levelsOf("user", { pricing: "write" })).level, "write");
+});
+
+test("Pricing: a person of Angst+Pfister has it in full - and views the rest only (SARCLA 14.11.2026: \"full access to pricing hub goes to AP member\")", () => {
+  const lv = levelsOf("user", {}, "user");
+  assert.equal(accessAt("/pricing/repricing", lv).level, "write");
+  assert.equal(accessAt("/pricing/matches/pending", lv).level, "write");
+  assert.equal(accessAt("/uc/personas", lv).level, "read");
+  // a grant still takes a page, or the whole app, away from one person
+  const less = levelsOf("user", { "pricing:/pricing/repricing": "read", "pricing#Purchasing": "none" }, "user");
+  assert.equal(accessAt("/pricing/repricing", less).level, "read");
+  assert.equal(accessAt("/pricing/purchasing/ocr", less).level, "none");
+  assert.equal(accessAt("/pricing/benchmark", less).level, "write");
+  assert.equal(appOpen("pricing", levelsOf("user", { pricing: "none" }, "user")), false);
 });

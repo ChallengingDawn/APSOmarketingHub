@@ -515,7 +515,7 @@ export default function PeopleAccess() {
                 <>
                   <Typography sx={{ fontSize: "0.78rem", color: MUTED, lineHeight: 1.5, mb: 1 }}>
                     {person.cross_access === "user"
-                      ? "A cross-user views every app and sub-app until you set No access on one, and edits none. Digital Growth, TSA, ESO and Back-Office Reports, the Sales leader view and My Sales are never theirs."
+                      ? "A cross-user views every app and sub-app until you set No access on one, and edits none - but Pricing, which is theirs in full. Digital Growth, TSA, ESO and Back-Office Reports, the Sales leader view and My Sales are never theirs."
                       : person.role === "sales_leader"
                       ? "A sales leader views every app and sub-app until you set No access on one. Edit can be given on Advanced reporting - all of it, a team's reports, or one report."
                       : "Open an app to set its sub-apps one by one. A sub-app not set takes its app's access."}

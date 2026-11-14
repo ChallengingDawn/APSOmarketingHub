@@ -25,6 +25,8 @@ const PADDED_PATHS = [
   "/library",
   "/create",
   "/editor",
+  // the PricingHub's pages keep the spacing they had there (its shell padded every page)
+  "/pricing",
 ];
 
 
@@ -68,7 +70,9 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
     );
   }
 
-  const padded = isPadded(pathname);
+  // Pricing's printable report (Prices · Trends · Stock > Report): the paper alone, no panel - it is printed or saved as PDF
+  const isPricingReport = pathname === "/pricing/prices/report";
+  const padded = isPadded(pathname) && !isPricingReport;
   // The canvas page runs the window itself: its own 48px app rail, title bar,
   // work rail and inspector. A 300px drawer beside all that is the hub's
   // navigation sitting on top of the work's own (SARCLA, 18.10.2026).
@@ -98,7 +102,7 @@ export default function AppShell({ children, sandbox = false }: { children: Reac
       {/* Advanced reporting's front page is a door like the launch pad: no
           panel until you are in a category or a report (SARCLA, 11.10.2026); Website's the same since it has
           sections (SARCLA 03.11.2026), UC & HubSpot Apps' and Marketing & Content's too. */}
-      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && !isApHub && <Sidebar />}
+      {pathname !== "/reporting" && pathname !== "/website" && pathname !== "/uc" && pathname !== "/marketing" && !isCanvas && !isPlan && !isKpiActions && !isApHub && !isPricingReport && <Sidebar />}
       {/* the Angst+Pfister hub's reports carry its own panel, laid out like Advanced reporting's (SARCLA 10.11.2026: "the
           layout should follow our advanced reports"); its front page and its Settings keep the bar on top */}
       {isApHub && matchPrefix(pathname, "/ap/reporting") && <Sidebar hub="ap" />}
