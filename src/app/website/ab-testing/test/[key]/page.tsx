@@ -2,7 +2,9 @@
 // Website > A/B testing > ONE TEST - its record, whichever tool ran it: where, since when, what it changes, each version
 // against the control with its 95% range, the outcome, what the tool itself said, and a person's word on it - the
 // hypothesis, the decision, what we learned, a result another tool reported (Webyn's dashboard) - with the log of who
-// changed what. The test's own controls stay in its tool (APSOconvert's page test, the chat's setting).
+// changed what. The test's own controls stay in its tool (APSOconvert's page test, the chat's setting). 14.11.2026 (SARCLA:
+// "don't have navigation here"): the way back to where the test belongs, and the tests before and after it on the same
+// page or service (the chat's rounds one after the other); the chat's round opens the chat's page on that round.
 
 import { use, useState } from "react";
 import Link from "next/link";
@@ -15,11 +17,49 @@ import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
 import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
 import HistoryOutlinedIcon from "@mui/icons-material/HistoryOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { CardTitle, FAINT, GlassCard, GREEN, HAIRLINE, INK, MUTED, Notice, RED } from "@/app/uc/report/ui";
 import { DECISION_LABEL, OUTCOME_LABEL, SOURCE_LABEL, daysOf, iceScore, readArms, type Experiment } from "@/lib/experiments/model";
-import { ArmBars, OutcomeChip, SourceTag, StatusChip, XpDialog, XpLoaded, day, liftText, pct, post, whereOf, type OneData } from "../../xp/parts";
+import { ArmBars, OutcomeChip, SourceTag, StatusChip, XpDialog, XpLoaded, day, keyHref, liftText, pct, post, whereOf, type OneData } from "../../xp/parts";
+
+/** Where a test belongs in the side panel: its section, to go back to. */
+function homeOf(e: Experiment): { label: string; href: string } {
+  if (e.source === "pagebuilder" || e.status === "idea" || e.status === "planned") return { label: "Ideas", href: "/website/ab-testing/ideas" };
+  if (e.category === "microservice") return { label: "Microservices", href: "/website/ab-testing/microservices" };
+  if (e.status === "ended") return { label: "History", href: "/website/ab-testing/history" };
+  return { label: "Page tests", href: "/website/ab-testing/pages" };
+}
+
+/** A/B testing > section > this test, and the tests before and after it on the same page or service. */
+function Trail({ d }: { d: OneData }) {
+  const e = d.experiment, home = homeOf(e);
+  const sib = d.siblings ?? [];
+  const i = sib.findIndex((s) => s.key === e.key);
+  const prev = i > 0 ? sib[i - 1] : null, next = i >= 0 && i < sib.length - 1 ? sib[i + 1] : null;
+  const crumb = { fontSize: "0.8rem", color: MUTED, textDecoration: "none", "&:hover": { color: INK, textDecoration: "underline" } };
+  const step = (s: NonNullable<typeof prev>, dir: "prev" | "next") => (
+    <Button component={Link} href={keyHref(s.key)} size="small" variant="outlined" title={s.name}
+      startIcon={dir === "prev" ? <ChevronLeftIcon /> : undefined} endIcon={dir === "next" ? <ChevronRightIcon /> : undefined}
+      sx={{ textTransform: "none", borderRadius: "999px", maxWidth: 300, "& .MuiButton-startIcon, & .MuiButton-endIcon": { m: 0 } }}>
+      <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dir === "prev" ? "Before: " : "After: "}{s.name}</Box>
+    </Button>
+  );
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
+        <Box component={Link} href="/website/ab-testing" sx={crumb}>A/B testing</Box>
+        <Typography sx={{ fontSize: "0.8rem", color: FAINT }}>›</Typography>
+        <Box component={Link} href={home.href} sx={crumb}>{home.label}</Box>
+        {e.category === "microservice" && e.service === "chat" && <><Typography sx={{ fontSize: "0.8rem", color: FAINT }}>›</Typography><Box component={Link} href="/website/ab-testing/chat" sx={crumb}>Chat: the e-mail</Box></>}
+        {sib.length > 1 && <Typography sx={{ fontSize: "0.76rem", color: FAINT, ml: 0.5 }}>· test {i + 1} of {sib.length} on this {e.category === "microservice" ? "service" : "page"}</Typography>}
+      </Box>
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>{prev && step(prev, "prev")}{next && step(next, "next")}</Box>
+    </Box>
+  );
+}
 
 export default function TestPage({ params }: { params: Promise<{ key: string }> }) {
   const { key } = use(params);
@@ -53,6 +93,7 @@ function Body({ d, reload }: { d: OneData; reload: () => void }) {
   };
   return (
     <>
+      <Trail d={d} />
       <PageHeader title={e.name} subtitle={`${SOURCE_LABEL[e.source]} · ${e.category === "page" ? "a shop page" : "a microservice"} · ${whereOf(e)}`}
         rightSlot={
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>

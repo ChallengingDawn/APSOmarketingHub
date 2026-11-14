@@ -1,5 +1,6 @@
 // A/B TESTING > the record kept up from its sources (model.ts): APSOconvert's page tests (the hub's own table), the shop
-// chat's rounds and Webyn's tests as the shop saw them (both from the DirectUp gateway). Every 30 minutes, and when a
+// chat's rounds and Webyn's tests as the shop saw them (both from the DirectUp gateway), and the pages Content's Page
+// builder is building with an A/B test planned ("Under building pages", 14.11.2026). Every 30 minutes, and when a
 // person presses Refresh; one copy of the hub at a time (advisory lock). A source that does not answer leaves its tests
 // as they were - the record never loses a test because a gateway was away. EXPERIMENTS_SYNC=off stops the timer.
 
@@ -9,14 +10,15 @@ import { adminKey, gateway } from "@/lib/directup/gateway";
 import { abData } from "@/lib/chat/abtest";
 import type { Verdict } from "@/lib/chat/abStats";
 import { ideaOf, listTests, type Test } from "@/lib/convert/tests";
-import { fromChatRound, fromWebynPage, type WebynPageIn } from "./model";
+import { plannedTests } from "@/lib/content/abPlannedRead";
+import { fromChatRound, fromPlanned, fromWebynPage, type WebynPageIn } from "./model";
 import { hideMissing, upsertFromSource, type FromSource } from "./store";
 
 const LOCK = 4_107_262;
 const TICK_MS = 30 * 60_000;
 export const KV_SYNC = "experiments:last-sync";
 export type SourceRun = { ok: boolean; n: number; error: string | null };
-export type SyncRun = { at: string; sources: Record<"apsoconvert" | "chat" | "webyn", SourceRun> };
+export type SyncRun = { at: string; sources: Record<"apsoconvert" | "chat" | "webyn", SourceRun> & { pagebuilder?: SourceRun } };
 
 const CHAT_VERDICT: Record<Verdict, string> = {
   "too-early": "Too early - under 50 visitors in a variant",
@@ -91,14 +93,24 @@ async function syncWebyn(): Promise<SourceRun> {
   return { ok: true, n: rows.length, error: r.watching === false ? "Watching Webyn is switched off on the gateway (CONVERT_WEBYN=off)" : null };
 }
 
+/** Content's page to-dos with their A/B test switched on - until APSOconvert runs a test for that piece, then that one. */
+async function syncPageBuilder(): Promise<SourceRun> {
+  const [planned, tests] = await Promise.all([plannedTests(), listTests("test")]);
+  const started = new Set(tests.map((t) => t.piece).filter((x): x is string => !!x));
+  const rows: FromSource[] = planned.filter((p) => !started.has(String(p.pieceId))).map((p) => fromPlanned(p));
+  await upsertFromSource(rows);
+  await hideMissing("pagebuilder", rows.map((r) => r.key));
+  return { ok: true, n: rows.length, error: null };
+}
+
 const safe = async (f: () => Promise<SourceRun>): Promise<SourceRun> => {
   try { return await f(); } catch (e) { return { ok: false, n: 0, error: String((e as Error)?.message ?? e).slice(0, 300) }; }
 };
 
 /** Every source once; what each said is kept for the page (KV_SYNC). */
 export async function syncAll(): Promise<SyncRun> {
-  const [apsoconvert, chat, webyn] = await Promise.all([safe(syncConvert), safe(syncChat), safe(syncWebyn)]);
-  const run: SyncRun = { at: new Date().toISOString(), sources: { apsoconvert, chat, webyn } };
+  const [apsoconvert, chat, webyn, pagebuilder] = await Promise.all([safe(syncConvert), safe(syncChat), safe(syncWebyn), safe(syncPageBuilder)]);
+  const run: SyncRun = { at: new Date().toISOString(), sources: { apsoconvert, chat, webyn, pagebuilder } };
   await kvSet(KV_SYNC, run).catch(() => {});
   return run;
 }
@@ -121,7 +133,7 @@ let started = false;
 export function startExperimentsSync(): void {
   if (started || String(process.env.EXPERIMENTS_SYNC ?? "").toLowerCase() === "off") return;
   started = true;
-  console.log("[experiments] on: the A/B testing record kept up from APSOconvert, the shop chat and Webyn every 30 min");
+  console.log("[experiments] on: the A/B testing record kept up from APSOconvert, the shop chat, Webyn and the Page builder every 30 min");
   const tick = () => void syncLocked().then((r) => {
     if (r) console.log(`[experiments] synced: ${Object.entries(r.sources).map(([k, s]) => `${k} ${s.ok ? s.n : `failed (${s.error})`}`).join(", ")}`);
   }).catch((e) => console.warn(`[experiments] sync failed: ${(e as Error).message}`));

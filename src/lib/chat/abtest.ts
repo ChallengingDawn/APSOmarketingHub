@@ -38,7 +38,13 @@ export async function abData(round?: number | null): Promise<AbData> {
   const comparisons = compare(rows);
   const firsts = r.rows.map((x) => x.first_at).filter((x): x is string => !!x).sort();
   const lasts = r.rows.map((x) => x.last_at).filter((x): x is string => !!x).sort();
-  const list = rounds.rounds.length ? rounds.rounds : [{ v: setting.v, visitors: comparisons[0].variants.reduce((s, x) => s + comparisons[0].arms[x].arm.visitors, 0), variants: comparisons[0].variants, first_at: firsts[0] ?? null, last_at: lasts.at(-1) ?? null }];
+  // the gateway lists a round once it has a visitor: the current one is always in the list, from the moment it was
+  // started (SARCLA 14.11.2026 - round 4 without a visitor hid the rounds, "don't have navigation here")
+  const shares = sharesOf(setting);
+  const current: Round = { v: setting.v, visitors: 0, variants: VARIANTS.filter((x) => shares[x] > 0), first_at: setting.at, last_at: null };
+  const list = rounds.rounds.length
+    ? (rounds.rounds.some((x) => Number(x.v) === setting.v) ? rounds.rounds : [current, ...rounds.rounds])
+    : [{ ...current, visitors: comparisons[0].variants.reduce((s, x) => s + comparisons[0].arms[x].arm.visitors, 0), first_at: firsts[0] ?? setting.at, last_at: lasts.at(-1) ?? null }];
   return {
     setting: { ...setting, shares: sharesOf(setting) }, v: r.v, rounds: list.map((x) => ({ ...x, v: num(x.v), visitors: num(x.visitors) })),
     rows, comparisons, cum: cumulative(r.days ?? [], VARIANTS.filter((x) => comparisons[0].variants.includes(x))),

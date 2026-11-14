@@ -75,7 +75,7 @@ function Body({ d, reload }: { d: ListData; reload: () => void }) {
           <Grid container spacing={2}>
             {running.map((e) => <Grid key={e.key} size={{ xs: 12, lg: 6 }}><RunningCard e={e} /></Grid>)}
           </Grid>
-        ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nothing runs right now. Start a page test from <Link href="/website/ab-testing/pages">Page tests</Link>, a chat round from <Link href="/website/ab-testing/chat">Chat</Link>, or pick an idea.</Typography>}
+        ) : <Typography sx={{ fontSize: "0.84rem", color: MUTED }}>Nothing runs right now. A page test starts from its to-do in Content&apos;s Page builder (those being built are under <Link href="/website/ab-testing/ideas">Ideas</Link>), a chat round from <Link href="/website/ab-testing/chat">Chat</Link>.</Typography>}
       </GlassCard>
 
       {decide.length > 0 && (

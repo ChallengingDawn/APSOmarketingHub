@@ -7,13 +7,16 @@
 //   convert-<id>   APSOconvert's page tests (the hub's own, src/lib/convert/tests.ts)
 //   webyn-<page>   Webyn's tests as the shop saw them (the gateway's /convert/webyn: its page, test group vs the page)
 //   chat-<round>   the shop chat's e-mail test, one per round (the gateway's chat A/B, src/lib/chat/abtest.ts)
+//   pagebuilder-<piece>  a page Content's Page builder is building with an A/B test planned ("Under building pages",
+//                  SARCLA 14.11.2026) - a page test starts from the Page builder only; once it runs it is convert-<id>
 //   manual-<n>     typed in: an idea, a test of another tool, an earlier one - the past is recorded too
 // What a SOURCE says (status, dates, arms) is refreshed by the sync; what a PERSON says (the decision, what we learned,
 // the hypothesis, the owner, the score of an idea, a result another tool reported) is never written over.
 
 import { rateOf, twoProportionP, type Rate } from "../chat/abStats";
+import { WEBSITE_SECTIONS } from "../../app/hubApps";
 
-export type Source = "apsoconvert" | "webyn" | "chat" | "manual";
+export type Source = "apsoconvert" | "webyn" | "chat" | "pagebuilder" | "manual";
 export type Category = "page" | "microservice";
 export type Status = "idea" | "planned" | "running" | "paused" | "ended";
 export type Decision = "ship" | "keep-control" | "iterate" | "inconclusive";
@@ -48,7 +51,7 @@ export type Experiment = {
   createdBy: string | null; createdAt: string; updatedBy: string | null; updatedAt: string; syncedAt: string | null;
 };
 
-export const SOURCE_LABEL: Record<Source, string> = { apsoconvert: "APSOconvert", webyn: "Webyn", chat: "Shop chat", manual: "Recorded by hand" };
+export const SOURCE_LABEL: Record<Source, string> = { apsoconvert: "APSOconvert", webyn: "Webyn", chat: "Shop chat", pagebuilder: "Page builder", manual: "Recorded by hand" };
 export const STATUS_LABEL: Record<Status, string> = { idea: "Idea", planned: "Planned", running: "Running", paused: "Paused", ended: "Ended" };
 export const DECISION_LABEL: Record<Decision, string> = {
   ship: "Ship the winner", "keep-control": "Keep it as it is", iterate: "Test a new version", inconclusive: "No conclusion",
@@ -60,13 +63,11 @@ export const OUTCOME_LABEL: Record<Outcome, string> = {
 export const MIN_ARM = 100;
 const SIG = 0.05;
 
-/** The services whose tests the hub can hold - with or without one running. */
-export const SERVICES: { id: string; name: string; what: string }[] = [
-  { id: "chat", name: "Shop chat", what: "When and how the chat asks for the e-mail, what it offers, how it hands over" },
-  { id: "search-bar", name: "Search bar", what: "The smart search's results, its AI answers, what it shows first" },
-  { id: "directup", name: "DirectUP", what: "The order tool: upload an order list, check the lines, put them in the cart" },
-  { id: "3d", name: "3D gateway", what: "The 3D models and drawings on product pages" },
-];
+/** The shop's microservices as the hub lists them (Website > Microservices, hubApps.ts) - one added there is one here
+ *  (SARCLA 14.11.2026: "on microservices only hardcoded"). The id is the last part of its page: /website/chat -> chat. */
+export const SERVICES: { id: string; name: string; what: string; href: string }[] = (WEBSITE_SECTIONS.find((x) => x.slug === "microservices")?.pages ?? [])
+  .filter((p) => p.menu !== false)
+  .map((p) => ({ id: p.href.split("/").filter(Boolean).pop() ?? p.href, name: p.name, what: p.note, href: p.href }));
 
 export type ArmFigures = Arm & { rate: Rate };
 export type Reading = {
@@ -145,7 +146,7 @@ export function fromChatRound(r: ChatRoundIn): Omit<Experiment, PersonFields> {
     status: running ? "running" : "ended", startedAt: r.firstAt, endedAt: running ? null : r.lastAt,
     arms: sorted.map((a) => ({ key: a.variant, name: CHAT_NAME[a.variant], control: a.variant === "later", visitors: a.visitors, conversions: a.emails })),
     secondary: { metric: "Wrote a message, per visitor who opened the chat", arms: sorted.map((a) => ({ key: a.variant, name: CHAT_NAME[a.variant], control: a.variant === "later", visitors: a.visitors, conversions: a.chats })) },
-    verdict: r.verdict, link: "/website/ab-testing/chat", changes: sorted.filter((a) => a.variant !== "later").map((a) => CHAT_NAME[a.variant]),
+    verdict: r.verdict, link: `/website/ab-testing/chat?round=${r.v}`, changes: sorted.filter((a) => a.variant !== "later").map((a) => CHAT_NAME[a.variant]),
   };
 }
 
@@ -172,6 +173,22 @@ export function fromWebynPage(w: WebynPageIn, now = new Date()): Omit<Experiment
       { key: "t", name: "Webyn's version", control: false, visitors: w.groups.t.visitors, conversions: w.groups.t.carted },
     ],
     secondary: null, verdict: null, link: null, changes: names,
+  };
+}
+
+export type PlannedIn = {
+  pieceId: number; title: string; project: string; path: string; env: "prod" | "acc"; versions: string[]; tested: string; against: string;
+  plan: string; todo: string; owner: string | null; updatedAt: string; href: string;
+};
+/** A page under building in Content's Page builder with its A/B test switched on: planned, never started from here. */
+export function fromPlanned(p: PlannedIn): Omit<Experiment, PersonFields> {
+  return {
+    key: `pagebuilder-${p.pieceId}`, source: "pagebuilder", category: "page", service: null,
+    host: p.env === "acc" ? "acc.apsoparts.com" : "www.apsoparts.com", surface: p.path || "A new page (not on the shop yet)",
+    name: p.title || p.project || `Page to-do ${p.pieceId}`, metric: "Put something in the cart, per visitor of the page",
+    status: "planned", startedAt: null, endedAt: null, arms: [], secondary: null,
+    verdict: `Page builder: ${p.todo || "planned"} - it starts from its to-do in Content`, link: p.href,
+    changes: [`${p.tested} against ${p.against}`, p.plan, ...(p.versions.length ? [`versions ${p.versions.join(", ")}`] : [])].filter(Boolean),
   };
 }
 
