@@ -74,9 +74,10 @@ test("ideas that change a page already on the shop make a Page builder; a page t
   assert.equal(contentTypeFor(rec({ contentType: "PRODUCT_PAGE" })), "page-refresh");
 });
 
-test("pageModesFor: an SEO landing page is a new page, the Page builder a page of the shop", () => {
+test("pageModesFor: an SEO landing page is a new page, the Page builder a page of the shop first, or a new one", () => {
   assert.deepEqual(pageModesFor("landing-page"), ["new"]);
-  assert.deepEqual(pageModesFor("page-refresh"), ["pick"]);
+  // SARCLA 13.11.2026: "allow to create a new page, not only editing existing one" - a page of the shop stays first
+  assert.deepEqual(pageModesFor("page-refresh"), ["pick", "new"]);
   assert.deepEqual(pageModesFor("product-page"), ["pick"]);
   assert.deepEqual(pageModesFor(null), ["pick", "new"]);
 });
@@ -88,8 +89,9 @@ test("pageSourceFix: an empty document takes its type's way; one that holds work
   // ... but one that picked a shop page before keeps showing it
   assert.equal(pageSourceFix("landing-page", { ...empty, source: "pick", path: "/de-CH/dichtungen.html" }), null);
   assert.equal(pageSourceFix("landing-page", { ...empty, source: "new" }), null);
-  // a Page builder starts on a page of the shop; one written as a new page before keeps its words
-  assert.equal(pageSourceFix("page-refresh", { ...empty, source: "new" }), "pick");
+  // a Page builder may be a new page now (13.11.2026): one switched to a new page stays one, empty or written
+  assert.equal(pageSourceFix("page-refresh", { ...empty, source: "new" }), null);
+  assert.equal(pageSourceFix("product-page", { ...empty, source: "new" }), "pick");
   const written = { ...empty.fields, hero: { ...empty.fields.hero, title: "Dichtungen nach Mass" } };
   assert.equal(pageSourceFix("page-refresh", { ...empty, source: "new", fields: written }), null);
   // a page handed over from AI testing & personalization stays as it came

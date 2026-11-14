@@ -17,6 +17,8 @@ import CircularProgress from "@mui/material/CircularProgress";
 import InputAdornment from "@mui/material/InputAdornment";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
+import AddIcon from "@mui/icons-material/Add";
+import AutoAwesomeOutlinedIcon from "@mui/icons-material/AutoAwesomeOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import NorthEastIcon from "@mui/icons-material/NorthEast";
 import SearchIcon from "@mui/icons-material/Search";
@@ -25,11 +27,45 @@ import { KIND_LABEL, type Env, type PageKind } from "@/lib/convert/model";
 import { pathInfo } from "@/lib/content/studio/kinds/page/model";
 import { ENV_HOST, ENV_LABEL, ENV_OPTIONS, pickedEnv, rowNote, storesFor, typedPath as typedPathOf } from "@/lib/content/studio/kinds/page/env";
 import type { PageRow } from "@/lib/content/studio/kinds/page/shop";
+import { pagerNumbers, pagesOf } from "@/lib/content/studio/kinds/page/pager";
 import { PINK, btn, field } from "../../parts";
 import type { StudioApi } from "../../useStudio";
 import { Chip, Choice } from "./ui";
 
 export type Picked = { env: Env; path: string; store: string | null; kind: PageKind };
+/** A NEW page asked for here (SARCLA 13.11.2026: "allow to create a new page, not only editing existing one, and create
+ * from AI prompt from user"): what it should be (empty = start empty and add the blocks by hand), its store view and
+ * environment as chosen in the picker. */
+export type NewAsked = { prompt: string; store: string; env: Env };
+
+/** The new page's card at the top of the picker: say what the page is, the AI builds it - or start it empty. */
+function NewPageCard({ store, env, ai, onNew }: { store: string; env: Env; ai: boolean; onNew: (n: NewAsked) => void }) {
+  const [want, setWant] = useState("");
+  const go = (prompt: string) => onNew({ prompt: prompt.trim(), store, env });
+  return (
+    <Box data-new-page-card sx={{ mb: 2.5, p: 2, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))" }}>
+      <Typography sx={{ fontSize: "1rem", fontWeight: 750, color: INK }}>A new page</Typography>
+      <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.25, mb: 1.25 }}>
+        Say what it is about and for whom: the AI builds it with its blocks and modules, in {store} on {env === "acc" ? "ACC" : "production"}. You change everything after, on the page.
+      </Typography>
+      <TextField fullWidth multiline minRows={2} maxRows={8} size="small" value={want} onChange={(e) => setWant(e.target.value)}
+        placeholder={"e.g. Black Friday: our best-selling O-rings, plastic bars and APSOvib buffers, for maintenance buyers - the campaign's photos, a customer quote, the code after login"}
+        sx={{ ...field, mb: 1, "& .MuiInputBase-root": { bgcolor: "#fff", fontSize: "0.92rem" } }}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && ai && want.trim()) go(want); }} />
+      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+        <Button variant="contained" disableElevation disabled={!ai || !want.trim()} onClick={() => go(want)} startIcon={<AutoAwesomeOutlinedIcon />}
+          sx={{ ...btn, bgcolor: PINK, borderRadius: "8px", height: 40, px: 2, "&:hover": { bgcolor: "#a3245c" } }}>
+          Build it with AI
+        </Button>
+        <Button variant="outlined" onClick={() => go("")} startIcon={<AddIcon />}
+          sx={{ ...btn, borderRadius: "8px", height: 40, px: 2, color: INK, borderColor: HAIRLINE, bgcolor: "#fff", "&:hover": { borderColor: PINK, bgcolor: "#fff" } }}>
+          Start empty
+        </Button>
+        {!ai && <Typography sx={{ fontSize: "0.78rem", color: MUTED }}>The AI is not set up here: start empty and add the blocks.</Typography>}
+      </Box>
+    </Box>
+  );
+}
 type Found = { rows: PageRow[]; total: number; more: boolean };
 type StoreCount = { store: string; prod: number; acc: number };
 
@@ -38,6 +74,27 @@ const KINDS: { key: "all" | PageKind; label: string }[] = [
 ];
 const STORE_ORDER = ["de-CH", "fr-CH", "it-CH", "en-INT", "fr-FR", "it-IT", "nl-NL", "pl-PL"];
 const storeRank = (s: string) => (STORE_ORDER.indexOf(s) < 0 ? 99 : STORE_ORDER.indexOf(s));
+
+/** The pages one screen of the list holds (the server's perPage for "pages", ../../../../lib/content/studio/kinds/page/server.ts). */
+const PER_PAGE = 40;
+
+/** The list's pages (SARCLA 13.11.2026: "paginate on 'Which page of the shop?'"): Previous, the numbers, Next. */
+export function Pager({ page, pages, busy, onGo }: { page: number; pages: number; busy: boolean; onGo: (n: number) => void }) {
+  if (pages <= 1) return null;
+  const num = (n: number) => (
+    <Button key={n} size="small" disabled={busy && n !== page} onClick={() => { if (n !== page) onGo(n); }} aria-current={n === page ? "page" : undefined}
+      sx={{ ...btn, minWidth: 34, height: 32, px: 1, borderRadius: "6px", fontVariantNumeric: "tabular-nums", color: n === page ? "#fff" : INK, bgcolor: n === page ? PINK : "transparent", "&:hover": { bgcolor: n === page ? PINK : "rgba(36,89,209,.06)" } }}>
+      {n + 1}
+    </Button>
+  );
+  return (
+    <Box data-pager sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, flexWrap: "wrap", p: 1.25, borderTop: `1px solid ${HAIRLINE}` }}>
+      <Button size="small" disabled={busy || page === 0} onClick={() => onGo(page - 1)} sx={{ ...btn, height: 32, color: INK }}>‹ Previous</Button>
+      {pagerNumbers(page, pages).map((n, i) => (n === "…" ? <Typography key={`gap${i}`} sx={{ px: 0.5, color: MUTED, fontSize: "0.85rem" }}>…</Typography> : num(n)))}
+      <Button size="small" disabled={busy || page >= pages - 1} onClick={() => onGo(page + 1)} sx={{ ...btn, height: 32, color: INK }}>Next ›</Button>
+    </Box>
+  );
+}
 
 /** A typed address as a path on the shop: a full address of production or ACC, or a path. */
 const typedPath = (raw: string) => typedPathOf(raw, (p) => !!pathInfo(p));
@@ -67,11 +124,15 @@ function Row({ r, onPick, current }: { r: PageRow; onPick: (r: PageRow) => void;
   );
 }
 
-export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv, current, onPick, onClose, title }: {
+export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv, current, onPick, onClose, title, onNew, ai }: {
   api: StudioApi; store?: string; lockStore?: boolean;
   /** the environment shown first (the to-do's), and kept when another store view's page of the same to-do is picked */
   env?: Env; lockEnv?: boolean;
   current?: string; onPick: (p: Picked) => void; onClose?: () => void; title?: string;
+  /** a new page may be made instead (the to-do's type offers it): the card at the top */
+  onNew?: (n: NewAsked) => void;
+  /** the AI is set up and the person may use it */
+  ai?: boolean;
 }) {
   const [q, setQ] = useState("");
   const [env, setEnv] = useState<Env>(envIn ?? "prod");
@@ -87,6 +148,7 @@ export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv
   const [typed, setTyped] = useState("");
   const asked = useRef(0);
   const input = useRef<HTMLInputElement | null>(null);
+  const listTop = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     input.current?.focus();
@@ -105,8 +167,10 @@ export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv
     if (ask !== asked.current) return;
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
-    setFound((f) => (n === 0 || !f ? r.result : { ...r.result, rows: [...f.rows, ...r.result.rows] }));
+    // one page of the list at a time (13.11.2026: numbered pages, no longer "Show more" adding to the end)
+    setFound(r.result);
     setPage(n);
+    if (n > 0) listTop.current?.scrollIntoView({ block: "nearest" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q, env, onlyAcc, store, kind]);
 
@@ -120,17 +184,22 @@ export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv
   const envStores = storesFor(env, stores, STORE_ORDER);
   const storeOpts = [...(lockStore ? [] : [{ key: "all", label: "Every store" }]), ...(lockStore ? [store] : envStores).map((s) => ({ key: s, label: s }))];
   const envOpts = ENV_OPTIONS.filter((o) => !lockEnv || o.key === env);
+  // the list's pages: from the total (the server counts up to 5,000); a page that says there are more counts one further
+  const pages = found ? pagesOf(found.total, page, found.more, PER_PAGE) : 0;
   const convertHere = convert.filter((r) => r.env === env && (store === "all" || r.store === store) && (!q || r.path.toLowerCase().includes(q.toLowerCase())));
 
   return (
     <Box sx={{ maxWidth: 980, mx: "auto", px: { xs: 1, md: 2 }, py: 2.5 }}>
       <Box sx={{ display: "flex", alignItems: "flex-start", gap: 2, mb: 2 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography sx={{ fontSize: "1.35rem", fontWeight: 750, color: INK, letterSpacing: "-0.015em" }}>{title ?? "Which page of the shop?"}</Typography>
-          <Typography sx={{ fontSize: "0.88rem", color: MUTED, mt: 0.25 }}>Search by the words in its address or a product number. It opens here, as {env === "acc" ? "ACC" : "the shop"} shows it, ready to edit.</Typography>
+          <Typography sx={{ fontSize: "1.35rem", fontWeight: 750, color: INK, letterSpacing: "-0.015em" }}>{title ?? (onNew ? "A new page, or a page of the shop?" : "Which page of the shop?")}</Typography>
+          <Typography sx={{ fontSize: "0.88rem", color: MUTED, mt: 0.25 }}>{onNew ? "Make a new page from a few words, or search the shop's pages below." : `Search by the words in its address or a product number. It opens here, as ${env === "acc" ? "ACC" : "the shop"} shows it, ready to edit.`}</Typography>
         </Box>
         {onClose && <Button onClick={onClose} startIcon={<CloseIcon />} sx={{ ...btn, color: INK }}>Close</Button>}
       </Box>
+
+      {onNew && <NewPageCard store={store === "all" ? storeIn ?? "de-CH" : store} env={env} ai={!!ai} onNew={onNew} />}
+      {onNew && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, mb: 0.75 }}>Or a page of the shop</Typography>}
 
       <TextField fullWidth inputRef={input} placeholder="o-ring, dichtungen, 12202510 …" value={q} onChange={(e) => setQ(e.target.value)} sx={{ ...field, mb: 1.5, "& .MuiInputBase-root": { fontSize: "1.02rem", height: 50, bgcolor: "#fff" } }}
         slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: MUTED }} /></InputAdornment>, endAdornment: busy ? <InputAdornment position="end"><CircularProgress size={16} /></InputAdornment> : undefined } }} />
@@ -152,10 +221,11 @@ export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv
         </Box>
       )}
 
-      <Box sx={{ display: "flex", alignItems: "baseline", mb: 0.75 }}>
+      <Box ref={listTop} sx={{ display: "flex", alignItems: "baseline", mb: 0.75, scrollMarginTop: 12 }}>
         <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: MUTED, flex: 1 }}>
           {found ? `${found.total >= 5000 ? "5,000+" : found.total.toLocaleString("en-US")} page${found.total === 1 ? "" : "s"}` : "The shop's pages"}
         </Typography>
+        {found && pages > 1 && <Typography sx={{ fontSize: "0.78rem", color: MUTED, fontVariantNumeric: "tabular-nums" }}>{`${page * PER_PAGE + 1}-${page * PER_PAGE + found.rows.length} · page ${page + 1} of ${pages}`}</Typography>}
       </Box>
       <Box sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "10px", bgcolor: "#fff", overflow: "hidden", minHeight: 120 }}>
         {!found && busy && <Box sx={{ p: 3, color: MUTED, display: "flex", gap: 1.25, alignItems: "center", fontSize: "0.9rem" }}><CircularProgress size={16} /> Reading the shop&apos;s pages…</Box>}
@@ -171,11 +241,7 @@ export function PagePicker({ api, store: storeIn, lockStore, env: envIn, lockEnv
           </Typography>
         )}
         {found?.rows.map((r) => <Row key={`${r.env}${r.path}`} r={r} onPick={pick} current={r.path === current} />)}
-        {found?.more && (
-          <Box sx={{ p: 1.25, textAlign: "center" }}>
-            <Button disabled={busy} onClick={() => void load(page + 1)} sx={{ ...btn, color: INK }}>{busy ? "Reading…" : "Show more"}</Button>
-          </Box>
-        )}
+        {found && <Pager page={page} pages={pages} busy={busy} onGo={(n) => void load(n)} />}
       </Box>
 
       <Box sx={{ display: "flex", gap: 1, mt: 2, alignItems: "center" }}>

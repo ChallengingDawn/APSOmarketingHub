@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { validateChanges } from "../src/lib/convert/versions";
+import { withoutTrustedScripts } from "../src/lib/convert/trustedScripts";
 import { newModule, normalizeModule, type Card, type ModuleRef } from "../src/lib/content/studio/kinds/page/modules/model";
 import { CATEGORIES, MODULES, countFor, gapOf, libraryByCategory, moduleDef, searchModules, thumbOf } from "../src/lib/content/studio/kinds/page/modules/registry";
 import { MODULE_MAX, fitModule, renderModule, renderSkeleton } from "../src/lib/content/studio/kinds/page/modules/render";
@@ -81,12 +82,15 @@ test("every module of the library is ONE element, every rule under its own class
       assert.ok(html.endsWith("</div>"), where);
       const css = /<style>([\s\S]*?)<\/style>/.exec(html)![1];
       for (const sel of selectors(css)) assert.ok(sel.startsWith(".apx-mtest"), `${where}: "${sel}" is not under the module's class`);
-      assert.doesNotMatch(html, /<script|\son[a-z]+=|javascript:/i, `${where}: no script`);
+      // the ONE trusted tag (13.11.2026: the Black Friday voucher's engine from the hub's own storage) - nothing else
+      assert.doesNotMatch(withoutTrustedScripts(html), /<script|\son[a-z]+=|javascript:/i, `${where}: no script`);
       assert.match(css, /@media \(max-width:\s?900px\)|@media \(max-width:\s?[5-8]\d\dpx\)/, `${where}: a phone rule`);
       const v = validateChanges([{ op: "insert", selector: "#maincontent .column.main", where: "prepend", html }]);
       assert.deepEqual(v.problems, [], `${where}: ${v.problems.join("; ")}`);
       assert.ok(html.length <= MODULE_MAX, `${where}: ${html.length} bytes - over a version's 20 KB per element`);
-      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ""), /CHF|EUR\b|€|\d+\s*%/, `${where}: never a price or a discount`);
+      // (the voucher's small print names the order value the codes apply to - "100 bis 3000 CHF/EUR", the campaign's legal
+      // line, not a price: that one paragraph alone is left out of this check)
+      assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, "").replace(/<p class="apbf-small">[^<]*<\/p>/, ""), /CHF|EUR\b|€|\d+\s*%/, `${where}: never a price or a discount`);
       assert.equal(gapOf(mm), "", `${where}: filled, it is ready`);
     }
   }

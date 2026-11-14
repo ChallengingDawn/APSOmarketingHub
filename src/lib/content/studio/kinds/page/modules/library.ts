@@ -12,6 +12,7 @@ import { SHOWCASES } from "./lib/showcases";
 import { BENTOS } from "./lib/bentos";
 import { NAVIGATION } from "./lib/navigation";
 import { CAMPAIGNS } from "./lib/campaigns";
+import { BF26_MODULES } from "./lib/bf26";
 import { TRUST } from "./lib/trust";
 import { LIBRARY2 } from "./library2";
 
@@ -22,6 +23,8 @@ export const LIBRARY: ModuleDef[] = [
   ...BENTOS,
   ...NAVIGATION,
   ...CAMPAIGNS,
+  // the Black Friday 2026 campaign's own look, from the agency's photos (13.11.2026)
+  ...BF26_MODULES,
   ...TRUST,
   ...LIBRARY2,
 ];

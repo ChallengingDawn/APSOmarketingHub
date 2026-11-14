@@ -42,10 +42,12 @@ export const SOURCE_LABEL: Record<PageSource, string> = {
  * only have the SEO pages"); the Page builder changes a page already on the webshop ("Page refresh becomes only Page
  * builder" - a product page's copy made before opens the same way); a page to-do of no such type offers both. The first
  * is where a new document starts. ("From AI testing & personalization" is no choice: a page handed over arrives so.)
+ * 13.11.2026, SARCLA: "allow to create a new page, not only editing existing one, and create from an AI prompt from the
+ * user" - the Page builder offers a NEW page too, a page of the shop still first (where a new to-do starts).
  */
 export function pageModesFor(contentType: string | null | undefined): PageSource[] {
   if (contentType === "landing-page") return ["new"];
-  if (contentType === "page-refresh" || contentType === "product-page") return ["pick"];
+  if (contentType === "product-page") return ["pick"];
   return ["pick", "new"];
 }
 

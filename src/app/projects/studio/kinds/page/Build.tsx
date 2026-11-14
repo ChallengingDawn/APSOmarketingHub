@@ -64,7 +64,11 @@ export type Step = "page" | "publish";
 export type AppBrief = AppBriefOut;
 /** The start card's state and its one line (why the page is empty, or why it wrote itself), and "Start empty and add
  * blocks" - the card put away, the blocks' menu open (Content v9, SARCLA 10.11.2026). */
-export type StartCard = { state: StartState; line: string; startedEmpty: boolean; onStartEmpty: (el: HTMLElement) => void };
+export type StartCard = {
+  state: StartState; line: string; startedEmpty: boolean; onStartEmpty: (el: HTMLElement) => void;
+  /** the words of a new page asked for in the picker (13.11.2026) - kept here, with why, when the AI could not build it */
+  want?: string; error?: string | null;
+};
 
 const slideIn = keyframes`from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; }`;
 const fadeIn = keyframes`from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; }`;
@@ -226,6 +230,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
   const missing = parts.reduce((n, p) => n + p.missing, 0);
   // what the person wants, typed in the start card (SARCLA 09.11.2026: "the user should prompt each page he wants")
   const [want, setWant] = useState("");
+  // the words asked for in the picker come along into this card (13.11.2026)
+  useEffect(() => { if (start?.want) setWant(start.want); }, [start?.want]);
   const fromApp = !!appBrief?.app;
   const canStart = !!want.trim() || !!appBrief?.text.trim();
   const madeViews = viewsOf(doc);
@@ -342,7 +348,8 @@ export function Build({ api, doc, d, lang, onLang, groups, presence, set, setVie
             <Box sx={{ mb: 2, p: 1.75, borderRadius: "12px", border: "1px solid rgba(194,44,110,.22)", background: "linear-gradient(135deg, rgba(194,44,110,.06), rgba(36,89,209,.05))", animation: `${fadeIn} .25s ease-out` }}>
               <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK, mb: isNew && start ? 0.25 : 1 }}>{isNew ? (autoWriting ? "The page writes itself" : "What page do you want?") : sources.length > 1 ? "What are you making?" : SOURCE_LABEL[doc.source]}</Typography>
               {/* why it is empty, or why it writes itself - one short line (Content v9, SARCLA 10.11.2026) */}
-              {isNew && start && <Typography data-start-line={start.state} sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.4, mb: 1.25 }}>{start.line}</Typography>}
+              {isNew && start && <Typography data-start-line={start.state} sx={{ fontSize: "0.8rem", color: MUTED, lineHeight: 1.4, mb: start.error ? 0.5 : 1.25 }}>{start.line}</Typography>}
+              {isNew && start?.error && <Typography data-start-error sx={{ fontSize: "0.8rem", color: "#c5221f", lineHeight: 1.4, mb: 1.25 }}>The AI could not build it: {start.error}</Typography>}
               {sources.length > 1 && !autoWriting && <Box sx={{ mb: 1.5 }}><Choice value={doc.source} onChange={changeSource} options={sources} /></Box>}
               {isNew ? (
                 <>

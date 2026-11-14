@@ -44,7 +44,7 @@ import { limitOf } from "@/lib/content/studio/kinds/page/fit";
 import { appBriefOf, pageHasContent, startLine, writesItself, type StartState } from "@/lib/content/studio/kinds/page/appBrief";
 import { PART_LABEL, mergeField, mergeFill, type Candidate, type FillAnswer, type Part } from "@/lib/content/studio/kinds/page/fill";
 import {
-  MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, leadOf, mainView, nextPageLetter, openVersion, pageDoc, shopLanguages, shopViews, sourceHash, storeForLanguage, tickStore, versionOfStore,
+  MAIN_SELECTOR, addVersion, baseStore, carryMeta, changeId, copyView, dropVersion, pathIn, emptyPage, howToAdd, isLegacyBody, langName, langOfStore, leadOf, mainView, nextPageLetter, openVersion, pageDoc, pageModesFor, shopLanguages, shopViews, sourceHash, storeForLanguage, tickStore, versionOfStore,
   storesOfView, viewOf, viewsOf, withChange, withView, type LangOption, type LangVersion, type Leftover, type PageChange, type PageDoc,
 } from "@/lib/content/studio/kinds/page/model";
 import { lookLine, problemsLine } from "@/lib/content/studio/kinds/page/readable";
@@ -79,7 +79,7 @@ import { buttonLookOfField, cleanButtonLook, cleanTextLook, fieldButtonPatchOf, 
 import { fillOfBlock, type FillRun, type Making, type PictureCtl } from "./Fields";
 import type { AddPlace, PartHit, Picked } from "./Frame";
 import { checkChange } from "./guard";
-import { PagePicker, type Picked as PickedPage } from "./PagePicker";
+import { PagePicker, type NewAsked, type Picked as PickedPage } from "./PagePicker";
 import { setDocSafely } from "./safeSet";
 import { LangEmpty, Stage, usePagePreview, useShell, type View } from "./Stage";
 import type { SeoProposal } from "./Seo";
@@ -1399,7 +1399,9 @@ export default function Studio({ api }: StudioProps) {
     try { window.localStorage.setItem(emptyKey, "1"); } catch { /* no storage */ }
     setAddWhere({ at: 1, pos: { top: Math.round(r.top), left: Math.round(r.left + r.width / 2) } });
   };
-  const start = { state: startState, line: startLine(briefNow, startState, autoRun?.error ?? null), startedEmpty, onStartEmpty: startEmpty };
+  // a new page asked for in the picker (13.11.2026): its words wait in the start card when the AI could not build it
+  const [newAsk, setNewAsk] = useState<{ prompt: string; error: string | null } | null>(null);
+  const start = { state: startState, line: startLine(briefNow, startState, autoRun?.error ?? null), startedEmpty, onStartEmpty: startEmpty, want: newAsk?.prompt, error: newAsk?.error ?? null };
 
   /* ── the A/B test: in the top bar, set up in the last step (Content v8, SARCLA 10.11.2026 point 6: "A/B testing should
    *    be on top header - if I click activate then I can set it on the last step") - ../../abBar.tsx ── */
@@ -1441,6 +1443,31 @@ export default function Studio({ api }: StudioProps) {
     }
     setPicking(false);
   };
+  // a NEW page instead (SARCLA 13.11.2026: "allow to create a new page, not only editing existing one, and create from AI
+  // prompt from user"): the picker's card - the to-do becomes a new page of that store view; with words the AI builds it at
+  // once (its blocks and modules, as "Write it with AI" does), without them it starts empty and the blocks' menu opens
+  const canNew = canEdit && lang === main && pageModesFor(api.data.piece.contentType).includes("new");
+  const startNew = async (n: NewAsked) => {
+    const cur = docRef.current;
+    // the to-do's own auto-write (an idea's brief) must not run on top of this one
+    autoAsked.current = true;
+    setFound([]); setSelState(null); openPop(null); setPicking(false);
+    setDoc({ ...cur, source: "new", env: n.env, store: n.store, path: "", changes: [], langs: {}, outline: null }, n.prompt ? "Started a new page from a few words" : "Started a new page, empty");
+    setLangState(baseStore(n.store) ?? n.store);
+    if (!n.prompt) {
+      setStartedEmpty(true);
+      try { window.localStorage.setItem(emptyKey, "1"); } catch { /* no storage */ }
+      setAddWhere({ at: 1, pos: { top: 160, left: Math.round(window.innerWidth / 2) } });
+      return;
+    }
+    // the new document drawn first (the language and the page's way), then the AI writes it - its saves wait for the change
+    setNewAsk({ prompt: n.prompt, error: null });
+    await new Promise((r) => setTimeout(r, 60));
+    const m = await fill("all", { request: `THE PAGE THE PERSON WANTS: ${n.prompt}` });
+    // nothing landed: the start card keeps the words and says why (never a page that silently stays empty)
+    const landed = pageHasContent(viewOf(docRef.current, mainView(docRef.current)));
+    setNewAsk({ prompt: n.prompt, error: landed ? null : m || "Nothing came back - ask again." });
+  };
   const removeInsert = (id: string) => setDoc({ ...docRef.current, inserts: docRef.current.inserts.filter((x) => x.id !== id) }, "Took a banner out of the page");
 
   const findCounterpart = async () => {
@@ -1460,7 +1487,8 @@ export default function Studio({ api }: StudioProps) {
   const notOnShop = !isNew && lang !== main && !d.path && presence[lang]?.exists === false;
   const empty = picking || needsPage ? (
     <PagePicker api={api} store={lang === main ? d.store || "de-CH" : lang} lockStore={lang !== main} env={doc.env} lockEnv={lang !== main} current={d.path}
-      title={lang === main ? undefined : `Which is the ${lang} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined} />
+      title={lang === main ? undefined : `Which is the ${lang} page?`} onPick={onPicked} onClose={d.path || lang !== main ? () => setPicking(false) : undefined}
+      onNew={canNew ? (n) => void startNew(n) : undefined} ai={canAi} />
   ) : langEmpty ? (
     <LangEmpty d={d} lang={lang} main={main} store={lang} busy={translating} since={translating ? since : null} canAi={canAi}
       onTranslate={() => void translate(lang).then((m) => { if (m && !/is made/.test(m)) window.alert(m); })}

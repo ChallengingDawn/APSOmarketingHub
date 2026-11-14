@@ -7,6 +7,8 @@
 // Declarative on purpose: no script of its own, no event handler, no javascript: address - a version only reshapes
 // what the page already shows. Pure (no "@/" imports), so it is tested.
 
+import { withoutTrustedScripts } from "./trustedScripts";
+
 export type Where = "before" | "after" | "prepend" | "append";
 export type Change =
   | { op: "css"; css: string; note?: string }
@@ -26,8 +28,10 @@ const WHERE: Where[] = ["before", "after", "prepend", "append"];
 
 export const LIMITS = { changes: 40, css: 20_000, html: 20_000, text: 2_000, selector: 300, note: 300, total: 80_000 };
 
-/** What a version may not carry: its own script, an event handler, a javascript: address, a frame. */
-function unsafeHtml(html: string): string | null {
+/** What a version may not carry: its own script, an event handler, a javascript: address, a frame. The ONE trusted tag
+ * (./trustedScripts.ts - the Black Friday voucher's engine from the hub's own storage, exactly as written) is let through. */
+function unsafeHtml(raw: string): string | null {
+  const html = withoutTrustedScripts(raw);
   if (/<\s*script\b/i.test(html)) return "a <script>";
   if (/<\s*(iframe|object|embed|frame)\b/i.test(html)) return "a frame";
   if (/\son[a-z]+\s*=/i.test(html)) return "an event handler (on...=)";

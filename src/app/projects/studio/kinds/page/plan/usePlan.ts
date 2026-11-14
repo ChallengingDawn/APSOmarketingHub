@@ -272,8 +272,16 @@ export function usePlan(o: {
       const id = s.place.how === "change" ? s.place.change : s.id;
       const mine = o.changes.find((c) => c.id === id) as (PageChange & { html?: string; off?: string }) | undefined;
       if (!mine) { unshow(s.id); continue; }
-      const i = sv.changes.findIndex((c) => c.id === id && (c as { html?: string }).html === mine.html && !(c as { off?: string }).off);
+      // 13.11.2026 (SARCLA, /en-INT/service: "it added twice"): the server's picture holds the change - the step drawn here
+      // never stands BESIDE it any more. Its words came back the same: nothing more is drawn; they changed after the save
+      // (the check, the fill - the picture is older): the newest is drawn IN PLACE of the picture's, until it catches up.
+      // (Before, only an equal HTML took the drawing away - a changed one left the module on the page twice.)
+      const i = sv.changes.findIndex((c) => c.id === id && !(c as { off?: string }).off);
       if (i < 0) continue;
+      if ((sv.changes[i] as { html?: string }).html !== mine.html) {
+        if (mine.html) setPend((p) => (p[s.id] && p[s.id].change === i && p[s.id].html === mine.html ? p : { ...p, [s.id]: { key: s.id, selector: "", where: "replace", change: i, html: mine.html ?? "" } }));
+        continue;
+      }
       unshow(s.id);
       const hit = sv.hits.find((h) => h.index === i);
       if (hit && hit.state === "missing") {

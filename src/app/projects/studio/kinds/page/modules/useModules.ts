@@ -121,7 +121,13 @@ export function modulePending(changes: PageChange[], served: { changes: PageChan
       continue;
     }
     const html = (c as { html?: string }).html ?? "";
-    if (served?.changes.some((x) => x.id === c.id && (x as { html?: string }).html === html && !(x as { off?: string }).off)) continue;
+    // the server's picture has it: as it is now - nothing drawn; older - the newest drawn IN PLACE of the picture's, never
+    // beside it (13.11.2026, SARCLA: a module "added twice" on /en-INT/service)
+    const at = served ? served.changes.findIndex((x) => x.id === c.id && !(x as { off?: string }).off) : -1;
+    if (at >= 0) {
+      if ((served!.changes[at] as { html?: string }).html !== html && html) out.push({ key: `mod:${c.id}`, selector: "", where: "replace", change: at, html });
+      continue;
+    }
     out.push({ key: `mod:${c.id}`, selector: sel, where, html });
   }
   return out;
