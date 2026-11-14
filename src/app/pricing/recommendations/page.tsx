@@ -96,7 +96,7 @@ export default function RecommendationsPage() {
         subtitle="Data-driven pricing & stock signals — where to act, and why."
         rightSlot={
           <ToggleButtonGroup exclusive value={mandant} onChange={(_, v) => v && setMandant(v)}
-            sx={{ "& .MuiToggleButton-root": { px: 2, py: 0.7, fontSize: "0.8rem", fontWeight: 800, color: "#c5221f", borderColor: "#f3b0b6", "&.Mui-selected": { bgcolor: "#ed1b2f", color: "#fff", "&:hover": { bgcolor: "#c41527" } } } }}>
+            sx={{ "& .MuiToggleButton-root": { px: 2, py: 0.7, fontSize: "0.8rem", fontWeight: 800, color: "#c5221f", borderColor: "#f3b0b6", "&.Mui-selected": { bgcolor: "#c8463a", color: "#fff", "&:hover": { bgcolor: "#a8372c" } } } }}>
             <ToggleButton value="M100">M100 · CHF</ToggleButton>
             <ToggleButton value="M110">M110 · EUR</ToggleButton>
           </ToggleButtonGroup>
@@ -116,20 +116,20 @@ export default function RecommendationsPage() {
       {/* Type filter chips */}
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 2 }}>
         <Chip label={`All (${recos.length})`} onClick={() => setFilter("all")}
-          sx={{ fontWeight: 700, bgcolor: filter === "all" ? "#274e64" : "#eef0f3", color: filter === "all" ? "#fff" : "#5b6470" }} />
+          sx={{ fontWeight: 700, bgcolor: filter === "all" ? "#274e64" : "#eef2f8", color: filter === "all" ? "#fff" : "#5d6b85" }} />
         {(Object.keys(TYPE) as RecoType[]).map(t => (
           <Chip key={t} icon={TYPE[t].icon} label={`${TYPE[t].label} (${byType[t] || 0})`} onClick={() => setFilter(t)}
-            sx={{ fontWeight: 600, bgcolor: filter === t ? "#274e64" : "#eef0f3", color: filter === t ? "#fff" : "#5b6470", "& .MuiChip-icon": { color: filter === t ? "#fff" : "#5b6470" } }} />
+            sx={{ fontWeight: 600, bgcolor: filter === t ? "#274e64" : "#eef2f8", color: filter === t ? "#fff" : "#5d6b85", "& .MuiChip-icon": { color: filter === t ? "#fff" : "#5d6b85" } }} />
         ))}
       </Box>
 
       {loading && <LinearProgress sx={{ mb: 2, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#274e64" } }} />}
 
       {!loading && shown.length === 0 && (
-        <Card sx={{ border: "1px solid #e6e8ec" }}>
+        <Card sx={{ border: "1px solid #e4e9f1" }}>
           <CardContent sx={{ p: 5, textAlign: "center" }}>
-            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1a1d21", fontFamily: "var(--font-outfit), sans-serif", mb: 0.5 }}>No recommendations yet</Typography>
-            <Typography sx={{ fontSize: "0.82rem", color: "#5b6470", maxWidth: 520, mx: "auto" }}>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#15223a", fontFamily: "var(--font-outfit), sans-serif", mb: 0.5 }}>No recommendations yet</Typography>
+            <Typography sx={{ fontSize: "0.82rem", color: "#5d6b85", maxWidth: 520, mx: "auto" }}>
               Recommendations appear once products, competitor prices and matches are loaded. They surface where APSO is over/under-priced, competitor price moves between scrapes, and stock-coverage gaps.
             </Typography>
           </CardContent>
@@ -140,7 +140,7 @@ export default function RecommendationsPage() {
         {shown.map((r) => {
           const sev = SEV[r.severity];
           return (
-            <Card key={r.id} sx={{ border: "1px solid #e6e8ec", borderLeft: `4px solid ${sev.color}` }}>
+            <Card key={r.id} sx={{ border: "1px solid #e4e9f1", borderLeft: `4px solid ${sev.color}` }}>
               <CardContent sx={{ p: 2.25, "&:last-child": { pb: 2.25 } }}>
                 <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
                   <Box sx={{ width: 36, height: 36, borderRadius: 1, bgcolor: sev.bg, color: sev.color, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
@@ -148,13 +148,13 @@ export default function RecommendationsPage() {
                   </Box>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.4, flexWrap: "wrap" }}>
-                      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#1a1d21" }}>{r.title}</Typography>
+                      <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#15223a" }}>{r.title}</Typography>
                       <Chip label={sev.label} size="small" sx={{ height: 18, fontSize: "0.55rem", fontWeight: 700, bgcolor: sev.bg, color: sev.color }} />
                     </Box>
-                    <Typography sx={{ fontSize: "0.8rem", color: "#5b6470", lineHeight: 1.45 }}>{r.detail}</Typography>
+                    <Typography sx={{ fontSize: "0.8rem", color: "#5d6b85", lineHeight: 1.45 }}>{r.detail}</Typography>
                     {(r.material || r.competitor) && (
                       <Box sx={{ display: "flex", gap: 0.5, mt: 1 }}>
-                        {r.material && <Chip label={r.material.toUpperCase()} size="small" sx={{ height: 18, fontSize: "0.55rem", fontWeight: 600, bgcolor: "#eef0f3", color: "#274e64" }} />}
+                        {r.material && <Chip label={r.material.toUpperCase()} size="small" sx={{ height: 18, fontSize: "0.55rem", fontWeight: 600, bgcolor: "#eef2f8", color: "#274e64" }} />}
                         {r.competitor && <Chip label={r.competitor} size="small" sx={{ height: 18, fontSize: "0.55rem", fontWeight: 600, bgcolor: "#fdf3e2", color: "#9a5d00" }} />}
                       </Box>
                     )}

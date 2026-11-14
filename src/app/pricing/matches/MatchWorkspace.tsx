@@ -233,7 +233,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
   }, [stats, mode, f.fresh, f.tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = rows.find(r => r.id === openId) || null;
-  const head = { fontWeight: 700, fontSize: "0.66rem", color: "#5f6368", textTransform: "uppercase" as const, whiteSpace: "nowrap" as const, bgcolor: "#f8f9fa" };
+  const head = { fontWeight: 700, fontSize: "0.66rem", color: "#5d6b85", textTransform: "uppercase" as const, whiteSpace: "nowrap" as const, bgcolor: "#f5f7fb" };
   const COLS = 11;
 
   return (
@@ -246,7 +246,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
             <Button component={Link} href={mode === "pending" ? "/pricing/matches" : "/pricing/matches/pending"} variant="outlined" size="small"
               sx={{ textTransform: "none", fontWeight: 700, borderColor: NAVY, color: NAVY }}>{mode === "pending" ? "Match Overview" : "Pending Review"}</Button>
             <Button component={Link} href="/pricing/matches/logs" variant="outlined" size="small" startIcon={<HistoryIcon />}
-              sx={{ textTransform: "none", fontWeight: 700, borderColor: "#5f6368", color: "#5f6368" }}>Approval Logs</Button>
+              sx={{ textTransform: "none", fontWeight: 700, borderColor: "#5d6b85", color: "#5d6b85" }}>Approval Logs</Button>
             <MatchingSettings competitors={competitors} onChanged={(t, e) => { say(t, e); refresh(); }} />
           </Box>
         } />
@@ -258,11 +258,11 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
       {/* KPI funnel — follows every filter below */}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: `repeat(${cards.length}, 1fr)` }, gap: 1.25, mb: 2 }}>
         {cards.map(c => (
-          <Card key={c.label} onClick={c.onClick} sx={{ border: "1px solid #ececec", borderTop: `3px solid ${c.color}`, borderRadius: 2, cursor: c.onClick ? "pointer" : "default",
+          <Card key={c.label} onClick={c.onClick} sx={{ border: "1px solid #e4e9f1", borderTop: `3px solid ${c.color}`, borderRadius: 2, cursor: c.onClick ? "pointer" : "default",
             bgcolor: c.active ? "#f3f7fa" : "#fff", outline: c.active ? `2px solid ${c.color}` : "none", transition: "background 0.15s", "&:hover": c.onClick ? { bgcolor: "#f6f8fa" } : {} }}>
             <CardContent sx={{ p: 1.25, "&:last-child": { pb: 1.25 }, textAlign: "center" }}>
               <Typography sx={{ fontSize: c.small ? "0.95rem" : "1.25rem", fontWeight: 800, color: c.color, lineHeight: 1.3 }}>{c.value}</Typography>
-              <Typography sx={{ fontSize: "0.6rem", color: "#5f6368", fontWeight: 700, textTransform: "uppercase" }}>{c.label}</Typography>
+              <Typography sx={{ fontSize: "0.6rem", color: "#5d6b85", fontWeight: 700, textTransform: "uppercase" }}>{c.label}</Typography>
               {c.sub && <Typography sx={{ fontSize: "0.6rem", color: MUTED, mt: 0.2 }}>{c.sub}</Typography>}
             </CardContent>
           </Card>
@@ -270,7 +270,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
       </Box>
 
       {mode === "overview" && (
-        <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 2 }}>
+        <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2 }}>
           <Tabs value={f.tab} onChange={(_, v) => setF("tab", v)}
             sx={{ minHeight: 40, "& .MuiTab-root": { minHeight: 40, fontSize: "0.78rem", fontWeight: 700, textTransform: "none" } }}
             TabIndicatorProps={{ sx: { bgcolor: NAVY, height: 3 } }}>
@@ -323,7 +323,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
             <Button size="small" onClick={() => setSelected(new Set())} sx={{ textTransform: "none", color: MUTED }}>Clear selection</Button>
           </>
         ) : (
-          <Typography sx={{ fontSize: "0.7rem", color: "#9aa1ab" }}>Click a row for its detail · tick rows to decide several at once</Typography>
+          <Typography sx={{ fontSize: "0.7rem", color: "#8b97ac" }}>Click a row for its detail · tick rows to decide several at once</Typography>
         )}
         <Box sx={{ flex: 1 }} />
         {mode === "pending" && (
@@ -342,7 +342,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
         <DetailModeToggle mode={detailMode} onChange={setDetailMode} />
       </Box>
 
-      <Card sx={{ border: "1px solid #ececec", borderRadius: 2 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 2 }}>
         {loading && <LinearProgress sx={{ height: 2, "& .MuiLinearProgress-bar": { bgcolor: NAVY } }} />}
         <TableContainer sx={{ maxHeight: "70vh" }}>
           <Table size="small" stickyHeader>
@@ -379,7 +379,7 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
                       <TableCell><ConfidenceCell m={m} /></TableCell>
                       <TableCell sx={{ maxWidth: 260 }}>
                         <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: NAVY }}>{a.article_number}</Typography>
-                        <Typography sx={{ fontSize: "0.68rem", color: "#3c4043", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description}</Typography>
+                        <Typography sx={{ fontSize: "0.68rem", color: "#4a5a70", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description}</Typography>
                       </TableCell>
                       <TableCell>
                         <Chip label={(a.material || "—").toUpperCase().replace(/_/g, "-")} size="small" sx={{ fontSize: "0.58rem", height: 18, fontWeight: 700 }} />
@@ -390,15 +390,15 @@ export default function MatchWorkspace({ mode }: { mode: Mode }) {
                           <Chip label={m.competitor_name} size="small" sx={{ fontSize: "0.58rem", height: 18, fontWeight: 700, bgcolor: "#fef7e0", color: "#854d0e" }} />
                           <Typography sx={{ fontSize: "0.64rem", fontFamily: "monospace", color: MUTED }}>{m.competitor_product.external_ref}</Typography>
                         </Box>
-                        <Typography sx={{ fontSize: "0.68rem", color: "#3c4043", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.competitor_product.product_name}</Typography>
+                        <Typography sx={{ fontSize: "0.68rem", color: "#4a5a70", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.competitor_product.product_name}</Typography>
                       </TableCell>
                       <TableCell align="right">
                         <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700 }}>{ap?.perPiece != null ? fmtMoney(ap.perPiece) : "—"}</Typography>
-                        {ap && <Typography sx={{ fontSize: "0.56rem", fontWeight: 800, whiteSpace: "nowrap", color: ap.fallback ? "#c77700" : "#9aa1ab" }}>{ap.mandant} · {ap.ccy}/{ap.unit}</Typography>}
+                        {ap && <Typography sx={{ fontSize: "0.56rem", fontWeight: 800, whiteSpace: "nowrap", color: ap.fallback ? "#c77700" : "#8b97ac" }}>{ap.mandant} · {ap.ccy}/{ap.unit}</Typography>}
                       </TableCell>
                       <TableCell align="right">
                         <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: NAVY }}>{c1 != null ? fmtMoney(c1) : "—"}</Typography>
-                        {c1 != null && <Typography sx={{ fontSize: "0.56rem", fontWeight: 800, whiteSpace: "nowrap", color: ct.converted ? "#9aa1ab" : "#c77700" }}>{m.competitor_currency}/{ct.converted ? ap?.unit || "unit" : ct.unitRaw || "own unit"}</Typography>}
+                        {c1 != null && <Typography sx={{ fontSize: "0.56rem", fontWeight: 800, whiteSpace: "nowrap", color: ct.converted ? "#8b97ac" : "#c77700" }}>{m.competitor_currency}/{ct.converted ? ap?.unit || "unit" : ct.unitRaw || "own unit"}</Typography>}
                       </TableCell>
                       <TableCell align="right"><DiffChip d={priceDiff(m)} /></TableCell>
                       <TableCell><ArrivalChips m={m} /></TableCell>

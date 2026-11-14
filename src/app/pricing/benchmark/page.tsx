@@ -102,7 +102,7 @@ const PRICE_SETS = [
   { key: "comp_platinum", label: "Platinum", color: "#dc2626", bg: "#fef2f2" },
 ];
 
-function pc(v: number | null | undefined): string { if (v == null) return "#dadce0"; if (v <= -0.1) return "#2e7d32"; if (v <= 0.02) return "#ff9800"; return "#c62828"; }
+function pc(v: number | null | undefined): string { if (v == null) return "#dfe5ee"; if (v <= -0.1) return "#2e7d32"; if (v <= 0.02) return "#ff9800"; return "#c62828"; }
 function pb(v: number | null | undefined): string { if (v == null) return "transparent"; if (v <= -0.1) return "#e8f5e9"; if (v <= 0.02) return "#fff3e0"; return "#ffebee"; }
 function fp(v: number | null | undefined): string { if (v == null) return "—"; return `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`; }
 function fv(v: string | number | null): string { if (v == null || v === "") return "—"; const n = typeof v === "string" ? parseFloat(v) : v; return isNaN(n) ? "—" : n.toFixed(2); }
@@ -117,11 +117,11 @@ function fmtDate(d: string | null | undefined): string {
 // How old is a price: grey under three months, dark grey to six, orange beyond — so a year-old
 // number never sits on the page looking like this morning's.
 function ageColor(d: string | null | undefined): string {
-  if (!d) return "#bdc1c6";
+  if (!d) return "#b5bfcf";
   const t = Date.parse(d);
-  if (!Number.isFinite(t)) return "#bdc1c6";
+  if (!Number.isFinite(t)) return "#b5bfcf";
   const months = (Date.now() - t) / (1000 * 60 * 60 * 24 * 30.44);
-  return months >= 6 ? "#e65100" : months >= 3 ? "#5f6368" : "#9aa1ab";
+  return months >= 6 ? "#e65100" : months >= 3 ? "#5d6b85" : "#8b97ac";
 }
 // Per competitor cell: where the match comes from and how sure it is.
 function sourceChip(m: CompMatch): { label: string; bg: string; fg: string; tip: string } {
@@ -137,7 +137,7 @@ function sourceChip(m: CompMatch): { label: string; bg: string; fg: string; tip:
 // labelled with its confidence. Grey: nothing matched, the row has no competitor price at all.
 function matchQuality(row: Row, comps: Comp[]): { label: string; bg: string; fg: string; detail: string } {
   const ms = comps.map(c => row.competitors?.[c.code]).filter(Boolean) as CompMatch[];
-  if (!ms.length) return { label: "no match", bg: "#f1f3f4", fg: "#80868b", detail: "No competitor matched to this article" };
+  if (!ms.length) return { label: "no match", bg: "#eef2f8", fg: "#8b97ac", detail: "No competitor matched to this article" };
   const pending = ms.filter(m => m.match_source === "auto_pending");
   const lines = ms.map(m => `${m.ref ?? "?"} · ${m.match_source === "xref" ? "cross-reference file" : m.match_source === "auto_approved" ? "approved" : `pending ${m.confidence ?? "?"}%`}`);
   if (!pending.length) return { label: "100%", bg: "#e8f5e9", fg: "#2e7d32", detail: `All ${ms.length} matched and confirmed\n${lines.join("\n")}` };
@@ -378,13 +378,13 @@ export default function BenchmarkPage() {
     <Box>
       <PageHeader icon="benchmark" eyebrow="Pricing Intelligence" title="Benchmark Table" subtitle={`${mandant} — ${comps.map(c => c.name).join(", ") || "Loading..."}`}
         rightSlot={<Button variant="contained" startIcon={exporting ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <FileDownloadIcon />} disabled={exporting || total === 0} onClick={() => setExportOpen(true)}
-          sx={{ bgcolor: "#ed1b2f", color: "#fff", boxShadow: "none", fontWeight: 700,
-            "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>
+          sx={{ bgcolor: "#c8463a", color: "#fff", boxShadow: "none", fontWeight: 700,
+            "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>
           {exporting ? "Exporting..." : "Export Excel"}
         </Button>} />
 
       {/* Filters */}
-      <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 2 }}>
+      <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2 }}>
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <SearchFilter value={search} onChange={(v) => { setSearch(v); setPage(0); }} />
@@ -409,9 +409,9 @@ export default function BenchmarkPage() {
 
           {/* Match source filter */}
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#5f6368" }}>Match from:</Typography>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 600, color: "#5d6b85" }}>Match from:</Typography>
             {[
-              { value: "", label: "All sources (incl. pending)", bg: "#ed1b2f", color: "#fff" },
+              { value: "", label: "All sources (incl. pending)", bg: "#c8463a", color: "#fff" },
               { value: "xref", label: "Excel file (Cross-Reference)", bg: "#e8f0f4", color: "#274e64" },
               { value: "approved", label: "Approved only", bg: "#e8f5e9", color: "#1b5e20" },
               { value: "auto", label: "AI Matching (all ≥70%)", bg: "#fff3e0", color: "#e65100" },
@@ -420,8 +420,8 @@ export default function BenchmarkPage() {
                 onClick={() => { setFMatchSource(opt.value); setPage(0); }}
                 sx={{
                   cursor: "pointer", fontSize: "0.72rem", height: 28, fontWeight: fMatchSource === opt.value ? 700 : 500,
-                  bgcolor: fMatchSource === opt.value ? opt.bg : "#f1f3f4",
-                  color: fMatchSource === opt.value ? opt.color : "#3c4043",
+                  bgcolor: fMatchSource === opt.value ? opt.bg : "#eef2f8",
+                  color: fMatchSource === opt.value ? opt.color : "#4a5a70",
                   border: fMatchSource === opt.value ? `1px solid ${opt.bg}` : "1px solid transparent",
                 }} />
             ))}
@@ -431,15 +431,15 @@ export default function BenchmarkPage() {
 
       {/* Price set selector — multi-select to compare multiple sets at once */}
       <Box sx={{ display: "flex", gap: 1, mb: 1, alignItems: "center", px: 0.5, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#5f6368" }}>Compare:</Typography>
+        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#5d6b85" }}>Compare:</Typography>
         {PRICE_SETS.map(ps => {
           const active = priceSets.has(ps.key);
           return (
             <Chip key={ps.key} label={ps.label} onClick={() => togglePriceSet(ps.key)}
               sx={{ cursor: "pointer", fontSize: "0.82rem", height: 34, px: 2,
                 fontWeight: active ? 700 : 500,
-                bgcolor: active ? ps.bg : "#f1f3f4",
-                color: active ? ps.color : "#5f6368",
+                bgcolor: active ? ps.bg : "#eef2f8",
+                color: active ? ps.color : "#5d6b85",
                 border: active ? `2px solid ${ps.color}` : "1px solid transparent" }} />
           );
         })}
@@ -447,7 +447,7 @@ export default function BenchmarkPage() {
 
       {/* Competitor selector */}
       <Box sx={{ display: "flex", gap: 1, mb: 1.5, alignItems: "center", px: 0.5, flexWrap: "wrap" }}>
-        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#5f6368" }}>Competitors:</Typography>
+        <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#5d6b85" }}>Competitors:</Typography>
         {comps.map(c => {
           const isVis = visibleComps === null || visibleComps.has(c.code);
           return (
@@ -464,7 +464,7 @@ export default function BenchmarkPage() {
                   const n = new Set(visibleComps); n.add(c.code); setVisibleComps(n);
                 }
               }}
-              sx={{ cursor: "pointer", fontSize: "0.75rem", height: 30, fontWeight: isVis ? 700 : 400, bgcolor: isVis ? "#ed1b2f" : "#f1f3f4", color: isVis ? "#fff" : "#9e9e9e", textDecoration: isVis ? "none" : "line-through", "&:hover": { bgcolor: isVis ? "#c41527" : "#e8eaed" } }} />
+              sx={{ cursor: "pointer", fontSize: "0.75rem", height: 30, fontWeight: isVis ? 700 : 400, bgcolor: isVis ? "#c8463a" : "#eef2f8", color: isVis ? "#fff" : "#9e9e9e", textDecoration: isVis ? "none" : "line-through", "&:hover": { bgcolor: isVis ? "#a8372c" : "#e8eaed" } }} />
           );
         })}
         {visibleComps !== null && (
@@ -495,7 +495,7 @@ export default function BenchmarkPage() {
       {loading && <LinearProgress sx={{ mb: 1, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#274e64" } }} />}
 
       {/* Table */}
-      <Card sx={{ border: "1px solid #ececec", borderRadius: 0 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 0 }}>
         <CardContent sx={{ p: 0 }}>
           <TopScroll><TableContainer sx={{ overflowX: "visible", overflowY: "auto", maxHeight: "72vh" }}>
             <Table size="small" stickyHeader sx={{ minWidth: 900 + comps.length * (TIERS.length + (expandedComps.size > 0 ? TIERS.length : 0)) * 55 }}>
@@ -535,7 +535,7 @@ export default function BenchmarkPage() {
                 </TableRow>
                 {/* Row 2: Column headers */}
                 <TableRow>
-                  <TableCell sx={{ bgcolor: "#f8f9fa", width: 36, p: 0 }} />
+                  <TableCell sx={{ bgcolor: "#f5f7fb", width: 36, p: 0 }} />
                   {[
                     { id: "article_number", label: "Article" },
                     { id: "description", label: "Description" },
@@ -544,13 +544,13 @@ export default function BenchmarkPage() {
                     { id: "sales_unit", label: "Unit" },
                     { id: "match", label: "Match" },
                   ].map((col, i) => (
-                    <TableCell key={col.id} sx={{ bgcolor: "#f8f9fa", fontWeight: 700, fontSize: "0.72rem", color: "#5f6368", whiteSpace: "nowrap", borderRight: i === 5 ? "2px solid #ececec" : undefined }}>
+                    <TableCell key={col.id} sx={{ bgcolor: "#f5f7fb", fontWeight: 700, fontSize: "0.72rem", color: "#5d6b85", whiteSpace: "nowrap", borderRight: i === 5 ? "2px solid #e4e9f1" : undefined }}>
                       <TableSortLabel active={sortCol === col.id} direction={sortCol === col.id ? sortDir : "asc"} onClick={() => sort(col.id)}>{col.label}</TableSortLabel>
                     </TableCell>
                   ))}
                   {/* APSO price = each shown set's quantity-scaled prices (1/5/10/25/50). */}
                   {apsoSets.map((ps) => TIERS.map((t, i) => (
-                    <TableCell key={`apso-h-${ps.key}-${t}`} align="right" sx={{ bgcolor: ps.bg, fontWeight: 700, fontSize: "0.7rem", color: ps.color, whiteSpace: "nowrap", borderLeft: i === 0 && apsoSets.length > 1 ? `1px dashed ${ps.color}` : undefined, borderRight: i === TIERS.length - 1 ? "2px solid #ececec" : undefined }}>
+                    <TableCell key={`apso-h-${ps.key}-${t}`} align="right" sx={{ bgcolor: ps.bg, fontWeight: 700, fontSize: "0.7rem", color: ps.color, whiteSpace: "nowrap", borderLeft: i === 0 && apsoSets.length > 1 ? `1px dashed ${ps.color}` : undefined, borderRight: i === TIERS.length - 1 ? "2px solid #e4e9f1" : undefined }}>
                       {t}+
                     </TableCell>
                   )))}
@@ -559,7 +559,7 @@ export default function BenchmarkPage() {
                     const isExp = expandedComps.has(c.code);
                     return (
                       <React.Fragment key={c.code}>
-                        <TableCell sx={{ bgcolor: "#f8f9fa", fontWeight: 600, fontSize: "0.5rem", color: "#5f6368", whiteSpace: "nowrap" }}>Match Ref</TableCell>
+                        <TableCell sx={{ bgcolor: "#f5f7fb", fontWeight: 600, fontSize: "0.5rem", color: "#5d6b85", whiteSpace: "nowrap" }}>Match Ref</TableCell>
                         {isExp && TIERS.map(t => (
                           <TableCell key={`${c.code}-p-${t}`} sx={{ bgcolor: "#f0fdf4", fontWeight: 600, fontSize: "0.5rem", color: "#2e7d32", textAlign: "right", whiteSpace: "nowrap" }}>{t}+</TableCell>
                         ))}
@@ -569,7 +569,7 @@ export default function BenchmarkPage() {
                             <TableCell key={`${c.code}-${ps.key}-${t}`}
                               sx={{ bgcolor: ps.bg, fontWeight: 600, fontSize: "0.5rem", color: ps.color, textAlign: "right", whiteSpace: "nowrap",
                                 borderLeft: ti === 0 ? `1px dashed ${ps.color}` : undefined,
-                                borderRight: isLast && ci < shownComps.length - 1 ? "2px solid #ececec" : undefined }}>
+                                borderRight: isLast && ci < shownComps.length - 1 ? "2px solid #e4e9f1" : undefined }}>
                               {ti === 0 && <Box sx={{ fontSize: "0.5rem", fontWeight: 700, mb: 0.2, textTransform: "uppercase" }}>{ps.label}</Box>}
                               {t}
                             </TableCell>
@@ -582,16 +582,16 @@ export default function BenchmarkPage() {
               </TableHead>
               <TableBody>
                 {data.length === 0 && !loading && (
-                  <TableRow><TableCell colSpan={100} align="center" sx={{ py: 6, color: "#5f6368" }}>No cross-referenced products found for {mandant}.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={100} align="center" sx={{ py: 6, color: "#5d6b85" }}>No cross-referenced products found for {mandant}.</TableCell></TableRow>
                 )}
                 {sorted(data).map((row, ri, arr) => {
-                  const bg = ri % 2 === 1 ? "#f8f9fa" : "#fff";
+                  const bg = ri % 2 === 1 ? "#f5f7fb" : "#fff";
                   const isExp = expandedRow === row.id;
                   return (
                     <React.Fragment key={row.id}>
                     <TableRow hover sx={{ cursor: "pointer" }} onClick={() => setExpandedRow(isExp ? null : row.id)}>
                       <TableCell sx={{ p: 0.5, width: 36, bgcolor: bg }}>
-                        <IconButton size="small" sx={{ color: isExp ? "#274e64" : "#bdc1c6" }}>
+                        <IconButton size="small" sx={{ color: isExp ? "#274e64" : "#b5bfcf" }}>
                           {isExp ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
                         </IconButton>
                       </TableCell>
@@ -599,8 +599,8 @@ export default function BenchmarkPage() {
                       <TableCell sx={{ bgcolor: bg }}><Tooltip title={row.description || ""} arrow><Typography sx={{ fontSize: "0.75rem", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.product_description || row.description || "—"}</Typography></Tooltip></TableCell>
                       <TableCell sx={{ bgcolor: bg }}><Chip label={(row.material_normalized || "—").toUpperCase()} size="small" sx={{ fontSize: "0.5rem", height: 16 }} /></TableCell>
                       <TableCell sx={{ bgcolor: bg }}><Typography sx={{ fontSize: "0.78rem" }}>{row.diameter ?? "—"}</Typography></TableCell>
-                      <TableCell sx={{ bgcolor: bg }}><Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{row.sales_unit || row.unit || "—"}</Typography></TableCell>
-                      <TableCell sx={{ bgcolor: bg, borderRight: "2px solid #ececec" }}>{(() => {
+                      <TableCell sx={{ bgcolor: bg }}><Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{row.sales_unit || row.unit || "—"}</Typography></TableCell>
+                      <TableCell sx={{ bgcolor: bg, borderRight: "2px solid #e4e9f1" }}>{(() => {
                         const q = matchQuality(row, shownComps);
                         return (
                           <Tooltip title={q.detail} arrow>
@@ -617,7 +617,7 @@ export default function BenchmarkPage() {
                           ? `Listed price${low ? ` · ERP scale from ${low.qty} ${row.sales_unit || row.unit || ""}: ${fv(low.price)} (applied from 5+)` : ""}`
                           : "";
                         return (
-                          <TableCell key={`apso-b-${ps.key}-${t}`} align="right" sx={{ bgcolor: ps.bg, borderLeft: i === 0 && apsoSets.length > 1 ? `1px dashed ${ps.color}` : undefined, borderRight: i === TIERS.length - 1 ? "2px solid #ececec" : undefined }}>
+                          <TableCell key={`apso-b-${ps.key}-${t}`} align="right" sx={{ bgcolor: ps.bg, borderLeft: i === 0 && apsoSets.length > 1 ? `1px dashed ${ps.color}` : undefined, borderRight: i === TIERS.length - 1 ? "2px solid #e4e9f1" : undefined }}>
                             <Tooltip title={tip} arrow disableHoverListener={!tip}>
                               <Typography sx={{ fontSize: "0.78rem", fontFamily: "monospace", fontWeight: 600, color: ps.color }}>{fv(v)}</Typography>
                             </Tooltip>
@@ -634,7 +634,7 @@ export default function BenchmarkPage() {
                             {/* Match ref, with how old the price is */}
                             <TableCell sx={{ bgcolor: bg }}>
                               <Tooltip title={m?.name || "No match"} arrow>
-                                <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: m?.ref ? "#274e64" : "#dadce0", fontWeight: 600, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: m?.ref ? "#274e64" : "#dfe5ee", fontWeight: 600, maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {m?.ref || "—"}
                                 </Typography>
                               </Tooltip>
@@ -657,9 +657,9 @@ export default function BenchmarkPage() {
                             {isExp && TIERS.map(t => (
                               <TableCell key={`${c.code}-p-${t}`} align="right" sx={{ bgcolor: "#f0fdf4" }}>
                                 <Tooltip title={m ? `${m.name} (${m.ref})${m.price_date ? ` · price of ${fmtDate(m.price_date)}` : ""}${m.unit ? ` · per ${m.unit}${m.converted ? " (converted to our unit)" : " (competitor's own unit!)"}` : ""}` : "No match"} arrow>
-                                  <Typography sx={{ fontSize: "0.75rem", fontFamily: "monospace", fontWeight: 500, color: m?.prices?.[t] ? "#2e7d32" : "#dadce0" }}>
+                                  <Typography sx={{ fontSize: "0.75rem", fontFamily: "monospace", fontWeight: 500, color: m?.prices?.[t] ? "#2e7d32" : "#dfe5ee" }}>
                                     {m?.prices?.[t] ? fv(m.prices[t]) : "—"}
-                                    {m?.prices?.[t] != null && m?.unit && <Box component="span" sx={{ fontSize: "0.58rem", fontWeight: 700, color: m.converted ? "#9aa1ab" : "#e65100" }}> /{m.unit}</Box>}
+                                    {m?.prices?.[t] != null && m?.unit && <Box component="span" sx={{ fontSize: "0.58rem", fontWeight: 700, color: m.converted ? "#8b97ac" : "#e65100" }}> /{m.unit}</Box>}
                                   </Typography>
                                 </Tooltip>
                               </TableCell>
@@ -673,7 +673,7 @@ export default function BenchmarkPage() {
                                   <TableCell key={`${c.code}-${ps.key}-${t}`} align="right"
                                     sx={{ bgcolor: pb(v),
                                       borderLeft: ti === 0 ? `1px dashed ${ps.color}` : undefined,
-                                      borderRight: isLast && ci < shownComps.length - 1 ? "2px solid #ececec" : undefined }}>
+                                      borderRight: isLast && ci < shownComps.length - 1 ? "2px solid #e4e9f1" : undefined }}>
                                     <Typography sx={{ fontSize: "0.75rem", fontFamily: "monospace", fontWeight: 700, color: pc(v) }}>{fp(v)}</Typography>
                                   </TableCell>
                                 );
@@ -714,8 +714,8 @@ export default function BenchmarkPage() {
                                     ["Stock", row.stock],
                                   ].map(([l, v]) => (
                                     <Box key={String(l)} sx={{ display: "flex", justifyContent: "space-between", py: 0.4, borderBottom: "1px solid #f0f0f0" }}>
-                                      <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>{l}</Typography>
-                                      <Typography sx={{ fontSize: "0.75rem", color: "#1f1f1f", fontWeight: 500 }}>{v ?? "—"}</Typography>
+                                      <Typography sx={{ fontSize: "0.75rem", color: "#5d6b85" }}>{l}</Typography>
+                                      <Typography sx={{ fontSize: "0.75rem", color: "#15223a", fontWeight: 500 }}>{v ?? "—"}</Typography>
                                     </Box>
                                   ))}
                                 </CardContent>
@@ -739,7 +739,7 @@ export default function BenchmarkPage() {
                                     </Box>
                                   ))}
                                   {Number(row.price_basis_qty) > 1 && (
-                                    <Typography sx={{ fontSize: "0.68rem", color: "#5f6368", mt: 0.5 }}>
+                                    <Typography sx={{ fontSize: "0.68rem", color: "#5d6b85", mt: 0.5 }}>
                                       ERP price per {Number(row.price_basis_qty)} pcs: {fv(row.listprice)}
                                     </Typography>
                                   )}
@@ -766,19 +766,19 @@ export default function BenchmarkPage() {
                                     return (
                                       <Box key={c.code} sx={{ mb: 1.5 }}>
                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.5 }}>
-                                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: m?.ref ? "#34a853" : "#dadce0" }} />
-                                          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#1f1f1f" }}>{c.name}</Typography>
+                                          <Box sx={{ width: 8, height: 8, borderRadius: "50%", bgcolor: m?.ref ? "#34a853" : "#dfe5ee" }} />
+                                          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#15223a" }}>{c.name}</Typography>
                                         </Box>
                                         {m?.ref ? (
                                           <>
                                             <Box sx={{ pl: 2 }}>
-                                              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>
+                                              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
                                                 Ref: <strong style={{ color: "#274e64", fontFamily: "monospace" }}>{m.ref}</strong>
                                               </Typography>
-                                              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>
+                                              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
                                                 Product: {m.name || "—"}
                                               </Typography>
-                                              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>
+                                              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
                                                 Match:{" "}
                                                 {m.match_source === "xref" ? (
                                                   <><Chip label="Cross-reference" size="small" sx={{ height: 18, fontSize: "0.6rem", bgcolor: "#e8f5e9", color: "#2e7d32", fontWeight: 600 }} /> from Benchmark Excel</>
@@ -788,7 +788,7 @@ export default function BenchmarkPage() {
                                                   <><Chip label={`AI pending · ${m.confidence ?? "?"}%`} size="small" sx={{ height: 18, fontSize: "0.6rem", bgcolor: "#fff3e0", color: "#e65100", fontWeight: 600 }} /> — requires review</>
                                                 )}
                                               </Typography>
-                                              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>
+                                              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
                                                 Price date: <strong style={{ color: ageColor(m.price_date) }}>{fmtDate(m.price_date)}</strong>
                                                 {m.unit && (
                                                   <> · per <strong style={{ color: m.converted ? "#2e7d32" : "#e65100" }}>{m.unit}</strong>{m.converted ? " (our unit)" : " — competitor's own unit, not comparable!"}</>
@@ -809,7 +809,7 @@ export default function BenchmarkPage() {
                                             </Box>
                                           </>
                                         ) : (
-                                          <Typography sx={{ pl: 2, fontSize: "0.72rem", color: "#dadce0" }}>No match</Typography>
+                                          <Typography sx={{ pl: 2, fontSize: "0.72rem", color: "#dfe5ee" }}>No match</Typography>
                                         )}
                                       </Box>
                                     );
@@ -825,41 +825,41 @@ export default function BenchmarkPage() {
                               <Card variant="outlined" sx={{ borderRadius: 3, gridColumn: { xs: "1", md: "1 / -1" } }}>
                                 <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                                   <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: "#274e64", textTransform: "uppercase", mb: 1 }}>
-                                    Price change log <Box component="span" sx={{ color: "#9aa0a6", textTransform: "none", fontWeight: 500 }}>— every recorded move of the matched competitor prices (tier 1)</Box>
+                                    Price change log <Box component="span" sx={{ color: "#8b97ac", textTransform: "none", fontWeight: 500 }}>— every recorded move of the matched competitor prices (tier 1)</Box>
                                   </Typography>
                                   {!histCache[row.id] ? (
-                                    <Typography sx={{ fontSize: "0.74rem", color: "#9aa0a6" }}>Loading price history…</Typography>
+                                    <Typography sx={{ fontSize: "0.74rem", color: "#8b97ac" }}>Loading price history…</Typography>
                                   ) : histCache[row.id].length === 0 ? (
-                                    <Typography sx={{ fontSize: "0.74rem", color: "#9aa0a6" }}>No price history recorded for the matched competitor products yet.</Typography>
+                                    <Typography sx={{ fontSize: "0.74rem", color: "#8b97ac" }}>No price history recorded for the matched competitor products yet.</Typography>
                                   ) : (
                                     <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
                                       {histCache[row.id].map(h => (
-                                        <Box key={h.code} sx={{ flex: "1 1 260px", minWidth: 240, border: "1px solid #eef0f3", borderRadius: 2, p: 1.25 }}>
+                                        <Box key={h.code} sx={{ flex: "1 1 260px", minWidth: 240, border: "1px solid #eef2f8", borderRadius: 2, p: 1.25 }}>
                                           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                                             <Typography sx={{ fontSize: "0.78rem", fontWeight: 800 }}>{h.name}</Typography>
-                                            <Typography sx={{ fontSize: "0.64rem", fontFamily: "monospace", color: "#9aa0a6" }}>{h.ref}</Typography>
+                                            <Typography sx={{ fontSize: "0.64rem", fontFamily: "monospace", color: "#8b97ac" }}>{h.ref}</Typography>
                                           </Box>
-                                          <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>
+                                          <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85" }}>
                                             Last change: {h.last_change
                                               ? <><b>{fmtDate(h.last_change.d)}</b> · {fv(h.last_change.from)} → <b>{fv(h.last_change.to)}</b> <Box component="span" sx={{ fontWeight: 800, color: h.last_change.pct > 0 ? "#c62828" : "#2e7d32" }}>({h.last_change.pct > 0 ? "+" : ""}{h.last_change.pct}%)</Box></>
                                               : "no change since first record"}
                                           </Typography>
                                           {h.max_change && h.changes.length > 1 && (
-                                            <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>
+                                            <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85" }}>
                                               Max move: <b>{fmtDate(h.max_change.d)}</b> · <Box component="span" sx={{ fontWeight: 800, color: h.max_change.pct > 0 ? "#c62828" : "#2e7d32" }}>{h.max_change.pct > 0 ? "+" : ""}{h.max_change.pct}%</Box>
                                             </Typography>
                                           )}
                                           {h.changes.length > 0 && (
                                             <Box sx={{ mt: 0.5, display: "flex", flexDirection: "column", gap: 0.25, maxHeight: 120, overflowY: "auto" }}>
                                               {h.changes.slice().reverse().map((cg, i) => (
-                                                <Typography key={i} sx={{ fontSize: "0.66rem", fontFamily: "monospace", color: "#5f6368" }}>
+                                                <Typography key={i} sx={{ fontSize: "0.66rem", fontFamily: "monospace", color: "#5d6b85" }}>
                                                   {fmtDate(cg.d)}  {fv(cg.from)} → {fv(cg.to)}  <Box component="span" sx={{ fontWeight: 700, color: cg.pct > 0 ? "#c62828" : "#2e7d32" }}>{cg.pct > 0 ? "+" : ""}{cg.pct}%</Box>
                                                 </Typography>
                                               ))}
                                             </Box>
                                           )}
                                           {h.first && h.latest && (
-                                            <Typography sx={{ fontSize: "0.62rem", color: "#9aa0a6", mt: 0.5 }}>
+                                            <Typography sx={{ fontSize: "0.62rem", color: "#8b97ac", mt: 0.5 }}>
                                               tracked {fmtDate(h.first.d)} → {fmtDate(h.latest.d)} · latest {fv(h.latest.price)}
                                             </Typography>
                                           )}
@@ -901,7 +901,7 @@ export default function BenchmarkPage() {
             onChange={(e) => setInject(v => ({ ...v, note: e.target.value }))} helperText="Stored as a 'manual' source entry — visible in this table and the charts" />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setInject(v => ({ ...v, open: false }))} disabled={injectBusy} sx={{ color: "#5f6368" }}>Cancel</Button>
+          <Button onClick={() => setInject(v => ({ ...v, open: false }))} disabled={injectBusy} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button variant="contained" disabled={injectBusy || !(parseFloat(inject.price) > 0)} startIcon={<AddIcon />}
             onClick={async () => {
               if (!inject.row) return;
@@ -937,11 +937,11 @@ export default function BenchmarkPage() {
             .map(o => (
               <Box key={o.s} onClick={() => handleExport(o.s)} sx={{ p: 2.5, display: "flex", alignItems: "center", gap: 2, cursor: "pointer", borderBottom: "1px solid #f5f5f5", "&:hover": { bgcolor: o.bg } }}>
                 <Box sx={{ width: 44, height: 44, borderRadius: 2.5, bgcolor: o.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>{o.icon}</Box>
-                <Box><Typography sx={{ fontWeight: 700, fontSize: "0.9rem" }}>{o.t}</Typography><Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{o.d}</Typography></Box>
+                <Box><Typography sx={{ fontWeight: 700, fontSize: "0.9rem" }}>{o.t}</Typography><Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{o.d}</Typography></Box>
               </Box>
             ))}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}><Button onClick={() => setExportOpen(false)} sx={{ color: "#5f6368" }}>Cancel</Button></DialogActions>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}><Button onClick={() => setExportOpen(false)} sx={{ color: "#5d6b85" }}>Cancel</Button></DialogActions>
       </Dialog>
     </Box>
   );

@@ -54,7 +54,7 @@ const MARKET_COLORS: Record<string, { bg: string; color: string }> = {
 
 const BU_COLORS: Record<string, { bg: string; color: string; border: string }> = {
   KT: { bg: "#e8f0f4", color: "#274e64", border: "#274e64" },
-  DT: { bg: "#fef2f2", color: "#dc2626", border: "#ed1b2f" },
+  DT: { bg: "#fef2f2", color: "#dc2626", border: "#c8463a" },
 };
 
 // ── Auto-scraping (monthly, first weekend) ──────────────────────────────────────────────
@@ -89,16 +89,16 @@ function AutoScrapeCard() {
   };
   if (!st) return null;
   const results = st.running?.results || st.last_sequence?.results?.codes || {};
-  const tone = (x: string) => x.startsWith("completed") ? "#2e7d32" : x.startsWith("running") ? "#e65100" : x.startsWith("failed") ? "#c62828" : "#5f6368";
+  const tone = (x: string) => x.startsWith("completed") ? "#2e7d32" : x.startsWith("running") ? "#e65100" : x.startsWith("failed") ? "#c62828" : "#5d6b85";
   const when = (iso: string) => new Date(iso).toLocaleString();
   return (
-    <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 4 }}>
+    <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 4 }}>
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 2, flexWrap: "wrap" }}>
-          <ScheduleIcon sx={{ color: "#ed1b2f" }} />
+          <ScheduleIcon sx={{ color: "#c8463a" }} />
           <Box sx={{ maxWidth: 720 }}>
             <Typography sx={{ fontWeight: 800, fontSize: 15 }}>Auto-scraping — first weekend of each month</Typography>
-            <Typography sx={{ fontSize: 12.5, color: "#5f6368" }}>
+            <Typography sx={{ fontSize: 12.5, color: "#5d6b85" }}>
               Refreshes every competitor that has an adapter on the first Saturday at {String(st.settings.hour).padStart(2, "0")}:00 ({st.settings.timezone});
               Sunday only re-runs what did not finish. Two lanes (static shops / browser-driven shops), each one scrape at a time; runs are resumable,
               so a crash costs a pause, not a restart. Matching is re-run for the scraped competitors afterwards. Thyssen and Reiff are excluded (no adapter).
@@ -118,7 +118,7 @@ function AutoScrapeCard() {
             </Button>
           )}
         </Box>
-        <Box sx={{ display: "flex", gap: 3, mt: 1.5, flexWrap: "wrap", fontSize: 12.5, color: "#3c4043" }}>
+        <Box sx={{ display: "flex", gap: 3, mt: 1.5, flexWrap: "wrap", fontSize: 12.5, color: "#4a5a70" }}>
           <span>Next run: <b>{st.settings.enabled && st.next_run ? st.next_run : "—"}</b></span>
           {st.running && <span>Running #{st.running.id} ({st.running.trigger}) since {when(st.running.started_at)} — {st.running.phase}</span>}
           {!st.running && st.last_sequence && (
@@ -134,7 +134,7 @@ function AutoScrapeCard() {
           <Box sx={{ display: "flex", gap: 0.75, mt: 1.25, flexWrap: "wrap" }}>
             {Object.entries(results).map(([code, r]) => (
               <Chip key={code} size="small" label={`${code}: ${r.status}${r.products_found ? ` · ${r.products_found.toLocaleString()}` : ""}${r.attempts > 1 ? ` (try ${r.attempts})` : ""}`}
-                sx={{ bgcolor: "#f1f3f4", color: tone(r.status), fontWeight: 600 }} />
+                sx={{ bgcolor: "#eef2f8", color: tone(r.status), fontWeight: 600 }} />
             ))}
           </Box>
         )}
@@ -307,10 +307,10 @@ export default function CompetitorsPage() {
       <AutoScrapeCard />
 
       {/* Filter Bar */}
-      <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 4 }}>
+      <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 4 }}>
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap", mb: 1 }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5f6368", minWidth: 70 }}>Market:</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5d6b85", minWidth: 70 }}>Market:</Typography>
             {[{ label: "All", value: "" }, ...markets.map(m => ({ label: m, value: m }))].map(opt => {
               const active = filterMarket === opt.value;
               return (
@@ -318,9 +318,9 @@ export default function CompetitorsPage() {
                   sx={{
                     cursor: "pointer",
                     fontWeight: active ? 700 : 500,
-                    bgcolor: active ? "#ed1b2f" : "#f1f3f4",
-                    color: active ? "#fff" : "#3c4043",
-                    "&:hover": { bgcolor: active ? "#c41527" : "#e8eaed" },
+                    bgcolor: active ? "#c8463a" : "#eef2f8",
+                    color: active ? "#fff" : "#4a5a70",
+                    "&:hover": { bgcolor: active ? "#a8372c" : "#e8eaed" },
                   }} />
               );
             })}
@@ -330,7 +330,7 @@ export default function CompetitorsPage() {
           </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5f6368", minWidth: 70 }}>Business:</Typography>
+            <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5d6b85", minWidth: 70 }}>Business:</Typography>
             {[{ label: "All", value: "" }, ...bus.map(b => ({ label: b === "KT" ? "KT — Plastics" : "DT — Sealings", value: b }))].map(opt => {
               const active = filterBU === opt.value;
               return (
@@ -338,9 +338,9 @@ export default function CompetitorsPage() {
                   sx={{
                     cursor: "pointer",
                     fontWeight: active ? 700 : 500,
-                    bgcolor: active ? "#ed1b2f" : "#f1f3f4",
-                    color: active ? "#fff" : "#3c4043",
-                    "&:hover": { bgcolor: active ? "#c41527" : "#e8eaed" },
+                    bgcolor: active ? "#c8463a" : "#eef2f8",
+                    color: active ? "#fff" : "#4a5a70",
+                    "&:hover": { bgcolor: active ? "#a8372c" : "#e8eaed" },
                   }} />
               );
             })}
@@ -357,13 +357,13 @@ export default function CompetitorsPage() {
           const count = parseInt(c.product_count || "0");
           return (
             <Grid key={c.code} size={{ xs: 12, sm: 6, md: 4 }}>
-              <Card sx={{ border: "1px solid #ececec", borderRadius: 4, borderTop: `3px solid ${buC.border}`, height: "100%", display: "flex", flexDirection: "column" }}>
+              <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 4, borderTop: `3px solid ${buC.border}`, height: "100%", display: "flex", flexDirection: "column" }}>
                 <CardContent sx={{ p: 2.5, flex: 1, display: "flex", flexDirection: "column" }}>
                   {/* Header */}
                   <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", mb: 1.5 }}>
                     <Box>
-                      <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#1f1f1f" }}>{c.name}</Typography>
-                      <Typography sx={{ fontSize: "0.7rem", color: "#5f6368", mt: 0.2 }}>{c.website_url}</Typography>
+                      <Typography sx={{ fontWeight: 700, fontSize: "1rem", color: "#15223a" }}>{c.name}</Typography>
+                      <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85", mt: 0.2 }}>{c.website_url}</Typography>
                     </Box>
                     <Box sx={{ display: "flex", gap: 0.5 }}>
                       <Chip label={bu} size="small" sx={{ bgcolor: buC.bg, color: buC.color, fontWeight: 700 }} />
@@ -373,24 +373,24 @@ export default function CompetitorsPage() {
 
                   {/* Stats */}
                   <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
-                    <Box sx={{ flex: 1, p: 1.5, borderRadius: 2, bgcolor: "#f8f9fa", textAlign: "center" }}>
-                      <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: count > 0 ? buC.color : "#dadce0" }}>
+                    <Box sx={{ flex: 1, p: 1.5, borderRadius: 2, bgcolor: "#f5f7fb", textAlign: "center" }}>
+                      <Typography sx={{ fontSize: "1.3rem", fontWeight: 700, color: count > 0 ? buC.color : "#dfe5ee" }}>
                         {count.toLocaleString()}
                       </Typography>
-                      <Typography sx={{ fontSize: "0.6rem", color: "#5f6368", fontWeight: 600, textTransform: "uppercase" }}>Products</Typography>
+                      <Typography sx={{ fontSize: "0.6rem", color: "#5d6b85", fontWeight: 600, textTransform: "uppercase" }}>Products</Typography>
                     </Box>
-                    <Box sx={{ flex: 1, p: 1.5, borderRadius: 2, bgcolor: "#f8f9fa", textAlign: "center" }}>
-                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#5f6368" }}>
+                    <Box sx={{ flex: 1, p: 1.5, borderRadius: 2, bgcolor: "#f5f7fb", textAlign: "center" }}>
+                      <Typography sx={{ fontSize: "0.75rem", fontWeight: 600, color: "#5d6b85" }}>
                         {c.currency}
                       </Typography>
-                      <Typography sx={{ fontSize: "0.6rem", color: "#5f6368", fontWeight: 600, textTransform: "uppercase" }}>Currency</Typography>
+                      <Typography sx={{ fontSize: "0.6rem", color: "#5d6b85", fontWeight: 600, textTransform: "uppercase" }}>Currency</Typography>
                     </Box>
                   </Box>
 
                   {/* Last scraped */}
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 2 }}>
-                    <ScheduleIcon sx={{ fontSize: 14, color: "#5f6368" }} />
-                    <Typography sx={{ fontSize: "0.68rem", color: "#5f6368" }}>
+                    <ScheduleIcon sx={{ fontSize: 14, color: "#5d6b85" }} />
+                    <Typography sx={{ fontSize: "0.68rem", color: "#5d6b85" }}>
                       {c.last_scraped
                         ? `Last updated: ${new Date(c.last_scraped).toLocaleDateString("en-GB")}`
                         : "No data imported yet"
@@ -406,7 +406,7 @@ export default function CompetitorsPage() {
                       startIcon={<TravelExploreIcon />}
                       onClick={() => openScraper(c)}
                       sx={{
-                        flex: 1, fontSize: "0.72rem", borderColor: "#ed1b2f", color: "#ed1b2f",
+                        flex: 1, fontSize: "0.72rem", borderColor: "#c8463a", color: "#c8463a",
                         borderRadius: 2, textTransform: "none",
                         "&:hover": { bgcolor: "#fef2f2" },
                       }}
@@ -436,7 +436,7 @@ export default function CompetitorsPage() {
 
       {/* Scraper Dialog (placeholder for now) */}
       <Dialog open={scraperOpen} onClose={() => setScraperOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 4, overflow: "hidden" } }}>
-        <Box sx={{ bgcolor: "#ed1b2f", px: 3, py: 2.5 }}>
+        <Box sx={{ bgcolor: "#c8463a", px: 3, py: 2.5 }}>
           <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.1rem", fontWeight: 600, color: "#fff" }}>
             {scraperCompetitor?.name} — Scraper
           </Typography>
@@ -447,17 +447,17 @@ export default function CompetitorsPage() {
         <DialogContent sx={{ p: 3 }}>
           {scraperCompetitor && !adapters[scraperCompetitor.code] ? (
             <Box sx={{ textAlign: "center", py: 3 }}>
-              <TravelExploreIcon sx={{ fontSize: 44, color: "#dadce0", mb: 1.5 }} />
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#1f1f1f", mb: 0.5 }}>
+              <TravelExploreIcon sx={{ fontSize: 44, color: "#dfe5ee", mb: 1.5 }} />
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#15223a", mb: 0.5 }}>
                 No automated scraper for {scraperCompetitor?.name} yet
               </Typography>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368" }}>
+              <Typography sx={{ fontSize: "0.8rem", color: "#5d6b85" }}>
                 This competitor isn’t wired for live scraping ({scraperCompetitor?.website_url}). Use the Data button to import Excel for now.
               </Typography>
             </Box>
           ) : (
             <Box>
-              <Typography sx={{ fontSize: "0.8rem", color: "#5f6368", mb: 2 }}>
+              <Typography sx={{ fontSize: "0.8rem", color: "#5d6b85", mb: 2 }}>
                 Scrape {scraperCompetitor?.website_url} and update the Hub directly
                 {scraperCompetitor && adapters[scraperCompetitor.code]?.mode
                   ? ` (${adapters[scraperCompetitor.code].mode})` : ""}.
@@ -466,13 +466,13 @@ export default function CompetitorsPage() {
               <Button fullWidth variant="contained" disabled={scrapeBusy}
                 startIcon={scrapeBusy ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <TravelExploreIcon />}
                 onClick={() => scraperCompetitor && runNow(scraperCompetitor.code)}
-                sx={{ bgcolor: "#ed1b2f", boxShadow: "none", fontWeight: 700, mb: 1, "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>
+                sx={{ bgcolor: "#c8463a", boxShadow: "none", fontWeight: 700, mb: 1, "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>
                 {scrapeBusy ? "Running…" : "Run now"}
               </Button>
 
               <Box sx={{ display: "flex", gap: 1, alignItems: "center", mt: 1 }}>
                 <input type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)}
-                  style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #dadce0", fontSize: "0.8rem" }} />
+                  style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #dfe5ee", fontSize: "0.8rem" }} />
                 <Button variant="outlined" startIcon={<ScheduleIcon />} disabled={!schedAt || scrapeBusy}
                   onClick={() => scraperCompetitor && scheduleScrape(scraperCompetitor.code)}
                   sx={{ borderColor: "#274e64", color: "#274e64", whiteSpace: "nowrap" }}>
@@ -489,7 +489,7 @@ export default function CompetitorsPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setScraperOpen(false)} sx={{ color: "#5f6368" }}>Close</Button>
+          <Button onClick={() => setScraperOpen(false)} sx={{ color: "#5d6b85" }}>Close</Button>
         </DialogActions>
       </Dialog>
 
@@ -516,12 +516,12 @@ export default function CompetitorsPage() {
                 <Chip
                   label="All Sheets"
                   onClick={() => setImportAll(true)}
-                  sx={{ cursor: "pointer", fontWeight: importAll ? 700 : 500, bgcolor: importAll ? "#274e64" : "#f1f3f4", color: importAll ? "#fff" : "#3c4043" }}
+                  sx={{ cursor: "pointer", fontWeight: importAll ? 700 : 500, bgcolor: importAll ? "#274e64" : "#eef2f8", color: importAll ? "#fff" : "#4a5a70" }}
                 />
                 <Chip
                   label="Single Sheet"
                   onClick={() => setImportAll(false)}
-                  sx={{ cursor: "pointer", fontWeight: !importAll ? 700 : 500, bgcolor: !importAll ? "#274e64" : "#f1f3f4", color: !importAll ? "#fff" : "#3c4043" }}
+                  sx={{ cursor: "pointer", fontWeight: !importAll ? 700 : 500, bgcolor: !importAll ? "#274e64" : "#eef2f8", color: !importAll ? "#fff" : "#4a5a70" }}
                 />
               </Box>
 
@@ -543,7 +543,7 @@ export default function CompetitorsPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setImportOpen(false)} disabled={importing} sx={{ color: "#5f6368" }}>Cancel</Button>
+          <Button onClick={() => setImportOpen(false)} disabled={importing} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button
             variant="contained"
             onClick={handleImport}

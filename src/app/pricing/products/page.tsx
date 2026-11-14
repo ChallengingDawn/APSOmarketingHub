@@ -75,13 +75,13 @@ interface PriceColConfig {
 const PRICE_COLUMNS: PriceColConfig[] = [
   // M100 / CHF
   { key: "gdwst", label: "GWstDP", field: "gdwst_price", currency: "CHF", color: "#2e7d32", bg: "#e8f5e9", tierBg: "#f0fdf4" },
-  { key: "list_chf", label: "List CHF", field: "listprice", currency: "CHF", scaleField: "scale_prices", color: "#1f1f1f", bg: "#fafbfc", tierBg: "#f7f8fa" },
+  { key: "list_chf", label: "List CHF", field: "listprice", currency: "CHF", scaleField: "scale_prices", color: "#15223a", bg: "#fafbfc", tierBg: "#f7f8fa" },
   { key: "bronze_chf", label: "Bronze CHF", field: "bronze_price", currency: "CHF", color: "#b8860b", bg: "#fdf6e3", tierBg: "#fbf6e8" },
   { key: "silver_chf", label: "Silver CHF", field: "silver_price", currency: "CHF", color: "#6b7280", bg: "#f0f0f0", tierBg: "#f5f5f5" },
   { key: "gold_chf", label: "Gold CHF", field: "gold_price", currency: "CHF", color: "#d4a017", bg: "#fef9e7", tierBg: "#fef9ed" },
   { key: "platinum_chf", label: "Platinum CHF", field: "platinum_price", currency: "CHF", color: "#6d28d9", bg: "#f3f0ff", tierBg: "#f7f4ff" },
   // M110 / EUR — the 5 additional columns
-  { key: "list_eur", label: "List EUR", field: "listprice_m110", currency: "EUR", scaleField: "scale_prices_m110", color: "#1f1f1f", bg: "#eef2f7", tierBg: "#f1f5f9" },
+  { key: "list_eur", label: "List EUR", field: "listprice_m110", currency: "EUR", scaleField: "scale_prices_m110", color: "#15223a", bg: "#eef2f7", tierBg: "#f1f5f9" },
   { key: "bronze_eur", label: "Bronze EUR", field: "bronze_price_m110", currency: "EUR", color: "#b8860b", bg: "#faf3df", tierBg: "#fbf6e8" },
   { key: "silver_eur", label: "Silver EUR", field: "silver_price_m110", currency: "EUR", color: "#6b7280", bg: "#ededed", tierBg: "#f5f5f5" },
   { key: "gold_eur", label: "Gold EUR", field: "gold_price_m110", currency: "EUR", color: "#d4a017", bg: "#fdf6df", tierBg: "#fef9ed" },
@@ -476,8 +476,8 @@ export default function ProductsPage() {
   }
 
   const cellMono = { fontSize: "0.72rem", fontWeight: 600, fontFamily: "monospace", whiteSpace: "nowrap" as const, color: "#274e64" };
-  const cellText = { fontSize: "0.72rem", color: "#1f1f1f" };
-  const cellSub = { fontSize: "0.72rem", color: "#5f6368" };
+  const cellText = { fontSize: "0.72rem", color: "#15223a" };
+  const cellSub = { fontSize: "0.72rem", color: "#5d6b85" };
   const cellPrice = { fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 500, cursor: "pointer" };
   const grp = (num: string | null, desc: string | null) => (num ? `${num} — ${desc || ""}` : "—");
 
@@ -496,7 +496,7 @@ export default function ProductsPage() {
     { id: "mandant", label: "Mandant", render: (p) => <Chip label={p.mandant} size="small" sx={{ fontSize: "0.62rem", height: 20, bgcolor: "#e8f0f4", color: "#274e64", fontWeight: 600, whiteSpace: "nowrap" }} /> },
     { id: "sales_unit", label: "Sales Unit", render: (p) => <Typography sx={cellSub}>{p.sales_unit || p.unit || "—"}</Typography> },
     { id: "stock_unit", label: "Stock Unit", render: (p) => <Typography sx={cellSub}>{p.stock_unit || "—"}</Typography> },
-    { id: "hubspot_id", label: "HubSpot ID", render: (p) => <Typography sx={{ ...cellMono, fontSize: "0.65rem", color: "#5f6368" }}>{p.hubspot_id || "—"}</Typography> },
+    { id: "hubspot_id", label: "HubSpot ID", render: (p) => <Typography sx={{ ...cellMono, fontSize: "0.65rem", color: "#5d6b85" }}>{p.hubspot_id || "—"}</Typography> },
   ];
   const visibleBase = baseColumns.filter((c) => !hiddenCols.has(c.id));
   const visiblePrices = PRICE_COLUMNS.filter((c) =>
@@ -557,8 +557,8 @@ export default function ProductsPage() {
               Delete all
             </Button>
             <Button variant="contained" startIcon={syncing ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <SyncIcon />} disabled={syncing} onClick={handleSync}
-              sx={{ bgcolor: "#ed1b2f", color: "#fff", boxShadow: "none",
-                "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>
+              sx={{ bgcolor: "#c8463a", color: "#fff", boxShadow: "none",
+                "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>
               {syncing ? "Mirroring..." : "Mirror from HubSpot"}
             </Button>
           </Box>
@@ -571,7 +571,7 @@ export default function ProductsPage() {
           <CardContent sx={{ p: 2.5, "&:last-child": { pb: 2.5 } }}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5 }}>
               <CircularProgress size={18} sx={{ color: "#274e64" }} />
-              <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#1f1f1f" }}>Mirroring from HubSpot</Typography>
+              <Typography sx={{ fontSize: "0.95rem", fontWeight: 600, color: "#15223a" }}>Mirroring from HubSpot</Typography>
               {syncStartedAt !== null && (
                 <Chip
                   label={`${Math.floor((Date.now() - syncStartedAt) / 1000)}s`}
@@ -582,21 +582,21 @@ export default function ProductsPage() {
             </Box>
             <Box sx={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               <Box>
-                <Typography sx={{ fontSize: "0.65rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Fetched</Typography>
+                <Typography sx={{ fontSize: "0.65rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Fetched</Typography>
                 <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: "#274e64", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{syncTotalFetched.toLocaleString()}</Typography>
               </Box>
               <Box>
-                <Typography sx={{ fontSize: "0.65rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Saved</Typography>
+                <Typography sx={{ fontSize: "0.65rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Saved</Typography>
                 <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: "#34a853", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{syncSynced.toLocaleString()}</Typography>
               </Box>
               {syncErrors > 0 && (
                 <Box>
-                  <Typography sx={{ fontSize: "0.65rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Errors</Typography>
-                  <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: "#ed1b2f", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{syncErrors.toLocaleString()}</Typography>
+                  <Typography sx={{ fontSize: "0.65rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>Errors</Typography>
+                  <Typography sx={{ fontSize: "1.6rem", fontWeight: 700, color: "#c8463a", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{syncErrors.toLocaleString()}</Typography>
                 </Box>
               )}
               <Box sx={{ flex: 1, minWidth: 200, alignSelf: "flex-end" }}>
-                <Typography sx={{ fontSize: "0.72rem", color: "#5f6368", textAlign: "right" }}>{syncStatus}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85", textAlign: "right" }}>{syncStatus}</Typography>
               </Box>
             </Box>
           </CardContent>
@@ -614,7 +614,7 @@ export default function ProductsPage() {
       {/* Filter Bar */}
       {filters && (
         <FilterBar>
-          <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5b6470", mr: 0.5 }}>Filters:</Typography>
+          <Typography sx={{ fontSize: 13, fontWeight: 600, color: "#5d6b85", mr: 0.5 }}>Filters:</Typography>
           <SelectFilter label="Mandant" width={FW.mandant} value={filterMandant} options={filters.mandants.map(m => ({ value: m, label: m }))}
             onChange={(v) => { setFilterMandant(v); setFilterProfitCenter(""); setFilterAssortment(""); setFilterMainGroup(""); setFilterSubGroup(""); setFilterProductGroup(""); setPage(0); }} />
           <TextFilter label="Profit Center" value={filterProfitCenter} options={filters.profit_centers}
@@ -634,15 +634,15 @@ export default function ProductsPage() {
       )}
 
       {/* Products Table */}
-      <Card sx={{ border: "1px solid #ececec", borderRadius: 4 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 4 }}>
         <CardContent sx={{ p: 0 }}>
-          <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid #ececec" }}>
+          <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid #e4e9f1" }}>
             <TextField
               size="small"
               placeholder="Search articles, descriptions, materials..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: "#5f6368" }} /></InputAdornment> } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: "#5d6b85" }} /></InputAdornment> } }}
               sx={{ flex: 1, maxWidth: 500 }}
             />
             <Chip label={`${total.toLocaleString()} total`} size="small" sx={{ fontWeight: 600, bgcolor: "#e8f0f4", color: "#274e64" }} />
@@ -660,7 +660,7 @@ export default function ProductsPage() {
               exclusive
               value={priceMandant}
               onChange={(_, v) => { if (v) setPriceMandant(v); }}
-              sx={{ "& .MuiToggleButton-root": { px: 1.4, py: 0.4, fontSize: "0.7rem", fontWeight: 700, color: "#5b6470", borderColor: "#d3d7dd", "&.Mui-selected": { bgcolor: "#ed1b2f", color: "#fff", "&:hover": { bgcolor: "#c41527" } } } }}
+              sx={{ "& .MuiToggleButton-root": { px: 1.4, py: 0.4, fontSize: "0.7rem", fontWeight: 700, color: "#5d6b85", borderColor: "#d3d7dd", "&.Mui-selected": { bgcolor: "#c8463a", color: "#fff", "&:hover": { bgcolor: "#a8372c" } } } }}
             >
               <ToggleButton value="M100">M100 CHF</ToggleButton>
               <ToggleButton value="M110">M110 EUR</ToggleButton>
@@ -668,20 +668,20 @@ export default function ProductsPage() {
             </ToggleButtonGroup>
             {/* Eye icon — show/hide columns */}
             <Tooltip title="Show / hide columns">
-              <IconButton size="small" onClick={(e) => setColMenuAnchor(e.currentTarget)} sx={{ color: hiddenCols.size > 0 ? "#274e64" : "#5b6470" }}>
+              <IconButton size="small" onClick={(e) => setColMenuAnchor(e.currentTarget)} sx={{ color: hiddenCols.size > 0 ? "#274e64" : "#5d6b85" }}>
                 <VisibilityOutlinedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Menu anchorEl={colMenuAnchor} open={!!colMenuAnchor} onClose={() => setColMenuAnchor(null)}
               slotProps={{ paper: { sx: { maxHeight: 420 } } }}>
-              <Typography sx={{ px: 2, pt: 1, pb: 0.5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9aa1ab" }}>Columns</Typography>
+              <Typography sx={{ px: 2, pt: 1, pb: 0.5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#8b97ac" }}>Columns</Typography>
               {baseColumns.map((c) => (
                 <MenuItem key={c.id} onClick={() => toggleCol(c.id)} dense>
                   <Checkbox edge="start" size="small" checked={!hiddenCols.has(c.id)} disableRipple sx={{ p: 0.5, mr: 1, "&.Mui-checked": { color: "#274e64" } }} />
                   <ListItemText primaryTypographyProps={{ fontSize: "0.82rem" }}>{c.label}</ListItemText>
                 </MenuItem>
               ))}
-              <Typography sx={{ px: 2, pt: 1.5, pb: 0.5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9aa1ab" }}>Price columns</Typography>
+              <Typography sx={{ px: 2, pt: 1.5, pb: 0.5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#8b97ac" }}>Price columns</Typography>
               {PRICE_COLUMNS.map((c) => (
                 <MenuItem key={c.key} onClick={() => toggleCol(c.key)} dense>
                   <Checkbox edge="start" size="small" checked={!hiddenCols.has(c.key)} disableRipple sx={{ p: 0.5, mr: 1, "&.Mui-checked": { color: "#274e64" } }} />
@@ -694,10 +694,10 @@ export default function ProductsPage() {
           <TableContainer sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ minWidth: 2000 }}>
               <TableHead>
-                <TableRow sx={{ bgcolor: "#f8f9fa" }}>
+                <TableRow sx={{ bgcolor: "#f5f7fb" }}>
                   <TableCell sx={{ width: 40, p: 0.5 }} />
                   {visibleBase.map((col) => (
-                    <TableCell key={col.id} align={col.align} sx={{ fontWeight: 700, fontSize: "0.68rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", "&:hover .col-hide": { opacity: 1 } }}>
+                    <TableCell key={col.id} align={col.align} sx={{ fontWeight: 700, fontSize: "0.68rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", "&:hover .col-hide": { opacity: 1 } }}>
                       <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.25 }}>
                         <TableSortLabel
                           active={sortCol === col.id}
@@ -709,7 +709,7 @@ export default function ProductsPage() {
                         </TableSortLabel>
                         <Tooltip title="Hide column">
                           <IconButton className="col-hide" size="small" onClick={(e) => { e.stopPropagation(); toggleCol(col.id); }}
-                            sx={{ p: 0.2, opacity: 0, transition: "opacity 0.15s", color: "#9aa1ab", "&:hover": { color: "#ed1b2f" } }}>
+                            sx={{ p: 0.2, opacity: 0, transition: "opacity 0.15s", color: "#8b97ac", "&:hover": { color: "#c8463a" } }}>
                             <VisibilityOffOutlinedIcon sx={{ fontSize: 14 }} />
                           </IconButton>
                         </Tooltip>
@@ -733,7 +733,7 @@ export default function ProductsPage() {
                             {hasTiers && (isOpen ? <KeyboardArrowUpIcon sx={{ fontSize: 14 }} /> : <KeyboardArrowDownIcon sx={{ fontSize: 14, opacity: 0.5 }} />)}
                             <Tooltip title="Hide column">
                               <IconButton className="col-hide" size="small" onClick={(e) => { e.stopPropagation(); toggleCol(ps.key); }}
-                                sx={{ p: 0.2, opacity: 0, transition: "opacity 0.15s", color: ps.color, "&:hover": { color: "#ed1b2f" } }}>
+                                sx={{ p: 0.2, opacity: 0, transition: "opacity 0.15s", color: ps.color, "&:hover": { color: "#c8463a" } }}>
                                 <VisibilityOffOutlinedIcon sx={{ fontSize: 13 }} />
                               </IconButton>
                             </Tooltip>
@@ -754,7 +754,7 @@ export default function ProductsPage() {
               <TableBody>
                 {products.length === 0 && !loading && (
                   <TableRow>
-                    <TableCell colSpan={100} align="center" sx={{ py: 6, color: "#5f6368" }}>
+                    <TableCell colSpan={100} align="center" sx={{ py: 6, color: "#5d6b85" }}>
                       {total === 0 ? 'No products yet. Click "Mirror from HubSpot" to import.' : "No matching products."}
                     </TableCell>
                   </TableRow>
@@ -764,10 +764,10 @@ export default function ProductsPage() {
                   return (
                     <React.Fragment key={p.id}>
                       <TableRow hover sx={{ cursor: "pointer", bgcolor: isExpanded ? "#f0f7ff" : undefined,
-                        "&:hover": { bgcolor: "#f8f9fa" },
-                        "&:hover .exp-ic": { color: "#ed1b2f", animation: `${isExpanded ? "rowArrowBobUp" : "rowArrowBob"} 0.8s ease-in-out infinite` } }} onClick={() => setExpandedRow(isExpanded ? null : p.id)}>
+                        "&:hover": { bgcolor: "#f5f7fb" },
+                        "&:hover .exp-ic": { color: "#c8463a", animation: `${isExpanded ? "rowArrowBobUp" : "rowArrowBob"} 0.8s ease-in-out infinite` } }} onClick={() => setExpandedRow(isExpanded ? null : p.id)}>
                         <TableCell sx={{ p: 0.5, width: 36 }}>
-                          <IconButton size="small" className="exp-ic" sx={{ color: isExpanded ? "#274e64" : "#9aa1ab", transition: "color 0.18s ease" }}>
+                          <IconButton size="small" className="exp-ic" sx={{ color: isExpanded ? "#274e64" : "#8b97ac", transition: "color 0.18s ease" }}>
                             {isExpanded ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
                           </IconButton>
                         </TableCell>
@@ -797,7 +797,7 @@ export default function ProductsPage() {
                                       borderRight: i === 9 ? `2px dashed ${ps.color}` : undefined }}>
                                     {tier ? (
                                       <Box>
-                                        <Typography sx={{ fontSize: "0.58rem", color: "#5f6368" }}>qty: {tier.qty ?? "—"}</Typography>
+                                        <Typography sx={{ fontSize: "0.58rem", color: "#5d6b85" }}>qty: {tier.qty ?? "—"}</Typography>
                                         <Typography sx={{ ...cellPrice, color: ps.color, fontSize: "0.68rem" }}>{formatPrice(tier.list, ps.currency)}</Typography>
                                       </Box>
                                     ) : (
@@ -822,10 +822,10 @@ export default function ProductsPage() {
                                 {detailMode === "inline" && <Box sx={{ width: 4, height: 24, borderRadius: 0.5, bgcolor: "#274e64" }} />}
                                 <Box sx={{ flex: 1 }}>
                                   {detailMode === "inline" && <>
-                                    <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1rem", fontWeight: 600, color: "#1f1f1f" }}>
+                                    <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1rem", fontWeight: 600, color: "#15223a" }}>
                                       {p.article_number}
                                     </Typography>
-                                    <Typography sx={{ fontSize: "0.75rem", color: "#5f6368" }}>
+                                    <Typography sx={{ fontSize: "0.75rem", color: "#5d6b85" }}>
                                       {p.description || p.product_description || "No description"}
                                     </Typography>
                                   </>}
@@ -838,7 +838,7 @@ export default function ProductsPage() {
 
                               <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr 1fr 1fr" }, gap: 2, alignItems: "start" }}>
                                 {/* Product Info Card */}
-                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #ececec" }}>
+                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #e4e9f1" }}>
                                   <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#274e64", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>Product Info</Typography>
                                     {[
@@ -857,15 +857,15 @@ export default function ProductsPage() {
                                       ["Tarifs No.", p.tarifs_number],
                                     ].map(([l, v]) => (
                                       <Box key={String(l)} sx={{ display: "flex", justifyContent: "space-between", py: 0.4, borderBottom: "1px solid #f5f5f5" }}>
-                                        <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>{l}</Typography>
-                                        <Typography sx={{ fontSize: "0.7rem", color: "#1f1f1f", fontWeight: 500, textAlign: "right", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v ?? "—"}</Typography>
+                                        <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85" }}>{l}</Typography>
+                                        <Typography sx={{ fontSize: "0.7rem", color: "#15223a", fontWeight: 500, textAlign: "right", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v ?? "—"}</Typography>
                                       </Box>
                                     ))}
                                   </CardContent>
                                 </Card>
 
                                 {/* Hierarchy Card */}
-                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #ececec" }}>
+                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #e4e9f1" }}>
                                   <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#274e64", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>Hierarchy & Business</Typography>
                                     {[
@@ -884,20 +884,20 @@ export default function ProductsPage() {
                                       ["HubSpot ID", p.hubspot_id],
                                     ].map(([l, v]) => (
                                       <Box key={String(l)} sx={{ display: "flex", justifyContent: "space-between", py: 0.4, borderBottom: "1px solid #f5f5f5" }}>
-                                        <Typography sx={{ fontSize: "0.7rem", color: "#5f6368" }}>{l}</Typography>
-                                        <Typography sx={{ fontSize: "0.7rem", color: "#1f1f1f", fontWeight: 500, textAlign: "right" }}>{v ?? "—"}</Typography>
+                                        <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85" }}>{l}</Typography>
+                                        <Typography sx={{ fontSize: "0.7rem", color: "#15223a", fontWeight: 500, textAlign: "right" }}>{v ?? "—"}</Typography>
                                       </Box>
                                     ))}
                                   </CardContent>
                                 </Card>
 
                                 {/* Price Sets Card */}
-                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #ececec" }}>
+                                <Card variant="outlined" sx={{ borderRadius: 3, border: "1px solid #e4e9f1" }}>
                                   <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                                     <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#274e64", textTransform: "uppercase", letterSpacing: "0.05em", mb: 1 }}>Price Sets — M100 (CHF) / M110 (EUR)</Typography>
                                     {[
                                       { label: "GWstDP", chf: p.gdwst_price, eur: null as number | null, color: "#2e7d32", bg: "#e8f5e9" },
-                                      { label: "List", chf: p.listprice, eur: p.listprice_m110, color: "#1f1f1f", bg: "#f8f9fa" },
+                                      { label: "List", chf: p.listprice, eur: p.listprice_m110, color: "#15223a", bg: "#f5f7fb" },
                                       { label: "Bronze", chf: p.bronze_price, eur: p.bronze_price_m110, color: "#b8860b", bg: "#fdf6e3" },
                                       { label: "Silver", chf: p.silver_price, eur: p.silver_price_m110, color: "#6b7280", bg: "#f0f0f0" },
                                       { label: "Gold", chf: p.gold_price, eur: p.gold_price_m110, color: "#d4a017", bg: "#fef9e7" },
@@ -909,7 +909,7 @@ export default function ProductsPage() {
                                           <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: t.color }}>
                                             {formatPrice(t.chf, "CHF")}
                                           </Typography>
-                                          <Typography sx={{ fontSize: "0.62rem", fontFamily: "monospace", color: "#5f6368" }}>
+                                          <Typography sx={{ fontSize: "0.62rem", fontFamily: "monospace", color: "#5d6b85" }}>
                                             {formatPrice(t.eur, "EUR")}
                                           </Typography>
                                         </Box>
@@ -959,30 +959,30 @@ export default function ProductsPage() {
                                             <Chip label="HubSpot only" size="small" sx={{ height: 18, fontSize: "0.5rem", fontWeight: 600, bgcolor: "#fef7e0", color: "#854d0e" }} />
                                           )}
                                         </Box>
-                                        <Typography sx={{ fontSize: "0.62rem", color: "#5f6368", mb: 1 }}>
+                                        <Typography sx={{ fontSize: "0.62rem", color: "#5d6b85", mb: 1 }}>
                                           {p.product_type_normalized || p.product_type || "unknown"} — {dimEntries.length} dimensions scraped
                                           {e?.category_path && <> — <em>{e.category_path}</em></>}
                                         </Typography>
 
                                         {/* Image from scraper */}
                                         {e?.image_url && (
-                                          <Box component="img" src={e.image_url} sx={{ width: "100%", maxHeight: 80, objectFit: "contain", borderRadius: 1, border: "1px solid #ececec", mb: 1, bgcolor: "#fff" }} />
+                                          <Box component="img" src={e.image_url} sx={{ width: "100%", maxHeight: 80, objectFit: "contain", borderRadius: 1, border: "1px solid #e4e9f1", mb: 1, bgcolor: "#fff" }} />
                                         )}
 
                                         {criteria.map((c, idx) => (
                                           <Box key={`${c.label}-${idx}`} sx={{ display: "flex", alignItems: "center", gap: 0.75, py: 0.35, borderBottom: "1px solid #f0f2ff" }}>
-                                            <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: c.value ? "#34a853" : "#dadce0", flexShrink: 0 }} />
-                                            <Typography sx={{ fontSize: "0.63rem", color: "#5f6368", minWidth: 80 }}>{c.label}</Typography>
+                                            <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: c.value ? "#34a853" : "#dfe5ee", flexShrink: 0 }} />
+                                            <Typography sx={{ fontSize: "0.63rem", color: "#5d6b85", minWidth: 80 }}>{c.label}</Typography>
                                             <Chip
                                               label={c.source === "scraped" ? "web" : "hs"}
                                               size="small"
                                               sx={{ height: 14, fontSize: "0.45rem", fontWeight: 700, bgcolor: c.source === "scraped" ? "#e8f5e9" : "#e8f0fe", color: c.source === "scraped" ? "#2e7d32" : "#1a73e8", minWidth: 24 }}
                                             />
-                                            <Chip label={c.match} size="small" sx={{ height: 14, fontSize: "0.45rem", fontWeight: 600, bgcolor: "#f0f2ff", color: "#5f6368" }} />
+                                            <Chip label={c.match} size="small" sx={{ height: 14, fontSize: "0.45rem", fontWeight: 600, bgcolor: "#f0f2ff", color: "#5d6b85" }} />
                                             {c.weight !== "dim" && c.weight !== "—" && (
                                               <Chip label={c.weight} size="small" sx={{ height: 14, fontSize: "0.45rem", fontWeight: 600, bgcolor: "#fef7e0", color: "#854d0e" }} />
                                             )}
-                                            <Typography sx={{ fontSize: "0.6rem", color: c.value ? "#1f1f1f" : "#dadce0", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            <Typography sx={{ fontSize: "0.6rem", color: c.value ? "#15223a" : "#dfe5ee", fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                               {c.value || "—"}
                                             </Typography>
                                           </Box>
@@ -1012,16 +1012,16 @@ export default function ProductsPage() {
                                       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                                         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
                                           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#1e7e45", textTransform: "uppercase", letterSpacing: "0.05em" }}>Shop Enrichment</Typography>
-                                          <Chip label={e ? "apsoparts.com" : "not scraped"} size="small" sx={{ height: 18, fontSize: "0.5rem", fontWeight: 700, bgcolor: e ? "#e8f5ee" : "#eef0f3", color: e ? "#1e7e45" : "#9aa1ab" }} />
+                                          <Chip label={e ? "apsoparts.com" : "not scraped"} size="small" sx={{ height: 18, fontSize: "0.5rem", fontWeight: 700, bgcolor: e ? "#e8f5ee" : "#eef2f8", color: e ? "#1e7e45" : "#8b97ac" }} />
                                         </Box>
-                                        {!e && <Typography sx={{ fontSize: "0.72rem", color: "#9aa1ab" }}>No shop data scraped for this article yet. Run the APSOparts Scraper to enrich it.</Typography>}
+                                        {!e && <Typography sx={{ fontSize: "0.72rem", color: "#8b97ac" }}>No shop data scraped for this article yet. Run the APSOparts Scraper to enrich it.</Typography>}
                                         {e?.image_url && (
-                                          <Box component="img" src={e.image_url} sx={{ width: "100%", maxHeight: 90, objectFit: "contain", borderRadius: 1, border: "1px solid #ececec", mb: 1, bgcolor: "#fff" }} />
+                                          <Box component="img" src={e.image_url} sx={{ width: "100%", maxHeight: 90, objectFit: "contain", borderRadius: 1, border: "1px solid #e4e9f1", mb: 1, bgcolor: "#fff" }} />
                                         )}
                                         {fields.filter(([, v]) => v).map(([l, v]) => (
                                           <Box key={l} sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 0.4, borderBottom: "1px solid #eef3ef" }}>
-                                            <Typography sx={{ fontSize: "0.68rem", color: "#5f6368", flexShrink: 0 }}>{l}</Typography>
-                                            <Typography sx={{ fontSize: "0.68rem", color: "#1f1f1f", fontWeight: 500, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{v}</Typography>
+                                            <Typography sx={{ fontSize: "0.68rem", color: "#5d6b85", flexShrink: 0 }}>{l}</Typography>
+                                            <Typography sx={{ fontSize: "0.68rem", color: "#15223a", fontWeight: 500, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 170 }}>{v}</Typography>
                                           </Box>
                                         ))}
                                         {mm.filter(([, v]) => v != null).length > 0 && (
@@ -1075,7 +1075,7 @@ export default function ProductsPage() {
             { mode: "filtered" as const, icon: <FilterAltIcon sx={{ color: "#274e64", fontSize: 24 }} />, bg: "#e8f0f4", title: "Export filtered view", desc: (hasActiveFilter || search)
               ? "Only the rows matching your current filters · with M100 + M110 pricing"
               : "No filters set — exports the whole catalog · with M100 + M110 pricing" },
-            { mode: "all_no_pricing" as const, icon: <DescriptionIcon sx={{ color: "#5b6470", fontSize: 24 }} />, bg: "#eef0f3", title: "Export all data — without pricing", desc: `Full catalog (${total.toLocaleString()} articles), no price columns` },
+            { mode: "all_no_pricing" as const, icon: <DescriptionIcon sx={{ color: "#5d6b85", fontSize: 24 }} />, bg: "#eef2f8", title: "Export all data — without pricing", desc: `Full catalog (${total.toLocaleString()} articles), no price columns` },
             { mode: "all_with_pricing" as const, icon: <DescriptionIcon sx={{ color: "#1e7e45", fontSize: 24 }} />, bg: "#e8f5ee", title: "Export all data — with pricing", desc: `Full catalog (${total.toLocaleString()} articles) with M100 (CHF) + M110 (EUR) price sets` },
           ].map((opt) => (
             <Box
@@ -1085,14 +1085,14 @@ export default function ProductsPage() {
             >
               <Box sx={{ width: 36, height: 36, borderRadius: 1, bgcolor: opt.bg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{opt.icon}</Box>
               <Box sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: "#1f1f1f" }}>{opt.title}</Typography>
-                <Typography sx={{ fontSize: "0.72rem", color: "#5b6470" }}>{opt.desc}</Typography>
+                <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: "#15223a" }}>{opt.title}</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{opt.desc}</Typography>
               </Box>
             </Box>
           ))}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}>
-          <Button onClick={() => setExportOpen(false)} sx={{ color: "#5f6368" }}>Cancel</Button>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}>
+          <Button onClick={() => setExportOpen(false)} sx={{ color: "#5d6b85" }}>Cancel</Button>
         </DialogActions>
       </Dialog>
 
@@ -1102,15 +1102,15 @@ export default function ProductsPage() {
           <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.15rem", fontWeight: 600, color: "#fff" }}>Delete all products?</Typography>
         </Box>
         <DialogContent sx={{ p: 3 }}>
-          <Typography sx={{ fontSize: "0.85rem", color: "#1f1f1f", mb: 1 }}>
+          <Typography sx={{ fontSize: "0.85rem", color: "#15223a", mb: 1 }}>
             This removes all <strong>{total.toLocaleString()}</strong> products from the Pricing Hub database.
           </Typography>
-          <Typography sx={{ fontSize: "0.8rem", color: "#5b6470" }}>
+          <Typography sx={{ fontSize: "0.8rem", color: "#5d6b85" }}>
             Use this to re-mirror from scratch: delete, then click <strong>Mirror from HubSpot</strong> to re-import everything with the new model. This does not touch HubSpot.
           </Typography>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}>
-          <Button onClick={() => setDeleteOpen(false)} disabled={deleting} sx={{ color: "#5f6368" }}>Cancel</Button>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}>
+          <Button onClick={() => setDeleteOpen(false)} disabled={deleting} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button onClick={handleDeleteAll} disabled={deleting} variant="contained"
             startIcon={deleting ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <DeleteOutlineIcon />}
             sx={{ bgcolor: "#c5221f", color: "#fff", boxShadow: "none", "&:hover": { bgcolor: "#9e1b18", boxShadow: "none" } }}>
@@ -1128,7 +1128,7 @@ export default function ProductsPage() {
         <DialogContent sx={{ p: 3 }}>
           {["Details", "M100 / CHF", "M110 / EUR"].map(group => (
             <Box key={group} sx={{ mb: 2 }}>
-              <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9aa1ab", mb: 1 }}>{group}</Typography>
+              <Typography sx={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#8b97ac", mb: 1 }}>{group}</Typography>
               <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(3, 1fr)" }, gap: 1.5 }}>
                 {EDIT_FIELDS.filter(f => f.group === group).map(f => (
                   <TextField key={f.key as string} label={f.label} size="small" value={editForm[f.key as string] ?? ""}
@@ -1139,8 +1139,8 @@ export default function ProductsPage() {
             </Box>
           ))}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}>
-          <Button onClick={() => setEditProduct(null)} disabled={savingEdit} sx={{ color: "#5f6368" }}>Cancel</Button>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}>
+          <Button onClick={() => setEditProduct(null)} disabled={savingEdit} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button onClick={saveEdit} disabled={savingEdit} variant="contained"
             startIcon={savingEdit ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <EditOutlinedIcon />}
             sx={{ bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" }, boxShadow: "none" }}>
@@ -1155,12 +1155,12 @@ export default function ProductsPage() {
           <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.1rem", fontWeight: 600, color: "#fff" }}>Delete this product?</Typography>
         </Box>
         <DialogContent sx={{ p: 3 }}>
-          <Typography sx={{ fontSize: "0.85rem", color: "#1f1f1f" }}>
+          <Typography sx={{ fontSize: "0.85rem", color: "#15223a" }}>
             Remove <strong style={{ fontFamily: "monospace" }}>{deleteProduct?.article_number}</strong> from the Pricing Hub database? This also removes its competitor matches. (Does not touch HubSpot.)
           </Typography>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}>
-          <Button onClick={() => setDeleteProduct(null)} disabled={deletingProduct} sx={{ color: "#5f6368" }}>Cancel</Button>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}>
+          <Button onClick={() => setDeleteProduct(null)} disabled={deletingProduct} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button onClick={handleDeleteProduct} disabled={deletingProduct} variant="contained"
             startIcon={deletingProduct ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <DeleteOutlineIcon />}
             sx={{ bgcolor: "#c5221f", color: "#fff", boxShadow: "none", "&:hover": { bgcolor: "#9e1b18", boxShadow: "none" } }}>

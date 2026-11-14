@@ -162,6 +162,8 @@ export default function FrontPage() {
   /** Where an app's tile leads: its front page, or the first of its sub-apps that is yours when only those are. */
   const entry = (a: HubApp) => (!viewed && first[a.key]) || a.href;
 
+  const n = visibleApps.length;
+
   // THE QUICK LINKS, really on the left (SARCLA 14.11.2026: "I told you quick link should be really on the left side"):
   // in the margin left of the page, under the APSOparts / Angst+Pfister switch, as the switch hangs beside the bar - the
   // apps keep the whole width. A window with no margin for them gets them as a strip above the apps.
@@ -214,11 +216,14 @@ export default function FrontPage() {
 
           {/* ------------------------------------------------------- applications */}
           {/* The apps as Dawny draws them (SARCLA 14.11.2026: "the Challenging Dawn cockpit's layout - not all, but the way
-              the apps are designed"; its AppStore.tsx): every card the same size, at least 280 px, as many to a row as fit -
-              four on a desktop, Pricing on the second row -, the pages at the bottom, the text above clamped. */}
+              the apps are designed"; its AppStore.tsx): every card the same size, the pages at the bottom, the text above
+              clamped - five to a row, so everything is in two lines (SARCLA 14.11.2026: "put lines of 5 elements to have
+              everything in two lines of applications"): five apps, then the other two, the connectors (two wide) and the
+              action plan. Four to a row on a smaller desktop, fewer below. */}
           <Box id="applications" sx={{
-            display: "grid", gap: 3, alignItems: "stretch",
-            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
+            display: "grid", gap: 2.5, alignItems: "stretch",
+            gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", md: "repeat(3, minmax(0, 1fr))", lg: "repeat(4, minmax(0, 1fr))" },
+            "@media (min-width:1400px)": { gridTemplateColumns: "repeat(5, minmax(0, 1fr))" },
           }}>
             {visibleApps.map((a, i) => {
               const open = !!expanded[a.key];
@@ -227,7 +232,7 @@ export default function FrontPage() {
               const shown = open ? subs : subs.slice(0, 3);
               return (
                 <Box key={a.key} component="section" aria-label={a.name} sx={{
-                  minWidth: 0, borderRadius: "24px", p: 3, display: "flex", flexDirection: "column", gap: "18px",
+                  minWidth: 0, borderRadius: "24px", p: 2.5, display: "flex", flexDirection: "column", gap: "16px",
                   background: `linear-gradient(170deg, ${a.wash}, rgba(255,255,255,.86) 58%)`,
                   backgroundColor: "rgba(255,255,255,.88)",
                   border: "1px solid rgba(255,255,255,.85)",
@@ -251,7 +256,7 @@ export default function FrontPage() {
                     }}>
                       <Typography component="span" sx={{
                         fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                        fontSize: "1.3rem", fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.18, color: INK,
+                        fontSize: "1.22rem", fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.18, color: INK,
                       }}>{a.name}</Typography>
                       <ChevronRightIcon className="chev" sx={{
                         fontSize: 20, color: a.to, transition: "transform .18s ease",
@@ -317,6 +322,21 @@ export default function FrontPage() {
                 </Box>
               );
             })}
+
+            {/* the connectors, two cards wide, and the action plan - in the same two lines as the apps */}
+            {panel("connectors") && openFor("connectors") && (
+              <Box sx={{ gridColumn: { xs: "auto", sm: "span 2" }, minWidth: 0, display: "grid", ...rise(n + 1) }}>
+                <ConnectorsPanel glass={glass} />
+              </Box>
+            )}
+            {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
+                of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
+            {/* greyed for a cross-user of Angst+Pfister: shown, never opened (SARCLA 10.11.2026); a cross-admin opens it */}
+            {(role === "admin" || crossNow) && panel("missionControl") && (
+              <Box sx={{ minWidth: 0, display: "grid", ...rise(n + 2) }}>
+                {crossNow ? <LockedPlanCard glass={glass} /> : <ActionPlanCard glass={glass} focusRing={focusRing} />}
+              </Box>
+            )}
           </Box>
 
           {visibleApps.length === 0 && (
@@ -332,21 +352,6 @@ export default function FrontPage() {
             </Box>
           )}
 
-          {/* ---------------------------------------------------------- resources */}
-          <Box id="resources" sx={{
-            display: "grid", gap: 2, mt: 2,
-            gridTemplateColumns: { xs: "1fr", md: "1.15fr 1fr" },
-            ...rise(6),
-          }}>
-            {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
-
-            {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
-                of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
-            {/* greyed for a cross-user of Angst+Pfister: shown, never opened (SARCLA 10.11.2026); a cross-admin opens it */}
-            {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
-              ? <LockedPlanCard glass={glass} />
-              : <ActionPlanCard glass={glass} focusRing={focusRing} />)}
-          </Box>
         </Box>
       </Box>
     </Box>

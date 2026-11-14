@@ -20,7 +20,7 @@ import { useDetailMode } from "@/lib/pricing/prefs";
 
 // the hub passes these calls to the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts)
 const API_URL = "/api/pricing";
-const RED = "#ed1b2f", MUTED = "#5b6470", NAVY = "#274e64";
+const RED = "#c8463a", MUTED = "#5d6b85", NAVY = "#274e64";
 
 type ListMeta = {
   id: number; supplier: string; customer_no: string | null; currency: string;
@@ -73,11 +73,11 @@ export default function LogsPage() {
         <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}><CircularProgress sx={{ color: RED }} /></Box>
       ) : lists.length === 0 ? (
         <Card sx={{ border: "1px dashed #d8dce1", borderRadius: 3, p: 4, textAlign: "center", bgcolor: "#fafbfc" }}>
-          <Typography sx={{ fontWeight: 700, color: "#1a1d21", mb: 0.5 }}>No files yet</Typography>
+          <Typography sx={{ fontWeight: 700, color: "#15223a", mb: 0.5 }}>No files yet</Typography>
           <Typography sx={{ fontSize: "0.88rem", color: MUTED }}>Digest a supplier price list in OCR &amp; Mapping and it will appear here.</Typography>
         </Card>
       ) : (
-        <Card sx={{ border: "1px solid #e6e8ec", borderRadius: 2.5 }}>
+        <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 2.5 }}>
           <TableContainer>
             <Table size="small">
               <TableHead>
@@ -97,8 +97,8 @@ export default function LogsPage() {
                   <React.Fragment key={l.id}>
                     <TableRow hover sx={{ cursor: "pointer" }} onClick={() => toggle(l.id)}>
                       <TableCell><KeyboardArrowRightIcon sx={{ fontSize: 20, color: MUTED, transform: openId === l.id ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} /></TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#1a1d21" }}>{l.supplier || "—"}{l.customer_no && <Typography component="span" sx={{ fontSize: "0.7rem", color: MUTED, ml: 0.75 }}>· {l.customer_no}</Typography>}</TableCell>
-                      <TableCell sx={{ fontSize: "0.74rem", color: "#3c4043", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.filename || "—"}</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.8rem", color: "#15223a" }}>{l.supplier || "—"}{l.customer_no && <Typography component="span" sx={{ fontSize: "0.7rem", color: MUTED, ml: 0.75 }}>· {l.customer_no}</Typography>}</TableCell>
+                      <TableCell sx={{ fontSize: "0.74rem", color: "#4a5a70", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.filename || "—"}</TableCell>
                       <TableCell sx={{ fontSize: "0.74rem", color: MUTED }}>{l.valid_from ? new Date(l.valid_from).toLocaleDateString() : "—"}</TableCell>
                       <TableCell><Chip size="small" label={`${l.currency}/${l.price_basis}`} sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: "#e8f5e9", color: "#2e7d32" }} /></TableCell>
                       <TableCell align="right" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.76rem", color: NAVY }}>{l.row_count}</TableCell>
@@ -125,7 +125,7 @@ export default function LogsPage() {
                                     {rows[l.id].map((r, i) => (
                                       <TableRow key={(r.code ?? "") + i}>
                                         <TableCell sx={{ fontFamily: "monospace", fontSize: "0.7rem", fontWeight: 700 }}>{r.code || "—"}</TableCell>
-                                        <TableCell sx={{ fontSize: "0.7rem", color: "#3c4043", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.brand}</TableCell>
+                                        <TableCell sx={{ fontSize: "0.7rem", color: "#4a5a70", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.brand}</TableCell>
                                         <TableCell sx={{ fontSize: "0.68rem", color: MUTED }}>{r.material}</TableCell>
                                         <TableCell sx={{ fontSize: "0.68rem", color: MUTED, textTransform: "capitalize" }}>{r.form}</TableCell>
                                         <TableCell sx={{ fontSize: "0.68rem", color: MUTED }}>{r.dimText}</TableCell>

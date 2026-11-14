@@ -325,30 +325,56 @@ export const MARKETING_SECTIONS: WebsiteSection[] = [
 export const marketingSectionBySlug = (slug: string) => MARKETING_SECTIONS.find((s) => s.slug === slug) ?? null;
 
 /**
- * PRICING - the PricingHub, moved into the hub (SARCLA 13.11.2026: "you didn't migrate it to the hub"). Its pages, in the
- * groups its own menu had; the data stays on the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts), the
- * scrapers keep running there. Not moved: its Admin · Users (Settings > People does it), its Settings placeholder, the
- * Purchasing "Mission Control" stub and the unlinked /charts page. The Overview is the app's own page (/pricing).
+ * PRICING, BY SECTION - the PricingHub, moved into the hub (SARCLA 13.11.2026: "you didn't migrate it to the hub"), split
+ * like Website and Marketing & Content (SARCLA 14.11.2026: "split the internal apps and create a menu before, like we do in
+ * website or content"): the front page /pricing is a tile per section; inside one, the side panel lists that section's
+ * pages alone and leads back to Pricing. The data stays on the PricingHub backend (src/app/api/pricing/api/[...path]),
+ * the scrapers keep running there. Not moved: its Admin · Users (Settings > People does it), its Settings placeholder,
+ * the Purchasing "Mission Control" stub and the unlinked /charts page.
  */
-export const PRICING_PAGES: SubApp[] = [
-  { group: "Pricing intelligence", name: "Overview", note: "Where our prices stand against the competitors, at a glance", href: "/pricing", icon: "bar", ...BLUE },
-  { group: "Pricing intelligence", name: "Recommendations", note: "Prices to raise or lower, and why", href: "/pricing/recommendations", icon: "bolt", ...AMBER },
-  { group: "Pricing intelligence", name: "APSO Products", note: "Our articles, their costs, prices and matches", href: "/pricing/products", icon: "inventory", ...GREEN },
-  { group: "Pricing intelligence", name: "Repricing studio", note: "New list prices from costs and competitors, the upload file for Performis", href: "/pricing/repricing", icon: "tag", ...PINK },
-  { group: "Pricing intelligence", name: "Benchmark", note: "Our price against each competitor's, article by article", href: "/pricing/benchmark", icon: "layers", ...PURPLE },
-  { group: "Pricing intelligence", name: "Prices · Trends · Stock", note: "How prices and stock moved over time; the PDF report", href: "/pricing/prices", icon: "route", ...TEAL },
-  { group: "Purchasing", name: "OCR & mapping", note: "A supplier's price list read and mapped to our articles", href: "/pricing/purchasing/ocr", icon: "upload", ...BLUE },
-  { group: "Purchasing", name: "Purchasing benchmark", short: "Benchmark", note: "Our purchase prices against the suppliers' lists", href: "/pricing/purchasing/benchmark", icon: "layers", ...PURPLE },
-  { group: "Purchasing", name: "Supplier index", short: "Index", note: "How each supplier's prices moved", href: "/pricing/purchasing/price-index", icon: "route", ...AMBER },
-  { group: "Purchasing", name: "Purchasing logs", short: "Logs", note: "Every list read and every change", href: "/pricing/purchasing/logs", icon: "description", ...TEAL },
-  { group: "Product matching", name: "Match overview", note: "Our articles and the competitors' products found for them", href: "/pricing/matches", icon: "copy", ...PURPLE },
-  { group: "Product matching", name: "Pending review", note: "Matches waiting for a person to approve them", href: "/pricing/matches/pending", icon: "verified", ...AMBER },
-  { group: "Product matching", name: "Unmatched", note: "Articles with no competitor product yet", href: "/pricing/matches/unmatched", icon: "search", ...PINK },
-  { group: "Product matching", name: "Approval logs", note: "Who approved or refused which match", href: "/pricing/matches/logs", icon: "description", ...BLUE },
-  { group: "Data sources", name: "APSOparts scraper", note: "Our own shop read for dimensions and prices", href: "/pricing/scrapers", icon: "sync", ...GREEN },
-  { group: "Data sources", name: "Competitors", note: "Each competitor's shop, its scraper and its products", href: "/pricing/competitors", icon: "groups", ...BLUE },
-  { group: "Data sources", name: "Anyseals stock", note: "Anyseals' stock list, uploaded and synced", href: "/pricing/stock", icon: "inventory", ...TEAL },
+const PRICING_RED = { tint: "#fde9e6", fg: "#c8463a" };
+export const PRICING_SECTIONS: WebsiteSection[] = [
+  {
+    slug: "intelligence", name: "Pricing intelligence", line: "Where our prices stand against the competitors, what to change, and the new price lists", icon: "bar", ...PRICING_RED,
+    pages: [
+      { name: "Overview", note: "Catalogues, scraping and matching at a glance", href: "/pricing/overview", icon: "bar", ...BLUE },
+      { name: "Recommendations", note: "Prices to raise or lower, and why", href: "/pricing/recommendations", icon: "bolt", ...AMBER },
+      { name: "APSO Products", note: "Our articles, their costs, prices and matches", href: "/pricing/products", icon: "inventory", ...GREEN },
+      { name: "Repricing studio", note: "New list prices from costs and competitors, the upload file for Performis", href: "/pricing/repricing", icon: "tag", ...PINK },
+      { name: "Benchmark", note: "Our price against each competitor's, article by article", href: "/pricing/benchmark", icon: "layers", ...PURPLE },
+      { name: "Prices · Trends · Stock", note: "How prices and stock moved over time; the PDF report", href: "/pricing/prices", icon: "route", ...TEAL },
+    ],
+  },
+  {
+    slug: "matching", name: "Product matching", line: "Our articles and the competitors' products found for them - approved by a person", icon: "copy", ...PURPLE,
+    pages: [
+      { name: "Match overview", note: "Our articles and the competitors' products found for them", href: "/pricing/matches", icon: "copy", ...PURPLE },
+      { name: "Pending review", note: "Matches waiting for a person to approve them", href: "/pricing/matches/pending", icon: "verified", ...AMBER },
+      { name: "Unmatched", note: "Articles with no competitor product yet", href: "/pricing/matches/unmatched", icon: "search", ...PINK },
+      { name: "Approval logs", note: "Who approved or refused which match", href: "/pricing/matches/logs", icon: "description", ...BLUE },
+    ],
+  },
+  {
+    slug: "purchasing", name: "Purchasing", line: "The suppliers' price lists read, mapped to our articles, and how their prices move", icon: "shipping", ...AMBER,
+    pages: [
+      { name: "OCR & mapping", note: "A supplier's price list read and mapped to our articles", href: "/pricing/purchasing/ocr", icon: "upload", ...BLUE },
+      { name: "Purchasing benchmark", short: "Benchmark", note: "Our purchase prices against the suppliers' lists", href: "/pricing/purchasing/benchmark", icon: "layers", ...PURPLE },
+      { name: "Supplier index", short: "Index", note: "How each supplier's prices moved", href: "/pricing/purchasing/price-index", icon: "route", ...AMBER },
+      { name: "Purchasing logs", short: "Logs", note: "Every list read and every change", href: "/pricing/purchasing/logs", icon: "description", ...TEAL },
+    ],
+  },
+  {
+    slug: "sources", name: "Data sources", line: "Where the prices come from: the competitors' shops, our own, Anyseals' stock", icon: "globe", ...TEAL,
+    pages: [
+      { name: "Competitors", note: "Each competitor's shop, its scraper and its products", href: "/pricing/competitors", icon: "groups", ...BLUE },
+      { name: "APSOparts scraper", note: "Our own shop read for dimensions and prices", href: "/pricing/scrapers", icon: "sync", ...GREEN },
+      { name: "Anyseals stock", note: "Anyseals' stock list, uploaded and synced", href: "/pricing/stock", icon: "inventory", ...TEAL },
+    ],
+  },
 ];
+export const pricingSectionBySlug = (slug: string) => PRICING_SECTIONS.find((s) => s.slug === slug) ?? null;
+/** Every page of Pricing, each under its section's heading - what the access tree reads (src/lib/auth/tree.ts). */
+export const PRICING_PAGES: SubApp[] = PRICING_SECTIONS.flatMap((x) => x.pages.map((pg) => ({ ...pg, group: x.name })));
 
 export const APPS: HubApp[] = [
   {
@@ -436,15 +462,13 @@ export const APPS: HubApp[] = [
   },
   {
     key: "pricing",
+    // its front page: a tile per section (PRICING_SECTIONS, 14.11.2026) - a page only this app owns
     href: "/pricing",
     name: "Pricing",
     line: "Competitor prices, product matching, repricing and purchasing.",
     from: "#f27a6b", to: "#c8463a", wash: "rgba(242,122,107,.10)", icon: "price",
     subs: PRICING_PAGES,
-    // the launch pad lists the pages worked in most: Pending review and the Repricing studio first, as in the home-page
-    // mockup SARCLA approved on 14.11.2026
-    cards: ["/pricing/matches/pending", "/pricing/repricing", "/pricing/benchmark", "/pricing/prices", "/pricing/competitors"]
-      .map((h) => ({ ...PRICING_PAGES.find((p) => p.href === h)!, group: undefined })),
+    cards: PRICING_SECTIONS.map((x) => ({ name: x.name, note: x.line, href: `/pricing/${x.slug}`, icon: x.icon, tint: x.tint, fg: x.fg })),
   },
   {
     key: "connectors",

@@ -34,7 +34,7 @@ import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 
 export // the hub passes these calls to the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts)
 const API_URL = "/api/pricing";
-export const NAVY = "#274e64", RED = "#ed1b2f", MUTED = "#5b6470", GOOD = "#1e7e45", BAD = "#c5221f", AMBER = "#c77700";
+export const NAVY = "#274e64", RED = "#c8463a", MUTED = "#5d6b85", GOOD = "#1e7e45", BAD = "#c5221f", AMBER = "#c77700";
 
 // ── Types ────────────────────────────────────────────────────────────────────────────
 export interface MatchReason { score: number; weight: number; apso: string; comp: string }
@@ -189,7 +189,7 @@ export function priceDiff(m: Match): number | null {
 const at = (list: { qty: number; price: number }[], q: number) => { let best: number | null = null, bq = -1; for (const t of list) if (t.qty <= q && t.qty > bq) { best = t.price; bq = t.qty; } return best; };
 const diffColor = (d: number | null) => (d == null ? MUTED : d <= -5 ? GOOD : d < 5 ? AMBER : BAD);
 export function DiffChip({ d }: { d: number | null }) {
-  if (d == null) return <Typography sx={{ fontSize: "0.65rem", color: "#bdc1c6" }}>—</Typography>;
+  if (d == null) return <Typography sx={{ fontSize: "0.65rem", color: "#b5bfcf" }}>—</Typography>;
   return <Chip label={`${d > 0 ? "+" : ""}${d.toFixed(1)}%`} size="small" sx={{ height: 20, fontSize: "0.64rem", fontWeight: 800, bgcolor: d <= -5 ? "#e8f5ee" : d < 5 ? "#fdf3e2" : "#fdecea", color: diffColor(d) }} />;
 }
 
@@ -204,7 +204,7 @@ export function PriceCompare({ m }: { m: Match }) {
   const head = { fontSize: "0.6rem", fontWeight: 800, color: MUTED, textTransform: "uppercase" as const, letterSpacing: "0.04em" };
   const cell = { fontSize: "0.78rem", fontFamily: "monospace", fontWeight: 700, textAlign: "right" as const };
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e3e7eb" }}>
+    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e4e9f1" }}>
       <Box sx={{ px: 1.5, py: 0.9, bgcolor: "#eef2f6", display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: NAVY, textTransform: "uppercase" }}>Price</Typography>
         {ap ? (
@@ -233,7 +233,7 @@ export function PriceCompare({ m }: { m: Match }) {
           return (
             <React.Fragment key={q}>
               <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED }}>{q}+</Typography>
-              <Typography sx={{ ...cell, color: "#1a1d21" }}>{a != null ? fmtMoney(a) : "—"}</Typography>
+              <Typography sx={{ ...cell, color: "#15223a" }}>{a != null ? fmtMoney(a) : "—"}</Typography>
               <Typography sx={{ ...cell, color: NAVY }}>{c != null ? fmtMoney(c) : "—"}</Typography>
               <Box sx={{ textAlign: "right" }}><DiffChip d={d} /></Box>
             </React.Fragment>
@@ -248,7 +248,7 @@ export function PriceCompare({ m }: { m: Match }) {
           ))}
         </Box>
       )}
-      <Box sx={{ px: 1.5, py: 0.6, borderTop: "1px solid #eef0f3", display: "flex", gap: 2, flexWrap: "wrap" }}>
+      <Box sx={{ px: 1.5, py: 0.6, borderTop: "1px solid #eef2f8", display: "flex", gap: 2, flexWrap: "wrap" }}>
         <Typography sx={{ fontSize: "0.64rem", color: MUTED }}>{m.competitor_name} price <b>{fmtDate(m.competitor_product.price_scraped_at)}</b></Typography>
         <Typography sx={{ fontSize: "0.64rem", color: MUTED }}>APSO prices <b>{fmtDate(m.apso_product.prices_updated_at)}</b></Typography>
         {m.competitor_product.in_stock != null && <Typography sx={{ fontSize: "0.64rem", color: m.competitor_product.in_stock ? GOOD : BAD, fontWeight: 700 }}>{m.competitor_product.in_stock ? "In stock" : "Out of stock"}</Typography>}
@@ -283,22 +283,22 @@ export function MatchBreakdown({ m }: { m: Match }) {
   const row = (key: string, label: string, r: MatchReason | null) => {
     const info = r && r.weight === 0;
     const pts = r ? Math.round(r.score * r.weight) : 0;
-    const okCol = !r ? "#bdc1c6" : info ? MUTED : r.score >= 1 ? GOOD : r.score >= 0.8 ? AMBER : BAD;
+    const okCol = !r ? "#b5bfcf" : info ? MUTED : r.score >= 1 ? GOOD : r.score >= 0.8 ? AMBER : BAD;
     return (
       <Box key={key} sx={{ display: "grid", gridTemplateColumns: "118px 64px 1fr", gap: 1, alignItems: "center", py: 0.45, borderBottom: "1px solid #f2f4f6" }}>
-        <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: "#1a1d21" }}>{label}</Typography>
+        <Typography sx={{ fontSize: "0.74rem", fontWeight: 700, color: "#15223a" }}>{label}</Typography>
         <Box>
           <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: okCol, fontFamily: "monospace" }}>{!r ? "not compared" : info ? "info" : `${pts} / ${r.weight}`}</Typography>
-          {r && !info && <Box sx={{ height: 3, bgcolor: "#eef0f3", borderRadius: 2, mt: 0.3 }}><Box sx={{ height: 3, width: `${Math.max(0, Math.min(1, r.score)) * 100}%`, bgcolor: okCol, borderRadius: 2 }} /></Box>}
+          {r && !info && <Box sx={{ height: 3, bgcolor: "#eef2f8", borderRadius: 2, mt: 0.3 }}><Box sx={{ height: 3, width: `${Math.max(0, Math.min(1, r.score)) * 100}%`, bgcolor: okCol, borderRadius: 2 }} /></Box>}
         </Box>
         <Typography sx={{ fontSize: "0.72rem", color: MUTED, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {r ? <><b style={{ color: "#1a1d21" }}>{r.apso || "—"}</b> vs <b style={{ color: NAVY }}>{r.comp || "—"}</b></> : "—"}
+          {r ? <><b style={{ color: "#15223a" }}>{r.apso || "—"}</b> vs <b style={{ color: NAVY }}>{r.comp || "—"}</b></> : "—"}
         </Typography>
       </Box>
     );
   };
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e3e7eb" }}>
+    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e4e9f1" }}>
       <Box sx={{ px: 1.5, py: 0.9, bgcolor: "#eef2f6", display: "flex", alignItems: "center", gap: 1 }}>
         <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: NAVY, textTransform: "uppercase" }}>Match breakdown</Typography>
         <Chip size="small" label={F.label} sx={{ height: 20, fontSize: "0.62rem", fontWeight: 800, bgcolor: "#fff", color: NAVY }} />
@@ -341,7 +341,7 @@ export function AttributeCompare({ m }: { m: Match }) {
   rows.push({ label: "Colour", apso: txt(a.color), comp: txt(c.color), match: ok("color") });
   if (fam !== "oring" && (a.conformities || c.certifications)) rows.push({ label: "Certifications", apso: txt(a.conformities), comp: txt(c.certifications), match: ok("certifications") });
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e3e7eb" }}>
+    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e4e9f1" }}>
       <Box sx={{ display: "grid", gridTemplateColumns: "112px 1fr 1fr", bgcolor: "#eef2f6", px: 1.5, py: 0.7 }}>
         {["", "APSO", m.competitor_name].map((h, i) => <Typography key={i} sx={{ fontSize: "0.7rem", fontWeight: 800, color: NAVY, textTransform: "uppercase" }}>{h}</Typography>)}
       </Box>
@@ -349,8 +349,8 @@ export function AttributeCompare({ m }: { m: Match }) {
         <Box key={r.label} sx={{ display: "grid", gridTemplateColumns: "112px 1fr 1fr", gap: 1, px: 1.5, py: 0.45, bgcolor: i % 2 ? "#fafbfc" : "#fff",
           borderLeft: `3px solid ${r.match === true ? GOOD : r.match === false ? BAD : "transparent"}` }}>
           <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: MUTED }}>{r.label}</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: "#1a1d21" }}>{r.apso}</Typography>
-          <Typography sx={{ fontSize: "0.74rem", color: "#1a1d21" }}>{r.comp}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: "#15223a" }}>{r.apso}</Typography>
+          <Typography sx={{ fontSize: "0.74rem", color: "#15223a" }}>{r.comp}</Typography>
         </Box>
       ))}
     </Card>
@@ -363,12 +363,12 @@ export function QualificationCard({ m }: { m: Match }) {
   const line = (k: string, v: React.ReactNode) => (
     <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, py: 0.3, borderBottom: "1px solid #f2f4f6" }}>
       <Typography sx={{ fontSize: "0.7rem", color: MUTED, fontWeight: 600 }}>{k}</Typography>
-      <Typography sx={{ fontSize: "0.72rem", color: "#1a1d21", fontWeight: 600, textAlign: "right" }}>{v}</Typography>
+      <Typography sx={{ fontSize: "0.72rem", color: "#15223a", fontWeight: 600, textAlign: "right" }}>{v}</Typography>
     </Box>
   );
   const machine = num(m.machine_confidence);
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e3e7eb" }}>
+    <Card variant="outlined" sx={{ borderRadius: 2, borderColor: "#e4e9f1" }}>
       <Box sx={{ px: 1.5, py: 0.9, bgcolor: "#eef2f6" }}><Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: NAVY, textTransform: "uppercase" }}>Qualification</Typography></Box>
       <Box sx={{ px: 1.5, py: 0.6 }}>
         {line("Status", m.approved ? (m.approved_by_person ? (m.match_type === "manual" ? "Linked by hand" : "Approved by a person") : "Auto-approved (100%)") : "Pending review")}
@@ -409,7 +409,7 @@ interface Freshness {
   apso: { prices_updated_at: string | null; articles: number; updated_recently: number };
   suppliers: { id: number; code: string; name: string; scraper_enabled: boolean; last_status: string | null; last_run_at: string | null; last_found: number | null; last_error: string | null; prices_at: string | null; matches: number }[];
 }
-const ageColor = (d: number | null) => (d == null ? "#9aa1ab" : d <= 14 ? GOOD : d <= 45 ? AMBER : BAD);
+const ageColor = (d: number | null) => (d == null ? "#8b97ac" : d <= 14 ? GOOD : d <= 45 ? AMBER : BAD);
 export function FreshnessStrip({ competitorIds }: { competitorIds?: string[] }) {
   const [f, setF] = useState<Freshness | null>(null);
   const [sync, setSync] = useState<{ running: boolean; status?: string } | null>(null);
@@ -434,7 +434,7 @@ export function FreshnessStrip({ competitorIds }: { competitorIds?: string[] }) 
   const sups = (f?.suppliers || []).filter(s => (competitorIds && competitorIds.length ? competitorIds.includes(String(s.id)) : s.matches > 0));
   const apsoAge = daysAgo(f?.apso.prices_updated_at);
   return (
-    <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 2, px: 1.5, py: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+    <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2, px: 1.5, py: 1, display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
       <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: NAVY, textTransform: "uppercase", letterSpacing: "0.04em" }}>APSO prices</Typography>
       <Chip size="small" label={fmtDateTime(f?.apso.prices_updated_at)} sx={{ height: 22, fontSize: "0.68rem", fontWeight: 800, bgcolor: "#f1f5f8", color: ageColor(apsoAge) }} />
       <Tooltip title="Re-reads every article and its M100 / M110 prices from HubSpot" arrow>
@@ -446,7 +446,7 @@ export function FreshnessStrip({ competitorIds }: { competitorIds?: string[] }) 
           </Button>
         </span>
       </Tooltip>
-      <Box sx={{ width: "1px", height: 20, bgcolor: "#e3e7eb", mx: 0.5 }} />
+      <Box sx={{ width: "1px", height: 20, bgcolor: "#e4e9f1", mx: 0.5 }} />
       <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: NAVY, textTransform: "uppercase", letterSpacing: "0.04em" }}>Last scrape</Typography>
       {sups.map(s => {
         const runAge = daysAgo(s.last_run_at), priceAge = daysAgo(s.prices_at);
@@ -454,7 +454,7 @@ export function FreshnessStrip({ competitorIds }: { competitorIds?: string[] }) 
         return (
           <Tooltip key={s.id} arrow title={<span style={{ whiteSpace: "pre-line" }}>{`${s.name}\nLast run ${fmtDateTime(s.last_run_at)} · ${s.last_status || "—"} · ${s.last_found ?? 0} products\nPrices stored ${fmtDateTime(s.prices_at)}${s.last_error ? `\n${s.last_error}` : ""}\n${s.matches.toLocaleString()} matches`}</span>}>
             <Chip size="small" label={<span><b>{s.name}</b> {s.last_run_at ? fmtDayMonth(s.last_run_at) : "no run"}{stale ? <span style={{ color: AMBER }}> · prices {fmtDayMonth(s.prices_at)}</span> : null}</span>}
-              sx={{ height: 22, fontSize: "0.66rem", bgcolor: "#fff", border: `1px solid ${ageColor(stale ? priceAge : runAge)}`, color: "#1a1d21" }} />
+              sx={{ height: 22, fontSize: "0.66rem", bgcolor: "#fff", border: `1px solid ${ageColor(stale ? priceAge : runAge)}`, color: "#15223a" }} />
           </Tooltip>
         );
       })}
@@ -530,7 +530,7 @@ export function MatchingSettings({ competitors, onChanged }: { competitors: Comp
         <DialogActions sx={{ px: 2.5, pb: 2 }}>
           <Button onClick={() => setConfirm(null)} disabled={busy} sx={{ color: MUTED, textTransform: "none" }}>Cancel</Button>
           <Button variant="contained" disableElevation disabled={busy || (confirm === "all" && typed.trim().toLowerCase() !== "clear")} onClick={doClear}
-            sx={{ textTransform: "none", fontWeight: 700, bgcolor: confirm === "all" ? RED : AMBER, "&:hover": { bgcolor: confirm === "all" ? "#c41527" : "#a86400" } }}>
+            sx={{ textTransform: "none", fontWeight: 700, bgcolor: confirm === "all" ? RED : AMBER, "&:hover": { bgcolor: confirm === "all" ? "#a8372c" : "#a86400" } }}>
             {busy ? "Removing…" : "Remove"}
           </Button>
         </DialogActions>
@@ -554,7 +554,7 @@ export function MatchingSettings({ competitors, onChanged }: { competitors: Comp
               <Button size="small" onClick={() => setComps(competitors.map(c => c.id))} sx={{ fontSize: "0.66rem", textTransform: "none" }}>All</Button>
               <Button size="small" onClick={() => setComps([])} sx={{ fontSize: "0.66rem", textTransform: "none", color: RED }}>None</Button>
             </Box>
-            <Box sx={{ p: 1, border: "1px solid #ececec", borderRadius: 1.5, maxHeight: 220, overflow: "auto" }}>
+            <Box sx={{ p: 1, border: "1px solid #e4e9f1", borderRadius: 1.5, maxHeight: 220, overflow: "auto" }}>
               <FormGroup sx={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
                 {competitors.map(c => (
                   <FormControlLabel key={c.id} label={<Typography sx={{ fontSize: "0.78rem" }}>{c.name}</Typography>}
