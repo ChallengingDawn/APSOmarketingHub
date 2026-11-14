@@ -69,9 +69,10 @@ const pts = (d: number | null) => (d === null ? "–" : `${d > 0 ? "+" : d < 0 ?
 const clear = (t: Test) => t.p !== null && t.p < 0.05;
 const day = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
 
-export default function AbTab() {
+/** initialRound: open on an earlier round (A/B testing's record of a round links here with ?round=, 14.11.2026). */
+export default function AbTab({ initialRound = null }: { initialRound?: number | null } = {}) {
   const [n, setN] = useState(0);
-  const [round, setRound] = useState<number | null>(null);
+  const [round, setRound] = useState<number | null>(initialRound);
   return (
     <Loaded<AbPage> key={`ab-${n}-${round ?? "now"}`} url={`/api/website/chat?part=ab${round ? `&v=${round}` : ""}`} what="the A/B test">
       {(d) => <Body d={d} reload={() => setN((x) => x + 1)} round={round} setRound={setRound} />}
