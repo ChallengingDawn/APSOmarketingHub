@@ -228,6 +228,14 @@ export const UC_SECTIONS: WebsiteSection[] = [
     ],
   },
   {
+    // TSA's tickets as a funnel and their routing, a sub app of its own (SARCLA 13.11.2026: "TSA, we need to create a sub
+    // app TSA Distribution - and an ESO distribution for later"); reads only until the hub's routing goes Live
+    slug: "tsa-distribution", name: "TSA Distribution", line: "Every TSA ticket: how it came in, where it went, and the routing the hub takes over", icon: "assign", ...TEAL,
+    pages: [
+      { name: "TSA Distribution", note: "The funnel of the TSA tickets, and what the hub would do with each new one next to the workflow", href: "/uc/tsa-distribution", icon: "assign", ...TEAL },
+    ],
+  },
+  {
     // the Google Maps job of the old HubSpot workflows, a sub app of its own (SARCLA 10.11.2026: "gmaps query - create a
     // complete sub app, for the moment with only GMAPS query inside"); named APSOMaps on 11.11.2026 ("instead of company
     // data call it APSOMaps"), the country moved the same day into Duplicates & merges > Companies > Country. The slug stays
