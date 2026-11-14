@@ -37,6 +37,7 @@ import { ENVS, KIND_LABEL, sortProblems } from "@/lib/convert/model";
 import type { BoardRow } from "@/lib/convert/studio";
 import type { ProblemsData } from "@/lib/convert/problems";
 import { iceScore } from "@/lib/convert/ice";
+import { testState } from "@/lib/convert/testState";
 import { CHANGE_LABEL, CHANGE_TYPES, isChangeType, typeOfIdea, type ChangeType } from "@/lib/convert/changeTypes";
 import { Chip } from "../Tag";
 import { PageShot } from "../PageShot";
@@ -73,13 +74,6 @@ function pageName(path: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 
-/** The AI's last night scan in a few words: when, and what it read (or why nothing). */
-function scanWords(s: { day: string; pages: string[]; note: string }): string {
-  const d = `${s.day.slice(8, 10)}.${s.day.slice(5, 7)}.`;
-  if (s.pages.length) return `night of ${d}: ${s.pages.length} ${s.pages.length === 1 ? "page" : "pages"} read`;
-  if (s.note === "started") return `night of ${d}: reading`;
-  return `night of ${d}: ${s.note}`;
-}
 
 function PrioTag({ p }: { p: Priority }) {
   const c = PRIO[p];
@@ -181,6 +175,7 @@ function IdeaGrid({ rows, onOpen, resetKey }: { rows: BoardRow[]; onOpen: (id: s
                   <PrioTag p={priorityOf(x)} />
                   <Chip tint={TYPE_TINT[t]}>{CHANGE_LABEL[t]}</Chip>
                   {st && <Chip tint={st === "Dropped" ? "slate" : "green"}>{st}</Chip>}
+                  {x.test && <Chip tint={testState(x.test).tint}>{testState(x.test).label}</Chip>}
                   {x.versions > 0 && <Chip tint="purple">{x.versions} {x.versions === 1 ? "version" : "versions"}</Chip>}
                   {x.source === "ai" && <Tooltip title="Found by the AI"><AutoAwesomeOutlinedIcon sx={{ fontSize: 16, color: "#6a46c9", ml: "auto" }} /></Tooltip>}
                 </Box>
@@ -291,8 +286,13 @@ function HowItWorks({ type }: { type: TypeKey }) {
 /** Whole page or one block (SARCLA 11.11.2026: "allow the filter by full page or block only"; "I really need to see block / all pages"). */
 type Scope = "all" | "block" | "page";
 
+const READ_TAB: Record<TypeKey, string> = {
+  all: "Pages not read yet", "page-refresh": "Pages not read yet", "landing-page": "Google's view of the pages",
+  banner: "The home slider", newsletter: "The newsletter band", "blog-article": "The blog",
+};
+
 const READ_NEXT: Record<TypeKey, { title: string; note: string }> = {
-  all: { title: "Pages losing buyers, not read yet", note: "The AI reads 5 a night by itself - or now, with Find optimizations" },
+  all: { title: "Pages losing buyers, not read yet", note: "The AI reads up to 10 an hour by itself - or one now, with Find optimizations" },
   "page-refresh": { title: "Pages losing buyers, not read yet", note: "And the home page's rows, each optimized as one block" },
   "landing-page": { title: "Where new pages come from: Google's view of the shop's pages", note: "Shown on Google, clicked little: the searches the shop does not answer well - no product pages" },
   banner: { title: "The home slider", note: "Its optimizations come as clearly different versions side by side" },
@@ -307,6 +307,9 @@ export default function ConvertInsights() {
   const [show, setShow] = useState<Show>("decide");
   const [prio, setPrio] = useState<Priority | "all">("all");
   const [scope, setScope] = useState<Scope>("all");
+  // the optimizations found, or the pages not read yet - two views, never one list under the other (SARCLA 12.11.2026:
+  // "pages that are not read should be in a different view, like a toggle, because optimizations have not been found")
+  const [mode, setMode] = useState<"found" | "unread">("found");
   const [open, setOpen] = useState<string | null>(null);
   // a link may name the type (Problem pages' old address leads here with ?type=)
   useEffect(() => {
@@ -319,7 +322,6 @@ export default function ConvertInsights() {
   const held = useHeld<{ ideas: BoardRow[]; scans?: { day: string; pages: string[]; note: string }[] }>(url, [url]);
   const r = held.result;
   const all = useMemo(() => (r?.state === "ok" ? r.data.ideas : []), [r]);
-  const lastScan = r?.state === "ok" ? (r.data.scans ?? [])[0] ?? null : null;
   const view = useMemo(() => {
     const byShow = all.filter((x) => (show === "decide" ? x.status === "proposed" : show === "approved" ? x.status === "approved" : x.status !== "dropped"));
     const types = CHANGE_TYPES.map((t) => ({ key: t.key, n: byShow.filter((x) => typeOfIdea(x) === t.key).length }));
@@ -353,7 +355,11 @@ export default function ConvertInsights() {
               { key: "all", label: "All", count: view.total },
               ...CHANGE_TYPES.map((t) => ({ key: t.key, label: t.soon ? `${t.label} · to come` : t.label, count: t.soon ? undefined : view.types.find((x) => x.key === t.key)?.n ?? 0, disabled: !!t.soon })),
             ]} />
-            <Box sx={{ display: "flex", gap: 1.5, rowGap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
+            <SquareChoice<"found" | "unread"> label="View" value={mode} onChange={setMode} options={[
+              { key: "found", label: "Optimizations found", count: view.total },
+              { key: "unread", label: READ_TAB[type] },
+            ]} />
+            {mode === "found" && <Box sx={{ display: "flex", gap: 1.5, rowGap: 1.25, alignItems: "center", flexWrap: "wrap" }}>
               <SquareChoice<Show> label="Show" value={show} onChange={setShow} options={[
                 { key: "decide", label: "To decide", count: view.counts.decide }, { key: "approved", label: "In work", count: view.counts.approved }, { key: "all", label: "All", count: view.counts.all },
               ]} />
@@ -365,41 +371,37 @@ export default function ConvertInsights() {
                   { key: "all", label: "All", count: view.scopes.all }, { key: "block", label: "A block", count: view.scopes.block }, { key: "page", label: "The whole page", count: view.scopes.page },
                 ]} />
               )}
-            </Box>
+            </Box>}
           </Box>
           <HowItWorks type={type} />
           <Typography sx={{ fontSize: "0.74rem", color: MUTED, mt: 1 }}>
-            {view.rows.length} {view.rows.length === 1 ? "optimization" : "optimizations"} on {view.pages} {view.pages === 1 ? "page" : "pages"}
-            {type !== "all" && ` · ${CHANGE_TYPES.find((t) => t.key === type)?.about}`}
-            {type !== "landing-page" && type !== "banner" && type !== "newsletter" && <>{" · "}{lastScan ? scanWords(lastScan) : "its first night shows here"}</>}
+            {mode === "unread"
+              ? <>{next.title} · {next.note}</>
+              : <>{view.rows.length} {view.rows.length === 1 ? "optimization" : "optimizations"} on {view.pages} {view.pages === 1 ? "page" : "pages"}{type !== "all" && ` · ${CHANGE_TYPES.find((t) => t.key === type)?.about}`}</>}
           </Typography>
         </GlassCard>
 
-        {view.rows.length === 0 && type !== "blog-article" && (
-          <GlassCard>
+        {mode === "found" && view.rows.length === 0 && type !== "blog-article" && (
+          <GlassCard sx={{ display: "grid", gap: 1, justifyItems: "start" }}>
             <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: INK }}>{show === "decide" ? "Nothing of this type waits for a decision." : "Nothing of this type yet."}</Typography>
-            <Typography sx={{ fontSize: "0.84rem", color: MUTED, mt: 0.5 }}>Find optimizations on one of the pages below - the AI reads it at once.</Typography>
+            <Button size="small" variant="outlined" onClick={() => setMode("unread")} sx={{ textTransform: "none", fontWeight: 600, borderRadius: "6px" }}>{READ_TAB[type]} - find optimizations there</Button>
           </GlassCard>
         )}
         {/* SEO landing page: the landing pages there are first - ours and the shop's - to optimize; then the new pages proposed */}
-        {type === "landing-page" && <LandingPages from={win.from} to={win.to} ideas={all} />}
-        {type === "landing-page" && view.rows.length > 0 && (
+        {mode === "found" && type === "landing-page" && <LandingPages from={win.from} to={win.to} ideas={all} />}
+        {mode === "found" && type === "landing-page" && view.rows.length > 0 && (
           <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mt: 1 }}>
             <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>New pages proposed</Typography>
             <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>One per page of the shop, for its biggest group of Google searches</Typography>
           </Box>
         )}
-        {view.rows.length > 0 && <IdeaGrid rows={view.rows} onOpen={setOpen} resetKey={`${type}:${show}:${view.pr}:${scope}`} />}
+        {mode === "found" && view.rows.length > 0 && <IdeaGrid rows={view.rows} onOpen={setOpen} resetKey={`${type}:${show}:${view.pr}:${scope}`} />}
 
-        <Box sx={{ display: "flex", alignItems: "baseline", gap: 1.25, flexWrap: "wrap", mt: 1 }}>
-          <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, color: INK }}>{next.title}</Typography>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{next.note}</Typography>
-        </Box>
-        {(type === "all" || type === "page-refresh") && <PagesToRead from={win.from} to={win.to} ideas={all} themes={type === "all"} />}
-        {type === "page-refresh" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={HOME_ROWS} compact />}
-        {type === "landing-page" && <SeoLens from={win.from} to={win.to} names={new Map()} onlyProblems noProducts />}
-        {type === "banner" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["home-slider"]} compact />}
-        {type === "newsletter" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["newsletter"]} compact />}
+        {mode === "unread" && (type === "all" || type === "page-refresh") && <PagesToRead from={win.from} to={win.to} ideas={all} themes={type === "all"} />}
+        {mode === "unread" && type === "page-refresh" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={HOME_ROWS} compact />}
+        {mode === "unread" && type === "landing-page" && <SeoLens from={win.from} to={win.to} names={new Map()} onlyProblems noProducts />}
+        {mode === "unread" && type === "banner" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["home-slider"]} compact />}
+        {mode === "unread" && type === "newsletter" && <BlocksLens from={win.from} to={win.to} totalViews={null} homeViews={null} only={["newsletter"]} compact />}
         {type === "blog-article" && <Notice tone="warn">The shop has no blog yet - its articles come here once it has one, as Content&apos;s Blog article.</Notice>}
 
         {openRow && <Discover r={openRow} onClose={() => setOpen(null)} onDone={() => setTick((n) => n + 1)} />}
@@ -415,14 +417,19 @@ export default function ConvertInsights() {
             {/* SARCLA 10.11.2026: "put a disclaimer on Insights: product pages are deactivated for the moment, as cart and my
                 account - not sent [the] token on dotSource['s] hard-coded pages"; 11.11.2026: "put this a small message on
                 top right before the date switcher" */}
-            <Box sx={{ display: "flex", gap: 0.75, alignItems: "flex-start", maxWidth: 440, px: 1.25, py: 0.6, borderRadius: "8px", bgcolor: "rgba(183,121,31,.08)", border: "1px solid rgba(183,121,31,.25)" }}>
-              <InfoOutlinedIcon sx={{ fontSize: 15, color: "#b7791f", mt: "2px" }} />
-              <Typography sx={{ fontSize: "0.72rem", color: INK, lineHeight: 1.4 }}>
+            {/* 12.11.2026, on a smaller screen: "the message becomes a joke" - one short line, its full words on hover or tap */}
+            <Tooltip enterTouchDelay={0} leaveTouchDelay={6000} title={
+              <Box sx={{ fontSize: "0.78rem", lineHeight: 1.45, p: 0.25 }}>
                 For the moment the AI proposes no optimization on <b>product pages</b>, the <b>cart</b> or <b>My account</b>: dotSource codes those
                 pages in the shop&apos;s theme, and the hub has no access to change them yet. Home, category and content pages get block
                 optimizations - a block of the page and 3 or 4 modules to replace it.
-              </Typography>
-            </Box>
+              </Box>
+            }>
+              <Box tabIndex={0} sx={{ display: "inline-flex", gap: 0.6, alignItems: "center", minWidth: 0, maxWidth: { xs: "100%", sm: 340 }, px: 1, py: 0.45, borderRadius: "999px", bgcolor: "rgba(183,121,31,.08)", border: "1px solid rgba(183,121,31,.25)", cursor: "help" }}>
+                <InfoOutlinedIcon sx={{ fontSize: 15, color: "#b7791f", flexShrink: 0 }} />
+                <Typography noWrap sx={{ fontSize: "0.74rem", color: INK, fontWeight: 600 }}>Product pages, cart and My account: not yet</Typography>
+              </Box>
+            </Tooltip>
             <WindowPicker />
             {held.stale && <CircularProgress size={14} sx={{ color: MUTED }} />}
             <Tooltip title="Ask again"><IconButton size="small" onClick={() => setTick((n) => n + 1)} aria-label="Refresh"><RefreshIcon sx={{ fontSize: 18, color: MUTED }} /></IconButton></Tooltip>

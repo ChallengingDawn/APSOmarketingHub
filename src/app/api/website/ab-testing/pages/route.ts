@@ -4,12 +4,12 @@
 // ?piece=<Content piece id> = only that piece's tests (the Page builder's publishing view, SARCLA 11.11.2026).
 // POST {action:"create", versionId, env?, pages?, name?, piece?} -> {id}; {action:"settings", id, name?, notes?, mde?, env?,
 // pages?, allocation?, audience?} (a draft's conditions); {action: start|pause|resume|stop|restart|sync|remove|decide|
-// delete|copy, id, winner?, env?}. Writing needs the page's write level; starting is the approval that puts a version
+// delete|copy, id, winner?, env?}; {action:"published", id, how?} closes a won test whose winner went live (Content). Writing needs the page's write level; starting is the approval that puts a version
 // on the shop. Without DIRECTUP_ADMIN_KEY drafts still work and the list says the gateway is not connected.
 import { NextRequest, NextResponse } from "next/server";
 import { myAccess } from "@/lib/auth/appAccess";
 import { isEnv } from "@/lib/convert/model";
-import { ACTIONS, act, approvedVersionPath, candidates, createDraft, gatewayState, gatewayTests, languagePaths, listTests, testById, updateSettings, type Action } from "@/lib/convert/tests";
+import { ACTIONS, act, approvedVersionPath, candidates, createDraft, gatewayState, gatewayTests, languagePaths, listTests, markPublished, originsOf, testById, updateSettings, type Action } from "@/lib/convert/tests";
 import { body, fail, failOf, figuresOf, idOf, inTurns, ok, who } from "@/lib/convert/api";
 
 export const runtime = "nodejs";
@@ -33,14 +33,14 @@ export async function GET(req: NextRequest) {
     }
     const piece = idOf(sp.get("piece"));
     const [tests, cands, live] = await Promise.all([listTests("test", piece), piece ? Promise.resolve([]) : candidates("test"), gatewayTests()]);
-    const figures = await inTurns(tests, 4, (t) => figuresOf(t).catch(() => null));
+    const [figures, origins] = await Promise.all([inTurns(tests, 4, (t) => figuresOf(t).catch(() => null)), originsOf(tests).catch(() => ({} as Awaited<ReturnType<typeof originsOf>>))]);
     const held = new Map((live.tests ?? []).map((c) => [String(c.id), c]));
     return ok({
       tests: tests.map((t, i) => {
         const g = held.get(t.id);
         // the hub says live, the gateway does not hold it (or an older round): it can be sent again
         const drift = live.tests && (t.status === "running" || t.status === "paused") ? (!g ? "missing" : g.v !== t.v || g.status !== t.status ? "behind" : null) : null;
-        return { ...t, results: undefined, figures: figures[i], drift, weights: g?.weights ?? null };
+        return { ...t, results: undefined, figures: figures[i], drift, weights: g?.weights ?? null, origin: origins[t.id] ?? null };
       }),
       candidates: cands,
       gateway: { ...gatewayState(), error: live.error },
@@ -70,6 +70,12 @@ export async function POST(req: NextRequest) {
     const cur = await testById(id);
     if (!cur || cur.kind !== "test") return fail("No such page test.", 404);
     if (b.action === "settings") return ok(await updateSettings(id, b, by));
+    // the winner made the page outside the hub's own ways (Content's "Make B the page" / "Update all") - the test is closed
+    if (b.action === "published") {
+      const t = await markPublished(id, by, typeof b.how === "string" && b.how.trim() ? b.how.trim().slice(0, 300) : "Published from Content");
+      console.log(`[convert-tests] #${id} published by ${by}`);
+      return ok({ id: t.id, status: t.status });
+    }
     if (!ACTIONS.includes(b.action as Action)) return fail("Unknown action.", 400);
     const t = await act(id, b.action as Action, by, { winner: b.winner, env: b.env });
     console.log(`[convert-tests] #${id} ${String(b.action)} by ${by}`);

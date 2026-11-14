@@ -9,7 +9,7 @@ import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { sealingCacheClear } from "./sealingCache";
 import {
-  approvalKinds, approvalRefs, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
+  approvalKinds, approvalRefs, refTexts, type RefFigure, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
   type CompoundCustomer, type DetailKind, type ListAsk, type ListKind, type Figure, type KeyMonth, type Priority, type SealingRow,
 } from "./sealingRules";
 
@@ -168,8 +168,8 @@ export type SealingView = {
   leaderMonths?: { customer: KeyMonth[]; article: KeyMonth[]; compound: KeyMonth[] };
   /** the compound entries that name none ("No info", "Unknown", "TBD", a drawing) - the pilot's unresolved entries */
   unresolved: Figure[];
-  /** the net revenue of the approval texts naming each reference the pilot ranks (FDA, WRAS ...) - they overlap */
-  approvalRefs: Figure[];
+  /** the net revenue of the articles carrying each approval the pilot ranks (FDA, WRAS ...), and how many articles - they overlap */
+  approvalRefs: RefFigure[];
   /** the pilot's indicative categories of the approval texts: none written, a datasheet, explicit references, other */
   approvalKinds: Figure[];
   /** the customers and the articles with a negative gross margin (net revenue above zero, gross profit below) - a year
@@ -371,8 +371,10 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
   // the leading compounds' customers, for the priorities
   const topCompounds = named.slice(0, 20).map((c) => c.key);
   const artKeys = artNow.map((a) => a.key);
+  // the approval texts naming each approval - how many distinct articles carry it is counted on them
+  const refPairs = refTexts(appr.filter((a) => !noApproval(a.name)).map((a) => a.key));
   // the second round: what needs the first's keys - again all at once
-  const [mNow, mBefore, famNow, famBefore, leadNow, leadBefore, pairRows, artRows] = await Promise.all([
+  const [mNow, mBefore, famNow, famBefore, leadNow, leadBefore, pairRows, artRows, refRows] = await Promise.all([
     monthFigures(f, f.from, f.to, noCompKeys, noApprKeys), monthFigures(f, prevFrom, prevTo, noCompKeys, noApprKeys),
     familyByMonth(f, f.from, f.to, [...familyOf.keys()], [...familyOf.values()]),
     familyByMonth(f, prevFrom, prevTo, [...familyOf.keys()], [...familyOf.values()]),
@@ -387,6 +389,12 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
       `SELECT article, MAX(compound) AS compound FROM ${TABLE} WHERE ${w.sql} AND article = ANY($${w.vals.length + 1}) GROUP BY article`,
       [...w.vals, artKeys],
     ) : Promise.resolve({ rows: [] as { article: string; compound: string }[] }),
+    // each approval's articles: the distinct articles invoiced under a text naming it (SARCLA 14.11.2026: "FDA · 312 articles")
+    refPairs.length ? query<{ ref: string; n: string }>(
+      `SELECT m.ref, COUNT(DISTINCT article) AS n FROM ${TABLE} JOIN unnest($${w.vals.length + 1}::text[], $${w.vals.length + 2}::text[]) AS m(atext, ref) ON approval = m.atext
+        WHERE ${w.sql} GROUP BY m.ref`,
+      [...w.vals, refPairs.map((x) => x.text), refPairs.map((x) => x.ref)],
+    ) : Promise.resolve({ rows: [] as { ref: string; n: string }[] }),
   ]);
   const pairs: CompoundCustomer[] = pairRows.rows.map((r) => ({ compound: r.compound, customer: r.customer, customerName: r.name || r.customer, rev: Number(r.rev), gp: Number(r.gp) }));
   const artCompound = new Map(artRows.rows.map((r) => [r.article, r.compound]));
@@ -455,7 +463,7 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
       compound: keyMonths(period, leadNow.compound, leadBefore.compound, firstHeld),
     },
     unresolved: withPrev(compNow.filter((c) => noCompound(c.name)), compBefore.filter((c) => noCompound(c.name))),
-    approvalRefs: approvalRefs(appr),
+    approvalRefs: approvalRefs(appr, new Map(refRows.rows.map((r) => [r.ref, Number(r.n)]))),
     approvalKinds: approvalKinds(appr),
     negative: { customers: negCust, articles: negArt, prevCustomers: negCustBefore, prevArticles: negArtBefore },
   };

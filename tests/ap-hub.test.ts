@@ -6,6 +6,7 @@ import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, mo
 import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
 import { SEALING_DEFINITIONS, actionsCaption, leadingRefs, matchesQuery, rankBy } from "../src/lib/apHub/sealingRules";
 import { MATERIAL_RULES, PER_DATA_SHEET, approvalLabel, approvalParts, cleanName, shortName } from "../src/lib/apHub/sealingRules";
+import { APPROVAL_KINDS, NO_UNIT, namesApproval, refTexts, tinyNoUnit } from "../src/lib/apHub/sealingRules";
 import { cacheKey, sealingCacheClear, sealingCacheSize, sealingCached, stableKey } from "../src/lib/apHub/sealingCache";
 import {
   LIST_PAGE, NO_COMPOUND_NAME, PRIORITY_STATUSES, STATUS_NAME, approvalCandidates, canMove, candidateKey, commercialCandidates, compoundsKept, familyCandidates, isPriorityStatus,
@@ -652,4 +653,27 @@ test("sealing: the answers kept - one stable key for the same question, a new de
   assert.equal(sealingCacheSize("test"), 1, "the older delivery's answers let go");
   sealingCacheClear();
   assert.equal(sealingCacheSize("test"), 0);
+});
+
+test("sealing: round 10 - the approvals our sold articles carry, how many articles each; the rows with no business unit", () => {
+  const texts = [{ name: "FDA; WRAS", rev: 100, gp: 30 }, { name: "FDA 21 CFR", rev: 50, gp: 10 }, { name: "-", rev: 900, gp: 1 }, { name: "KTW", rev: 20, gp: 5 }];
+  const pairs = refTexts(texts.map((t) => t.name));
+  assert.deepEqual(pairs.filter((p) => p.ref === "FDA").map((p) => p.text), ["FDA; WRAS", "FDA 21 CFR"]);
+  assert.ok(!pairs.some((p) => p.text === "-"), "no approval written names none");
+  const refs = approvalRefs(texts, new Map([["FDA", 312], ["WRAS", 40]]));
+  const fda = refs.find((r) => r.name === "FDA")!;
+  assert.equal(fda.rev, 150);
+  assert.equal(fda.articles, 312);
+  assert.equal(refs.find((r) => r.name === "KTW")!.articles, 0, "counted, none: zero");
+  assert.equal(approvalRefs(texts).every((r) => r.articles === null), true, "not counted: null");
+  assert.match(approvalCandidates(refs, 900, 1070).find((p) => p.title.includes("FDA"))!.evidence, /articles carrying FDA \(312\)/);
+  assert.equal(namesApproval("fda approved", "FDA"), true);
+  assert.equal(namesApproval("-", "FDA"), false);
+  assert.deepEqual(APPROVAL_KINDS.map((k) => k.name), ["No approval written", "Refers to a data sheet", "Names an approval", "Other text"]);
+  // the rows the ERP gives no company number: plainly named, out of the rings and bars while under 0.1% of the revenue
+  assert.equal(buOf(""), "");
+  assert.equal(NO_UNIT, "No business unit in the ERP");
+  assert.equal(tinyNoUnit("", 1_404, 77_454_786), true);
+  assert.equal(tinyNoUnit("", 100_000, 77_454_786), false, "0.1% or more: drawn");
+  assert.equal(tinyNoUnit("APCH", 10, 77_454_786), false, "a unit with a number is always drawn");
 });

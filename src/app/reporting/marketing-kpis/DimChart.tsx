@@ -12,7 +12,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { INK, MUTED, TINT, glass } from "@/app/uc/report/ui";
+import { INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
 import { useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
 
 /** The first figure's colour, and the second's (the year before, the best year) - as on every tab. */
@@ -21,7 +21,10 @@ export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
 /** A row the chart can draw: its label (also what a click picks); revenue, when it has it, breaks ties. */
 export type ChartRow = { label: string; rev?: number };
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, pickHint = "Click bars to show only them", onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies, labelNote }: {
+/** a value below zero, where a chart shows it (a loss) */
+const NEGATIVE = RED;
+
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, pickHint = "Click bars to show only them", onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies, labelNote, negatives = false }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
@@ -44,6 +47,8 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   companies?: CompanySource | null;
   /** a short line under a row's name - what it means (Smart Segmentation's segments, 07.11.2026: "ajouter la def de APSOprospect... à côté") */
   labelNote?: (r: T) => string | null | undefined;
+  /** a value below zero as a short red bar with its figure (the Sealing Business Review's gross margins) - else at zero, unlabelled */
+  negatives?: boolean;
 }) {
   const list = useChartCompanies(companies, title);
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
@@ -54,7 +59,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const pages = Math.max(1, Math.ceil(rows.length / pageSize));
   useEffect(() => { if (page >= pages) setPage(0); }, [page, pages]);
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
-  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)), note: curNote?.(r) ?? null }));
+  const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)), note: curNote?.(r) ?? null, raw: cur(r) }));
   const notes = labelNote ? new Map(slice.map((r) => [r.label, labelNote(r) ?? ""])) : null;
   const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick?.(l); };
   const hint = [onPick ? pickHint : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
@@ -99,16 +104,16 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
           <Tooltip cursor={{ fill: "rgba(21,34,58,.04)" }} formatter={(v: unknown, n: unknown) => [fmt(Number(v)), String(n)]}
             contentStyle={{ fontSize: "0.8rem", borderRadius: 10, border: "1px solid rgba(21,34,58,.1)" }} />
           <Legend verticalAlign="top" align="left" height={26} iconType="circle" itemSorter="dataKey" wrapperStyle={{ fontSize: "0.78rem" }} />
-          <Bar dataKey="cur" name={curLabel} fill={curColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16}>
-            {data.map((d) => <Cell key={d.label} fill={curColor} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
-            {curNote ? (
+          <Bar dataKey="cur" name={curLabel} fill={curColor} radius={[0, 4, 4, 0]} cursor={onPick ? "pointer" : undefined} onClick={pick} isAnimationActive={false} maxBarSize={16} minPointSize={negatives ? 3 : 0}>
+            {data.map((d) => <Cell key={d.label} fill={negatives && d.raw < 0 ? NEGATIVE : curColor} fillOpacity={selected?.length && !selected.includes(d.label) ? 0.3 : 1} />)}
+            {curNote || negatives ? (
               // the figure, then its change in its colour
               <LabelList dataKey="cur" content={(p: { x?: number | string; y?: number | string; width?: number | string; height?: number | string; index?: number; value?: unknown }) => {
                 const d = data[p.index ?? -1];
                 if (!d) return <g />;
                 return (
                   <text x={Number(p.x ?? 0) + Number(p.width ?? 0) + 5} y={Number(p.y ?? 0) + Number(p.height ?? 0) / 2} dy={4} fontSize={12}>
-                    <tspan fill={INK} fontWeight={700}>{fmt(Number(p.value))}</tspan>
+                    <tspan fill={negatives && d.raw < 0 ? NEGATIVE : INK} fontWeight={700}>{fmt(negatives ? d.raw : Number(p.value))}</tspan>
                     {d.note && <tspan dx={6} fill={d.note.color} fontWeight={700}>{d.note.text}</tspan>}
                   </text>
                 );

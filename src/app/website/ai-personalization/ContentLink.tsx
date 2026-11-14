@@ -19,9 +19,11 @@ export function ContentProjectLink({ env, path, testId }: { env: Env; path: stri
       .then((r) => r.json())
       .then((j: { ok?: boolean; projects?: { id: number; brief: string | null }[] }) => {
         if (!live || !j?.ok) return;
-        const rows = (j.projects ?? []).map((p) => ({ id: p.id, m: markerOf(p.brief) })).filter((x) => x.m && x.m.env === env && x.m.path === path);
+        // the page on either shop (13.11.2026: an ACC test of an optimization sent from production found no project) -
+        // the test's own project first, then one on the same shop, then any
+        const rows = (j.projects ?? []).map((p) => ({ id: p.id, m: markerOf(p.brief) })).filter((x) => x.m && x.m.path === path);
         const own = testId != null ? rows.find((x) => x.m?.testId === String(testId)) : undefined;
-        setId((own ?? rows[0])?.id ?? null);
+        setId((own ?? rows.find((x) => x.m?.env === env) ?? rows[0])?.id ?? null);
       })
       .catch(() => { /* no Content access, or Content away: no link */ });
     return () => { live = false; };

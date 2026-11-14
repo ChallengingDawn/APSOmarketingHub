@@ -96,12 +96,13 @@ export default function ConvertPerformance() {
     const out: { key: string; tone: string; head: string; line: string; href: string; go: string }[] = [];
     const withTest = new Set((t ?? []).map((x) => x.versionId).filter(Boolean));
     for (const x of t ?? []) {
-      if (x.winner === "b" && x.status !== "shipped") out.push({ key: `w${x.id}`, tone: "#1b7a55", head: "A version won its test", line: x.name, href: `${CONVERT}/ship`, go: "Hand it to Content" });
+      if (x.winner === "b" && x.status !== "shipped") out.push({ key: `w${x.id}`, tone: "#1b7a55", head: "A version won its test", line: x.name, href: `${CONVERT}/ship?test=${x.id}`, go: "Publish it" });
     }
     for (const r of ideas ?? []) {
       if (r.status === "dropped") continue;
-      if (r.sentAt && r.version && !withTest.has(r.version.id)) out.push({ key: `t${r.id}`, tone: "#2459d1", head: "In Content - ready for its test", line: r.title, href: `${CONVERT}/tests?make=${r.version.id}`, go: "Make the test" });
-      else if (!r.sentAt && r.versions > 0) out.push({ key: `s${r.id}`, tone: "#6a46c9", head: `${r.versions === 1 ? "Its version is" : `Its ${r.versions} versions are`} ready - send it to Content`, line: r.title, href: previewHref(r.env, r.path, r.id), go: "Open it" });
+      // ready for its test while the optimization has none - any of its versions, or the one Content made for its to-do
+      // a test is made and started only from Content's Page builder (SARCLA 14.11.2026) - no "Make the test" here
+      if (!r.sentAt && r.versions > 0) out.push({ key: `s${r.id}`, tone: "#6a46c9", head: `${r.versions === 1 ? "Its version is" : `Its ${r.versions} versions are`} ready - send it to Content`, line: r.title, href: previewHref(r.env, r.path, r.id), go: "Open it" });
     }
     const waiting = (ideas ?? []).filter((r) => r.status === "proposed");
     if (waiting.length) out.push({ key: "decide", tone: "#a96a12", head: `${waiting.length} ${waiting.length === 1 ? "optimization waits" : "optimizations wait"} for a yes or no`, line: `on ${n.pages} ${n.pages === 1 ? "page" : "pages"} - the AI's, by type of change`, href: `${CONVERT}/insights`, go: "Insights" });

@@ -8,6 +8,9 @@
 // figure against the period before. Two counts, said apart: Google Analytics' own funnel report (visitors who did the
 // steps in this order) where it answers, and the funnel chained from its page-to-page steps (visits) always - the pages
 // of a drop are always chained. The signed-in customers' own steps (the shop's record) close the page.
+// 13.11.2026: a page of a drop that is a shop function (the cart, the check-out, sign-in, the search results...) gets
+// no picture and no "Open in Preview" - the Preview refuses it (SARCLA: "Preview did not answer (HTTP 400) - env must be
+// prod or acc, and path a shop page"); the quick order is a step of its own.
 
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -43,7 +46,7 @@ import { PageShot } from "@/app/website/ai-personalization/PageShot";
 import { journeysBase, useInConvert } from "@/app/website/ai-personalization/base";
 import { STEP_LABEL } from "@/lib/convert/model";
 import {
-  DEVICE_NAME, KIND_COLOR, KIND_NAME, MAX_STEPS, SHOP_PATH, SHOP_STOP, isShopPath, journeyKind, parseSteps, stepName, stepToken,
+  DEVICE_NAME, KIND_COLOR, KIND_NAME, MAX_STEPS, SHOP_PATH, SHOP_STOP, canPreview, isShopPath, journeyKind, parseSteps, stepName, stepToken,
   type DropPage, type JKind, type StepDef,
 } from "@/lib/journeys/model";
 import type { FunnelData } from "@/lib/journeys/read";
@@ -65,7 +68,8 @@ const day = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en
 
 const ADD: { label: string; token: string }[] = [
   { label: "Home page", token: "home" }, { label: "Category", token: "category" }, { label: "Search", token: "search" },
-  { label: "Category or search", token: "category.search" }, { label: "Product", token: "product" }, { label: "Content page", token: "cms" },
+  { label: "Category or search", token: "category.search" }, { label: "Product", token: "product" }, { label: "Quick order", token: "quickorder" },
+  { label: "Content page", token: "cms" },
   { label: "Account", token: "account" }, { label: "Cart", token: "cart" }, { label: "Check-out", token: "checkout" }, { label: "Order placed", token: "order" },
 ];
 
@@ -268,7 +272,7 @@ function DropPages({ steps, i, pages, n, jb, q, store }: { steps: StepDef[]; i: 
   const flowLink = (p: string) => `${jb}/page${jqs({ ...q, store }, { path: p })}`;
   const actions = (p: DropPage) => (
     <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap" }}>
-      <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", p.path)} sx={btnSx}>Open in Preview</Button>
+      {canPreview(p.path) && <Button size="small" variant="contained" disableElevation component={Link} href={previewHref("prod", p.path)} sx={btnSx}>Open in Preview</Button>}
       <Button size="small" variant="outlined" component={Link} href={flowLink(p.path)} sx={btnSx}>Page flow</Button>
     </Box>
   );
@@ -295,10 +299,23 @@ function DropPages({ steps, i, pages, n, jb, q, store }: { steps: StepDef[]; i: 
             <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "minmax(0,1fr)", sm: "repeat(2, minmax(0,1fr))", lg: "repeat(4, minmax(0,1fr))" } }}>
               {top.map((p, k) => (
                 <Box key={p.path} sx={{ border: `1px solid ${HAIRLINE}`, borderRadius: "12px", overflow: "hidden", bgcolor: "rgba(255,255,255,.7)", display: "flex", flexDirection: "column", minWidth: 0 }}>
-                  <Box component={Link} href={previewHref("prod", p.path)} title={`${p.name} - open it in the Preview`} sx={{ display: "block", position: "relative" }}>
-                    <PageShot env="prod" path={p.path} ratio={0.6} label={p.name} />
-                    <Box sx={{ position: "absolute", left: 8, top: 8, bgcolor: k === 0 ? RED : INK, color: "#fff", fontSize: "0.72rem", fontWeight: 800, px: 0.8, py: 0.2, borderRadius: "4px" }}>#{k + 1}</Box>
-                  </Box>
+                  {canPreview(p.path)
+                    ? (
+                      <Box component={Link} href={previewHref("prod", p.path)} title={`${p.name} - open it in the Preview`} sx={{ display: "block", position: "relative" }}>
+                        <PageShot env="prod" path={p.path} ratio={0.6} label={p.name} />
+                        <Box sx={{ position: "absolute", left: 8, top: 8, bgcolor: k === 0 ? RED : INK, color: "#fff", fontSize: "0.72rem", fontWeight: 800, px: 0.8, py: 0.2, borderRadius: "4px" }}>#{k + 1}</Box>
+                      </Box>
+                    )
+                    : (
+                      // a shop function: its kind, never a picture the Preview would refuse
+                      <Box sx={{ position: "relative", aspectRatio: `${1 / 0.6}`, display: "grid", placeItems: "center", textAlign: "center", p: 1.5, bgcolor: `${KIND_COLOR[p.kind]}18`, borderBottom: `1px solid ${HAIRLINE}` }}>
+                        <Box>
+                          <Typography sx={{ fontSize: "0.95rem", fontWeight: 750, color: INK }}>{KIND_NAME[p.kind]}</Typography>
+                          <Typography sx={{ fontSize: "0.74rem", color: MUTED }}>a shop function - no picture</Typography>
+                        </Box>
+                        <Box sx={{ position: "absolute", left: 8, top: 8, bgcolor: k === 0 ? RED : INK, color: "#fff", fontSize: "0.72rem", fontWeight: 800, px: 0.8, py: 0.2, borderRadius: "4px" }}>#{k + 1}</Box>
+                      </Box>
+                    )}
                   <Box sx={{ p: 1.5, display: "grid", gap: 1, flex: 1, alignContent: "start" }}>
                     <Box sx={{ minWidth: 0 }}>
                       <KindTag kind={p.kind} />

@@ -75,6 +75,19 @@ const BU_OF: Record<string, string> = {
   "1": "APCH", "20": "APDE", "30": "APAT", "40": "APFR", "50": "APNL", "60": "APBE", "70": "APIT", "80": "APCN", "90": "APCZ",
   "100": "APSOparts CH", "110": "APSOparts DE", "120": "APPL", "130": "APUS", "140": "A+P S&P CH", "150": "A+P S&P DE",
 };
+/**
+ * The rows the ERP gives no company number (the mandant's cell empty): no business unit to put them under - their name
+ * on every page (SARCLA 14.11.2026: "'Not known' in business units = ?"). A number the map above does not know yet
+ * stays its own unit, "M" and the number.
+ */
+export const NO_UNIT = "No business unit in the ERP";
+/** The rows with no sales organisation in the ERP. */
+export const NO_ORG = "No sales organisation in the ERP";
+/** Why such a row is shown in a table and left out of a chart. */
+export const NO_UNIT_WHY = "Invoice rows the ERP gives without a company number - there is no business unit to put them under. Left out of the rings and bar charts while under 0.1% of the net revenue.";
+/** A row with no unit or organisation, under 0.1% of the net revenue: in the tables, never in a ring or a bar chart. */
+export const tinyNoUnit = (key: string, rev: number, total: number): boolean => !key.trim() && Math.abs(rev) < 0.001 * Math.abs(total);
+
 export function buOf(raw: string): string {
   const s = raw.trim();
   if (!/^\d+(\.0+)?$/.test(s)) return s;
@@ -479,15 +492,15 @@ export function familyActions(all: Priority[], family: string | null, rows: { na
 export const APPROVAL_ACTIONS: Priority[] = [
   {
     kind: "capture", compound: "", effect: 0, effectLabel: "", title: "Require explicit approval names",
-    evidence: "Add structured approval fields, a source document and validity information. Generic technical-datasheet references should remain a separate category.",
+    evidence: "Give each article proper approval fields - which approval, its certificate and until when it is valid. A text that only points to a data sheet should stay apart from the named approvals.",
   },
   {
     kind: "validate", compound: "", effect: 0, effectLabel: "", title: "Check commercial relevance with sales",
-    evidence: "Review recurring explicit approval mentions with product managers. Confirm whether certification is mandatory for the customer application before calling it a sales driver.",
+    evidence: "Go through the approvals named most often with product managers. Confirm whether the customer's application requires the certificate before calling it a reason for the sale.",
   },
   {
     kind: "interpret", compound: "", effect: 0, effectLabel: "", title: "Avoid counting the same sales twice",
-    evidence: "A text can name several approvals. Its revenue belongs to one text here; assigning it to several approval rankings would create overlapping values.",
+    evidence: "An article can carry several approvals, so its revenue shows under each of them. Never add the approvals' revenue together - the texts' ranking counts each article once.",
   },
 ];
 
@@ -579,13 +592,13 @@ function approvalGap(noApprovalRev: number, total: number): Priority[] {
 }
 
 /** "What should we do?" on the approvals, ranked: the pilot's three, the revenue with none written, then each reference with revenue. */
-export function approvalCandidates(refs: { name: string; rev: number }[], noApprovalRev: number, total: number): Priority[] {
+export function approvalCandidates(refs: { name: string; rev: number; articles?: number | null }[], noApprovalRev: number, total: number): Priority[] {
   const rules = ["explicit-fields", "commercial-relevance", "no-double-count"];
   const base = APPROVAL_ACTIONS.map((p, i) => keyed(p, "approvals", rules[i]));
   const perRef = refs.filter((r) => r.rev > 0).sort((a, b) => b.rev - a.rev).map((r) => keyed({
     kind: "validate", compound: "", effect: 0, effectLabel: "", owner: "Product managers",
     title: `Check where ${r.name} matters commercially`,
-    evidence: `The texts mentioning ${r.name} carry ${eur(r.rev)} of net revenue. Confirm with product managers where ${r.name} is mandatory for the customer's application.`,
+    evidence: `The articles carrying ${r.name}${r.articles ? ` (${r.articles.toLocaleString("en")})` : ""} bring ${eur(r.rev)} of net revenue. Confirm with product managers where ${r.name} is mandatory for the customer's application.`,
   }, `ref:${r.name}`, "reference-relevance"));
   return once([...base, ...approvalGap(noApprovalRev, total), ...perRef]);
 }
@@ -637,25 +650,36 @@ export function priorityKeyOf(kind: unknown, entity: unknown, rule: unknown): { 
 /** The references the pilot ranks, in its order. */
 export const APPROVAL_REFS = ["FDA", "WRAS", "NSF", "ACS", "DVGW", "USP", "KTW", "BfR"] as const;
 
+/** Does an approval text name this approval - its letters anywhere in the text, as the pilot reads them. */
+export const namesApproval = (text: string, ref: string): boolean => !noApproval(text) && text.toLowerCase().includes(ref.toLowerCase());
+
+/** An approval and the net revenue of the articles carrying it, with how many articles those are (null: not counted). */
+export type RefFigure = Figure & { articles: number | null };
+
 /**
- * Each reference's figures: the texts naming it, its letters anywhere in the text, as the pilot reads them - a text
- * naming two counts in both, so the references overlap and never add up. The largest first.
+ * Each approval's figures: the articles whose approval text names it - an article carrying two counts in both, so the
+ * approvals overlap and never add up. With `articles`, how many distinct articles carry each. The largest first.
  */
-export function approvalRefs(approvals: { name: string; rev: number; gp: number }[]): Figure[] {
+export function approvalRefs(approvals: { name: string; rev: number; gp: number }[], articles?: Map<string, number>): RefFigure[] {
   return APPROVAL_REFS.map((ref) => {
-    const of = approvals.filter((a) => !noApproval(a.name) && a.name.toLowerCase().includes(ref.toLowerCase()));
+    const of = approvals.filter((a) => namesApproval(a.name, ref));
     const rev = of.reduce((t, a) => t + a.rev, 0), gp = of.reduce((t, a) => t + a.gp, 0);
-    return { key: ref, name: ref, rev, gp, margin: rev ? gp / rev : 0 };
+    return { key: ref, name: ref, rev, gp, margin: rev ? gp / rev : 0, articles: articles ? articles.get(ref) ?? 0 : null };
   }).sort((a, b) => b.rev - a.rev);
+}
+
+/** The approval texts naming each approval, as pairs - what the store counts the articles of, one approval at a time. */
+export function refTexts(texts: string[]): { text: string; ref: string }[] {
+  return APPROVAL_REFS.flatMap((ref) => texts.filter((t) => namesApproval(t, ref)).map((text) => ({ text, ref })));
 }
 
 export type ApprovalKind = "none" | "datasheet" | "explicit" | "other";
 /** The pilot's indicative categories, in its order - a text's keywords, never a validated approval. */
 export const APPROVAL_KINDS: { key: ApprovalKind; name: string }[] = [
   { key: "none", name: "No approval written" },
-  { key: "datasheet", name: "Datasheet reference" },
-  { key: "explicit", name: "Explicit references" },
-  { key: "other", name: "Other texts" },
+  { key: "datasheet", name: "Refers to a data sheet" },
+  { key: "explicit", name: "Names an approval" },
+  { key: "other", name: "Other text" },
 ];
 
 /** A text's category, by the pilot's keywords (index.html approvalCategory). */
@@ -792,11 +816,11 @@ export const SEALING_DEFINITIONS: { title: string; text: string }[] = [
   },
   {
     title: "Material grouping",
-    text: "Families are derived from the compound's name, with Kalrez and Evolast treated as FFKM - as are Chemraz, Perlast, Simriz, Isolast, Parofluor and FFPM. Viton and FPM are FKM; Aflas is FEPM; fluorosilicone (FMQ) is FVMQ; MVQ, PVMQ and silicone are VMQ; XNBR is NBR; EPM is EPDM; Teflon is PTFE; AU, EU, TPU and polyurethane are PU; Vamac is AEM; neoprene is CR; butyl is IIR; then ACM, NR, SBR, PEEK, POM, PA and PE by their letters. A name no rule knows stays Unclassified - choose Unclassified on Materials & compounds to see its compounds. Compound designations and amounts are never changed, and entries with no compound are left out of the family totals.",
+    text: "Families are derived from the compound's name, with Kalrez and Evolast treated as FFKM - as are Chemraz, Perlast, Simriz, Isolast, Parofluor and FFPM. Viton and FPM are FKM; Aflas is FEPM; fluorosilicone (FMQ) is FVMQ; MVQ, PVMQ and silicone are VMQ; XNBR is NBR; EPM is EPDM; Teflon is PTFE; AU, EU, TPU and polyurethane are PU; Vamac is AEM; neoprene is CR; butyl is IIR; then ACM, NR, SBR, PEEK, POM, PA and PE by their letters. A name no rule knows stays Unclassified - choose Unclassified on the Families tab of Materials & compounds to see its compounds. Compound designations and amounts are never changed, and entries with no compound are left out of the family totals.",
   },
   {
     title: "Accounts and approvals",
-    text: "Customer numbers remain separate even when two accounts carry the same name; with a business unit chosen in the Filters, a ranking covers only its accounts and articles. Compound labels are shown as written on the article, and apparent mismatches need validation; a compound's customers come from the same invoices, so their totals match its own. Approvals are the texts written on the articles - not validated certification data, and no proof of what caused a sale. Each text is read as its separate references; the data-sheet phrases in any language are one \"Per data sheet\". Explicit references: FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270, RoHS; datasheet: a technical datasheet named. Their indicative categories come from keywords and need review. A text naming several references counts in each reference's card, so the references overlap; in the categories each text counts once.",
+    text: "Customer numbers remain separate even when two accounts carry the same name; with a business unit chosen in the Filters, a ranking covers only its accounts and articles. Compound labels are shown as written on the article, and apparent mismatches need validation; a compound's customers come from the same invoices, so their totals match its own. Approvals are the texts written on the articles - not validated certification data, and no proof of what caused a sale. Each text is read as the separate approvals it names; the data-sheet phrases in any language are one \"Per data sheet\". A text names an approval when it carries FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270 or RoHS; it refers to a data sheet when it names a technical datasheet. These groups come from the words of the text and need review. An article can carry several approvals: it counts under each of them, so the approvals overlap and cannot be added; in the groups each text counts once. Rows the ERP gives without a company number are shown as \"No business unit in the ERP\".",
   },
   {
     title: "Opportunity scenarios",

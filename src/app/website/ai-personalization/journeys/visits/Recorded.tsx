@@ -3,8 +3,10 @@
 // A customer's page views as the shop recorded them - the pointer, the scroll, the clicks - found by its contacts'
 // HubSpot visitor cookie, and the recording's switch (off until a person with the write access of Visits switches it on).
 // SARCLA 10.11.2026: "we see the screen which is good but don't see the mouse and behaviour on the shop".
+// `onRows` hands the page views to the visit played back above (13.11.2026: "on video we still don't see where the
+// customer clicks") - a step with its page view recorded plays it there, the clicks on the page.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -29,7 +31,7 @@ function pageName(path: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 
-export function Recorded({ company, from, to }: { company: string; from: string; to: string }) {
+export function Recorded({ company, from, to, onRows }: { company: string; from: string; to: string; onRows?: (rows: ReplayRow[]) => void }) {
   const [tick, setTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export function Recorded({ company, from, to }: { company: string; from: string;
   const held = useHeld<Data>(url, [url]);
   const r = held.result;
   const d = r?.state === "ok" ? r.data : null;
+  useEffect(() => { onRows?.(d?.rows ?? []); }, [d]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flip = async (on: boolean) => {
     if (on && !window.confirm("Record on the shop where visitors move the pointer, scroll and click?\n\nOnly visitors who accept statistics cookies; never a text, a key typed or a form's value. Kept 30 days.\nYour privacy and cookie texts should name it, as they do for Hotjar or Clarity.")) return;
