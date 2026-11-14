@@ -162,19 +162,6 @@ export default function FrontPage() {
   /** Where an app's tile leads: its front page, or the first of its sub-apps that is yours when only those are. */
   const entry = (a: HubApp) => (!viewed && first[a.key]) || a.href;
 
-  // HOW THE APPS SIT (SARCLA 14.11.2026, the front page seen live: "screen is completely broken, you put pricing on the top
-  // line - reorganize ... give more emphasis"). Seven apps had gone into one row on a wide window, each card a seventh of
-  // it, the rows inside spilling out. Now at most four to a row, every row filling the width: seven = four + three, six =
-  // three + three, five = three + two. One or two apps keep a sensible width instead of stretching across the window.
-  const n = visibleApps.length;
-  const perRow = n <= 4 ? n : n <= 6 ? 3 : 4;
-  const spanOf = (i: number) => {
-    const row = Math.floor(i / perRow);
-    const inRow = Math.min(perRow, n - row * perRow);
-    return 12 / inRow;
-  };
-  const few = n > 0 && n <= 2;
-
   // THE QUICK LINKS, really on the left (SARCLA 14.11.2026: "I told you quick link should be really on the left side"):
   // in the margin left of the page, under the APSOparts / Angst+Pfister switch, as the switch hangs beside the bar - the
   // apps keep the whole width. A window with no margin for them gets them as a strip above the apps.
@@ -226,107 +213,107 @@ export default function FrontPage() {
           ))}
 
           {/* ------------------------------------------------------- applications */}
+          {/* The apps as Dawny draws them (SARCLA 14.11.2026: "the Challenging Dawn cockpit's layout - not all, but the way
+              the apps are designed"; its AppStore.tsx): every card the same size, at least 280 px, as many to a row as fit -
+              four on a desktop, Pricing on the second row -, the pages at the bottom, the text above clamped. */}
           <Box id="applications" sx={{
-            display: "grid", gap: 2, alignItems: "stretch",
-            gridTemplateColumns: few ? { xs: "minmax(0, 1fr)", sm: `repeat(${n}, minmax(0, 380px))` } : "repeat(12, minmax(0, 1fr))",
+            display: "grid", gap: 3, alignItems: "stretch",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
           }}>
             {visibleApps.map((a, i) => {
               const open = !!expanded[a.key];
               // only the sub-apps that are theirs
               const subs = (a.cards ?? a.subs).filter((x) => mayOpen(x.href));
               const shown = open ? subs : subs.slice(0, 3);
-              // the app's colour, deepened so white reads on it
-              const deep = `color-mix(in srgb, ${a.to} 74%, #0b1424)`;
               return (
-                <Box key={a.key} sx={{
-                  ...glass, borderRadius: "22px", overflow: "hidden", minWidth: 0,
-                  display: "flex", flexDirection: "column",
-                  gridColumn: few ? "auto" : { xs: "span 12", sm: "span 6", lg: `span ${spanOf(i)}` },
-                  // no lift on hover: a moving card is drawn on a layer of its own and Windows drops ClearType there
-                  // (the blurry text of 19.10.2026) - its shadow deepens instead
-                  transition: "box-shadow .2s ease",
-                  "&:hover": { boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 22px 48px rgba(31,45,78,.13)" },
+                <Box key={a.key} component="section" aria-label={a.name} sx={{
+                  minWidth: 0, borderRadius: "24px", p: 3, display: "flex", flexDirection: "column", gap: "18px",
+                  background: `linear-gradient(170deg, ${a.wash}, rgba(255,255,255,.86) 58%)`,
+                  backgroundColor: "rgba(255,255,255,.88)",
+                  border: "1px solid rgba(255,255,255,.85)",
+                  boxShadow: "0 1px 2px rgba(31,45,78,.04), 0 14px 36px rgba(31,45,78,.075)",
+                  // the shadow deepens on hover; no lift - a moving card is drawn on a layer of its own, and Windows drops
+                  // ClearType there (the blurry text of 19.10.2026)
+                  transition: "box-shadow .22s ease",
+                  "&:hover": { boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 24px 52px rgba(31,45,78,.12)" },
                   ...rise(i + 1),
                 }}>
-                  {/* the app itself: its colour, its name - the way in */}
-                  <Box component={Link} href={entry(a)} sx={{
-                    display: "flex", alignItems: "center", gap: 1.75, px: 2.25, py: 2,
-                    textDecoration: "none", color: "#fff",
-                    background: `linear-gradient(135deg, ${a.to} 0%, ${deep} 100%)`,
-                    "&:focus-visible": { outline: "2px solid #fff", outlineOffset: -4, borderRadius: "18px" },
-                    "&:hover .chev": { transform: "translateX(3px)" },
-                  }}>
-                    <Box sx={{
-                      width: 52, height: 52, borderRadius: "16px", flexShrink: 0, display: "grid", placeItems: "center",
-                      bgcolor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.24)", "& svg": { fontSize: 28 },
-                    }}>{APP_ICON[a.icon]}</Box>
-                    <Typography component="span" sx={{
-                      flex: 1, minWidth: 0, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                      fontSize: "1.32rem", fontWeight: 600, letterSpacing: "-0.028em", lineHeight: 1.15, color: "#fff",
-                    }}>{a.name}</Typography>
-                    <ChevronRightIcon className="chev" sx={{
-                      fontSize: 24, flexShrink: 0, opacity: 0.9, transition: "transform .18s ease",
-                      "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-                    }} />
+                  <Box aria-hidden sx={{
+                    width: 56, height: 56, borderRadius: "17px", display: "grid", placeItems: "center", flexShrink: 0,
+                    background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
+                    boxShadow: `0 10px 22px ${a.wash}`, "& svg": { fontSize: 29 },
+                  }}>{APP_ICON[a.icon]}</Box>
+
+                  <Box>
+                    <Box component={Link} href={entry(a)} sx={{
+                      display: "inline-flex", alignItems: "center", gap: 0.5, textDecoration: "none", color: INK, ...focusRing,
+                      "&:hover .chev": { transform: "translateX(4px)" },
+                    }}>
+                      <Typography component="span" sx={{
+                        fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+                        fontSize: "1.3rem", fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.18, color: INK,
+                      }}>{a.name}</Typography>
+                      <ChevronRightIcon className="chev" sx={{
+                        fontSize: 20, color: a.to, transition: "transform .18s ease",
+                        "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+                      }} />
+                    </Box>
+                    <Typography sx={{
+                      mt: 1, fontSize: "0.875rem", color: MUTED, lineHeight: 1.45, minHeight: "2.9em",
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>{a.line}</Typography>
                   </Box>
 
-                  {/* what it is for, two lines at most, so the lists below start level across a row */}
-                  <Typography sx={{
-                    px: 2.25, pt: 1.5, fontSize: "0.86rem", color: MUTED, lineHeight: 1.45, minHeight: "calc(2.9em + 12px)",
-                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-                  }}>{a.line}</Typography>
-
-                  {/* what is inside it: one line each, never wider than the card */}
-                  <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.75, px: 1.5, pt: 1, pb: 1.5, flex: 1, alignContent: "start" }}>
+                  {/* what is inside it, at the bottom: one line each, never wider than the card */}
+                  <Box sx={{ display: "grid", gap: "10px", gridTemplateColumns: "minmax(0, 1fr)", mt: "auto" }}>
                     {shown.map((s) => (
                       <Box key={s.href + s.name} component={Link} href={s.href} sx={{
-                        display: "flex", alignItems: "center", gap: 1.25, px: 1.1, py: 0.9, borderRadius: "14px", minWidth: 0,
-                        textDecoration: "none", bgcolor: "rgba(255,255,255,.74)", border: "1px solid rgba(21,34,58,.06)",
-                        transition: "background-color .15s ease, border-color .15s ease", ...focusRing,
-                        "&:hover": { bgcolor: "#fff", borderColor: `color-mix(in srgb, ${a.to} 35%, transparent)` },
+                        minWidth: 0, display: "flex", alignItems: "center", gap: 1.5, p: "10px", borderRadius: "14px",
+                        textDecoration: "none", bgcolor: "rgba(255,255,255,.74)", border: "1px solid rgba(255,255,255,.9)",
+                        transition: "background-color .18s ease", ...focusRing,
+                        "&:hover": { bgcolor: "#fff" },
                       }}>
-                        <Box sx={{
-                          width: 34, height: 34, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
+                        <Box aria-hidden sx={{
+                          width: 36, height: 36, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
                           bgcolor: s.tint, color: s.fg,
                         }}><HubIconGlyph name={s.icon} /></Box>
                         <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography noWrap sx={{ fontSize: "0.875rem", fontWeight: 600, color: INK, letterSpacing: "-0.01em", lineHeight: 1.3 }}>
+                          <Typography noWrap sx={{ fontSize: "0.875rem", fontWeight: 600, color: INK, letterSpacing: "-0.01em", lineHeight: 1.25 }}>
                             {s.name}
                           </Typography>
-                          <Typography noWrap sx={{ fontSize: "0.74rem", color: FAINT, lineHeight: 1.35 }}>{s.note}</Typography>
+                          <Typography noWrap sx={{ fontSize: "0.75rem", color: FAINT, lineHeight: 1.3 }}>{s.note}</Typography>
                         </Box>
-                        <ChevronRightIcon sx={{ fontSize: 17, color: FAINT, flexShrink: 0 }} />
+                        <ChevronRightIcon sx={{ fontSize: 16, color: FAINT, flexShrink: 0 }} />
                       </Box>
                     ))}
 
                     {/* An app can be empty on purpose. Saying so beats a card
                         that trails off into white space. */}
                     {subs.length === 0 && (
-                      <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, px: 1, py: 0.5 }}>
+                      <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, py: 0.5 }}>
                         Nothing in it yet — open it to see what it is for.
                       </Typography>
                     )}
-                  </Box>
 
-                  {subs.length > 3 && (
-                    <Box
-                      component="button"
-                      onClick={() => setExpanded((e) => ({ ...e, [a.key]: !e[a.key] }))}
-                      aria-expanded={open}
-                      sx={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, mx: 1.5, mb: 1.5,
-                        border: 0, background: "none", cursor: "pointer", p: 0.75, borderRadius: "10px",
-                        fontFamily: "inherit", fontSize: "0.8rem", fontWeight: 600, color: a.to, ...focusRing,
-                        "&:hover": { bgcolor: `color-mix(in srgb, ${a.to} 9%, transparent)` },
-                      }}
-                    >
-                      {open ? "Show less" : `View all ${subs.length}`}
-                      <ExpandMoreIcon sx={{
-                        fontSize: 17, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s ease",
-                        "@media (prefers-reduced-motion: reduce)": { transition: "none" },
-                      }} />
-                    </Box>
-                  )}
+                    {subs.length > 3 && (
+                      <Box
+                        component="button"
+                        onClick={() => setExpanded((e) => ({ ...e, [a.key]: !e[a.key] }))}
+                        aria-expanded={open}
+                        sx={{
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5,
+                          border: 0, background: "none", cursor: "pointer", p: 0.75, borderRadius: "10px",
+                          fontFamily: "inherit", fontSize: "0.78rem", fontWeight: 600, color: a.to, ...focusRing,
+                        }}
+                      >
+                        {open ? "Show less" : `View all ${subs.length}`}
+                        <ExpandMoreIcon sx={{
+                          fontSize: 16, transform: open ? "rotate(180deg)" : "none", transition: "transform .18s ease",
+                          "@media (prefers-reduced-motion: reduce)": { transition: "none" },
+                        }} />
+                      </Box>
+                    )}
+                  </Box>
                 </Box>
               );
             })}
