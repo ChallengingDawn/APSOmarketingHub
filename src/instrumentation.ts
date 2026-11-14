@@ -120,6 +120,10 @@ export async function register() {
     // the workflow SARCLA | DISPLAY AVAILABITY BO brought in (12.11.2026).
     const { startBoAvailability } = await import("./lib/boAvailability/engine");
     startBoAvailability();
+    // TSA Distribution: the TSA funnel and the routing side by side, reads only (src/lib/tsaDistribution;
+    // TSA_DISTRIBUTION=off), SARCLA 13-14.11.2026.
+    const { startTsaDistribution } = await import("./lib/tsaDistribution/engine");
+    startTsaDistribution();
     // Ticket value, SHADOW MODE: the workflow SARCLA | TICKET VALUE CALCULATION's rules run by the hub, next to what the
     // workflow writes (src/lib/ticketValue) - writes nothing to HubSpot. TICKET_VALUE=off stops it. SARCLA, 20.10.2026.
     const { startTicketValue } = await import("./lib/ticketValue/engine");

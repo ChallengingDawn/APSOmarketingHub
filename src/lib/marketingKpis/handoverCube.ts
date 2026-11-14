@@ -100,7 +100,8 @@ export type TicketIn = {
 };
 
 /** Resolutions that take a ticket out of every figure. */
-export const NOT_SALES: ReadonlySet<string> = new Set(["Not a sales topic", "TSA NON QUALIFIED", "Bisphenol Excel Filled out"]);
+// "Outbound - TSA call" and "Finance reminder": what TSA NON QUALIFIED was, split by the hub's TSA routing (14.11.2026)
+export const NOT_SALES: ReadonlySet<string> = new Set(["Not a sales topic", "TSA NON QUALIFIED", "Outbound - TSA call", "Finance reminder", "Bisphenol Excel Filled out"]);
 
 /**
  * What a ticket is, or why it is left out: { g, c } for a request, a new lead or a lifecycle hand-over;
@@ -113,6 +114,8 @@ export function classify(t: TicketIn, lifecycle: Record<string, string>): { g: K
   if (String(t.outbound ?? "") === "true" || s.startsWith("TSA | MAIL TO CUSTOMER")) return { skip: "auto-logged mail" };
   const res = (t.resolution ?? "").trim();
   if (res === "TSA NON QUALIFIED") return { skip: "TSA non qualified" };
+  if (res === "Outbound - TSA call") return { skip: "auto-logged mail" };
+  if (res === "Finance reminder") return { skip: "Finance mail" };
   // a ticket on the wrong desk is not a lead the team handled (SARCLA 19.10)
   if (res === "Misassigned") return { skip: "misassigned" };
   if (NOT_SALES.has(res)) return { skip: "not a sales topic" };
