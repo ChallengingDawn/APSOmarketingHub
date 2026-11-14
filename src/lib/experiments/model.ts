@@ -51,7 +51,7 @@ export type Experiment = {
   createdBy: string | null; createdAt: string; updatedBy: string | null; updatedAt: string; syncedAt: string | null;
 };
 
-export const SOURCE_LABEL: Record<Source, string> = { apsoconvert: "APSOconvert", webyn: "Webyn", chat: "Shop chat", pagebuilder: "Page builder", manual: "Recorded by hand" };
+export const SOURCE_LABEL: Record<Source, string> = { apsoconvert: "APSOconvert", webyn: "External tool", chat: "Shop chat", pagebuilder: "Page builder", manual: "Recorded by hand" };
 export const STATUS_LABEL: Record<Status, string> = { idea: "Idea", planned: "Planned", running: "Running", paused: "Paused", ended: "Ended" };
 export const DECISION_LABEL: Record<Decision, string> = {
   ship: "Ship the winner", "keep-control": "Keep it as it is", iterate: "Test a new version", inconclusive: "No conclusion",
@@ -164,13 +164,14 @@ export function fromWebynPage(w: WebynPageIn, now = new Date()): Omit<Experiment
   const names = [...new Set((ab.length ? ab : w.params).map((p) => p.name).filter((n): n is string => !!n))];
   const quiet = now.getTime() - new Date(w.last_at).getTime() > 3 * 86_400_000;
   return {
-    key: `webyn-${w.page}`, source: "webyn", category: "page", service: null, host: top?.host ?? null, surface: top?.path ?? `Webyn page ${w.page}`,
-    name: names.length ? `Webyn: ${names.slice(0, 2).join(", ")}${names.length > 2 ? ` +${names.length - 2}` : ""}` : `Webyn test on ${top?.path ?? w.page}`,
+    key: `webyn-${w.page}`, source: "webyn", category: "page", service: null, host: top?.host ?? null, surface: top?.path ?? `External tool page ${w.page}`,
+    // never named in the hub (SARCLA 14.11.2026: "don't call Webyn"): the external tool
+    name: names.length ? `External tool: ${names.slice(0, 2).join(", ")}${names.length > 2 ? ` +${names.length - 2}` : ""}` : `External tool's test on ${top?.path ?? w.page}`,
     metric: "Put something in the cart, per visitor of the page",
     status: quiet ? "ended" : "running", startedAt: w.first_at, endedAt: quiet ? w.last_at : null,
     arms: [
       { key: "o", name: "The page as it is", control: true, visitors: w.groups.o.visitors, conversions: w.groups.o.carted },
-      { key: "t", name: "Webyn's version", control: false, visitors: w.groups.t.visitors, conversions: w.groups.t.carted },
+      { key: "t", name: "The tool's version", control: false, visitors: w.groups.t.visitors, conversions: w.groups.t.carted },
     ],
     secondary: null, verdict: null, link: null, changes: names,
   };

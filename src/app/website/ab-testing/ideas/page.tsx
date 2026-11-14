@@ -8,11 +8,7 @@
 //   IDEAS                 scored (impact, confidence, ease - each 1 to 10, the score their mean), best first
 // (The Page builder's read-only list, ../PlannedPages.tsx, is replaced by the first part.)
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
-import Button from "@mui/material/Button";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import ConstructionOutlinedIcon from "@mui/icons-material/ConstructionOutlined";
 import EventAvailableOutlinedIcon from "@mui/icons-material/EventAvailableOutlined";
@@ -20,7 +16,7 @@ import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { CardTitle, GlassCard } from "@/app/uc/report/ui";
 import { iceScore } from "@/lib/experiments/model";
-import { SyncLine, XpDialog, XpLoaded, XpTable, keyHref, type ListData } from "../xp/parts";
+import { SyncLine, XpLoaded, XpTable, type ListData } from "../xp/parts";
 
 export default function Ideas() {
   return (
@@ -31,14 +27,12 @@ export default function Ideas() {
 }
 
 function Body({ d, reload }: { d: ListData; reload: () => void }) {
-  const router = useRouter();
-  const [adding, setAdding] = useState(false);
   const building = d.experiments.filter((e) => e.source === "pagebuilder").sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const by = (s: "idea" | "planned") => d.experiments.filter((e) => e.status === s && e.source !== "pagebuilder").sort((a, b) => (iceScore(b.ice) ?? 0) - (iceScore(a.ice) ?? 0));
   return (
     <>
-      <PageHeader title="Ideas" subtitle="What to test next: the pages being built with a test, what is planned, and the ideas scored and in order"
-        rightSlot={d.canEdit ? <Button variant="contained" disableElevation startIcon={<AddCircleOutlineIcon />} onClick={() => setAdding(true)} sx={{ textTransform: "none", borderRadius: "999px" }}>Add an idea</Button> : undefined} />
+      {/* no "Add an idea" here (SARCLA 14.11.2026: "ideas still have the idea button") - a page idea comes from the Page builder */}
+      <PageHeader title="Ideas" subtitle="What to test next: the pages being built with a test in the Page builder, what is planned, the ideas in order" />
       <SyncLine d={d} reload={reload} />
       <GlassCard sx={{ display: "grid", gap: 1 }}>
         <CardTitle icon={<ConstructionOutlinedIcon />} tint="pink" title="Under building pages"
@@ -51,9 +45,8 @@ function Body({ d, reload }: { d: ListData; reload: () => void }) {
       </GlassCard>
       <GlassCard sx={{ display: "grid", gap: 1 }}>
         <CardTitle icon={<LightbulbOutlinedIcon />} tint="amber" title="Ideas" note="Best score first. Impact: how much it could move; confidence: how sure we are it will; ease: how little it takes." />
-        <XpTable list={by("idea")} empty="No idea recorded yet - add the first." cols={["test", "where", "score", "status"]} />
+        <XpTable list={by("idea")} empty="No idea yet - a page idea comes from the Page builder, a service idea from Microservices." cols={["test", "where", "score", "status"]} />
       </GlassCard>
-      {adding && <XpDialog open preset={{ status: "idea" }} onClose={() => setAdding(false)} onSaved={(k) => router.push(keyHref(k))} />}
     </>
   );
 }
