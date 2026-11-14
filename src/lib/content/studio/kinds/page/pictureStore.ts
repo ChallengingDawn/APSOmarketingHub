@@ -4,10 +4,23 @@
 // (lib/content/assets.ts), its type, a year's immutable caching. A file's name never changes for the same picture, so a
 // stored one is never stored again.
 
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { assetBytes, pictureRef } from "@/lib/content/assets";
 import { s3Has, s3Put, type S3Target } from "@/lib/aws/s3";
 import { CACHE_CONTROL, CONTENT_MEDIA, contentKey, contentTypeOf } from "./contentMedia";
 import type { MediaFile, PictureCheck } from "./media";
+
+/** A campaign's photo shipped with the hub (public/content/campaign/..., 13.11.2026): its bytes from the hub's own files -
+ * only a plain file name under content/campaign/, never a path that climbs out. */
+async function campaignBytes(url: string): Promise<{ data: Buffer; mime: string } | null> {
+  const m = /^\/content\/campaign\/([a-z0-9-]{1,40})\/([a-z0-9-]{1,60}\.(webp|png|jpg|js))$/.exec(url);
+  if (!m) return null;
+  const data = await readFile(path.join(process.cwd(), "public", "content", "campaign", m[1], m[2])).catch(() => null);
+  // the Black Friday voucher's engine is a .js of the campaign's folder (../../../../convert/trustedScripts.ts)
+  const mime = m[3] === "jpg" ? "image/jpeg" : m[3] === "js" ? "application/javascript; charset=utf-8" : `image/${m[3]}`;
+  return data ? { data, mime } : null;
+}
 
 const target = (file: string): S3Target => ({ bucket: CONTENT_MEDIA.bucket, region: CONTENT_MEDIA.region, key: contentKey(file) });
 
@@ -45,7 +58,7 @@ export async function storePictures(files: readonly MediaFile[]): Promise<StoreO
     try {
       if (await s3Has(target(f.file))) { remember(f.file); out.had.push(f.file); continue; }
       const ref = pictureRef(f.url);
-      const bytes = ref ? await assetBytes(ref.id, ref.key) : null;
+      const bytes = ref ? await assetBytes(ref.id, ref.key) : await campaignBytes(f.url);
       if (!bytes) { out.failed.push({ file: f.file, why: "the picture is not in the hub any more" }); continue; }
       await s3Put(target(f.file), bytes.data, bytes.mime || contentTypeOf(f.file), CACHE_CONTROL);
       remember(f.file);

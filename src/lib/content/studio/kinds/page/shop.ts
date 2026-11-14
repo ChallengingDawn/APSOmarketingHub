@@ -32,7 +32,7 @@ import {
 } from "./model";
 import { framedPage, pageHtml, renderNewPage, type InsertHtml } from "./newpage";
 import { PAGE_LAYOUT, ROW_CLASS, framePage, oneColumn } from "./frame";
-import { hubPicturesIn, mediaAddress, mediaFileOf, mediaGallerySteps, pictureAltsIn, pictureState, pictureWordsOf, withMediaAddresses, type MediaFile, type MediaHead, type PictureCheck } from "./media";
+import { campaignFileOf, campaignPicturesIn, hubPicturesIn, mediaAddress, mediaFileOf, mediaGallerySteps, pictureAltsIn, pictureState, pictureWordsOf, withMediaAddresses, type MediaFile, type MediaHead, type PictureCheck } from "./media";
 import { contentAddress, contentFileOf, contentMediaState } from "./contentMedia";
 import { storeFailed, storePictures } from "./pictureStore";
 import { moduleLinks, relinkHtml, shopLinkOf } from "./links";
@@ -474,6 +474,11 @@ async function pictureFiles(urls: string[], words: ReadonlyMap<string, string> =
   const out = new Map<string, MediaFile>();
   const store = contentMediaState();
   for (const u of urls) {
+    // a campaign's photo shipped with the hub: always the hub's picture storage, under its own path (13.11.2026)
+    if (/^\/content\/campaign\//.test(u)) {
+      if (store.on && !out.has(u)) out.set(u, { file: campaignFileOf(u), url: u, address: contentAddress(store.base, campaignFileOf(u)) });
+      continue;
+    }
     const m = /^\/api\/content\/picture\/(\d+)-[\w-]+$/.exec(u);
     if (!m || out.has(u)) continue;
     const a = await getAsset(Number(m[1])).catch(() => null);
@@ -492,7 +497,7 @@ function wordsOf(html: string, doc: unknown): Map<string, string> {
 }
 
 /** Every hub picture a page's HTML names - its fields', its modules', its banners' - with its file on the shop. */
-const mediaFilesOf = (html: string, doc: unknown) => pictureFiles(hubPicturesIn(html).map((p) => p.url), wordsOf(html, doc));
+const mediaFilesOf = (html: string, doc: unknown) => pictureFiles([...hubPicturesIn(html).map((p) => p.url), ...campaignPicturesIn(html)], wordsOf(html, doc));
 
 /**
  * A new page's content, store view by store view: ONE HTML Code element's HTML (`inner` - the hand-over pastes it) and

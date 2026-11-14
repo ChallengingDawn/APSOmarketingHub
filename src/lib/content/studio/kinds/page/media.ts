@@ -18,6 +18,21 @@
 /** A picture kept in the hub, as a page names it (lib/content/assets.ts: public, no cookie). */
 const HUB_PICTURE = /\/api\/content\/picture\/(\d{1,12})-[A-Za-z0-9_-]{4,40}/g;
 
+/** A campaign's own photo shipped with the hub (13.11.2026, the Black Friday modules - modules/lib/bf26.ts): a file of
+ * public/content/campaign/<campaign>/ - the preview shows it from the hub, Publish stores it in the hub's picture storage
+ * at content/campaign/<campaign>/<file> (./pictureStore.ts reads it from the hub's own files). */
+// (only a path the page wrote itself: never the same path inside an address already in the storage)
+// (13.11.2026: and the Black Friday voucher's engine, a .js of the same folder - ../../../../convert/trustedScripts.ts)
+export const CAMPAIGN_PICTURE = /(?<![A-Za-z0-9.:_-])\/content\/campaign\/[a-z0-9-]{1,40}\/[a-z0-9-]{1,60}\.(?:webp|png|jpg|js)/g;
+
+/** The campaign photos a page's HTML names, each once, in order. */
+export function campaignPicturesIn(html: string): string[] {
+  return [...new Set([...html.matchAll(CAMPAIGN_PICTURE)].map((m) => m[0]))];
+}
+
+/** A campaign photo's file in the hub's picture storage (its path under content/): "campaign/bf26/oring.webp". */
+export const campaignFileOf = (url: string) => url.replace(/^\/content\//, "");
+
 /** The hub's pictures a page's HTML names, each once, in order: [path, its id]. */
 export function hubPicturesIn(html: string): { url: string; id: number }[] {
   const out: { url: string; id: number }[] = [];
@@ -60,7 +75,9 @@ export const shownAt = (f: MediaFile, base: string) => f.address || mediaAddress
 export function withMediaAddresses(html: string, files: ReadonlyMap<string, MediaFile>, base: string): string {
   return html
     .replace(/\{\{\s*media\s+url=(?:&quot;|["'])([^"'&{}]+)(?:&quot;|["'])\s*\}\}/g, (_all, path: string) => SHOP_MEDIA + path.replace(/^\/+/, ""))
-    .replace(HUB_PICTURE, (u) => { const f = files.get(u); return f ? shownAt(f, base) : u; });
+    .replace(HUB_PICTURE, (u) => { const f = files.get(u); return f ? shownAt(f, base) : u; })
+    // a campaign's photo: its address in the hub's picture storage (no Magento media for these - see campaignPicturesIn)
+    .replace(CAMPAIGN_PICTURE, (u) => { const f = files.get(u); return f?.address ? f.address : u; });
 }
 
 /* ── a picture's words, for its file's name in the hub's picture storage (11.11.2026) ── */
