@@ -3,3 +3,7 @@
 *.sh        text eol=lf
 entrypoint.sh text eol=lf
 Dockerfile  text eol=lf
+
+# Campaign files are served byte-exact: the Black Friday voucher engine is NAMED after its content sha256
+# (a CRLF checkout on Windows would change the bytes and break the name = hash check).
+public/content/campaign/** -text
