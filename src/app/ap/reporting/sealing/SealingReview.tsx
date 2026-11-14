@@ -109,7 +109,7 @@ import type { DetailRow, SealingDetail, SealingMonth, SealingView } from "@/lib/
 import {
   APPROVAL_KINDS, LIST_PAGE, approvalLabel, approvalParts, cleanName, shortName, SEALING_DEFINITIONS, STATUS_NAME, actionsCaption, approvalCandidates, familyCandidates, nextStatuses, openCards, overviewCandidates, pagesOf, reviewCandidates, approvalKind, familyFigures, isMonth, leadingRefs,
   materialOf, monthsBetween, monthsSpan, noCompound, periodWords, rankBy, rateMonths, sealingPresets, sumMonths, tileSeries,
-  NO_ORG, NO_UNIT, NO_UNIT_WHY, tinyNoUnit,
+  NO_ORG, NO_UNIT, NO_UNIT_WHY, tinyNoUnit, APPROVAL_ROWS, PER_DATA_SHEET,
   type ApprovalKind, type DetailKind, type Figure, type KeyMonth, type ListKind, type MonthPair, type Position, type Priority, type PriorityStatus, type RankBy,
 } from "@/lib/apHub/sealingRules";
 
@@ -119,8 +119,8 @@ const eur = (n: number | null | undefined) => fmtValue("eur", n);
 const eurTick = (n: number | null) => (n == null ? "" : `€${compact(n)}`);
 const pct = (x: number | null | undefined) => fmtValue("pct", x);
 const int = (n: number | null | undefined) => fmtValue("int", n);
-const signedPct = (x: number) => `${x > 0 ? "+" : x < 0 ? "−" : "±"}${Math.abs(x * 100).toFixed(1)}%`;
-const points = (a: number, b: number) => { const d = (a - b) * 100; return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)} pts`; };
+const signedPct = (x: number) => { const d = Math.round(x * 1000) / 10; return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)}%`; };
+const points = (a: number, b: number) => { const d = Math.round((a - b) * 1000) / 10; return `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(d).toFixed(1)} pts`; };
 const tone = (d: number, eps = 0.0005) => (Math.abs(d) < eps ? MUTED : d > 0 ? GREEN : RED);
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const monthWords = (ym: string) => `${MON[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
@@ -1309,7 +1309,7 @@ type ListState = { rows: Row[]; total: number; busy: boolean; err: string | null
  * One page of a whole list from the hub (/api/ap/sealing/list): every customer, article, compound or approval of the
  * page's period and filters, ranked as asked, the search waiting for the typing to pause.
  */
-function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: number; limit: number; family?: string | null; unresolved?: boolean; bu?: string }): ListState {
+function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: number; limit: number; family?: string | null; unresolved?: boolean; bu?: string; meaning?: boolean }): ListState {
   const [s, setS] = useState<ListState>({ rows: [], total: 0, busy: true, err: null });
   const [q, setQ] = useState(o.q);
   useEffect(() => { const t = setTimeout(() => setQ(o.q), 300); return () => clearTimeout(t); }, [o.q]);
@@ -1319,10 +1319,12 @@ function useList(f: Frame, o: { kind: ListKind; by: By; q: string; offset: numbe
     if (q.trim()) p.set("q", q.trim());
     if (o.family) p.set("family", o.family);
     if (o.unresolved) p.set("unresolved", "1");
+    // the approval texts gathered by what they mean - a chart never lists the same meaning twice (SARCLA 14.11.2026)
+    if (o.meaning) p.set("meaning", "1");
     // one business unit in place of the page's (Customers by unit)
     if (o.bu) { p.delete("bu"); p.append("bu", o.bu); }
     return p.toString();
-  }, [f.ask, o.kind, o.by, o.offset, o.limit, o.family, o.unresolved, o.bu, q]);
+  }, [f.ask, o.kind, o.by, o.offset, o.limit, o.family, o.unresolved, o.bu, o.meaning, q]);
   useEffect(() => {
     let live = true;
     setS((x) => ({ ...x, busy: true, err: null }));
@@ -1424,7 +1426,7 @@ function RankedList({ f, kind, title, hint, what, nameHead, st, onPick, labelWid
   labelWidth?: number; family?: string | null; unresolved?: boolean; extra?: React.ReactNode; foot?: React.ReactNode;
 }) {
   const all = st.n === 0;
-  const list = useList(f, { kind, by: st.by, q: st.q, offset: all ? st.offset : 0, limit: all ? LIST_PAGE : st.n, family, unresolved });
+  const list = useList(f, { kind, by: st.by, q: st.q, offset: all ? st.offset : 0, limit: all ? LIST_PAGE : st.n, family, unresolved, meaning: kind === "approval" });
   const byLabel = new Map(list.rows.map((r) => [r.label, r]));
   return (
     <ChartBox title={title} hint={hint} foot={foot}>
@@ -1551,15 +1553,15 @@ function Evidence({ f }: { f: Frame }) {
  * it. An article carrying two counts under both; a click finds the texts naming it.
  */
 function References({ f, onPick }: { f: Frame; onPick?: (ref: string) => void }) {
-  const refs = f.d.approvalRefs.filter((r) => r.rev > 0);
-  const none = f.d.approvalRefs.filter((r) => r.rev <= 0).map((r) => r.name);
+  const refs = (f.d.approvalGroups ?? f.d.approvalRefs).filter((r) => r.rev > 0);
+  const none = (f.d.approvalGroups ? APPROVAL_ROWS : f.d.approvalRefs.map((r) => r.name)).filter((n) => !refs.some((r) => r.name === n));
   const counted = refs.some((r) => r.articles != null);
   return (
     <ChartBox title="Which approvals our sold articles carry" hint={`An article can carry several approvals${onPick ? " · click one to see the texts that name it" : ""}`}
       table={refs.length ? { columns: ["Approval", ...(counted ? ["Articles"] : []), "Net revenue"], rows: refs.map((r) => [r.name, ...(counted ? [r.articles ?? 0] : []), Math.round(r.rev)]), numeric: counted ? [1, 2] : [1] } : undefined}
       foot={none.length > 0 ? `No article sold in these months carries ${andList(none).replace(/ and /, " or ")}.` : undefined}>
       {refs.length ? (
-        <BarList format={eur} labelWidth={64} heads={{ label: "Approval", value: "Net revenue", note: counted ? "Articles" : undefined }} onSelect={onPick} noteWidth={counted ? 72 : undefined}
+        <BarList format={eur} labelWidth={104} heads={{ label: "Approval", value: "Net revenue", note: counted ? "Articles" : undefined }} onSelect={onPick} noteWidth={counted ? 72 : undefined}
           rows={refs.map((r) => ({ label: r.name, value: r.rev, note: counted ? { text: int(r.articles ?? 0) } : undefined }))} />
       ) : NONE("No article sold in these months carries one of them.")}
     </ChartBox>
@@ -1648,7 +1650,7 @@ function RevenueChart({ f, title, rows, labelWidth = 220, pageSize = GRAPH_PAGE,
   if (!rows.length) return <ChartBox title={title}>{NONE()}</ChartBox>;
   const two = hasBefore(f);
   return (
-    <DimChart title={title} rows={rows} cur={(r) => r.rev} prev={(r) => r.prev} curLabel={f.now} prevLabel={f.before} fmt={eur} pageSize={pageSize}
+    <DimChart title={title} rows={rows} cur={(r) => r.rev} prev={(r) => r.prev} curLabel={f.now} prevLabel={f.before} fmt={eur} pageSize={pageSize} bounded
       single={!two} curNote={two ? revNote : undefined} labelWidth={labelWidth} onPick={onPick} selected={selected} pickHint={onPick ? "Click a bar to show only it" : ""} />
   );
 }
@@ -1659,7 +1661,7 @@ function ProfitChart({ f, title, rows, labelWidth = 220, pageSize = GRAPH_PAGE }
   if (!shown.length) return <ChartBox title={title}>{NONE()}</ChartBox>;
   const two = hasBefore(f);
   return (
-    <DimChart title={title} rows={shown} cur={(r) => r.gp} prev={(r) => r.prevGp} curLabel={f.now} prevLabel={f.before} fmt={eur} pageSize={pageSize}
+    <DimChart title={title} rows={shown} cur={(r) => r.gp} prev={(r) => r.prevGp} curLabel={f.now} prevLabel={f.before} fmt={eur} pageSize={pageSize} bounded
       single={!two} curNote={two ? gpNote : undefined} labelWidth={labelWidth} pickHint="" negatives />
   );
 }
@@ -1669,7 +1671,7 @@ function MarginChart({ f, title, rows, labelWidth = 220, pageSize = GRAPH_PAGE }
   const shown = [...rows].filter((r) => r.rev > 0).sort((a, b) => b.rev - a.rev);
   if (!shown.length) return <ChartBox title={title}>{NONE()}</ChartBox>;
   return (
-    <DimChart title={title} rows={shown} cur={(r) => r.margin} prev={() => 0} curLabel={`Gross margin, ${f.now}`} prevLabel="" fmt={pct} pageSize={pageSize}
+    <DimChart title={title} rows={shown} cur={(r) => r.margin} prev={() => 0} curLabel={`Gross margin, ${f.now}`} prevLabel="" fmt={pct} pageSize={pageSize} bounded
       single fixedOrder curNote={hasBefore(f) ? marginNote : undefined} labelWidth={labelWidth} pickHint="" negatives />
   );
 }
@@ -2201,18 +2203,25 @@ function ApprovalsTab({ f }: { f: Frame }) {
         <Evidence f={f} />
       </Box>
       <Box id="sealing-approvals-ranking" sx={{ scrollMarginTop: 16 }}>
-        <RankedList f={f} kind="approval" title="Approval texts, ranked" hint="Each with its gross margin · click one to read it" what="approval texts" nameHead="Approval as written" st={st}
+        <RankedList f={f} kind="approval" title="Approval texts, ranked" hint="Texts that say the same together - every data-sheet wording is one “Per data sheet” · click one to read it" what="approval texts" nameHead="Approval" st={st}
           onPick={(r) => inspect(pickOf("approval", r))} labelWidth={340}
           foot={<><ToAll label="Every text in the All approval texts tab" /></>} />
       </Box>
     </>
   );
 }
+/**
+ * Each approval our sold articles carry - FDA, WRAS, KTW, ACS, NSF ... and "Per data sheet" for every text pointing to a
+ * data sheet - against a year earlier: the net revenue and gross profit of the articles carrying it, its gross margin
+ * (SARCLA 14.11.2026: the raw texts charted "still broken"). The raw texts are the All approval texts tab's.
+ */
 function ApprovalFigures({ f }: { f: Frame }) {
-  const all = rowsOf(f.d.approvals, approvalLabel);
+  const rows: Row[] = (f.d.approvalGroups ?? []).map((x) => ({ label: x.name, full: x.articles != null ? `${x.name} · ${int(x.articles)} article${x.articles === 1 ? "" : "s"}` : x.name, key: x.key, rev: x.rev, gp: x.gp, margin: x.margin, prev: x.prev ?? 0, prevGp: x.prevGp ?? 0 }));
   return (
-    <Breakdown t={TOPIC.approvals} title={`The approval texts against a year earlier, ${f.now}`} note={`The ${int(all.length)} texts with the most net revenue · ${against(f)}`}
-      charts={<FigureGraphs f={f} rows={all} what="approval text" labelWidth={300} />} table={null} />
+    <Breakdown t={TOPIC.approvals} title={`The approvals our sold articles carry, against a year earlier, ${f.now}`}
+      note={`An article can carry several approvals - it counts under each, so the rows overlap and do not add up · “Per data sheet”: every text pointing to a data sheet, an approval named or not · ${against(f)}`}
+      charts={rows.length ? <FigureGraphs f={f} rows={rows} what="approval" labelWidth={130} paired /> : <Wide>{NONE("No article sold in these months carries one of them.")}</Wide>}
+      table={rows.length ? <FigTable f={f} title="All the figures, by approval" first="Approval" rows={rows} /> : null} />
   );
 }
 
@@ -2230,6 +2239,12 @@ const twoLines = (text: React.ReactNode, title: string, lines = 2) => (
 function RefChips({ text, n = 6 }: { text: string; n?: number }) {
   const parts = approvalParts(text);
   if (!parts.length) return twoLines(text, text);
+  if (parts.length === 1 && parts[0] === PER_DATA_SHEET && text.trim() !== PER_DATA_SHEET) return (
+    <Box component="span" title={text} sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0, flex: "1 1 auto" }}>
+      <Box component="span" sx={{ flex: "0 0 auto", fontSize: "0.72rem", fontWeight: 600, color: INK, bgcolor: "#eef2f8", border: `1px solid ${HAIRLINE}`, px: 0.75, borderRadius: "8px", lineHeight: 1.6, whiteSpace: "nowrap" }}>{PER_DATA_SHEET}</Box>
+      <Box component="span" sx={{ color: MUTED, fontSize: "0.78rem", minWidth: 0, flex: "1 1 auto" }}>{twoLines(`“${text.trim()}”`, text)}</Box>
+    </Box>
+  );
   const shown = parts.slice(0, n);
   return (
     <Box component="span" title={parts.join(" · ")} sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, minWidth: 0, flex: "1 1 auto" }}>
@@ -2388,7 +2403,7 @@ const PAGES: Record<Exclude<SealingSlug, "overview">, PageDef> = {
       { id: "approvals", label: "Approvals", Body: ApprovalsTab },
       { id: "priorities", label: "Priorities", Body: ({ f }) => <Actions items={approvalCandidates(f.d.approvalRefs, noApprovalRev(f), f.d.totals.rev)} title="What should we do?" first /> },
       { id: "year", label: "Against a year earlier", Body: ({ f }) => <TrendCards f={f} items={[TR.noApproval(f), TR.noApprovalRev(f), TR.withApproval(f), TR.approvals(f)]} /> },
-      { id: "figures", label: "By approval text", Body: ApprovalFigures },
+      { id: "figures", label: "By approval", Body: ApprovalFigures },
       { id: "all", label: "All approval texts", count: (f) => int(f.d.totals.approvals), Body: AllApprovals },
     ],
   },

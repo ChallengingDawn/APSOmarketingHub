@@ -75,3 +75,37 @@ export function shortLabel(value: string, max = 42): string {
   if (s.length <= max) return s;
   return `${s.slice(0, Math.max(8, max - 1))}…`;
 }
+
+/** A name's width in the axis's type - measured where a canvas is, else about 6.8px a letter. */
+let pen: CanvasRenderingContext2D | null = null;
+function textWidth(s: string): number {
+  if (typeof document !== "undefined") {
+    pen ??= document.createElement("canvas").getContext("2d");
+    if (pen) { pen.font = `12.5px ${getComputedStyle(document.body).fontFamily || "sans-serif"}`; return pen.measureText(s).width; }
+  }
+  return s.length * 6.8;
+}
+/** A name on at most two lines of `max` pixels - by words, a word too long cut, an ellipsis where it does not end. */
+export function twoLineLabel(label: string, max: number, width: (s: string) => number = textWidth): string[] {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  while (words.length && lines.length < 2) {
+    const w = words[0];
+    const next = line ? `${line} ${w}` : w;
+    if (width(next) <= max) { line = next; words.shift(); continue; }
+    if (line) { lines.push(line); line = ""; continue; }
+    // one word wider than the line: as much of it as fits, the rest on the next line
+    let k = w.length - 1;
+    while (k > 1 && width(w.slice(0, k)) > max) k--;
+    lines.push(w.slice(0, k));
+    words[0] = w.slice(k);
+  }
+  if (line && lines.length < 2) { lines.push(line); line = ""; }
+  if (words.length || line) {
+    let last = lines[lines.length - 1] ?? "";
+    while (last && width(`${last}…`) > max) last = last.slice(0, -1).trimEnd();
+    lines[Math.max(0, lines.length - 1)] = `${last}…`;
+  }
+  return lines;
+}
