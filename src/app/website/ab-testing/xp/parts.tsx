@@ -217,7 +217,7 @@ export function SyncLine({ d, reload }: { d: ListData; reload: () => void }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-        {s ? `Refreshed ${new Date(s.at).toLocaleString("de-CH", { dateStyle: "short", timeStyle: "short" })} from APSOconvert ${s.sources.apsoconvert.n}, the shop chat ${s.sources.chat.n}, Webyn ${s.sources.webyn.n}${s.sources.pagebuilder ? `, the Page builder ${s.sources.pagebuilder.n}` : ""}` : "Never refreshed yet"}
+        {s ? `Refreshed ${new Date(s.at).toLocaleString("de-CH", { dateStyle: "short", timeStyle: "short" })} from APSOconvert ${s.sources.apsoconvert.n}, the shop chat ${s.sources.chat.n}, the external tool ${s.sources.webyn.n}${s.sources.pagebuilder ? `, the Page builder ${s.sources.pagebuilder.n}` : ""}` : "Never refreshed yet"}
         {d.syncing ? " · refreshing now…" : ""}
       </Typography>
       {d.canEdit && <Button size="small" variant="text" onClick={() => void run()} disabled={busy} startIcon={busy ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none", fontSize: "0.76rem" }}>Refresh now</Button>}
@@ -278,7 +278,7 @@ export function XpDialog({ open, onClose, onSaved, e, preset }: { open: boolean;
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle sx={{ fontSize: "1.05rem", fontWeight: 700 }}>{e ? (manual ? "Change this test" : "Your word on this test") : "Record a test"}</DialogTitle>
       <DialogContent sx={{ display: "grid", gap: 1.5, pt: "8px !important" }}>
-        {!manual && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>The figures, dates and status come from {SOURCE_LABEL[e!.source]} and are refreshed by themselves. Here: what we decided, what we learned, the hypothesis{e!.source === "webyn" ? ", and the result Webyn's own dashboard reports" : ""}.</Typography>}
+        {!manual && <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>The figures, dates and status come from {SOURCE_LABEL[e!.source]} and are refreshed by themselves. Here: what we decided, what we learned, the hypothesis{e!.source === "webyn" ? ", and the result the tool's own dashboard reports" : ""}.</Typography>}
         {manual && (
           <>
             <TextField {...f} label="Name" value={d.name} onChange={(x) => set("name", x.target.value)} placeholder="e.g. Bigger add-to-cart button on O-ring pages" />
@@ -327,7 +327,7 @@ export function XpDialog({ open, onClose, onSaved, e, preset }: { open: boolean;
               {(Object.keys(DECISION_LABEL) as Decision[]).map((k) => <MenuItem key={k} value={k}>{DECISION_LABEL[k]}</MenuItem>)}
             </TextField>
             <TextField {...f} multiline minRows={2} label="What we learned" value={d.learning} onChange={(x) => set("learning", x.target.value)} />
-            {(e?.source === "webyn" || manual) && <TextField {...f} label="Result the tool reported (e.g. Webyn: +8.3% conversions, 96% probability)" value={d.reported} onChange={(x) => set("reported", x.target.value)} />}
+            {(e?.source === "webyn" || manual) && <TextField {...f} label="Result the tool reported (e.g. +8.3% conversions, 96% probability)" value={d.reported} onChange={(x) => set("reported", x.target.value)} />}
           </>
         )}
         <TextField {...f} multiline minRows={1} label="Notes" value={d.notes} onChange={(x) => set("notes", x.target.value)} />

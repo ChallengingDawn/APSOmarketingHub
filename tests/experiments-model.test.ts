@@ -64,7 +64,7 @@ test("a Webyn page: a test once its test group is seen, ended after 3 quiet days
     params: [{ id: "1", version: "9", name: "Hero title", type: "None" }, { id: "2", version: null, name: "Logged-in banner", type: "Login" }] }, now)!;
   assert.equal(w.key, "webyn-p1");
   assert.equal(w.status, "running");
-  assert.equal(w.name, "Webyn: Hero title");
+  assert.equal(w.name, "External tool: Hero title");               // the tool is never named in the hub
   assert.equal(w.surface, "/de-ch/x.html");
   assert.equal(fromWebynPage({ ...base, last_at: "2026-11-15T00:00:00Z", groups: { t: { visitors: 5, carted: 0 }, o: { visitors: 5, carted: 0 } }, params: [] }, now)!.status, "ended");
 });
