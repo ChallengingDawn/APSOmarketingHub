@@ -20,7 +20,7 @@ import { firewallMessage, refusedByFirewall } from "../../upload";
 
 // the hub passes these calls to the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts)
 const API_URL = "/api/pricing";
-const RED = "#ed1b2f", MUTED = "#5b6470", NAVY = "#274e64";
+const RED = "#c8463a", MUTED = "#5d6b85", NAVY = "#274e64";
 
 type Row = {
   code: string | null; brand: string; material: string; form: string;
@@ -32,7 +32,7 @@ type Result = {
 };
 
 const FORM_COLOR: Record<string, string> = {
-  rod: "#e7f0fb", plate: "#fdf0df", tube: "#e8f5e9", sheet: "#f3e8fd", other: "#f1f3f4",
+  rod: "#e7f0fb", plate: "#fdf0df", tube: "#e8f5e9", sheet: "#f3e8fd", other: "#eef2f8",
 };
 
 export default function OcrMappingPage() {
@@ -111,7 +111,7 @@ export default function OcrMappingPage() {
       <Card sx={{ border: "1px dashed #cfd5db", borderRadius: 3, p: 3, mb: 2.5, textAlign: "center", bgcolor: "#fafbfc" }}>
         <input ref={inputRef} type="file" accept="application/pdf,image/png,image/jpeg,.pdf" hidden
           onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#1a1d21", mb: 0.5 }}>Upload a supplier price list</Typography>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#15223a", mb: 0.5 }}>Upload a supplier price list</Typography>
         <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 2 }}>PDF or image. The extractor reads every priced line (supplier code · material · form · dimension · price).</Typography>
         <Button variant="contained" startIcon={<UploadFileIcon />} disabled={busy} onClick={() => inputRef.current?.click()}
           sx={{ bgcolor: RED, fontWeight: 800, textTransform: "none", "&:hover": { bgcolor: "#d81528" } }}>
@@ -127,7 +127,7 @@ export default function OcrMappingPage() {
       {/* structured Excel ingest — powers the Benchmark 1-to-1 */}
       <Card sx={{ border: "1px solid #cfe3d6", borderRadius: 3, p: 3, mb: 2.5, textAlign: "center", bgcolor: "#f5fbf7" }}>
         <input ref={xlsxRef} type="file" accept=".xlsx,.xls" hidden onChange={e => { const f = e.target.files?.[0]; if (f) onXlsx(f); }} />
-        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#1a1d21", mb: 0.5 }}>Load the supplier price-list Excel (Table sheet)</Typography>
+        <Typography sx={{ fontSize: "0.95rem", fontWeight: 700, color: "#15223a", mb: 0.5 }}>Load the supplier price-list Excel (Table sheet)</Typography>
         <Typography sx={{ fontSize: "0.82rem", color: MUTED, mb: 2 }}>This is the article master that powers the <b>Benchmarking Table</b> 1-to-1 (A+P article ↔ supplier, net weight, list price, GWStdP, deviation).</Typography>
         <Button variant="contained" startIcon={<UploadFileIcon />} disabled={ingesting} onClick={() => xlsxRef.current?.click()}
           sx={{ bgcolor: "#1e8e3e", fontWeight: 800, textTransform: "none", "&:hover": { bgcolor: "#176c2f" } }}>
@@ -153,14 +153,14 @@ export default function OcrMappingPage() {
           {/* meta */}
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1.5, alignItems: "center" }}>
             {res.supplier && <Chip label={res.supplier} sx={{ fontWeight: 700, bgcolor: "#eef2f6", color: NAVY }} />}
-            {res.customerNo && <Chip size="small" label={`Customer ${res.customerNo}`} sx={{ bgcolor: "#f1f3f4", color: MUTED }} />}
-            {res.validFrom && <Chip size="small" label={`Valid from ${res.validFrom}`} sx={{ bgcolor: "#f1f3f4", color: MUTED }} />}
+            {res.customerNo && <Chip size="small" label={`Customer ${res.customerNo}`} sx={{ bgcolor: "#eef2f8", color: MUTED }} />}
+            {res.validFrom && <Chip size="small" label={`Valid from ${res.validFrom}`} sx={{ bgcolor: "#eef2f8", color: MUTED }} />}
             <Chip size="small" label={`Prices in ${res.currency}/${res.priceBasis}`} sx={{ bgcolor: "#e8f5e9", color: "#2e7d32", fontWeight: 600 }} />
             <Box sx={{ flex: 1 }} />
             <Chip label={`${res.rowCount.toLocaleString()} rows`} size="small" sx={{ fontWeight: 700, bgcolor: "#fdecee", color: RED }} />
           </Box>
 
-          <Card sx={{ border: "1px solid #e6e8ec", borderRadius: 2.5 }}>
+          <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 2.5 }}>
             <TableContainer sx={{ maxHeight: 640 }}>
               <Table size="small" stickyHeader>
                 <TableHead>
@@ -178,14 +178,14 @@ export default function OcrMappingPage() {
                 <TableBody>
                   {res.rows.map((r, i) => (
                     <TableRow key={(r.code ?? "") + i} hover>
-                      <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.74rem", color: "#1a1d21" }}>{r.code || "—"}</TableCell>
-                      <TableCell sx={{ fontSize: "0.74rem", color: "#3c4043", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.brand}</TableCell>
-                      <TableCell><Chip label={r.material} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: "#f1f3f4", color: "#3c4043" }} /></TableCell>
-                      <TableCell><Chip label={r.form} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, textTransform: "capitalize", bgcolor: FORM_COLOR[r.form] || FORM_COLOR.other, color: "#3c4043" }} /></TableCell>
+                      <TableCell sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.74rem", color: "#15223a" }}>{r.code || "—"}</TableCell>
+                      <TableCell sx={{ fontSize: "0.74rem", color: "#4a5a70", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.brand}</TableCell>
+                      <TableCell><Chip label={r.material} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: "#eef2f8", color: "#4a5a70" }} /></TableCell>
+                      <TableCell><Chip label={r.form} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, textTransform: "capitalize", bgcolor: FORM_COLOR[r.form] || FORM_COLOR.other, color: "#4a5a70" }} /></TableCell>
                       <TableCell sx={{ fontSize: "0.72rem", color: MUTED, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.dimText}</TableCell>
                       <TableCell align="right" sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: MUTED }}>{r.dimMin ?? "—"}</TableCell>
                       <TableCell align="right" sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: MUTED }}>{r.dimMax ?? "—"}</TableCell>
-                      <TableCell align="right" sx={{ fontSize: "0.78rem", fontFamily: "monospace", fontWeight: 700, color: r.price != null ? "#1a1d21" : "#c4c9ce" }}>{r.price != null ? r.price.toFixed(2) : "—"}</TableCell>
+                      <TableCell align="right" sx={{ fontSize: "0.78rem", fontFamily: "monospace", fontWeight: 700, color: r.price != null ? "#15223a" : "#c4c9ce" }}>{r.price != null ? r.price.toFixed(2) : "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

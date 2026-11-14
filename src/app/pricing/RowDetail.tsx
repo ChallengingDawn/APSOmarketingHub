@@ -24,9 +24,9 @@ const NAVY = "#274e64";
 export function DetailModeToggle({ mode, onChange }: { mode: DetailMode; onChange: (m: DetailMode) => void }) {
   return (
     <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.75 }}>
-      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5b6470" }}>Details</Typography>
+      <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: "#5d6b85" }}>Details</Typography>
       <ToggleButtonGroup size="small" exclusive value={mode} onChange={(_, v) => v && onChange(v)}
-        sx={{ "& .MuiToggleButton-root": { py: 0.2, px: 1, fontSize: "0.68rem", fontWeight: 700, textTransform: "none", gap: 0.5, color: "#5b6470", borderColor: "#d8dce1" },
+        sx={{ "& .MuiToggleButton-root": { py: 0.2, px: 1, fontSize: "0.68rem", fontWeight: 700, textTransform: "none", gap: 0.5, color: "#5d6b85", borderColor: "#d8dce1" },
           "& .Mui-selected": { bgcolor: "#e8f0f4 !important", color: `${NAVY} !important` } }}>
         <ToggleButton value="popup"><WebAssetIcon sx={{ fontSize: 15 }} />Pop-up</ToggleButton>
         <ToggleButton value="inline"><ViewDayOutlinedIcon sx={{ fontSize: 15 }} />In row</ToggleButton>

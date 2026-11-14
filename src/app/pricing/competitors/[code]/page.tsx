@@ -508,7 +508,7 @@ export default function CompetitorDataPage() {
         rightSlot={
           <Box sx={{ display: "flex", gap: 1.5 }}>
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => router.push("/pricing/competitors")}
-              sx={{ borderColor: "#5f6368", color: "#5f6368", "&:hover": { bgcolor: "#f8f9fa" } }}>
+              sx={{ borderColor: "#5d6b85", color: "#5d6b85", "&:hover": { bgcolor: "#f5f7fb" } }}>
               Back
             </Button>
             <Button variant="outlined" startIcon={<UploadFileIcon />} onClick={() => setImportOpen(true)}
@@ -524,16 +524,16 @@ export default function CompetitorDataPage() {
               startIcon={scraping ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <TravelExploreIcon />}
               endIcon={!scraping ? <ArrowDropDownIcon /> : undefined}
               onClick={(e) => setScrapeMenuEl(e.currentTarget)}
-              sx={{ bgcolor: "#ed1b2f", color: "#fff", boxShadow: "none", fontWeight: 700, "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>
+              sx={{ bgcolor: "#c8463a", color: "#fff", boxShadow: "none", fontWeight: 700, "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>
               {scraping ? "Scraping…" : hasAdapter ? "Scrape" : "No scraper"}
             </Button>
             <Menu anchorEl={scrapeMenuEl} open={!!scrapeMenuEl} onClose={() => setScrapeMenuEl(null)}>
-              <MenuItem onClick={() => startScrape(0)}><TravelExploreIcon fontSize="small" sx={{ mr: 1, color: "#ed1b2f" }} />Run now (full catalogue)</MenuItem>
-              <MenuItem onClick={() => startScrape(100)}><TravelExploreIcon fontSize="small" sx={{ mr: 1, color: "#5f6368" }} />Test run (first 100)</MenuItem>
+              <MenuItem onClick={() => startScrape(0)}><TravelExploreIcon fontSize="small" sx={{ mr: 1, color: "#c8463a" }} />Run now (full catalogue)</MenuItem>
+              <MenuItem onClick={() => startScrape(100)}><TravelExploreIcon fontSize="small" sx={{ mr: 1, color: "#5d6b85" }} />Test run (first 100)</MenuItem>
               <MenuItem onClick={() => { setScrapeMenuEl(null); setSchedAt(""); setSchedOpen(true); }}><ScheduleIcon fontSize="small" sx={{ mr: 1, color: "#274e64" }} />Schedule for later…</MenuItem>
             </Menu>
             <Button variant="outlined" onClick={stopScrape}
-              sx={{ borderColor: "#c0392b", color: "#c0392b", "&:hover": { borderColor: "#ed1b2f", bgcolor: "#fff5f5" } }}>
+              sx={{ borderColor: "#c0392b", color: "#c0392b", "&:hover": { borderColor: "#c8463a", bgcolor: "#fff5f5" } }}>
               Stop
             </Button>
           </Box>
@@ -559,7 +559,7 @@ export default function CompetitorDataPage() {
           {scraping && <LinearProgress sx={{ height: 4, "& .MuiLinearProgress-bar": { bgcolor: "#274e64" } }} />}
           <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 }, display: "flex", alignItems: "center", gap: 1.5 }}>
             {scraping && <CircularProgress size={18} sx={{ color: "#274e64" }} />}
-            <Typography sx={{ fontSize: "0.8rem", color: scrapeMsg.startsWith("Failed") ? "#b02a37" : "#1f1f1f", fontWeight: 600 }}>
+            <Typography sx={{ fontSize: "0.8rem", color: scrapeMsg.startsWith("Failed") ? "#b02a37" : "#15223a", fontWeight: 600 }}>
               {scrapeMsg}{scraping ? " — table updates live below" : ""}
             </Typography>
           </CardContent>
@@ -573,7 +573,7 @@ export default function CompetitorDataPage() {
             sx={{ mt: 1 }} slotProps={{ inputLabel: { shrink: true } }} label="Run at" />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setSchedOpen(false)} sx={{ color: "#5f6368" }}>Cancel</Button>
+          <Button onClick={() => setSchedOpen(false)} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button variant="contained" disabled={!schedAt} onClick={doSchedule} sx={{ bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" } }}>Schedule</Button>
         </DialogActions>
       </Dialog>
@@ -588,14 +588,14 @@ export default function CompetitorDataPage() {
       <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
         {[
           { value: total.toLocaleString(), label: "Products", accent: mc.color },
-          { value: competitor?.market || "", label: "Market", accent: "#5f6368" },
-          { value: competitor?.currency || "", label: "Currency", accent: "#5f6368" },
-          { value: competitor?.last_scraped ? new Date(competitor.last_scraped).toLocaleDateString("en-GB") : "Never", label: "Last Update", accent: "#5f6368" },
+          { value: competitor?.market || "", label: "Market", accent: "#5d6b85" },
+          { value: competitor?.currency || "", label: "Currency", accent: "#5d6b85" },
+          { value: competitor?.last_scraped ? new Date(competitor.last_scraped).toLocaleDateString("en-GB") : "Never", label: "Last Update", accent: "#5d6b85" },
         ].map((s, i) => (
-          <Card key={i} sx={{ flex: 1, border: "1px solid #ececec", borderRadius: 3, borderTop: i === 0 ? `3px solid ${s.accent}` : undefined }}>
+          <Card key={i} sx={{ flex: 1, border: "1px solid #e4e9f1", borderRadius: 3, borderTop: i === 0 ? `3px solid ${s.accent}` : undefined }}>
             <CardContent sx={{ p: 2, "&:last-child": { pb: 2 }, textAlign: "center" }}>
               <Typography sx={{ fontSize: i === 0 ? "1.8rem" : "1rem", fontWeight: 700, color: s.accent }}>{s.value}</Typography>
-              <Typography sx={{ fontSize: "0.6rem", color: "#5f6368", fontWeight: 600, textTransform: "uppercase" }}>{s.label}</Typography>
+              <Typography sx={{ fontSize: "0.6rem", color: "#5d6b85", fontWeight: 600, textTransform: "uppercase" }}>{s.label}</Typography>
             </CardContent>
           </Card>
         ))}
@@ -604,12 +604,12 @@ export default function CompetitorDataPage() {
       {loading && <LinearProgress sx={{ mb: 2 }} />}
 
       {/* Products Table */}
-      <Card sx={{ border: "1px solid #ececec", borderRadius: 4 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 4 }}>
         <CardContent sx={{ p: 0 }}>
-          <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid #ececec" }}>
+          <Box sx={{ p: 2, display: "flex", alignItems: "center", gap: 2, borderBottom: "1px solid #e4e9f1" }}>
             <TextField size="small" placeholder="Search products, materials..."
               value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: "#5f6368" }} /></InputAdornment> } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" sx={{ color: "#5d6b85" }} /></InputAdornment> } }}
               sx={{ flex: 1, maxWidth: 360 }} />
             <FormControl size="small" sx={{ minWidth: 190 }}>
               <InputLabel>Scraping</InputLabel>
@@ -622,7 +622,7 @@ export default function CompetitorDataPage() {
             </FormControl>
             <Button size="small" variant="outlined" startIcon={<DeleteOutlineIcon />} endIcon={<ArrowDropDownIcon />}
               onClick={(e) => setCleanMenuEl(e.currentTarget)}
-              sx={{ borderColor: "#f0b6b6", color: "#c0392b", "&:hover": { borderColor: "#ed1b2f", bgcolor: "#fff5f5" } }}>
+              sx={{ borderColor: "#f0b6b6", color: "#c0392b", "&:hover": { borderColor: "#c8463a", bgcolor: "#fff5f5" } }}>
               Clean
             </Button>
             <Menu anchorEl={cleanMenuEl} open={!!cleanMenuEl} onClose={() => setCleanMenuEl(null)}>
@@ -657,7 +657,7 @@ export default function CompetitorDataPage() {
           <TableContainer sx={{ overflowX: "auto" }}>
             <Table size="small" sx={{ minWidth: 900 + priceTiers.length * 100 }}>
               <TableHead>
-                <TableRow sx={{ bgcolor: "#f8f9fa" }}>
+                <TableRow sx={{ bgcolor: "#f5f7fb" }}>
                   {[
                     { id: "external_ref", label: "Ref / Item No." },
                     { id: "product_name", label: "Product Name" },
@@ -672,7 +672,7 @@ export default function CompetitorDataPage() {
                     { id: "scraped_at", label: "Updated" },
                   ].map(col => (
                     <TableCell key={col.id} align={(col as {align?: "right"}).align}
-                      sx={{ fontWeight: 700, fontSize: "0.68rem", color: (col as {price?: boolean}).price ? "#2e7d32" : "#5f6368",
+                      sx={{ fontWeight: 700, fontSize: "0.68rem", color: (col as {price?: boolean}).price ? "#2e7d32" : "#5d6b85",
                         bgcolor: (col as {price?: boolean}).price ? "#e8f5e9" : undefined,
                         textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
                       <TableSortLabel active={sortCol === col.id} direction={sortCol === col.id ? sortDir : "asc"} onClick={() => handleSort(col.id)}>
@@ -684,7 +684,7 @@ export default function CompetitorDataPage() {
               </TableHead>
               <TableBody>
                 {products.length === 0 && !loading && (
-                  <TableRow><TableCell colSpan={10 + priceTiers.length} align="center" sx={{ py: 6, color: "#5f6368" }}>
+                  <TableRow><TableCell colSpan={10 + priceTiers.length} align="center" sx={{ py: 6, color: "#5d6b85" }}>
                     {total === 0 ? "No products yet. Click \"Import Excel\" to add data." : "No matching products."}
                   </TableCell></TableRow>
                 )}
@@ -696,14 +696,14 @@ export default function CompetitorDataPage() {
                       <TableCell><Typography sx={{ fontSize: "0.72rem", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.product_name}</Typography></TableCell>
                       <TableCell>
                         <Chip label={(p.material_normalized || p.material || "—").toUpperCase()} size="small" sx={{ fontSize: "0.6rem", height: 20 }} />
-                        {p.hardness && <Typography sx={{ fontSize: "0.6rem", color: "#5f6368", mt: 0.25 }}>{p.hardness}</Typography>}
+                        {p.hardness && <Typography sx={{ fontSize: "0.6rem", color: "#5d6b85", mt: 0.25 }}>{p.hardness}</Typography>}
                         {p.certifications && <Typography sx={{ fontSize: "0.58rem", color: "#1565c0", fontWeight: 600, mt: 0.25 }} title={p.certifications}>{p.certifications}</Typography>}
                       </TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{p.product_type || "—"}</Typography></TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{p.color_normalized || p.color || "—"}</Typography></TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: "#3c4043" }}>{dimsLabel(p)}</Typography></TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{p.unit || "—"}</Typography></TableCell>
-                      <TableCell align="right"><Typography sx={{ fontSize: "0.72rem", color: p.in_stock === true ? "#2e7d32" : p.in_stock === false ? "#e65100" : "#5f6368" }} title={p.stock_raw || ""}>{stockLabel(p)}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{p.product_type || "—"}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{p.color_normalized || p.color || "—"}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", color: "#4a5a70" }}>{dimsLabel(p)}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{p.unit || "—"}</Typography></TableCell>
+                      <TableCell align="right"><Typography sx={{ fontSize: "0.72rem", color: p.in_stock === true ? "#2e7d32" : p.in_stock === false ? "#e65100" : "#5d6b85" }} title={p.stock_raw || ""}>{stockLabel(p)}</Typography></TableCell>
                       <TableCell>
                         {p.matched_apso_articles && p.matched_apso_articles.length > 0 ? (
                           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
@@ -720,7 +720,7 @@ export default function CompetitorDataPage() {
                             )}
                           </Box>
                         ) : (
-                          <Typography sx={{ fontSize: "0.68rem", fontFamily: "monospace", color: "#dadce0" }}>—</Typography>
+                          <Typography sx={{ fontSize: "0.68rem", fontFamily: "monospace", color: "#dfe5ee" }}>—</Typography>
                         )}
                       </TableCell>
                       {priceTiers.map(t => {
@@ -729,13 +729,13 @@ export default function CompetitorDataPage() {
                         const has = !isNaN(val);
                         return (
                           <TableCell key={t} align="right" sx={{ bgcolor: "#f0fdf4" }}>
-                            <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 600, color: has ? "#2e7d32" : "#dadce0" }}>
+                            <Typography sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 600, color: has ? "#2e7d32" : "#dfe5ee" }}>
                               {has ? `${competitor?.currency} ${val.toFixed(2)}` : "—"}
                             </Typography>
                           </TableCell>
                         );
                       })}
-                      <TableCell><Typography sx={{ fontSize: "0.68rem", color: "#5f6368" }}>{p.scraped_at ? new Date(p.scraped_at).toLocaleDateString("en-GB") : "—"}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.68rem", color: "#5d6b85" }}>{p.scraped_at ? new Date(p.scraped_at).toLocaleDateString("en-GB") : "—"}</Typography></TableCell>
                     </TableRow>
                   );
                 })}
@@ -759,8 +759,8 @@ export default function CompetitorDataPage() {
               <DescriptionIcon sx={{ color: "#2e7d32", fontSize: 24 }} />
             </Box>
             <Box sx={{ flex: 1 }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#1f1f1f" }}>All Products</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{total.toLocaleString()} products with all price tiers</Typography>
+              <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#15223a" }}>All Products</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{total.toLocaleString()} products with all price tiers</Typography>
             </Box>
           </Box>
           <Box onClick={() => handleExport("view")} sx={{ p: 2.5, display: "flex", alignItems: "center", gap: 2, cursor: "pointer", "&:hover": { bgcolor: "#e8f0f4" }, transition: "background 0.15s" }}>
@@ -768,15 +768,15 @@ export default function CompetitorDataPage() {
               <FilterAltIcon sx={{ color: "#274e64", fontSize: 24 }} />
             </Box>
             <Box sx={{ flex: 1 }}>
-              <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#1f1f1f" }}>Current View</Typography>
-              <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>
+              <Typography sx={{ fontWeight: 700, fontSize: "0.9rem", color: "#15223a" }}>Current View</Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
                 Current page{search ? ` — filtered: "${search}"` : ""}
               </Typography>
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f8f9fa", borderTop: "1px solid #ececec" }}>
-          <Button onClick={() => setExportOpen(false)} sx={{ color: "#5f6368" }}>Cancel</Button>
+        <DialogActions sx={{ px: 3, py: 1.5, bgcolor: "#f5f7fb", borderTop: "1px solid #e4e9f1" }}>
+          <Button onClick={() => setExportOpen(false)} sx={{ color: "#5d6b85" }}>Cancel</Button>
         </DialogActions>
       </Dialog>
 
@@ -793,8 +793,8 @@ export default function CompetitorDataPage() {
           {importSheets.length > 0 && (
             <>
               <Box sx={{ display: "flex", gap: 1 }}>
-                <Chip label="All Sheets" onClick={() => setImportAll(true)} sx={{ cursor: "pointer", fontWeight: importAll ? 700 : 500, bgcolor: importAll ? "#274e64" : "#f1f3f4", color: importAll ? "#fff" : "#3c4043" }} />
-                <Chip label="Single Sheet" onClick={() => setImportAll(false)} sx={{ cursor: "pointer", fontWeight: !importAll ? 700 : 500, bgcolor: !importAll ? "#274e64" : "#f1f3f4", color: !importAll ? "#fff" : "#3c4043" }} />
+                <Chip label="All Sheets" onClick={() => setImportAll(true)} sx={{ cursor: "pointer", fontWeight: importAll ? 700 : 500, bgcolor: importAll ? "#274e64" : "#eef2f8", color: importAll ? "#fff" : "#4a5a70" }} />
+                <Chip label="Single Sheet" onClick={() => setImportAll(false)} sx={{ cursor: "pointer", fontWeight: !importAll ? 700 : 500, bgcolor: !importAll ? "#274e64" : "#eef2f8", color: !importAll ? "#fff" : "#4a5a70" }} />
               </Box>
               {!importAll && (
                 <FormControl fullWidth size="small">
@@ -809,7 +809,7 @@ export default function CompetitorDataPage() {
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.5 }}>
-          <Button onClick={() => setImportOpen(false)} disabled={importing} sx={{ color: "#5f6368" }}>Cancel</Button>
+          <Button onClick={() => setImportOpen(false)} disabled={importing} sx={{ color: "#5d6b85" }}>Cancel</Button>
           <Button variant="contained" onClick={handleImport} disabled={!importFile || (!importAll && !importSheet) || importing}
             startIcon={importing ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : <UploadFileIcon />}
             sx={{ bgcolor: "#274e64", "&:hover": { bgcolor: "#1a3a4c" }, borderRadius: 2 }}>

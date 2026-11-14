@@ -59,7 +59,7 @@ import { exportPdf } from "./exportPdf";
 
 // the hub passes these calls to the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts)
 const API_URL = "/api/pricing";
-const RED = "#ed1b2f", GOOD = "#1e8e3e", BAD = "#c5221f", NAVY = "#274e64", MUTED = "#5b6470", WARN = "#b45309";
+const RED = "#c8463a", GOOD = "#1e8e3e", BAD = "#c5221f", NAVY = "#274e64", MUTED = "#5d6b85", WARN = "#b45309";
 const ORANGE_BG = "#fdf3e7", ORANGE_HD = "#fdf0df", ORANGE_TX = "#854d0e";
 const BLUE_BG = "#eef5fc", BLUE_HD = "#e7f0fb", BLUE_TX = "#1d4ed8";
 const GREEN_BG = "#eef7ee", GREEN_TX = "#2e7d32";
@@ -318,10 +318,10 @@ export default function RepricingPage() {
 
   const toggle = (k: keyof Show, label: string, tx: string) => (
     <Chip label={label} size="small" onClick={() => setShow(s => ({ ...s, [k]: !s[k] }))}
-      sx={{ cursor: "pointer", fontWeight: 700, fontSize: "0.7rem", bgcolor: show[k] ? tx : "#f1f3f4", color: show[k] ? "#fff" : "#3c4043", "&:hover": { opacity: 0.9 } }} />
+      sx={{ cursor: "pointer", fontWeight: 700, fontSize: "0.7rem", bgcolor: show[k] ? tx : "#eef2f8", color: show[k] ? "#fff" : "#4a5a70", "&:hover": { opacity: 0.9 } }} />
   );
   const lastCopy = [lastSync.all?.finished_at, lastSync.selection?.finished_at].filter(Boolean).sort().pop() || null;
-  const U = (u: string, col = "#9aa1ab") => (u ? <Typography component="span" sx={{ fontSize: "0.52rem", fontWeight: 700, color: col }}> /{u}</Typography> : null);
+  const U = (u: string, col = "#8b97ac") => (u ? <Typography component="span" sx={{ fontSize: "0.52rem", fontWeight: 700, color: col }}> /{u}</Typography> : null);
   const priceTip = (a: Article, kind: Kind, t: number) => {
     const ci = ciOf(a), cf = corrOf(a), price = newPrice(ci.eur, cf, factors, t, kind);
     if (price == null) return costProblem(a) || "No cost";
@@ -334,7 +334,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
   const groupCells = (a: Article) => groups.map(g => tiersOf(g).map((t, i, arr) => {
     const v = valueAt(a, g, t);
     const su = basisUnit(a);
-    const last = i === arr.length - 1 ? "2px solid #ececec" : undefined;
+    const last = i === arr.length - 1 ? "2px solid #e4e9f1" : undefined;
     if (g.kind === "cur") {
       const scaleNote = i === 0 ? erpScaleNote(g.sys === "basic" ? a.basic_scales : a.m100_scales, g.sys === "basic" ? a.basic_current : a.m100_current, su) : null;
       const cell = <Box component="span">{v != null ? <>{v.toFixed(2)}{U(su)}</> : "—"}{scaleNote && <Box component="span" sx={{ color: WARN, fontWeight: 800 }}> *</Box>}</Box>;
@@ -347,7 +347,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
         <TableCell key={g.key + t} align="right" sx={{ bgcolor: g.bg, py: 0.4, borderRight: last }}>
           <Tooltip title={<span style={{ whiteSpace: "pre-line", fontFamily: "monospace", fontSize: "0.72rem" }}>{priceTip(a, g.sys!, t)}</span>} arrow placement="top">
             <Box>{v != null ? (<>
-              <Box sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#1a1d21", fontFamily: "monospace", lineHeight: 1.15 }}>{v.toFixed(2)}{U(su)}</Box>
+              <Box sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#15223a", fontFamily: "monospace", lineHeight: 1.15 }}>{v.toFixed(2)}{U(su)}</Box>
               {diff != null && <Box sx={{ fontSize: "0.58rem", fontWeight: 700, color: Math.abs(diff) > 0.9 ? BAD : diff > 0.001 ? BAD : diff < -0.001 ? GOOD : MUTED }}>{diff > 0 ? "+" : ""}{(diff * 100).toFixed(1)}%{Math.abs(diff) > 0.9 ? " ⚠" : ""}</Box>}
             </>) : <Box sx={{ fontSize: "0.82rem", color: "#c4c9ce", fontFamily: "monospace" }}>—</Box>}</Box>
           </Tooltip>
@@ -360,7 +360,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
     const { d, basis } = compGap(ours, v, cc?.converted);
     return (
       <TableCell key={g.key + t} align="right" sx={{ bgcolor: g.bg, py: 0.4, borderRight: last }}>
-        <Box sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: v != null ? NAVY : "#c4c9ce", lineHeight: 1.15 }}>{v != null ? <>{v.toFixed(2)}{cc?.unit && U(cc.unit, cc.converted ? "#9aa1ab" : ORANGE_TX)}</> : "—"}</Box>
+        <Box sx={{ fontSize: "0.72rem", fontFamily: "monospace", fontWeight: 700, color: v != null ? NAVY : "#c4c9ce", lineHeight: 1.15 }}>{v != null ? <>{v.toFixed(2)}{cc?.unit && U(cc.unit, cc.converted ? "#8b97ac" : ORANGE_TX)}</> : "—"}</Box>
         {d != null && <Box sx={{ fontSize: "0.58rem", fontWeight: 800, color: d > 0.02 ? BAD : d < -0.1 ? GOOD : ORANGE_TX }}>{d > 0 ? "+" : ""}{(d * 100).toFixed(1)}%</Box>}
         {basis && <Tooltip title="More than 4× apart — our price and theirs are not on the same basis (per piece vs per kg?)"><Box sx={{ fontSize: "0.58rem", fontWeight: 800, color: ORANGE_TX }}>basis?</Box></Tooltip>}
       </TableCell>
@@ -417,11 +417,11 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
       {exporting && <Typography sx={{ fontSize: "0.78rem", color: NAVY, fontWeight: 700, mb: 1 }}>{exporting}</Typography>}
 
       {/* factor summary */}
-      <Card sx={{ border: "1px solid #e6e8ec", borderRadius: 2.5, mb: 2 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 2.5, mb: 2 }}>
         <CardContent sx={{ p: 1.5, display: "flex", flexWrap: "wrap", gap: 1.2, alignItems: "center", "&:last-child": { pb: 1.5 } }}>
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#1a1d21" }}>Factors</Typography>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#15223a" }}>Factors</Typography>
           {[["Base", factors.base], ["Country M100", factors.country_m100], ["Country M110", factors.country_m110], ["Currency", factors.currency]].map(([k, v]) => (
-            <Chip key={k} label={`${k} ${v}`} size="small" sx={{ fontWeight: 700, fontSize: "0.7rem", bgcolor: "#f1f3f4", color: "#3c4043" }} />
+            <Chip key={k} label={`${k} ${v}`} size="small" sx={{ fontWeight: 700, fontSize: "0.7rem", bgcolor: "#eef2f8", color: "#4a5a70" }} />
           ))}
           {FX_CURRENCIES.filter(c => factors.fx[c]).map(c => <Chip key={c} label={`1 ${c} = ${factors.fx[c]} EUR`} size="small" sx={{ fontWeight: 700, fontSize: "0.7rem", bgcolor: "#fff7ed", color: WARN }} />)}
           <Chip label={`Quantities: ${TIERS.join(" · ")}`} size="small" sx={{ fontWeight: 700, fontSize: "0.7rem", bgcolor: "#eef2f6", color: NAVY }} />
@@ -442,7 +442,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
       <Dialog open={!!delTarget} onClose={() => !deleting && setDelTarget(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <Box sx={{ bgcolor: RED, px: 3, py: 2 }}><Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.05rem", fontWeight: 700, color: "#fff" }}>Delete article</Typography></Box>
         <DialogContent sx={{ pt: "20px !important" }}>
-          <Typography sx={{ fontSize: "0.86rem", color: "#1f1f1f" }}>Delete <b style={{ fontFamily: "monospace" }}>{delTarget?.article_number}</b>?</Typography>
+          <Typography sx={{ fontSize: "0.86rem", color: "#15223a" }}>Delete <b style={{ fontFamily: "monospace" }}>{delTarget?.article_number}</b>?</Typography>
           <Typography sx={{ fontSize: "0.78rem", color: MUTED, mb: 2 }}>{delTarget?.description}</Typography>
           <FormControlLabel control={<Checkbox checked={delHubspot} onChange={e => setDelHubspot(e.target.checked)} sx={{ color: RED, "&.Mui-checked": { color: RED } }} />}
             label={<Typography sx={{ fontSize: "0.8rem" }}>Also delete it in <b>HubSpot</b> — permanent, removes the source record</Typography>} />
@@ -466,7 +466,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
         <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: MUTED }}>Competitors:</Typography>
         {ALL_COMPS.map(cc => (
           <Chip key={cc.code} label={cc.label} size="small" onClick={() => setCompShow(s => ({ ...s, [cc.code]: !s[cc.code] }))}
-            sx={{ cursor: "pointer", fontWeight: 700, fontSize: "0.7rem", bgcolor: compShow[cc.code] ? NAVY : "#f1f3f4", color: compShow[cc.code] ? "#fff" : "#3c4043", "&:hover": { opacity: 0.9 } }} />
+            sx={{ cursor: "pointer", fontWeight: 700, fontSize: "0.7rem", bgcolor: compShow[cc.code] ? NAVY : "#eef2f8", color: compShow[cc.code] ? "#fff" : "#4a5a70", "&:hover": { opacity: 0.9 } }} />
         ))}
         <Box sx={{ width: "1px", height: 18, bgcolor: "#d8dce1", mx: 0.5 }} />
         <Button size="small" startIcon={<UnfoldLessIcon sx={{ fontSize: 16 }} />} onClick={() => setCollapsed(Object.fromEntries(groups.map(g => [g.key, true])))} sx={{ textTransform: "none", fontSize: "0.7rem", fontWeight: 700, color: NAVY }}>Collapse all</Button>
@@ -479,7 +479,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
       {note && <Typography sx={{ fontSize: "0.8rem", color: NAVY, mb: 1.5, fontWeight: 600 }}>{note}</Typography>}
 
       {arts.length > 0 && (
-        <Card sx={{ border: "1px solid #ececec", borderRadius: 4, overflow: "hidden" }}>
+        <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 4, overflow: "hidden" }}>
           {selected.size > 0 && (
             <Box sx={{ px: 2, py: 1, bgcolor: "#eef5ff", borderBottom: "1px solid #d8e6f5", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
               <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: NAVY, whiteSpace: "nowrap" }}>{selected.size} selected</Typography>
@@ -494,17 +494,17 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
             <Table size="small" sx={{ minWidth: 1500 }}>
               <TableHead>
                 <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.68rem", color: MUTED, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" } }}>
-                  <TableCell rowSpan={2} padding="checkbox" sx={{ bgcolor: "#f8f9fa", width: 40 }}><Checkbox size="small" checked={allSel} indeterminate={someSel && !allSel} onChange={toggleAll} sx={{ p: 0.5 }} /></TableCell>
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa", width: 36, p: 0.5 }} />
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa" }}><SL col="article">Article</SL></TableCell>
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa" }}><SL col="description">Description</SL></TableCell>
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa" }}><SL col="sales_unit">Sales unit</SL></TableCell>
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa" }}><Tooltip title="Prices and cost are per this unit"><span><SL col="stock_unit">Stock unit</SL></span></Tooltip></TableCell>
-                  <TableCell rowSpan={2} sx={{ bgcolor: "#f8f9fa" }}><Tooltip title="Currency of the GWStdP (its lead currency)"><span><SL col="currency">Cost cur.</SL></span></Tooltip></TableCell>
-                  <TableCell rowSpan={2} align="right" sx={{ bgcolor: "#f8f9fa" }}><SL col="cost">GWStdP</SL></TableCell>
-                  <TableCell rowSpan={2} align="right" sx={{ bgcolor: "#f8f9fa", borderRight: "2px solid #e8ebee" }}><SL col="corr">Correction</SL></TableCell>
+                  <TableCell rowSpan={2} padding="checkbox" sx={{ bgcolor: "#f5f7fb", width: 40 }}><Checkbox size="small" checked={allSel} indeterminate={someSel && !allSel} onChange={toggleAll} sx={{ p: 0.5 }} /></TableCell>
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb", width: 36, p: 0.5 }} />
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb" }}><SL col="article">Article</SL></TableCell>
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb" }}><SL col="description">Description</SL></TableCell>
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb" }}><SL col="sales_unit">Sales unit</SL></TableCell>
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb" }}><Tooltip title="Prices and cost are per this unit"><span><SL col="stock_unit">Stock unit</SL></span></Tooltip></TableCell>
+                  <TableCell rowSpan={2} sx={{ bgcolor: "#f5f7fb" }}><Tooltip title="Currency of the GWStdP (its lead currency)"><span><SL col="currency">Cost cur.</SL></span></Tooltip></TableCell>
+                  <TableCell rowSpan={2} align="right" sx={{ bgcolor: "#f5f7fb" }}><SL col="cost">GWStdP</SL></TableCell>
+                  <TableCell rowSpan={2} align="right" sx={{ bgcolor: "#f5f7fb", borderRight: "2px solid #e8ebee" }}><SL col="corr">Correction</SL></TableCell>
                   {groups.map(g => (
-                    <TableCell key={g.key} colSpan={tiersOf(g).length} align="center" sx={{ bgcolor: g.hd, color: g.tx, borderRight: "2px solid #ececec", py: 0.3 }}>
+                    <TableCell key={g.key} colSpan={tiersOf(g).length} align="center" sx={{ bgcolor: g.hd, color: g.tx, borderRight: "2px solid #e4e9f1", py: 0.3 }}>
                       <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.3 }}>
                         {g.label} · {g.cur}
                         <Tooltip title={collapsed[g.key] ? "Show every quantity" : `Only ${TIERS[0] ?? 1}+`}>
@@ -518,7 +518,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
                 </TableRow>
                 <TableRow sx={{ "& th": { fontWeight: 700, fontSize: "0.62rem", color: MUTED, textTransform: "uppercase", whiteSpace: "nowrap" } }}>
                   {groups.map(g => tiersOf(g).map((t, i, arr) => (
-                    <TableCell key={g.key + t} align="right" sx={{ bgcolor: g.bg, color: g.tx, borderRight: i === arr.length - 1 ? "2px solid #ececec" : undefined }}>
+                    <TableCell key={g.key + t} align="right" sx={{ bgcolor: g.bg, color: g.tx, borderRight: i === arr.length - 1 ? "2px solid #e4e9f1" : undefined }}>
                       <SL col={`${g.key}:${t}`}>{t}+</SL>
                     </TableCell>
                   )))}
@@ -533,22 +533,22 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
                       <TableRow hover selected={selected.has(a.article_number)} sx={{ "&.Mui-selected": { bgcolor: "#eef5ff" }, "& td": { borderBottom: isOpen && detailMode === "inline" ? "none" : undefined } }}>
                         <TableCell padding="checkbox"><Checkbox size="small" checked={selected.has(a.article_number)} onChange={() => toggleOne(a.article_number)} sx={{ p: 0.5 }} /></TableCell>
                         <TableCell sx={{ p: 0.5, width: 36 }}>
-                          <Tooltip title="Details"><IconButton size="small" onClick={() => setOpenArt(isOpen ? null : a.article_number)} sx={{ color: isOpen ? NAVY : "#9aa1ab" }}>
+                          <Tooltip title="Details"><IconButton size="small" onClick={() => setOpenArt(isOpen ? null : a.article_number)} sx={{ color: isOpen ? NAVY : "#8b97ac" }}>
                             {detailMode === "popup" ? <OpenInNewIcon sx={{ fontSize: 16 }} /> : isOpen ? <KeyboardArrowUpIcon fontSize="small" /> : <KeyboardArrowDownIcon fontSize="small" />}
                           </IconButton></Tooltip>
                         </TableCell>
-                        <TableCell><Typography onClick={() => setOpenArt(a.article_number)} sx={{ fontSize: "0.74rem", fontFamily: "monospace", fontWeight: 700, color: "#1a1d21", cursor: "pointer", "&:hover": { color: NAVY, textDecoration: "underline" } }}>{a.article_number}</Typography></TableCell>
-                        <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#3c4043", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description || "—"}</Typography></TableCell>
+                        <TableCell><Typography onClick={() => setOpenArt(a.article_number)} sx={{ fontSize: "0.74rem", fontFamily: "monospace", fontWeight: 700, color: "#15223a", cursor: "pointer", "&:hover": { color: NAVY, textDecoration: "underline" } }}>{a.article_number}</Typography></TableCell>
+                        <TableCell><Typography sx={{ fontSize: "0.72rem", color: "#4a5a70", maxWidth: 320, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description || "—"}</Typography></TableCell>
                         <TableCell><Typography sx={{ fontSize: "0.7rem", color: MUTED }}>{a.sales_unit || "—"}</Typography></TableCell>
-                        <TableCell><Typography sx={{ fontSize: "0.7rem", color: "#1a1d21", fontWeight: 700 }}>{a.stock_unit || "—"}</Typography></TableCell>
+                        <TableCell><Typography sx={{ fontSize: "0.7rem", color: "#15223a", fontWeight: 700 }}>{a.stock_unit || "—"}</Typography></TableCell>
                         <TableCell><Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: ci.currency === "EUR" ? MUTED : WARN }}>{a.gwstdp != null || cost[a.article_number] != null ? ci.currency : "—"}</Typography></TableCell>
                         <TableCell align="right" sx={{ py: 0.3 }}>
                           <input type="number" step="0.01" min="0" placeholder="—" value={cost[a.article_number] ?? a.gwstdp ?? ""}
                             onChange={e => { const v = e.target.value; setCost(m => { const n = { ...m }; if (v === "") delete n[a.article_number]; else n[a.article_number] = parseFloat(v) || 0; return n; }); }}
-                            style={{ width: 86, textAlign: "right", fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700, color: ci.eur != null ? "#1a1d21" : "#9aa1ab", border: `1px solid ${problem ? "#f3c98b" : "#d8dce1"}`, borderRadius: 4, padding: "2px 4px", background: "#fff" }} />
+                            style={{ width: 86, textAlign: "right", fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 700, color: ci.eur != null ? "#15223a" : "#8b97ac", border: `1px solid ${problem ? "#f3c98b" : "#d8dce1"}`, borderRadius: 4, padding: "2px 4px", background: "#fff" }} />
                           {problem
                             ? <Tooltip title={problem}><Box sx={{ fontSize: "0.56rem", color: WARN, fontWeight: 700, maxWidth: 90, ml: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{problem}</Box></Tooltip>
-                            : <Box sx={{ fontSize: "0.56rem", color: "#9aa1ab" }}>{a.gwstdp_date ? `since ${fmtDate(a.gwstdp_date)}` : ""}</Box>}
+                            : <Box sx={{ fontSize: "0.56rem", color: "#8b97ac" }}>{a.gwstdp_date ? `since ${fmtDate(a.gwstdp_date)}` : ""}</Box>}
                         </TableCell>
                         <TableCell align="right" sx={{ borderRight: "2px solid #e8ebee" }}>
                           <input type="number" step="0.01" value={corrOf(a)} onChange={e => setCorr(m => ({ ...m, [a.article_number]: parseFloat(e.target.value) || 0 }))}
@@ -567,7 +567,7 @@ margin ${pctTxt(marginOf(cf, factors, t, kind))}${cur != null ? `\ncurrent ${cur
           </TableContainer></TopScroll>
           <TablePagination component="div" count={sortedArts.length} page={page} onPageChange={(_, p) => setPage(p)}
             rowsPerPage={rowsPerPage} onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
-            rowsPerPageOptions={[25, 50, 100, 250]} sx={{ borderTop: "1px solid #ececec" }} />
+            rowsPerPageOptions={[25, 50, 100, 250]} sx={{ borderTop: "1px solid #e4e9f1" }} />
           <Box sx={{ px: 2, py: 1, borderTop: "1px solid #f0f1f3" }}>
             <Typography sx={{ fontSize: "0.7rem", color: MUTED }}>Per stock unit · new = GWStdP in EUR × correction × factors · <Box component="span" sx={{ color: WARN, fontWeight: 800 }}>*</Box> ERP scale below the listed price</Typography>
           </Box>
@@ -610,7 +610,7 @@ function ArticleDetail({ a, factors, ci, corr, problem, onDelete }: { a: Article
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(5, 1fr)" }, gap: 1.5 }}>
         {facts.map(([k, v]) => (
           <Box key={k}><Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: "0.04em" }}>{k}</Typography>
-            <Typography sx={{ fontSize: "0.82rem", color: "#1f1f1f", fontWeight: 600 }}>{v}</Typography></Box>
+            <Typography sx={{ fontSize: "0.82rem", color: "#15223a", fontWeight: 600 }}>{v}</Typography></Box>
         ))}
       </Box>
       <Card variant="outlined" sx={{ borderRadius: 2 }}>
@@ -655,7 +655,7 @@ function ArticleDetail({ a, factors, ci, corr, problem, onDelete }: { a: Article
                 const cc = a.competitors![c.code];
                 return (
                   <TableRow key={c.code}>
-                    <TableCell sx={{ ...td, fontFamily: "inherit", fontWeight: 700, color: NAVY }}>{c.label} <Box component="span" sx={{ fontSize: "0.66rem", color: cc.converted ? "#9aa1ab" : ORANGE_TX }}>{compKind(c.code) === "m100" ? "CHF" : "EUR"}/{cc.unit || "—"}{cc.converted ? "" : " (own unit)"}</Box></TableCell>
+                    <TableCell sx={{ ...td, fontFamily: "inherit", fontWeight: 700, color: NAVY }}>{c.label} <Box component="span" sx={{ fontSize: "0.66rem", color: cc.converted ? "#8b97ac" : ORANGE_TX }}>{compKind(c.code) === "m100" ? "CHF" : "EUR"}/{cc.unit || "—"}{cc.converted ? "" : " (own unit)"}</Box></TableCell>
                     {tiers.map(t => {
                       const v = compAt(cc.prices, t), ours = newPrice(ci.eur, corr, factors, t, compKind(c.code));
                       const { d, basis } = compGap(ours, v, cc.converted);
@@ -695,7 +695,7 @@ function FactorDialog({ open, onClose, factors, F, setFx, setTier, addTier, remo
 }) {
   const [example, setExample] = useState("10");
   const ex = parseFloat(example) || 0;
-  const inp = (w: number, color = "#1a1d21", border = "#d8dce1") => ({ width: w, textAlign: "right" as const, fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 700, color, border: `1px solid ${border}`, borderRadius: 6, padding: "5px 7px" });
+  const inp = (w: number, color = "#15223a", border = "#d8dce1") => ({ width: w, textAlign: "right" as const, fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 700, color, border: `1px solid ${border}`, borderRadius: 6, padding: "5px 7px" });
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
       <Box sx={{ bgcolor: NAVY, px: 3, py: 1.75 }}>

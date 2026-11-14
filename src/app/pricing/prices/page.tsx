@@ -89,9 +89,9 @@ function comboLabel(r: BreakdownRow): string {
   if (r.product_number) return r.product_description ? `${r.product_description}` : r.product_number;
   return [r.product_type ? typeLabel(r.product_type) : null, r.material ? matLabel(r.material) : null, r.color ? cap(r.color) : null].filter(Boolean).join(" · ") || "—";
 }
-const bTh = { textAlign: "left" as const, padding: "6px 10px", fontSize: "0.62rem", fontWeight: 700, color: "#5b6470", textTransform: "uppercase" as const, background: "#f8f9fa" };
+const bTh = { textAlign: "left" as const, padding: "6px 10px", fontSize: "0.62rem", fontWeight: 700, color: "#5d6b85", textTransform: "uppercase" as const, background: "#f5f7fb" };
 const bThR = { ...bTh, textAlign: "right" as const };
-const bTd = { padding: "6px 10px", color: "#1f1f1f" };
+const bTd = { padding: "6px 10px", color: "#15223a" };
 const bTdR = { ...bTd, textAlign: "right" as const, fontFamily: "monospace" };
 
 const MAT_ABBR: Record<string, string> = {
@@ -131,7 +131,7 @@ const SORT_OPTS = [
   { value: "name", label: "Name (A–Z)" },
 ];
 const TOP_OPTS = [6, 10, 20, 100];
-const idxColor = (i: number) => (i < 99 ? "#1e7e45" : i > 101 ? "#c5221f" : "#5b6470");
+const idxColor = (i: number) => (i < 99 ? "#1e7e45" : i > 101 ? "#c5221f" : "#5d6b85");
 
 interface SharedFilters { profitCenter: string; fAss: string; fMG: string; fSG: string; productGroup: string; material: string; scrapeDate: string }
 
@@ -267,8 +267,8 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
   // The per-spec price breakdown (pairs table): under the row, or in the pop-up.
   const breakdownBody = (key: string) => {
     const prs = rowPairs[key] || [];
-    return (rowBusy === key ? <Typography sx={{ fontSize: "0.75rem", color: "#9aa1ab", py: 1 }}>Loading prices…</Typography>
-                   : prs.length === 0 ? <Typography sx={{ fontSize: "0.75rem", color: "#9aa1ab", py: 1 }}>No price detail.</Typography>
+    return (rowBusy === key ? <Typography sx={{ fontSize: "0.75rem", color: "#8b97ac", py: 1 }}>Loading prices…</Typography>
+                   : prs.length === 0 ? <Typography sx={{ fontSize: "0.75rem", color: "#8b97ac", py: 1 }}>No price detail.</Typography>
                    : (
                     (() => {
                       const allRows = prs.map(pr => ({ pr, r: pairIndex(pr) }));
@@ -278,7 +278,7 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
                       const avgA = avg(cmp.map(x => x.r.apsoPm as number));
                       const avgC = avg(cmp.map(x => x.r.compPm as number));
                       const avgP = avg(cmp.map(x => (x.r.index as number) - 100));
-                      const tCol = avgP < -1 ? "#1e7e45" : avgP > 1 ? "#c5221f" : "#5b6470";
+                      const tCol = avgP < -1 ? "#1e7e45" : avgP > 1 ? "#c5221f" : "#5d6b85";
                       return (
                         <table style={{ width: "100%", borderCollapse: "collapse" }}>
                           <thead><tr>
@@ -287,17 +287,17 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
                           <tbody>
                             {shown.map(({ pr, r }, pi) => {
                               const pct = r.index != null ? r.index - 100 : null;
-                              const col = pct == null ? "#9aa1ab" : pct < -1 ? "#1e7e45" : pct > 1 ? "#c5221f" : "#5b6470";
+                              const col = pct == null ? "#8b97ac" : pct < -1 ? "#1e7e45" : pct > 1 ? "#c5221f" : "#5d6b85";
                               const nc = !r.comparable;
                               const basis = normUnit(pr.apso_unit) === "m" ? "m" : (pr.apso_unit || "");
                               const aRaw = `${sym} ${pr.apso_price}${basis ? `/${basis}` : ""}`;
                               const cRaw = `${sym} ${pr.comp_price}${basis ? `/${basis}` : ""}`;
                               return (
                                 <tr key={pi} style={{ borderTop: "1px solid #f4f6f8", background: nc ? "#fff6f6" : pi % 2 ? "#f6f8fa" : "#fff" }}>
-                                  <td style={{ ...bTd, fontSize: "0.8rem" }}><Box sx={{ fontFamily: "monospace", color: "#274e64", fontWeight: 700 }}>{pr.article_number} <Box component="span" sx={{ color: "#9aa1ab", fontWeight: 500 }}>[unit: {pr.apso_unit || "?"}{pr.apso_len_mm ? `, ${pr.apso_len_mm}mm` : ""}]</Box></Box><Box sx={{ fontSize: "0.7rem", color: "#9aa1ab", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.description || ""}</Box></td>
-                                  <td style={{ ...bTdR, fontSize: "0.82rem" }}><Box sx={{ fontWeight: 700 }}>{r.apsoPm != null ? `${sym} ${r.apsoPm.toFixed(2)}` : "—"}</Box><Box sx={{ fontSize: "0.66rem", color: "#9aa1ab" }}>{aRaw}</Box></td>
-                                  <td style={{ ...bTd, fontFamily: "monospace", fontSize: "0.76rem", color: "#5b6470", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.product_name || ""}>{pr.external_ref}</td>
-                                  <td style={{ ...bTdR, fontSize: "0.82rem" }}><Box sx={{ fontWeight: 700 }}>{r.compPm != null ? `${sym} ${r.compPm.toFixed(2)}` : "—"}</Box><Box sx={{ fontSize: "0.66rem", color: nc ? "#c5221f" : "#9aa1ab" }}>{cRaw}</Box></td>
+                                  <td style={{ ...bTd, fontSize: "0.8rem" }}><Box sx={{ fontFamily: "monospace", color: "#274e64", fontWeight: 700 }}>{pr.article_number} <Box component="span" sx={{ color: "#8b97ac", fontWeight: 500 }}>[unit: {pr.apso_unit || "?"}{pr.apso_len_mm ? `, ${pr.apso_len_mm}mm` : ""}]</Box></Box><Box sx={{ fontSize: "0.7rem", color: "#8b97ac", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pr.description || ""}</Box></td>
+                                  <td style={{ ...bTdR, fontSize: "0.82rem" }}><Box sx={{ fontWeight: 700 }}>{r.apsoPm != null ? `${sym} ${r.apsoPm.toFixed(2)}` : "—"}</Box><Box sx={{ fontSize: "0.66rem", color: "#8b97ac" }}>{aRaw}</Box></td>
+                                  <td style={{ ...bTd, fontFamily: "monospace", fontSize: "0.76rem", color: "#5d6b85", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.product_name || ""}>{pr.external_ref}</td>
+                                  <td style={{ ...bTdR, fontSize: "0.82rem" }}><Box sx={{ fontWeight: 700 }}>{r.compPm != null ? `${sym} ${r.compPm.toFixed(2)}` : "—"}</Box><Box sx={{ fontSize: "0.66rem", color: nc ? "#c5221f" : "#8b97ac" }}>{cRaw}</Box></td>
                                   <td style={{ ...bTdR, fontSize: "0.85rem", color: col, fontWeight: 800 }}>{nc ? "n/c" : `${pct! > 0 ? "+" : ""}${pct!.toFixed(0)}%`}</td>
                                   <td style={{ ...bTdR, padding: "2px 4px" }}>
                                     <IconButton size="small" title="Remove this match" onClick={(e) => { e.stopPropagation(); removeMatch(pr.match_id, key); }} sx={{ color: "#c5221f", p: 0.3, "&:hover": { bgcolor: "#fdebed" } }}>
@@ -310,9 +310,9 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
                           </tbody>
                           <tfoot>
                             <tr style={{ borderTop: "2px solid #d8e0e6", background: "#eef2f6" }}>
-                              <td style={{ ...bTd, fontSize: "0.78rem", fontWeight: 800, color: "#1a1d21" }}>TOTAL · {cmp.length} pairs (per metre)</td>
+                              <td style={{ ...bTd, fontSize: "0.78rem", fontWeight: 800, color: "#15223a" }}>TOTAL · {cmp.length} pairs (per metre)</td>
                               <td style={{ ...bTdR, fontSize: "0.8rem", fontWeight: 800 }}>{sym} {avgA.toFixed(2)}</td>
-                              <td style={{ ...bTd, fontSize: "0.7rem", color: "#5b6470" }}>average</td>
+                              <td style={{ ...bTd, fontSize: "0.7rem", color: "#5d6b85" }}>average</td>
                               <td style={{ ...bTdR, fontSize: "0.8rem", fontWeight: 800 }}>{sym} {avgC.toFixed(2)}</td>
                               <td style={{ ...bTdR, fontSize: "0.95rem", fontWeight: 800, color: tCol }}>{avgP > 0 ? "+" : ""}{avgP.toFixed(0)}%</td>
                               <td style={{ ...bTdR }} />
@@ -329,11 +329,11 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
     const k = scale(big);
     return (
       <>
-        <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: `${0.66 * k}rem`, fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: 0.3, mb: 1.2, px: 1, py: 0.6, bgcolor: "#f1f4f6", border: "1px solid #e2e8f0", borderRadius: 1 }}>
+        <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: `${0.66 * k}rem`, fontWeight: 700, color: "#5d6b85", textTransform: "uppercase", letterSpacing: 0.3, mb: 1.2, px: 1, py: 0.6, bgcolor: "#f1f4f6", border: "1px solid #e2e8f0", borderRadius: 1 }}>
           <Box component="span" sx={{ color: "#1e7e45" }}>← APSO cheaper</Box><span>0% · same price</span><Box component="span" sx={{ color: "#c5221f" }}>more expensive →</Box>
         </Box>
         {list.length === 0 ? (
-          <Box sx={{ py: 4, textAlign: "center", color: "#9aa1ab", fontSize: "0.9rem" }}>No comparable products for this view.</Box>
+          <Box sx={{ py: 4, textAlign: "center", color: "#8b97ac", fontSize: "0.9rem" }}>No comparable products for this view.</Box>
         ) : list.map((d, di) => {
           const diff = d.index - 100;
           const col = idxColor(d.index);
@@ -346,7 +346,7 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
             <Box key={di} sx={{ py: 1.4 * k, px: 1, borderRadius: 1, bgcolor: di % 2 ? "#f8fafc" : "#fff" }}>
               <Box onClick={() => toggleRow(d)} sx={{ cursor: "pointer", borderRadius: 1, p: 0.5, m: -0.5, "&:hover": { bgcolor: "#f7f9fb" } }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.6, gap: 1 }}>
-                  <Typography sx={{ fontSize: `${0.96 * k}rem`, fontWeight: 700, color: "#1a1d21" }}>{open ? "▾ " : "▸ "}{comboLabel(d)}</Typography>
+                  <Typography sx={{ fontSize: `${0.96 * k}rem`, fontWeight: 700, color: "#15223a" }}>{open ? "▾ " : "▸ "}{comboLabel(d)}</Typography>
                   <Typography sx={{ fontSize: `${1.18 * k}rem`, fontWeight: 800, color: col, whiteSpace: "nowrap" }}>
                     {diff > 0 ? "+" : ""}{diff.toFixed(0)}%
                   </Typography>
@@ -358,12 +358,12 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
                 <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 0.5 }}>
                   <Typography sx={{ fontSize: `${0.84 * k}rem`, color: "#42505c" }}>
                     APSO <Box component="span" sx={{ fontWeight: 800, color: "#274e64", fontFamily: "monospace" }}>{sym} {d.a.toFixed(0)}</Box>
-                    {"   vs   "}{comp.name} <Box component="span" sx={{ fontWeight: 800, color: "#ed1b2f", fontFamily: "monospace" }}>{sym} {d.cp.toFixed(0)}</Box>
+                    {"   vs   "}{comp.name} <Box component="span" sx={{ fontWeight: 800, color: "#c8463a", fontFamily: "monospace" }}>{sym} {d.cp.toFixed(0)}</Box>
                   </Typography>
                   <Typography sx={{ fontSize: `${0.76 * k}rem`, fontWeight: 700, color: col }}>{verdict}</Typography>
                 </Box>
                 <Typography sx={{ fontSize: `${0.78 * k}rem`, color: "#6b7480", mt: 0.2 }}>
-                  <Box component="span" sx={{ fontWeight: 700, color: "#ed1b2f" }}>{d.comp_n.toLocaleString()}</Box> competitor prices
+                  <Box component="span" sx={{ fontWeight: 700, color: "#c8463a" }}>{d.comp_n.toLocaleString()}</Box> competitor prices
                   {"  ·  "}<Box component="span" sx={{ color: "#274e64", fontWeight: 700 }}>{open ? "hide" : "show"} price breakdown</Box>
                 </Typography>
               </Box>
@@ -381,30 +381,30 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
 
   const header = (
     <Box>
-      <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: "#1a1d21" }}>{comp.name} <Box component="span" sx={{ color: "#9aa1ab", fontWeight: 600, fontSize: "0.88rem" }}>· {sym}</Box></Typography>
+      <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: "#15223a" }}>{comp.name} <Box component="span" sx={{ color: "#8b97ac", fontWeight: 600, fontSize: "0.88rem" }}>· {sym}</Box></Typography>
       <Typography sx={{ fontSize: "0.78rem", color: "#42505c" }}>
         Overall <Box component="span" sx={{ fontWeight: 800, color: idxColor(overall), fontSize: "0.9rem" }}>{overall ? `${overall - 100 > 0 ? "+" : ""}${(overall - 100).toFixed(0)}%` : "—"}</Box>
         {"  ·  "}{totApso.toLocaleString()} APSO vs {totComp.toLocaleString()} competitor products
-        {"  ·  "}<Box component="span" sx={{ color: "#9aa1ab" }}>list price · qty 1</Box>
+        {"  ·  "}<Box component="span" sx={{ color: "#8b97ac" }}>list price · qty 1</Box>
       </Typography>
     </Box>
   );
 
   return (
-    <Card variant="outlined" sx={{ border: "1px solid #e6e8ec", borderRadius: 2 }}>
+    <Card variant="outlined" sx={{ border: "1px solid #e4e9f1", borderRadius: 2 }}>
       <Box sx={{ px: 2, py: 1.4, bgcolor: "#f4f7f9", borderBottom: "2px solid #d8e0e6", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1 }}>
         {header}
         <Box sx={{ display: "flex", gap: 0.75 }}>
-          <IconButton size="small" onClick={(e) => setMenuEl(e.currentTarget)} title="Filter / customise" sx={{ color: "#5b6470", bgcolor: "#fff", border: "1px solid #e0e4e8", borderRadius: 1.5, "&:hover": { bgcolor: "#eef2f6" } }}>
+          <IconButton size="small" onClick={(e) => setMenuEl(e.currentTarget)} title="Filter / customise" sx={{ color: "#5d6b85", bgcolor: "#fff", border: "1px solid #e0e4e8", borderRadius: 1.5, "&:hover": { bgcolor: "#eef2f6" } }}>
             <FilterListIcon sx={{ fontSize: 18 }} />
           </IconButton>
-          <IconButton size="small" onClick={() => setExpanded(true)} title="Expand" sx={{ color: "#5b6470", bgcolor: "#fff", border: "1px solid #e0e4e8", borderRadius: 1.5, "&:hover": { bgcolor: "#eef2f6" } }}>
+          <IconButton size="small" onClick={() => setExpanded(true)} title="Expand" sx={{ color: "#5d6b85", bgcolor: "#fff", border: "1px solid #e0e4e8", borderRadius: 1.5, "&:hover": { bgcolor: "#eef2f6" } }}>
             <OpenInFullIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Box>
         <Popover open={!!menuEl} anchorEl={menuEl} onClose={() => setMenuEl(null)} anchorOrigin={{ vertical: "bottom", horizontal: "right" }} transformOrigin={{ vertical: "top", horizontal: "right" }}>
           <Box sx={{ p: 2, width: 250 }}>
-            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#1a1d21", mb: 1.25, display: "flex", alignItems: "center", gap: 0.5 }}><FilterListIcon sx={{ fontSize: 16 }} /> Filter this graph</Typography>
+            <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#15223a", mb: 1.25, display: "flex", alignItems: "center", gap: 0.5 }}><FilterListIcon sx={{ fontSize: 16 }} /> Filter this graph</Typography>
             {ctrl("Compare by", breakBy, setBreakBy, BREAK_BY)}
             {ctrl("Min. confidence", String(minConf), (v) => setMinConf(Number(v)), CONF_LEVELS.map(l => ({ value: String(l), label: `≥ ${l}%` })))}
             {ctrl("Sort by", sortBy, setSortBy, SORT_OPTS)}
@@ -416,7 +416,7 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
       <Box sx={{ p: 2 }}>
         {loading && <LinearProgress sx={{ mb: 1, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#274e64" } }} />}
         {renderList(disp)}
-        {processed.length > disp.length && <Typography sx={{ mt: 1, fontSize: "0.72rem", color: "#9aa1ab", textAlign: "center" }}>+{processed.length - disp.length} more — open the filter menu to show more, or expand ⛶</Typography>}
+        {processed.length > disp.length && <Typography sx={{ mt: 1, fontSize: "0.72rem", color: "#8b97ac", textAlign: "center" }}>+{processed.length - disp.length} more — open the filter menu to show more, or expand ⛶</Typography>}
       </Box>
 
       {detailMode === "popup" && !expanded && (() => {
@@ -453,10 +453,10 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
               { l: "Overall vs market (weighted)", v: overall ? `${overall - 100 > 0 ? "+" : ""}${(overall - 100).toFixed(0)}%` : "—", c: idxColor(overall) },
               { l: "Specs shown", v: processed.length.toLocaleString(), c: "#274e64" },
               { l: "APSO products", v: totApso.toLocaleString(), c: "#274e64" },
-              { l: "Competitor products", v: totComp.toLocaleString(), c: "#ed1b2f" },
+              { l: "Competitor products", v: totComp.toLocaleString(), c: "#c8463a" },
             ].map(s => (
-              <Box key={s.l} sx={{ flex: 1, minWidth: 130, border: "1px solid #eef0f3", borderRadius: 1.5, p: 1.25 }}>
-                <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#9aa1ab", textTransform: "uppercase" }}>{s.l}</Typography>
+              <Box key={s.l} sx={{ flex: 1, minWidth: 130, border: "1px solid #eef2f8", borderRadius: 1.5, p: 1.25 }}>
+                <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: "#8b97ac", textTransform: "uppercase" }}>{s.l}</Typography>
                 <Typography sx={{ fontSize: "1.3rem", fontWeight: 800, color: s.c }}>{s.v}</Typography>
               </Box>
             ))}
@@ -466,7 +466,7 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
           {/* Raw 1-to-1 matched pairs — proves the comparison is article-by-article
               and exposes unit mismatches (APSO unit vs competitor unit). */}
           <Box sx={{ mt: 3 }}>
-            <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: "#1a1d21", mb: 0.3 }}>Matched pairs — 1-to-1 (APSO article ↔ its competitor product)</Typography>
+            <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: "#15223a", mb: 0.3 }}>Matched pairs — 1-to-1 (APSO article ↔ its competitor product)</Typography>
             <Typography sx={{ fontSize: "0.74rem", color: "#42505c", mb: 1 }}>Sorted by index (worst first). <Box component="span" sx={{ color: "#c5221f", fontWeight: 700 }}>Red unit</Box> = APSO and competitor are sold in different units → not comparable, likely the cause of an extreme index.</Typography>
             <Box sx={{ overflowX: "auto", maxHeight: 420 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -475,19 +475,19 @@ function CompetitorCard({ comp, shared, detailMode }: { comp: CompMeta; shared: 
                 </tr></thead>
                 <tbody>
                   {pairs.length === 0 ? (
-                    <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "#9aa1ab" }}>Loading pairs…</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "#8b97ac" }}>Loading pairs…</td></tr>
                   ) : pairs.map((pr, i) => {
                     const { index: cmpIdx, note, comparable } = pairIndex(pr);
-                    const idxCol = cmpIdx == null ? "#9aa1ab" : cmpIdx < 99 ? "#1e7e45" : cmpIdx > 101 ? "#c5221f" : "#5b6470";
+                    const idxCol = cmpIdx == null ? "#8b97ac" : cmpIdx < 99 ? "#1e7e45" : cmpIdx > 101 ? "#c5221f" : "#5d6b85";
                     return (
                       <tr key={i} style={{ borderTop: "1px solid #f0f2f4", background: !comparable ? "#fff6f6" : undefined }}>
                         <td style={{ ...bTd, fontFamily: "monospace", color: "#274e64", fontWeight: 700 }}>{pr.article_number}</td>
-                        <td style={{ ...bTd, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.description || ""}>{[pr.product_type ? typeLabel(pr.product_type) : null, pr.material ? matLabel(pr.material) : null, pr.color ? cap(pr.color) : null].filter(Boolean).join(" · ")}{note && <Box component="span" sx={{ ml: 0.5, color: "#9aa1ab", fontSize: "0.85em" }}>({note})</Box>}</td>
+                        <td style={{ ...bTd, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.description || ""}>{[pr.product_type ? typeLabel(pr.product_type) : null, pr.material ? matLabel(pr.material) : null, pr.color ? cap(pr.color) : null].filter(Boolean).join(" · ")}{note && <Box component="span" sx={{ ml: 0.5, color: "#8b97ac", fontSize: "0.85em" }}>({note})</Box>}</td>
                         <td style={bTdR}>{sym} {pr.apso_price}</td>
-                        <td style={{ ...bTd, fontWeight: 700, color: !comparable ? "#c5221f" : "#5b6470" }}>{pr.apso_unit || "—"}</td>
-                        <td style={{ ...bTd, fontFamily: "monospace", color: "#5b6470", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.product_name || ""}>{pr.external_ref}</td>
+                        <td style={{ ...bTd, fontWeight: 700, color: !comparable ? "#c5221f" : "#5d6b85" }}>{pr.apso_unit || "—"}</td>
+                        <td style={{ ...bTd, fontFamily: "monospace", color: "#5d6b85", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={pr.product_name || ""}>{pr.external_ref}</td>
                         <td style={bTdR}>{sym} {pr.comp_price}</td>
-                        <td style={{ ...bTd, fontWeight: 700, color: !comparable ? "#c5221f" : "#5b6470" }}>{pr.comp_unit || "—"}</td>
+                        <td style={{ ...bTd, fontWeight: 700, color: !comparable ? "#c5221f" : "#5d6b85" }}>{pr.comp_unit || "—"}</td>
                         <td style={{ ...bTdR, color: idxCol, fontWeight: 800 }}>{comparable ? cmpIdx : "n/c"}</td>
                       </tr>
                     );
@@ -584,22 +584,22 @@ function ScaleCurveCard({ comps, shared }: { comps: CompMeta[]; shared: SharedFi
     series.forEach((s) => { row[s.key] = s.pct[idx]; });
     return row;
   });
-  const palette = ["#274e64", "#ed1b2f", "#1e7e45", "#b8860b", "#6a4c93", "#0b7285"];
+  const palette = ["#274e64", "#c8463a", "#1e7e45", "#b8860b", "#6a4c93", "#0b7285"];
   const compName = data?.competitor?.name || "Competitor";
 
   return (
-    <Card sx={{ border: "1px solid #e6e8ec", mb: 2 }}>
+    <Card sx={{ border: "1px solid #e4e9f1", mb: 2 }}>
       <CardContent sx={{ p: 2.5 }}>
         <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 1.5, mb: 1.5 }}>
           <Box>
-            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#1a1d21", fontFamily: "var(--font-outfit), sans-serif", mb: 0.3 }}>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "#15223a", fontFamily: "var(--font-outfit), sans-serif", mb: 0.3 }}>
               How much more (or less) APSO costs vs {compName} — by order quantity
             </Typography>
-            <Typography sx={{ fontSize: "0.72rem", color: "#5b6470" }}>
+            <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>
               Each line = average price gap. <Box component="span" sx={{ color: "#c5221f", fontWeight: 700 }}>Above 0 = APSO more expensive</Box>, <Box component="span" sx={{ color: "#1e7e45", fontWeight: 700 }}>below 0 = APSO cheaper</Box>. As you order more, APSO&apos;s volume discount pulls the line down.
             </Typography>
             {data && (
-              <Typography sx={{ fontSize: "0.68rem", color: data.with_scale === 0 ? "#c5221f" : "#9aa1ab", mt: 0.4 }}>
+              <Typography sx={{ fontSize: "0.68rem", color: data.with_scale === 0 ? "#c5221f" : "#8b97ac", mt: 0.4 }}>
                 {data.pairs.toLocaleString()} matched pairs · <Box component="span" sx={{ fontWeight: 700 }}>{data.with_scale.toLocaleString()}</Box> with volume (scale) pricing
                 {data.with_scale === 0 && " — no scale prices in this selection, so the line stays flat. Re-mirror from HubSpot to load scale prices."}
               </Typography>
@@ -623,22 +623,22 @@ function ScaleCurveCard({ comps, shared }: { comps: CompMeta[]; shared: SharedFi
         </Box>
         {busy && <LinearProgress sx={{ mb: 1, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#274e64" } }} />}
         {series.length === 0 ? (
-          <Box sx={{ py: 5, textAlign: "center", color: "#9aa1ab", fontSize: "0.82rem" }}>
+          <Box sx={{ py: 5, textAlign: "center", color: "#8b97ac", fontSize: "0.82rem" }}>
             {busy ? "Loading…" : "No scale-price data for this selection."}
           </Box>
         ) : (
           <>
-          <Typography sx={{ fontSize: "0.68rem", color: "#9aa1ab", mb: 0.5 }}>
+          <Typography sx={{ fontSize: "0.68rem", color: "#8b97ac", mb: 0.5 }}>
             Tip: click a name in the legend to list its matches and remove a wrong one.
           </Typography>
           <ResponsiveContainer width="100%" height={380}>
             <LineChart data={chartData} margin={{ top: 12, right: 24, bottom: 24, left: 8 }}>
-              <CartesianGrid strokeDasharray="2 4" stroke="#eef0f3" />
-              <XAxis dataKey="q" type="category" tick={{ fontSize: 11, fill: "#5b6470" }} tickLine={false} axisLine={{ stroke: "#e6e8ec" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#5b6470" }} tickLine={false} axisLine={false}
+              <CartesianGrid strokeDasharray="2 4" stroke="#eef2f8" />
+              <XAxis dataKey="q" type="category" tick={{ fontSize: 11, fill: "#5d6b85" }} tickLine={false} axisLine={{ stroke: "#e4e9f1" }} />
+              <YAxis tick={{ fontSize: 11, fill: "#5d6b85" }} tickLine={false} axisLine={false}
                 tickFormatter={(v: number) => `${v > 0 ? "+" : ""}${v}%`} width={56} />
-              <ReferenceLine y={0} stroke="#9aa1ab" strokeWidth={1.5} label={{ value: "same price", position: "insideTopRight", fontSize: 10, fill: "#9aa1ab" }} />
-              <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e6e8ec", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
+              <ReferenceLine y={0} stroke="#8b97ac" strokeWidth={1.5} label={{ value: "same price", position: "insideTopRight", fontSize: 10, fill: "#8b97ac" }} />
+              <RTooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e4e9f1", boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
                 formatter={(v) => `${Number(v) > 0 ? "+" : ""}${Number(v).toFixed(1)}%`}
                 labelFormatter={(l) => `Order qty ${l}`} />
               <Legend wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
@@ -659,18 +659,18 @@ function ScaleCurveCard({ comps, shared }: { comps: CompMeta[]; shared: SharedFi
           </ResponsiveContainer>
 
           {pickGroup && (
-            <Box sx={{ mt: 1.5, border: "1px solid #e6e8ec", borderRadius: 1.5, overflow: "hidden" }}>
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", px: 1.5, py: 1, bgcolor: "#f7f9fb", borderBottom: "1px solid #e6e8ec" }}>
-                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#1a1d21" }}>
+            <Box sx={{ mt: 1.5, border: "1px solid #e4e9f1", borderRadius: 1.5, overflow: "hidden" }}>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", px: 1.5, py: 1, bgcolor: "#f7f9fb", borderBottom: "1px solid #e4e9f1" }}>
+                <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#15223a" }}>
                   Matches behind <Box component="span" sx={{ color: "#274e64" }}>{dimension === "material" ? matLabel(pickGroup.key) : pickGroup.label}</Box>
-                  <Box component="span" sx={{ color: "#9aa1ab", fontWeight: 500 }}> · worst first · qty 1 · click 🗑 to remove a wrong match</Box>
+                  <Box component="span" sx={{ color: "#8b97ac", fontWeight: 500 }}> · worst first · qty 1 · click 🗑 to remove a wrong match</Box>
                 </Typography>
-                <Button size="small" onClick={() => setPickGroup(null)} sx={{ fontSize: 12, color: "#5b6470" }}>Close</Button>
+                <Button size="small" onClick={() => setPickGroup(null)} sx={{ fontSize: 12, color: "#5d6b85" }}>Close</Button>
               </Box>
               {cpBusy ? (
-                <Typography sx={{ fontSize: "0.76rem", color: "#9aa1ab", p: 1.5 }}>Loading matches…</Typography>
+                <Typography sx={{ fontSize: "0.76rem", color: "#8b97ac", p: 1.5 }}>Loading matches…</Typography>
               ) : cpairs.length === 0 ? (
-                <Typography sx={{ fontSize: "0.76rem", color: "#9aa1ab", p: 1.5 }}>No matches.</Typography>
+                <Typography sx={{ fontSize: "0.76rem", color: "#8b97ac", p: 1.5 }}>No matches.</Typography>
               ) : (
                 <Box sx={{ maxHeight: 320, overflow: "auto" }}>
                   {cpairs.slice(0, 200).map((pr, ix) => {
@@ -678,16 +678,16 @@ function ScaleCurveCard({ comps, shared }: { comps: CompMeta[]; shared: SharedFi
                     return (
                       <Box key={pr.match_id} sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.8, bgcolor: ix % 2 ? "#f8fafc" : "#fff", borderBottom: "1px solid #f0f1f3" }}>
                         <Box sx={{ width: 64, textAlign: "right", flexShrink: 0 }}>
-                          <Typography sx={{ fontSize: "0.84rem", fontWeight: 800, color: (pr.pct ?? 0) > 1 ? "#c5221f" : (pr.pct ?? 0) < -1 ? "#1e7e45" : "#5b6470" }}>
+                          <Typography sx={{ fontSize: "0.84rem", fontWeight: 800, color: (pr.pct ?? 0) > 1 ? "#c5221f" : (pr.pct ?? 0) < -1 ? "#1e7e45" : "#5d6b85" }}>
                             {(pr.pct ?? 0) > 0 ? "+" : ""}{pr.pct}%
                           </Typography>
                         </Box>
                         <Box sx={{ flex: 1, minWidth: 0 }}>
-                          <Typography sx={{ fontSize: "0.76rem", color: "#1a1d21", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <Typography sx={{ fontSize: "0.76rem", color: "#15223a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                             <Box component="span" sx={{ fontFamily: "monospace", color: "#274e64" }}>{pr.article_number}</Box> {pr.description}
                           </Typography>
                           <Typography sx={{ fontSize: "0.7rem", color: "#6b7480", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                            ↔ <Box component="span" sx={{ fontFamily: "monospace", color: "#ed1b2f" }}>{pr.external_ref}</Box> {pr.product_name} · {pr.competitor_name}
+                            ↔ <Box component="span" sx={{ fontFamily: "monospace", color: "#c8463a" }}>{pr.external_ref}</Box> {pr.product_name} · {pr.competitor_name}
                             {"  ·  "}{csym} {pr.apso_price?.toFixed(2)} vs {csym} {pr.comp_price?.toFixed(2)}
                           </Typography>
                         </Box>
@@ -884,7 +884,7 @@ export default function PricesTrendsStockPage() {
   }, [position, summary]);
 
   // Stable colour per competitor (index 0 = APSO navy) — reused in chart bars, legend and table bubbles.
-  const STOCK_PALETTE = ["#274e64", "#ed1b2f", "#e8a13a", "#2e7d4f", "#7b5ea7", "#3a8fb7", "#c0566f", "#6b8e23", "#b5651d", "#5c6bc0", "#00897b", "#8d6e63"];
+  const STOCK_PALETTE = ["#274e64", "#c8463a", "#e8a13a", "#2e7d4f", "#7b5ea7", "#3a8fb7", "#c0566f", "#6b8e23", "#b5651d", "#5c6bc0", "#00897b", "#8d6e63"];
   const stockComps = useMemo(() => {
     const m = new Map<string, string>();
     stockByComp.forEach(r => { if (!m.has(r.code)) m.set(r.code, r.name); });
@@ -897,7 +897,7 @@ export default function PricesTrendsStockPage() {
   }, [stockByComp]);
 
   // ---- shared chart pieces ----
-  const tooltipStyle = { fontSize: "0.72rem", borderRadius: 2, border: "1px solid #e6e8ec", boxShadow: "0 4px 16px rgba(26,58,76,0.10)", padding: "8px 10px" };
+  const tooltipStyle = { fontSize: "0.72rem", borderRadius: 2, border: "1px solid #e4e9f1", boxShadow: "0 4px 16px rgba(26,58,76,0.10)", padding: "8px 10px" };
 
   return (
     <Box>
@@ -919,7 +919,7 @@ export default function PricesTrendsStockPage() {
               if (fSG) p.set("sub_group", fSG);
               window.open(`/pricing/prices/report?${p.toString()}`, "_blank");
             }}
-            sx={{ bgcolor: "#ed1b2f", fontWeight: 800, textTransform: "none", boxShadow: "0 4px 14px rgba(237,27,47,0.28)", "&:hover": { bgcolor: "#c5152a" } }}>
+            sx={{ bgcolor: "#c8463a", fontWeight: 800, textTransform: "none", boxShadow: "0 4px 14px rgba(237,27,47,0.28)", "&:hover": { bgcolor: "#a8372c" } }}>
             Export PDF
           </Button>
         }
@@ -927,12 +927,12 @@ export default function PricesTrendsStockPage() {
 
       {/* Section switcher — refined segmented control with icon + descriptor */}
       <Tabs value={tab} onChange={(_, v) => changeTab(v)} variant="fullWidth"
-        sx={{ mb: 2, border: "1px solid #e6e8ec", borderRadius: 2, bgcolor: "#fff", overflow: "hidden",
-          "& .MuiTab-root": { minHeight: 70, py: 1, textTransform: "none", color: "#5b6470", alignItems: "stretch",
+        sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2, bgcolor: "#fff", overflow: "hidden",
+          "& .MuiTab-root": { minHeight: 70, py: 1, textTransform: "none", color: "#5d6b85", alignItems: "stretch",
             borderRight: "1px solid #eef1f4", "&:last-of-type": { borderRight: "none" },
             "&:hover": { bgcolor: "#fafbfc" },
-            "&.Mui-selected": { color: "#ed1b2f", bgcolor: "#fff5f6" } },
-          "& .MuiTabs-indicator": { backgroundColor: "#ed1b2f", height: 3 } }}>
+            "&.Mui-selected": { color: "#c8463a", bgcolor: "#fff5f6" } },
+          "& .MuiTabs-indicator": { backgroundColor: "#c8463a", height: 3 } }}>
         {[
           { icon: <PriceCheckIcon sx={{ fontSize: 22 }} />, title: "Pricing", desc: "Price position vs competitors" },
           { icon: <Inventory2Icon sx={{ fontSize: 22 }} />, title: "Stock", desc: "Availability & coverage" },
@@ -943,7 +943,7 @@ export default function PricesTrendsStockPage() {
               {t.icon}
               <Box sx={{ textAlign: "left" }}>
                 <Typography sx={{ fontSize: "0.98rem", fontWeight: 800, lineHeight: 1.2, color: "inherit" }}>{t.title}</Typography>
-                <Typography sx={{ fontSize: "0.68rem", fontWeight: 500, color: "#9aa1ab", lineHeight: 1.2 }}>{t.desc}</Typography>
+                <Typography sx={{ fontSize: "0.68rem", fontWeight: 500, color: "#8b97ac", lineHeight: 1.2 }}>{t.desc}</Typography>
               </Box>
             </Box>
           } />
@@ -951,7 +951,7 @@ export default function PricesTrendsStockPage() {
       </Tabs>
 
       {/* Filter bar — conditional/cascading like the APSO Products app */}
-      <Card sx={{ mb: 2, border: "1px solid #e6e8ec" }}>
+      <Card sx={{ mb: 2, border: "1px solid #e4e9f1" }}>
         <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5 }}>
             {/* Single filter row — article selection (Material + hierarchy), shared across all
@@ -967,28 +967,28 @@ export default function PricesTrendsStockPage() {
                 renderInput={(params) => <TextField {...params} label="Profit Center" />} />
               <Autocomplete size="small" sx={{ minWidth: 210 }} options={assortments}
                 getOptionLabel={(o) => `${o.number} — ${o.description || ""}`}
-                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1f1f1f" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
+                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#15223a" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
                 value={assortments.find(g => g.number === fAss) || null}
                 onChange={(_, v) => { setFAss(v ? v.number : ""); setFMG(""); setFSG(""); setProductGroup(""); }}
                 isOptionEqualToValue={(o, v) => o.number === v.number}
                 renderInput={(params) => <TextField {...params} label="Assortment" />} />
               <Autocomplete size="small" sx={{ minWidth: 210 }} options={mainGroups}
                 getOptionLabel={(o) => `${o.number} — ${o.description || ""}`}
-                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1f1f1f" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
+                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#15223a" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
                 value={mainGroups.find(g => g.number === fMG) || null}
                 onChange={(_, v) => { setFMG(v ? v.number : ""); setFSG(""); setProductGroup(""); }}
                 isOptionEqualToValue={(o, v) => o.number === v.number}
                 renderInput={(params) => <TextField {...params} label="Main Group" />} />
               <Autocomplete size="small" sx={{ minWidth: 230, "& .MuiOutlinedInput-notchedOutline": { borderColor: fSG ? "#274e64" : "#bcc3cc" } }} options={subGroups}
                 getOptionLabel={(o) => `${o.number} — ${o.description || ""}`}
-                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1f1f1f" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
+                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#15223a" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
                 value={subGroups.find(g => g.number === fSG) || null}
                 onChange={(_, v) => { setFSG(v ? v.number : ""); setProductGroup(""); }}
                 isOptionEqualToValue={(o, v) => o.number === v.number}
                 renderInput={(params) => <TextField {...params} label="Sub Group" />} />
               <Autocomplete size="small" sx={{ minWidth: 230 }} options={productGroups}
                 getOptionLabel={(o) => `${o.number} — ${o.description || ""}`}
-                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1f1f1f" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
+                renderOption={(props, o) => (<li {...props} key={o.number}><Box sx={{ lineHeight: 1.2 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#15223a" }}>{o.description || "(no description)"}</Typography><Typography sx={{ fontSize: "0.65rem", color: "#9e9e9e", fontFamily: "monospace" }}>{o.number}</Typography></Box></li>)}
                 value={productGroups.find(g => g.number === productGroup) || null}
                 onChange={(_, v) => setProductGroup(v ? v.number : "")}
                 isOptionEqualToValue={(o, v) => o.number === v.number}
@@ -996,7 +996,7 @@ export default function PricesTrendsStockPage() {
               {/* Competitors + Scrape are price-only (competitor comparison) — Pricing tab only. */}
               {tab === 0 && <>
                 <Box sx={{ flex: 1, minWidth: 8 }} />
-                <FormControl size="small" sx={{ minWidth: 150, "& .MuiOutlinedInput-notchedOutline": { borderColor: "#ed1b2f" } }}>
+                <FormControl size="small" sx={{ minWidth: 150, "& .MuiOutlinedInput-notchedOutline": { borderColor: "#c8463a" } }}>
                   <InputLabel sx={{ color: "#c5221f", fontWeight: 600 }}>Market</InputLabel>
                   <Select value={mandant} label="Market" onChange={(e) => setMandant(e.target.value as "M100" | "M110" | "both")}>
                     <MenuItem value="M100">M100 · CHF</MenuItem>
@@ -1012,7 +1012,7 @@ export default function PricesTrendsStockPage() {
                     {availableComps.map(c => (
                       <MenuItem key={c.id} value={String(c.id)}>
                         <Checkbox size="small" checked={selectedComps.includes(c.id)} sx={{ p: 0.5, mr: 0.5 }} />
-                        <ListItemText primaryTypographyProps={{ fontSize: "0.85rem" }}>{c.name} <span style={{ color: "#9aa1ab" }}>· {ccySym(c.currency)}</span></ListItemText>
+                        <ListItemText primaryTypographyProps={{ fontSize: "0.85rem" }}>{c.name} <span style={{ color: "#8b97ac" }}>· {ccySym(c.currency)}</span></ListItemText>
                       </MenuItem>
                     ))}
                   </Select>
@@ -1026,7 +1026,7 @@ export default function PricesTrendsStockPage() {
                 </FormControl>
               </>}
               {sf.active && (
-                <Button size="small" onClick={() => sf.reset()} sx={{ color: "#ed1b2f", fontSize: 12, fontWeight: 600 }}>Clear all</Button>
+                <Button size="small" onClick={() => sf.reset()} sx={{ color: "#c8463a", fontSize: 12, fontWeight: 600 }}>Clear all</Button>
               )}
               {tab === 0 && <DetailModeToggle mode={detailMode} onChange={setDetailMode} />}
             </Box>
@@ -1040,7 +1040,7 @@ export default function PricesTrendsStockPage() {
       {tab === 0 && (
         <Box className="animate-fade-in">
           {selectedComps.length === 0 ? (
-            <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab", fontSize: "0.85rem" }}>Pick one or more competitors above.</Box>
+            <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac", fontSize: "0.85rem" }}>Pick one or more competitors above.</Box>
           ) : (
             <>
               <ScaleCurveCard comps={availableComps.filter(c => selectedComps.includes(c.id))} shared={{ profitCenter, fAss, fMG, fSG, productGroup, material, scrapeDate }} />
@@ -1059,19 +1059,19 @@ export default function PricesTrendsStockPage() {
         <Box className="animate-fade-in">
           <StockInsightsPanel qs={(() => { const s = new URLSearchParams({ mandant }); if (material) s.set("material", material); if (productGroup) s.set("product_group", productGroup); if (profitCenter) s.set("profit_center", profitCenter); if (fAss) s.set("assortment", fAss); if (fMG) s.set("main_group", fMG); if (fSG) s.set("sub_group", fSG); return s.toString(); })()} />
 
-          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#5b6470", textTransform: "uppercase", letterSpacing: "0.05em", mt: 3, mb: 1.2 }}>Raw coverage</Typography>
+          <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em", mt: 3, mb: 1.2 }}>Raw coverage</Typography>
           <Box>
 
             {/* Full data table: every number behind the chart */}
-            <Card sx={{ border: "1px solid #e6e8ec", width: "100%", display: "flex", flexDirection: "column" }}>
-              <Box sx={{ px: 2.5, py: 1.5, borderBottom: "1px solid #e6e8ec" }}>
-                <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#1a1d21", fontFamily: "var(--font-outfit), sans-serif" }}>Stock coverage — APSO vs competitors</Typography>
-                <Typography sx={{ fontSize: "0.68rem", color: "#5b6470" }}>Every in-stock count feeding the chart — APSO plus each competitor, per material.</Typography>
+            <Card sx={{ border: "1px solid #e4e9f1", width: "100%", display: "flex", flexDirection: "column" }}>
+              <Box sx={{ px: 2.5, py: 1.5, borderBottom: "1px solid #e4e9f1" }}>
+                <Typography sx={{ fontSize: "0.9rem", fontWeight: 600, color: "#15223a", fontFamily: "var(--font-outfit), sans-serif" }}>Stock coverage — APSO vs competitors</Typography>
+                <Typography sx={{ fontSize: "0.68rem", color: "#5d6b85" }}>Every in-stock count feeding the chart — APSO plus each competitor, per material.</Typography>
               </Box>
               <Box sx={{ overflowX: "auto", flex: 1 }}>
-                <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th": { textAlign: "left", fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: "#5b6470", p: 1, borderBottom: "1px solid #e6e8ec", bgcolor: "#f5f6f8", whiteSpace: "nowrap" }, "& td": { fontSize: "0.72rem", color: "#1a1d21", p: 1, borderBottom: "1px solid #f0f1f3", whiteSpace: "nowrap" } }}>
+                <Box component="table" sx={{ width: "100%", borderCollapse: "collapse", "& th": { textAlign: "left", fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", color: "#5d6b85", p: 1, borderBottom: "1px solid #e4e9f1", bgcolor: "#f5f7fb", whiteSpace: "nowrap" }, "& td": { fontSize: "0.72rem", color: "#15223a", p: 1, borderBottom: "1px solid #f0f1f3", whiteSpace: "nowrap" } }}>
                   <thead><tr>
-                    <th style={{ position: "sticky", left: 0, background: "#f5f6f8", zIndex: 1 }}>Material</th>
+                    <th style={{ position: "sticky", left: 0, background: "#f5f7fb", zIndex: 1 }}>Material</th>
                     <th><Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}><Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: STOCK_PALETTE[0] }} />APSO in stock</Box></th>
                     <th>APSO articles</th>
                     <th>APSO units</th>
@@ -1084,16 +1084,16 @@ export default function PricesTrendsStockPage() {
                       <tr key={r.material}>
                         <td style={{ fontWeight: 600, position: "sticky", left: 0, background: "#fff", zIndex: 1 }}>{matLabel(r.material)}</td>
                         <td style={{ fontWeight: 700 }}>{num(r.apso_in_stock).toLocaleString()}</td>
-                        <td style={{ color: "#5b6470" }}>{num(r.apso_products).toLocaleString()}</td>
-                        <td style={{ color: "#5b6470" }}>{num(r.apso_total_stock).toLocaleString()}</td>
+                        <td style={{ color: "#5d6b85" }}>{num(r.apso_products).toLocaleString()}</td>
+                        <td style={{ color: "#5d6b85" }}>{num(r.apso_total_stock).toLocaleString()}</td>
                         {stockComps.map(c => { const v = stockByCompMap.get(`${r.material}|${c.code}`); const inS = num(v?.in_stock || 0); return <td key={c.code} style={{ color: inS > num(r.apso_in_stock) ? "#c5221f" : inS > 0 ? "#1e7e45" : "#c4c9ce", fontWeight: inS > 0 ? 600 : 400 }}>{v ? `${inS.toLocaleString()} / ${num(v.products).toLocaleString()}` : "·"}</td>; })}
                       </tr>
                     ))}
-                    {stock.length === 0 && <tr><td colSpan={4 + stockComps.length} style={{ textAlign: "center", padding: 28, color: "#9aa1ab" }}>No data</td></tr>}
+                    {stock.length === 0 && <tr><td colSpan={4 + stockComps.length} style={{ textAlign: "center", padding: 28, color: "#8b97ac" }}>No data</td></tr>}
                   </tbody>
                 </Box>
               </Box>
-              <Typography sx={{ fontSize: "0.64rem", color: "#9aa1ab", px: 2.5, py: 1 }}>Competitor cells show <b>in&nbsp;stock / total products</b>. Red = competitor beats APSO on in-stock count.</Typography>
+              <Typography sx={{ fontSize: "0.64rem", color: "#8b97ac", px: 2.5, py: 1 }}>Competitor cells show <b>in&nbsp;stock / total products</b>. Red = competitor beats APSO on in-stock count.</Typography>
             </Card>
           </Box>
         </Box>

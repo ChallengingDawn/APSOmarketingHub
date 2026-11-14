@@ -40,7 +40,7 @@ export const FW = { search: 280, select: 150, mandant: 120, pc: 170, hier: 230 }
 // Card wrapper used by every filter bar. `right` is pinned to the far end (e.g. a count chip).
 export function FilterBar({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 2 }}>
+    <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2 }}>
       <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
           {children}
@@ -98,8 +98,8 @@ export function HierFilter({ label, value, onChange, options, width = FW.hier }:
           <li key={o.number} {...rest}>
             <Checkbox icon={cbOff} checkedIcon={cbOn} checked={sel} sx={{ mr: 0.5, py: 0 }} />
             <Box sx={{ lineHeight: 1.3 }}>
-              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#1f1f1f" }}>{o.description || "(no description)"}</Typography>
-              <Typography sx={{ fontSize: "0.78rem", color: "#5f6368", fontFamily: "monospace", fontWeight: 600 }}>{o.number}</Typography>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: "#15223a" }}>{o.description || "(no description)"}</Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: "#5d6b85", fontFamily: "monospace", fontWeight: 600 }}>{o.number}</Typography>
             </Box>
           </li>
         );
@@ -141,5 +141,5 @@ export function TextFilter({ label, value, onChange, options, width = FW.pc }:
 
 export function ClearFilters({ show, onClick }: { show: boolean; onClick: () => void }) {
   if (!show) return null;
-  return <Button size="small" onClick={onClick} sx={{ color: "#ed1b2f", fontSize: 12, fontWeight: 600 }}>Clear all</Button>;
+  return <Button size="small" onClick={onClick} sx={{ color: "#c8463a", fontSize: 12, fontWeight: 600 }}>Clear all</Button>;
 }

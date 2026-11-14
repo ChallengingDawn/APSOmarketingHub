@@ -144,7 +144,7 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS, MARKETING_SECTIONS, PRICING_PAGES, UC_SECTIONS, WEBSITE_SECTIONS, type IconKey } from "@/app/hubApps";
+import { APPS, MARKETING_SECTIONS, PRICING_SECTIONS, UC_SECTIONS, WEBSITE_SECTIONS, type IconKey } from "@/app/hubApps";
 
 // THE CONVERSION LOOP (SARCLA 14.11.2026: "the 3 sub apps need to be connected, they form a bigger one" - "don't have the
 // shortcut in the bottom"): AI personalization finds what stops buyers and proposes the fix, Content's Projects build the
@@ -259,7 +259,7 @@ const UC_NAV: Record<string, { label: string; icon: React.ReactNode }> = {
 
 /** Pricing's pages with the glyphs they had in the PricingHub's own menu. */
 const PRICING_ICON: Record<string, React.ReactNode> = {
-  "/pricing": <DashboardIcon fontSize="small" />,
+  "/pricing/overview": <DashboardIcon fontSize="small" />,
   "/pricing/recommendations": <NotificationsActiveOutlinedIcon fontSize="small" />,
   "/pricing/products": <Inventory2OutlinedIcon fontSize="small" />,
   "/pricing/repricing": <PriceChangeOutlinedIcon fontSize="small" />,
@@ -488,19 +488,21 @@ const navSections: NavSection[] = [
     color: x.fg,
     items: x.pages.map((pg) => ({ label: UC_NAV[pg.href]?.label ?? pg.name, href: pg.href, icon: UC_NAV[pg.href]?.icon ?? <HubIconGlyph name={pg.icon} fontSize={20} /> })),
   })),
-  {
-    // The PricingHub's menu, moved into the hub (SARCLA 13.11.2026) - its groups and its order. The title matches the
-    // tile (hubApps.ts APPS), so the panel wears the app's colour.
-    title: "Pricing",
-    home: "/pricing",
-    icon: <PriceChangeOutlinedIcon />,
-    color: "#c8463a",
-    items: PRICING_PAGES.map((pg) => ({
-      group: pg.group, label: pg.name, href: pg.href,
+  // Pricing, a section per part (SARCLA 14.11.2026: "split the internal apps and create a menu before, like we do in website
+  // or content"), from PRICING_SECTIONS in hubApps.ts: inside one, the panel shows only its pages, and the way out leads
+  // back to the Pricing front page - as Website's and Marketing & Content's sections do.
+  ...PRICING_SECTIONS.map((x): NavSection => ({
+    title: x.name,
+    home: `/pricing/${x.slug}`,
+    back: { href: "/pricing", label: "Pricing" },
+    icon: <HubIconGlyph name={x.icon} fontSize={22} />,
+    color: x.fg,
+    items: x.pages.map((pg) => ({
+      label: pg.name, href: pg.href,
       icon: PRICING_ICON[pg.href] ?? <HubIconGlyph name={pg.icon} fontSize={20} />,
       ...(pg.href === "/pricing/matches" ? { badge: "AI" } : {}),
     })),
-  },
+  })),
   {
     title: "Datatracker",
     icon: <StorefrontIcon />,

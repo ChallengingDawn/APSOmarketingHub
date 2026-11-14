@@ -56,9 +56,9 @@ interface CompInfo { code: string; name: string; currency: string }
 
 const fv = (v: number | null) => (v == null ? "—" : v.toFixed(2));
 const fp = (v: number | null) => (v == null ? "—" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(1)}%`);
-const pcChange = (v: number | null) => (v == null ? "#9aa1ab" : v > 0.001 ? "#c62828" : v < -0.001 ? "#2e7d32" : "#5f6368");
+const pcChange = (v: number | null) => (v == null ? "#8b97ac" : v > 0.001 ? "#c62828" : v < -0.001 ? "#2e7d32" : "#5d6b85");
 const STATUS: Record<string, { bg: string; color: string }> = {
-  OK: { bg: "#e8f5e9", color: "#2e7d32" }, Review: { bg: "#fff3e0", color: "#e65100" }, "Not found": { bg: "#f1f3f4", color: "#9aa1ab" },
+  OK: { bg: "#e8f5e9", color: "#2e7d32" }, Review: { bg: "#fff3e0", color: "#e65100" }, "Not found": { bg: "#eef2f8", color: "#8b97ac" },
 };
 const EMPTY: SupMatch = { status: "Not found", supplier_code: null, brand: "", matched_line: null, grade: null, new_price: null, old_price: null, change_pct: null };
 const isKT = (p: string) => /kt|kunststoff|plast/i.test(p);
@@ -160,8 +160,8 @@ export default function PurchasingBenchmarkPage() {
   };
 
   const mono = (v: string | null, color = "#274e64") => <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, fontFamily: "monospace", color, whiteSpace: "nowrap" }}>{v || "—"}</Typography>;
-  const ellip = (v: string | null, w = 220) => <Tooltip title={v || ""} arrow><Typography sx={{ fontSize: "0.73rem", color: "#3c4043", maxWidth: w, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "—"}</Typography></Tooltip>;
-  const numTxt = (v: number | null, color = "#5f6368", strong = false) => <Typography sx={{ fontFamily: "monospace", fontSize: strong ? "0.76rem" : "0.73rem", fontWeight: strong ? 700 : 500, color: v != null ? color : "#c4c9ce" }}>{fv(v)}</Typography>;
+  const ellip = (v: string | null, w = 220) => <Tooltip title={v || ""} arrow><Typography sx={{ fontSize: "0.73rem", color: "#4a5a70", maxWidth: w, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "—"}</Typography></Tooltip>;
+  const numTxt = (v: number | null, color = "#5d6b85", strong = false) => <Typography sx={{ fontFamily: "monospace", fontSize: strong ? "0.76rem" : "0.73rem", fontWeight: strong ? 700 : 500, color: v != null ? color : "#c4c9ce" }}>{fv(v)}</Typography>;
   const statusCell = (s: string) => { const st = STATUS[s] || STATUS["Not found"]; return <Chip label={s || "—"} size="small" sx={{ height: 18, fontSize: "0.6rem", fontWeight: 700, bgcolor: st.bg, color: st.color }} />; };
 
   const selComps = competitors.filter(c => compSel.has(c.code));
@@ -186,7 +186,7 @@ export default function PurchasingBenchmarkPage() {
   };
   const certCell = (v: boolean | null | undefined) =>
     v == null ? <Typography sx={{ fontSize: "0.72rem", color: "#c4c9ce" }}>—</Typography>
-      : <Chip label={v ? "yes" : "no"} size="small" sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: v ? "#e8f5e9" : "#f1f3f4", color: v ? "#2e7d32" : "#9aa1ab" }} />;
+      : <Chip label={v ? "yes" : "no"} size="small" sx={{ height: 16, fontSize: "0.55rem", fontWeight: 700, bgcolor: v ? "#e8f5e9" : "#eef2f8", color: v ? "#2e7d32" : "#8b97ac" }} />;
 
   // A supplier article number reaches us two ways and they do not always agree:
   //   • the PRICE LIST line matched to this article, which is what the price beside it belongs to
@@ -223,7 +223,7 @@ export default function PurchasingBenchmarkPage() {
     }
     return (
       <Tooltip arrow title="From the supplier catalogue. The price list has no line for this article, so there is no price beside it.">
-        <Typography sx={{ fontSize: "0.73rem", fontFamily: "monospace", fontStyle: "italic", color: "#9aa1ab", whiteSpace: "nowrap" }}>{shown}</Typography>
+        <Typography sx={{ fontSize: "0.73rem", fontFamily: "monospace", fontStyle: "italic", color: "#8b97ac", whiteSpace: "nowrap" }}>{shown}</Typography>
       </Tooltip>
     );
   };
@@ -232,17 +232,17 @@ export default function PurchasingBenchmarkPage() {
   const cols: Col[] = [
     { key: "article", label: "A+P article", raw: r => r.article_number, render: r => mono(r.article_number) },
     { key: "desc", label: "A+P description EN", raw: r => r.description, render: r => ellip(r.description, 240) },
-    { key: "type", label: "Type", raw: r => r.type, render: r => <Typography sx={{ fontSize: "0.72rem", color: "#5f6368", textTransform: "capitalize" }}>{r.type || "—"}</Typography> },
-    { key: "material", label: "Material", raw: r => (gradeOf(r) || "").toUpperCase(), render: r => <Chip label={(gradeOf(r) || "—").toUpperCase()} size="small" sx={{ height: 17, fontSize: "0.58rem", fontWeight: 700, bgcolor: "#f1f3f4" }} /> },
+    { key: "type", label: "Type", raw: r => r.type, render: r => <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85", textTransform: "capitalize" }}>{r.type || "—"}</Typography> },
+    { key: "material", label: "Material", raw: r => (gradeOf(r) || "").toUpperCase(), render: r => <Chip label={(gradeOf(r) || "—").toUpperCase()} size="small" sx={{ height: 17, fontSize: "0.58rem", fontWeight: 700, bgcolor: "#eef2f8" }} /> },
     { key: "brand", label: "Brand Name", raw: r => M(r).brand || "", render: r => ellip(M(r).brand || null, 150) },
     { key: "thk", label: "Thickness/OD [mm]", align: "right", raw: r => r.thickness_od ?? "", render: r => numTxt(r.thickness_od) },
-    { key: "height", label: "Height/ID [mm]", align: "right", raw: r => r.height_id ?? "", render: r => <Typography sx={{ fontFamily: "monospace", fontSize: "0.73rem", color: r.height_id ? "#5f6368" : "#c4c9ce" }}>{r.height_id || "—"}</Typography> },
+    { key: "height", label: "Height/ID [mm]", align: "right", raw: r => r.height_id ?? "", render: r => <Typography sx={{ fontFamily: "monospace", fontSize: "0.73rem", color: r.height_id ? "#5d6b85" : "#c4c9ce" }}>{r.height_id || "—"}</Typography> },
     { key: "width", label: "Width [mm]", align: "right", raw: r => r.width ?? "", render: r => numTxt(r.width) },
     { key: "length", label: "Length [mm]", align: "right", raw: r => r.length ?? "", render: r => numTxt(r.length) },
     { key: "net", label: "Net Weight", align: "right", sep: true, raw: r => r.net_weight ?? "", render: r => numTxt(r.net_weight) },
     // price unit belongs to the ARTICLE, so it stays with the A+P facts rather than under a
     // supplier band. Every supplier now states its own basis in its price column header.
-    { key: "priceunit", label: "price unit", sep: true, raw: r => r.calc_unit || "", render: r => <Typography sx={{ fontSize: "0.72rem", color: "#5f6368" }}>{r.calc_unit || "—"}</Typography> },
+    { key: "priceunit", label: "price unit", sep: true, raw: r => r.calc_unit || "", render: r => <Typography sx={{ fontSize: "0.72rem", color: "#5d6b85" }}>{r.calc_unit || "—"}</Typography> },
     // ── GWStdP Calculation — before the suppliers, so the cost being compared is read first ──
     { key: "old_gwstdp", label: "Old GWSDTP", align: "right", group: "GWStdP Calculation", raw: r => r.old_gwstdp ?? "", render: r => numTxt(r.old_gwstdp) },
     { key: "gwstdp", label: "GWSDTP", align: "right", group: "GWStdP Calculation", raw: r => r.gwstdp ?? "", render: r => numTxt(r.gwstdp, "#274e64", true) },
@@ -261,8 +261,8 @@ export default function PurchasingBenchmarkPage() {
       { key: `${sd.name}-code`, label: `${short} article`, group: short,
         raw: r => S(r)?.supplier_article || Mx(r).supplier_code || "",
         render: r => supplierArticleCell(Mx(r).supplier_code, S(r)?.supplier_article, S(r)?.link_would_be_description) },
-      { key: `${sd.name}-list`, label: `${short} ${sd.currency}/${sd.basis}`, group: short, align: "right", raw: r => Mx(r).new_price ?? "", render: r => numTxt(Mx(r).new_price, "#1a1d21", true) },
-      { key: `${sd.name}-price`, label: `${short} price`, group: short, align: "right", raw: r => priceIn(r, sd) ?? "", render: r => numTxt(priceIn(r, sd), "#1a1d21", true) },
+      { key: `${sd.name}-list`, label: `${short} ${sd.currency}/${sd.basis}`, group: short, align: "right", raw: r => Mx(r).new_price ?? "", render: r => numTxt(Mx(r).new_price, "#15223a", true) },
+      { key: `${sd.name}-price`, label: `${short} price`, group: short, align: "right", raw: r => priceIn(r, sd) ?? "", render: r => numTxt(priceIn(r, sd), "#15223a", true) },
     ];
     if (hasStock) block.push(
       { key: `${sd.name}-stock`, label: `${short} stock`, group: short, align: "right",
@@ -273,7 +273,7 @@ export default function PurchasingBenchmarkPage() {
           const on = st.qty != null && st.qty > 0;
           return (
             <Box sx={{ minWidth: 80 }}>
-              <Typography sx={{ fontFamily: "monospace", fontSize: "0.74rem", fontWeight: 700, color: on ? "#2e7d32" : "#9aa1ab" }}>
+              <Typography sx={{ fontFamily: "monospace", fontSize: "0.74rem", fontWeight: 700, color: on ? "#2e7d32" : "#8b97ac" }}>
                 {st.qty == null ? "—" : `${st.qty}${st.unit ? ` ${st.unit}` : ""}`}
               </Typography>
             </Box>
@@ -306,8 +306,8 @@ export default function PurchasingBenchmarkPage() {
       const u = cd.unit ? `/${cd.unit}` : "";
       return (
         <Box sx={{ minWidth: 104 }}>
-          <Typography sx={{ fontFamily: "monospace", fontSize: "0.74rem", fontWeight: 700, color: "#274e64" }}>{cd.sell.toFixed(2)}<Typography component="span" sx={{ fontSize: "0.62rem", color: "#9aa1ab", fontWeight: 500 }}>{u ? ` ${u}` : ""}</Typography></Typography>
-          {cd.our_cost != null && <Typography sx={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#9aa1ab", lineHeight: 1.2 }}>our {cd.our_cost.toFixed(2)} {u}</Typography>}
+          <Typography sx={{ fontFamily: "monospace", fontSize: "0.74rem", fontWeight: 700, color: "#274e64" }}>{cd.sell.toFixed(2)}<Typography component="span" sx={{ fontSize: "0.62rem", color: "#8b97ac", fontWeight: 500 }}>{u ? ` ${u}` : ""}</Typography></Typography>
+          {cd.our_cost != null && <Typography sx={{ fontFamily: "monospace", fontSize: "0.6rem", color: "#8b97ac", lineHeight: 1.2 }}>our {cd.our_cost.toFixed(2)} {u}</Typography>}
           {cd.deviation != null && <DivergeBar v={cd.deviation} />}
         </Box>
       );
@@ -331,7 +331,7 @@ export default function PurchasingBenchmarkPage() {
   const MATCH_CHIPS: { key: MatchView; label: string; count: number; bg: string; color: string }[] = [
     { key: "matched", label: "Matched", count: matchedTotal, bg: "#e8f5e9", color: "#1b5e20" },
     { key: "unmatched", label: "Unmatched", count: unmatchedTotal, bg: "#fff3e0", color: "#e65100" },
-    { key: "all", label: "All", count: matchedTotal + unmatchedTotal, bg: "#ed1b2f", color: "#fff" },
+    { key: "all", label: "All", count: matchedTotal + unmatchedTotal, bg: "#c8463a", color: "#fff" },
   ];
 
   return (
@@ -340,10 +340,10 @@ export default function PurchasingBenchmarkPage() {
         subtitle="Our KT plastics articles matched to the supplier's OCR'd price lines. Toggle a supplier to see its priced articles; add competitors to compare selling prices."
         rightSlot={
           <Button variant="contained" startIcon={<FileDownloadIcon />} disabled={total === 0} onClick={exportXlsx}
-            sx={{ bgcolor: "#ed1b2f", color: "#fff", boxShadow: "none", fontWeight: 700, "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>Export Excel</Button>
+            sx={{ bgcolor: "#c8463a", color: "#fff", boxShadow: "none", fontWeight: 700, "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>Export Excel</Button>
         } />
 
-      <Card sx={{ mb: 1.5, border: "1px solid #ececec", borderRadius: 2 }}>
+      <Card sx={{ mb: 1.5, border: "1px solid #e4e9f1", borderRadius: 2 }}>
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
             <SearchFilter value={search} onChange={(v) => { setSearch(v); setPage(0); }} />
@@ -359,28 +359,28 @@ export default function PurchasingBenchmarkPage() {
             {MATCH_CHIPS.map(c => {
               const active = matchView === c.key;
               return <Chip key={c.key} label={`${c.label} · ${c.count}`} onClick={() => { setMatchView(c.key); setPage(0); }}
-                sx={{ cursor: "pointer", fontSize: "0.74rem", height: 28, fontWeight: active ? 700 : 500, bgcolor: active ? c.bg : "#f1f3f4", color: active ? c.color : "#3c4043", border: active ? `1px solid ${c.bg}` : "1px solid transparent" }} />;
+                sx={{ cursor: "pointer", fontSize: "0.74rem", height: 28, fontWeight: active ? 700 : 500, bgcolor: active ? c.bg : "#eef2f8", color: active ? c.color : "#4a5a70", border: active ? `1px solid ${c.bg}` : "1px solid transparent" }} />;
             })}
           </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1.5, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#5f6368" }}>Suppliers:</Typography>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#5d6b85" }}>Suppliers:</Typography>
             {availableSuppliers.map(s => {
               const active = supSel.has(s.name);
               return <Chip key={s.name} label={s.name} onClick={() => toggleSet(supSel, s.name, setSupSel)}
-                sx={{ cursor: "pointer", fontSize: "0.72rem", height: 28, fontWeight: active ? 700 : 500, bgcolor: active ? "#854d0e" : "#f1f3f4", color: active ? "#fff" : "#9e9e9e", textDecoration: active ? "none" : "line-through" }} />;
+                sx={{ cursor: "pointer", fontSize: "0.72rem", height: 28, fontWeight: active ? 700 : 500, bgcolor: active ? "#854d0e" : "#eef2f8", color: active ? "#fff" : "#9e9e9e", textDecoration: active ? "none" : "line-through" }} />;
             })}
-            {availableSuppliers.length === 0 && <Typography sx={{ fontSize: "0.72rem", color: "#9aa1ab" }}>none yet — OCR a supplier PDF in OCR &amp; Mapping</Typography>}
+            {availableSuppliers.length === 0 && <Typography sx={{ fontSize: "0.72rem", color: "#8b97ac" }}>none yet — OCR a supplier PDF in OCR &amp; Mapping</Typography>}
           </Box>
 
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1, flexWrap: "wrap" }}>
-            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#5f6368" }}>Compare with competitor sales price:</Typography>
+            <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#5d6b85" }}>Compare with competitor sales price:</Typography>
             {competitors.map(c => {
               const active = compSel.has(c.code);
               return <Chip key={c.code} label={c.name} onClick={() => toggleSet(compSel, c.code, setCompSel)}
-                sx={{ cursor: "pointer", fontSize: "0.72rem", height: 26, fontWeight: active ? 700 : 500, bgcolor: active ? "#274e64" : "#f1f3f4", color: active ? "#fff" : "#5f6368", border: active ? "1px solid #274e64" : "1px solid transparent" }} />;
+                sx={{ cursor: "pointer", fontSize: "0.72rem", height: 26, fontWeight: active ? 700 : 500, bgcolor: active ? "#274e64" : "#eef2f8", color: active ? "#fff" : "#5d6b85", border: active ? "1px solid #274e64" : "1px solid transparent" }} />;
             })}
-            {competitors.length === 0 && <Typography sx={{ fontSize: "0.72rem", color: "#9aa1ab" }}>no plastics competitors configured</Typography>}
+            {competitors.length === 0 && <Typography sx={{ fontSize: "0.72rem", color: "#8b97ac" }}>no plastics competitors configured</Typography>}
           </Box>
         </CardContent>
       </Card>
@@ -398,33 +398,33 @@ export default function PurchasingBenchmarkPage() {
 
       {availableSuppliers.length === 0 && !loading ? (
         <Card sx={{ border: "1px dashed #d8dce1", borderRadius: 3, p: 4, textAlign: "center", bgcolor: "#fafbfc" }}>
-          <Typography sx={{ fontWeight: 700, color: "#1a1d21", mb: 0.5 }}>No supplier price list yet</Typography>
-          <Typography sx={{ fontSize: "0.88rem", color: "#5b6470" }}>OCR a supplier price-list PDF in OCR &amp; Mapping; its articles appear here matched to ours.</Typography>
+          <Typography sx={{ fontWeight: 700, color: "#15223a", mb: 0.5 }}>No supplier price list yet</Typography>
+          <Typography sx={{ fontSize: "0.88rem", color: "#5d6b85" }}>OCR a supplier price-list PDF in OCR &amp; Mapping; its articles appear here matched to ours.</Typography>
         </Card>
       ) : (
-        <Card sx={{ border: "1px solid #ececec", borderRadius: 0 }}>
+        <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 0 }}>
           <CardContent sx={{ p: 0 }}>
             <TopScroll><TableContainer sx={{ overflowX: "visible", overflowY: "auto", maxHeight: "70vh" }}>
               <Table size="small" stickyHeader sx={{ minWidth: 200 + cols.length * 94 }}>
                 <TableHead>
                   <TableRow>
                     {groupBands.map((g, i) => { const gc = GROUP_COLOR[g.label]; return (
-                      <TableCell key={i} colSpan={g.span} align="center" sx={{ top: 0, bgcolor: gc?.bg || "#f8f9fa", color: gc?.color || "transparent", fontWeight: 800, fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "none", whiteSpace: "nowrap", borderRight: g.label ? "1px solid #e6dcc6" : undefined }}>{g.label || " "}</TableCell>
+                      <TableCell key={i} colSpan={g.span} align="center" sx={{ top: 0, bgcolor: gc?.bg || "#f5f7fb", color: gc?.color || "transparent", fontWeight: 800, fontSize: "0.66rem", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "none", whiteSpace: "nowrap", borderRight: g.label ? "1px solid #e6dcc6" : undefined }}>{g.label || " "}</TableCell>
                     ); })}
                   </TableRow>
-                  <TableRow sx={{ "& th": { bgcolor: "#f8f9fa", fontWeight: 700, fontSize: "0.68rem", color: "#5f6368", whiteSpace: "nowrap", lineHeight: 1.2, top: 27 } }}>
-                    {cols.map(c => <TableCell key={c.key} align={c.align} sx={{ borderRight: c.sep ? "2px solid #ececec" : undefined }}>{c.label}</TableCell>)}
+                  <TableRow sx={{ "& th": { bgcolor: "#f5f7fb", fontWeight: 700, fontSize: "0.68rem", color: "#5d6b85", whiteSpace: "nowrap", lineHeight: 1.2, top: 27 } }}>
+                    {cols.map(c => <TableCell key={c.key} align={c.align} sx={{ borderRight: c.sep ? "2px solid #e4e9f1" : undefined }}>{c.label}</TableCell>)}
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {data.length === 0 && !loading && (
-                    <TableRow><TableCell colSpan={cols.length} align="center" sx={{ py: 6, color: "#5f6368" }}>No articles for this view.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={cols.length} align="center" sx={{ py: 6, color: "#5d6b85" }}>No articles for this view.</TableCell></TableRow>
                   )}
                   {data.map((r, ri) => {
-                    const bg = ri % 2 === 1 ? "#f8f9fa" : "#fff";
+                    const bg = ri % 2 === 1 ? "#f5f7fb" : "#fff";
                     return (
                       <TableRow key={r.article_number} hover>
-                        {cols.map(c => <TableCell key={c.key} align={c.align} sx={{ bgcolor: bg, borderRight: c.sep ? "2px solid #ececec" : undefined }}>{c.render(r)}</TableCell>)}
+                        {cols.map(c => <TableCell key={c.key} align={c.align} sx={{ bgcolor: bg, borderRight: c.sep ? "2px solid #e4e9f1" : undefined }}>{c.render(r)}</TableCell>)}
                       </TableRow>
                     );
                   })}
@@ -432,7 +432,7 @@ export default function PurchasingBenchmarkPage() {
               </Table>
             </TableContainer></TopScroll>
             <Box sx={{ px: 2, py: 0.5, borderTop: "1px solid #f0f1f3", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-              <Typography sx={{ fontSize: "0.7rem", color: "#9aa1ab" }}>Match by grade + variant + thickness (validated 100% vs the mapping file). Net weight + Old/Change% are wired next; GWStdP comes from HubSpot.</Typography>
+              <Typography sx={{ fontSize: "0.7rem", color: "#8b97ac" }}>Match by grade + variant + thickness (validated 100% vs the mapping file). Net weight + Old/Change% are wired next; GWStdP comes from HubSpot.</Typography>
               <TablePagination component="div" count={total} page={page} onPageChange={(_, p) => setPage(p)} rowsPerPage={25} rowsPerPageOptions={[25]} />
             </Box>
           </CardContent>

@@ -11,7 +11,7 @@ import {
 
 // the hub passes these calls to the PricingHub backend (src/app/api/pricing/api/[...path]/route.ts)
 const API_URL = "/api/pricing";
-const NAVY = "#274e64", RED = "#ed1b2f", GOOD = "#2e7d32", WARN = "#e65100", BAD = "#c5221f";
+const NAVY = "#274e64", RED = "#c8463a", GOOD = "#2e7d32", WARN = "#e65100", BAD = "#c5221f";
 
 type Mat = { material: string; ptype: string | null; n: number; in_stock: number; units: number };
 type CompMat = { material: string; ptype: string | null; code: string; name: string; n: number; in_stock: number };
@@ -30,15 +30,15 @@ const ml = (m: string | null) => (m ? (ML[m] || m.toUpperCase().replace(/_/g, "-
 const PT: Record<string, string> = { round_bar: "Rod", plate: "Plate", tube: "Tube", sheet: "Sheet", o_ring: "O-ring", x_ring: "X-ring", cord: "Cord", bushing: "Bushing", profile: "Profile", block: "Block", film: "Film" };
 const pt = (t: string | null) => (t ? (PT[t] || t.replace(/_/g, " ")) : "other");
 const pctColor = (p: number) => (p >= 70 ? GOOD : p >= 40 ? WARN : BAD);
-const PALETTE = ["#274e64", "#ed1b2f", "#e8a13a", "#2e7d4f", "#7b5ea7", "#3a8fb7", "#c0566f", "#6b8e23", "#b5651d", "#5c6bc0", "#00897b", "#8d6e63"];
-const heatBg = (p: number | null) => (p == null ? "#f1f3f4" : p >= 75 ? "#e7f4ea" : p >= 50 ? "#fff5e6" : p >= 25 ? "#ffe2d4" : "#ffd6d6");
+const PALETTE = ["#274e64", "#c8463a", "#e8a13a", "#2e7d4f", "#7b5ea7", "#3a8fb7", "#c0566f", "#6b8e23", "#b5651d", "#5c6bc0", "#00897b", "#8d6e63"];
+const heatBg = (p: number | null) => (p == null ? "#eef2f8" : p >= 75 ? "#e7f4ea" : p >= 50 ? "#fff5e6" : p >= 25 ? "#ffe2d4" : "#ffd6d6");
 
 function Panel({ title, sub, children, span = 1, fill = false }: { title: string; sub?: string; children: React.ReactNode; span?: number; fill?: boolean }) {
   return (
-    <Card sx={{ border: "1px solid #e6e8ec", gridColumn: { xs: "1", md: `span ${span}` }, borderRadius: 2.5, ...(fill && { display: "flex", flexDirection: "column" }) }}>
+    <Card sx={{ border: "1px solid #e4e9f1", gridColumn: { xs: "1", md: `span ${span}` }, borderRadius: 2.5, ...(fill && { display: "flex", flexDirection: "column" }) }}>
       <CardContent sx={{ p: 2.2, ...(fill && { flex: 1, display: "flex", flexDirection: "column", minHeight: 0, "&:last-child": { pb: 2.2 } }) }}>
-        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#1a1d21", fontFamily: "var(--font-outfit), sans-serif" }}>{title}</Typography>
-        {sub && <Typography sx={{ fontSize: "0.7rem", color: "#5b6470", mb: 1.2 }}>{sub}</Typography>}
+        <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: "#15223a", fontFamily: "var(--font-outfit), sans-serif" }}>{title}</Typography>
+        {sub && <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85", mb: 1.2 }}>{sub}</Typography>}
         {children}
       </CardContent>
     </Card>
@@ -55,8 +55,8 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
     fetch(`${API_URL}/api/analytics/stock-insights?${qs}`).then(r => r.json()).then((j) => { setD(j); setLoading(false); }).catch(() => setLoading(false));
   }, [qs]);
 
-  if (loading) return <Box sx={{ py: 8, textAlign: "center", color: "#9aa1ab" }}>Loading stock insights…</Box>;
-  if (!d || !d.apso_by_material) return <Box sx={{ py: 8, textAlign: "center", color: "#9aa1ab" }}>No data.</Box>;
+  if (loading) return <Box sx={{ py: 8, textAlign: "center", color: "#8b97ac" }}>Loading stock insights…</Box>;
+  if (!d || !d.apso_by_material) return <Box sx={{ py: 8, textAlign: "center", color: "#8b97ac" }}>No data.</Box>;
 
   // ── derive ── (matrix rows are material × product type; matched products only)
   const rk = (m: string, t: string | null) => `${m}|${t || ""}`;
@@ -100,11 +100,11 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
   const discOpp = discPts.filter(p => (p.y || 0) > (p.x || 0)).length;
 
   const card2 = (chart: React.ReactNode) => <ResponsiveContainer width="100%" height={250}>{chart as React.ReactElement}</ResponsiveContainer>;
-  const tip = { background: "#fff", border: "1px solid #e6e8ec", borderRadius: 8, fontSize: 12 };
+  const tip = { background: "#fff", border: "1px solid #e4e9f1", borderRadius: 8, fontSize: 12 };
   const kindToggle = (
     <Box sx={{ display: "flex", gap: 0.5, mb: 1.5 }}>
       {(["sealings", "plastics"] as const).map(k => (
-        <Box key={k} onClick={() => setRadarKind(k)} sx={{ cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, px: 1.4, py: 0.4, borderRadius: 1, textTransform: "capitalize", transition: "all .15s", bgcolor: radarKind === k ? "#1a2744" : "#eef2f6", color: radarKind === k ? "#fff" : "#5b6470", "&:hover": { bgcolor: radarKind === k ? "#1a2744" : "#e2e7ee" } }}>{k}</Box>
+        <Box key={k} onClick={() => setRadarKind(k)} sx={{ cursor: "pointer", fontSize: "0.68rem", fontWeight: 700, px: 1.4, py: 0.4, borderRadius: 1, textTransform: "capitalize", transition: "all .15s", bgcolor: radarKind === k ? "#1a2744" : "#eef2f6", color: radarKind === k ? "#fff" : "#5d6b85", "&:hover": { bgcolor: radarKind === k ? "#1a2744" : "#e2e7ee" } }}>{k}</Box>
       ))}
     </Box>
   );
@@ -118,7 +118,7 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
       {/* 1. Availability Gap Matrix */}
       <Panel title="Availability Gap Matrix" sub="In-stock % per competitor, broken down by product type — MATCHED products only. Red = they're stocked, we trail (lost-sale risk).">
         <Box sx={{ overflowX: "auto" }}>
-          <Box component="table" sx={{ borderCollapse: "separate", borderSpacing: "2px", "& th": { fontSize: "0.6rem", fontWeight: 700, color: "#5b6470", p: "3px 5px", textAlign: "center" }, "& td": { fontSize: "0.68rem", fontWeight: 700, p: "5px 6px", textAlign: "center", borderRadius: "4px", minWidth: 40 } }}>
+          <Box component="table" sx={{ borderCollapse: "separate", borderSpacing: "2px", "& th": { fontSize: "0.6rem", fontWeight: 700, color: "#5d6b85", p: "3px 5px", textAlign: "center" }, "& td": { fontSize: "0.68rem", fontWeight: 700, p: "5px 6px", textAlign: "center", borderRadius: "4px", minWidth: 40 } }}>
             <thead>
               {/* competitor group header (APSO dropped; each competitor only spans the types it carries) */}
               <tr>
@@ -126,13 +126,13 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
                 {compCols.map(c => <th key={c.code} colSpan={c.types.length} style={{ color: "#854d0e", background: "#fdf3d7", borderRadius: "5px 5px 0 0", borderLeft: "3px solid #fff" }}><Tooltip title={c.name} arrow><span>{c.name.split(" ")[0]}</span></Tooltip></th>)}
               </tr>
               <tr>
-                {compCols.map(c => c.types.map((t, ti) => <th key={`${c.code}-${t}`} style={{ color: "#9aa1ab", borderLeft: ti === 0 ? "3px solid #fff" : undefined }}>{pt(t)}</th>))}
+                {compCols.map(c => c.types.map((t, ti) => <th key={`${c.code}-${t}`} style={{ color: "#8b97ac", borderLeft: ti === 0 ? "3px solid #fff" : undefined }}>{pt(t)}</th>))}
               </tr>
             </thead>
             <tbody>
               {matRows.map(mat => (
                 <tr key={mat}>
-                  <td style={{ textAlign: "left", background: "none", fontWeight: 700, color: "#1a1d21", whiteSpace: "nowrap" }}>{ml(mat)}</td>
+                  <td style={{ textAlign: "left", background: "none", fontWeight: 700, color: "#15223a", whiteSpace: "nowrap" }}>{ml(mat)}</td>
                   {compCols.map(c => c.types.map((t, ti) => { const p = compInfo.get(rk(mat, t))?.get(c.code); return <td key={`${c.code}-${t}`} style={{ background: p ? heatBg(p.pct) : "#f7f8f9", color: p ? pctColor(p.pct) : "#d4d8dc", borderLeft: ti === 0 ? "3px solid #fff" : undefined }}><Tooltip title={p ? `${p.n} matched` : "no match"} arrow><span>{p ? `${p.pct}%` : "·"}</span></Tooltip></td>; }))}
                 </tr>
               ))}
@@ -145,7 +145,7 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
           {/* Stock Coverage Radar */}
           <Panel title="Stock Coverage Radar" sub="APSO in-stock % (navy) vs avg competitor (red) across top materials.">
             {kindToggle}
-            {radar.length ? <RadarSvg data={radar} /> : <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab", fontSize: "0.8rem" }}>No {radarKind} with enough matched data.</Box>}
+            {radar.length ? <RadarSvg data={radar} /> : <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac", fontSize: "0.8rem" }}>No {radarKind} with enough matched data.</Box>}
           </Panel>
           {/* Only APSO in stock — pricing power */}
           <Panel title="Only APSO in stock — pricing power" sub="Articles we can ship but no matched competitor can. Safe to hold / raise price.">
@@ -153,14 +153,14 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
             {onlyApsoRows.length ? (
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={onlyApsoRows.map(r => ({ ...r, label: ml(r.material) }))} layout="vertical" margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke="#eef0f3" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: "#5b6470" }} axisLine={false} tickLine={false} />
-                  <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "#5b6470" }} width={64} axisLine={false} tickLine={false} />
+                  <CartesianGrid strokeDasharray="2 4" stroke="#eef2f8" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: "#5d6b85" }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "#5d6b85" }} width={64} axisLine={false} tickLine={false} />
                   <RTooltip contentStyle={tip} formatter={(v) => [v as number, "articles"]} />
                   <Bar dataKey="n" radius={[0, 3, 3, 0]} maxBarSize={18} fill={GOOD} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : <Box sx={{ py: 4, px: 1, textAlign: "center", color: "#9aa1ab", fontSize: "0.74rem", lineHeight: 1.5 }}>No {radarKind} where we&apos;re the only one in stock — competitors are stocked on almost everything we match. (See the Gap Matrix: we trail on stock.)</Box>}
+            ) : <Box sx={{ py: 4, px: 1, textAlign: "center", color: "#8b97ac", fontSize: "0.74rem", lineHeight: 1.5 }}>No {radarKind} where we&apos;re the only one in stock — competitors are stocked on almost everything we match. (See the Gap Matrix: we trail on stock.)</Box>}
           </Panel>
         </Box>
       </Box>
@@ -173,34 +173,34 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
         {kindToggle}
         {lbRows.length ? card2(
           <BarChart data={lbRows.map(r => ({ ...r, label: r.name.split(" ")[0] }))} layout="vertical" margin={{ left: 8, right: 36, top: 4, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="2 4" stroke="#eef0f3" horizontal={false} />
-            <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#5b6470" }} axisLine={false} tickLine={false} unit="%" />
-            <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "#5b6470" }} width={72} axisLine={false} tickLine={false} />
+            <CartesianGrid strokeDasharray="2 4" stroke="#eef2f8" horizontal={false} />
+            <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: "#5d6b85" }} axisLine={false} tickLine={false} unit="%" />
+            <YAxis type="category" dataKey="label" tick={{ fontSize: 10, fill: "#5d6b85" }} width={72} axisLine={false} tickLine={false} />
             <RTooltip contentStyle={tip} formatter={(v, _n, p) => [`${v}%  (${p?.payload?.in_stock}/${p?.payload?.n} in stock)`, "availability"]} />
             <Bar dataKey="pct" radius={[0, 3, 3, 0]} maxBarSize={18}>{lbRows.map((r, i) => <Cell key={i} fill={pctColor(r.pct)} />)}</Bar>
           </BarChart>
-        ) : <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab" }}>No matched {radarKind} stock data.</Box>}
+        ) : <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac" }}>No matched {radarKind} stock data.</Box>}
       </Panel>
 
       {/* 27. Lead-time Advantage — sits next to the leaderboard */}
       <Panel title="Lead-time Advantage" sub="Competitor lead time (days) on items where APSO is in stock — we ship now, they wait.">
         {d.leadtime.length ? card2(
           <BarChart data={d.leadtime.map(r => ({ label: `${r.days}d`, n: r.n }))} margin={{ left: 4, right: 8, top: 4, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="2 4" stroke="#eef0f3" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5b6470" }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: "#5b6470" }} axisLine={false} tickLine={false} />
+            <CartesianGrid strokeDasharray="2 4" stroke="#eef2f8" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5d6b85" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 10, fill: "#5d6b85" }} axisLine={false} tickLine={false} />
             <RTooltip contentStyle={tip} formatter={(v) => [v as number, "matched items"]} />
             <ReferenceLine x="0d" stroke={GOOD} />
             <Bar dataKey="n" radius={[3, 3, 0, 0]} maxBarSize={30} fill={NAVY} />
           </BarChart>
-        ) : <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab", fontSize: "0.8rem" }}>No competitor lead-time data captured yet.</Box>}
+        ) : <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac", fontSize: "0.8rem" }}>No competitor lead-time data captured yet.</Box>}
       </Panel>
 
       {/* 16. Anyseals vs APSO Discrepancy */}
       <Panel span={2} title="APSO stock vs Anyseals stock — where can we cover a shortage?" sub="Each dot is one article we can source from Anyseals. X = how many we hold; Y = how many Anyseals holds. The dashed line is 'both equal'.">
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1.2, alignItems: "center" }}>
           {["all", ...discMats].map(m => (
-            <Box key={m} onClick={() => setDiscMat(m)} sx={{ cursor: "pointer", fontSize: "0.66rem", fontWeight: 700, px: 1.2, py: 0.35, borderRadius: 1, transition: "all .15s", bgcolor: discMat === m ? "#1a2744" : "#eef2f6", color: discMat === m ? "#fff" : "#5b6470", "&:hover": { bgcolor: discMat === m ? "#1a2744" : "#e2e7ee" } }}>{m === "all" ? "All materials" : ml(m)}</Box>
+            <Box key={m} onClick={() => setDiscMat(m)} sx={{ cursor: "pointer", fontSize: "0.66rem", fontWeight: 700, px: 1.2, py: 0.35, borderRadius: 1, transition: "all .15s", bgcolor: discMat === m ? "#1a2744" : "#eef2f6", color: discMat === m ? "#fff" : "#5d6b85", "&:hover": { bgcolor: discMat === m ? "#1a2744" : "#e2e7ee" } }}>{m === "all" ? "All materials" : ml(m)}</Box>
           ))}
         </Box>
         <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", md: "row" } }}>
@@ -211,23 +211,23 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
             <Box sx={{ p: 1.5, mb: 1.6, borderRadius: 2, bgcolor: "#e7f4ea", border: "1px solid #cfe8d6" }}>
               <Typography sx={{ fontSize: "1.9rem", fontWeight: 800, color: GOOD, lineHeight: 1 }}>{discOpp.toLocaleString()}</Typography>
               <Typography sx={{ fontSize: "0.78rem", fontWeight: 800, color: "#2e7d4f", mt: 0.4 }}>buy-to-cover candidates</Typography>
-              <Typography sx={{ fontSize: "0.7rem", color: "#5b6470", mt: 0.2, lineHeight: 1.4 }}>articles where Anyseals holds more than us</Typography>
+              <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85", mt: 0.2, lineHeight: 1.4 }}>articles where Anyseals holds more than us</Typography>
             </Box>
-            <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: "#9aa1ab", textTransform: "uppercase", letterSpacing: "0.5px", mb: 1 }}>How to read it</Typography>
+            <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: "#8b97ac", textTransform: "uppercase", letterSpacing: "0.5px", mb: 1 }}>How to read it</Typography>
             {[
               { c: GOOD, t: "Above the line", d: "Anyseals has more — if we're short, source from them." },
-              { c: "#9aa1ab", t: "On the line", d: "Both hold about the same — the numbers agree." },
+              { c: "#8b97ac", t: "On the line", d: "Both hold about the same — the numbers agree." },
               { c: WARN, t: "Below the line", d: "We hold more than Anyseals — no cover needed." },
             ].map((r, i) => (
               <Box key={i} sx={{ display: "flex", gap: 1, mb: 1.1 }}>
                 <Box sx={{ width: 11, height: 11, borderRadius: "50%", bgcolor: r.c, mt: "3px", flexShrink: 0 }} />
                 <Box>
-                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: "#1a1d21", lineHeight: 1.3 }}>{r.t}</Typography>
-                  <Typography sx={{ fontSize: "0.7rem", color: "#5b6470", lineHeight: 1.4 }}>{r.d}</Typography>
+                  <Typography sx={{ fontSize: "0.76rem", fontWeight: 800, color: "#15223a", lineHeight: 1.3 }}>{r.t}</Typography>
+                  <Typography sx={{ fontSize: "0.7rem", color: "#5d6b85", lineHeight: 1.4 }}>{r.d}</Typography>
                 </Box>
               </Box>
             ))}
-            <Typography sx={{ fontSize: "0.66rem", color: "#9aa1ab", mt: 0.6, fontStyle: "italic" }}>Hover any dot to see the article.</Typography>
+            <Typography sx={{ fontSize: "0.66rem", color: "#8b97ac", mt: 0.6, fontStyle: "italic" }}>Hover any dot to see the article.</Typography>
           </Box>
         </Box>
       </Panel>
@@ -235,7 +235,7 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
       {/* 26. Price × Availability Quadrant */}
       <Panel title="Price × Availability Quadrant" sub="Horizontal = APSO price vs the cheapest matched competitor (left = we're cheaper). Vertical = stock (bottom = in stock). Bottom-left = cheap & available = win.">
         {kindToggle}
-        {quadPts.length ? <QuadrantSvg points={quadPts} /> : <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab", fontSize: "0.8rem" }}>No matched {radarKind} with price + stock data.</Box>}
+        {quadPts.length ? <QuadrantSvg points={quadPts} /> : <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac", fontSize: "0.8rem" }}>No matched {radarKind} with price + stock data.</Box>}
       </Panel>
 
       {/* In-stock articles by material — APSO vs competitors (colored + legend) */}
@@ -245,9 +245,9 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
           <Box sx={{ flex: 1, minHeight: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={coverageChart} margin={{ top: 8, right: 8, bottom: 24, left: 0 }} barCategoryGap="18%">
-                <CartesianGrid strokeDasharray="2 4" stroke="#eef0f3" vertical={false} />
-                <XAxis dataKey="material" tick={{ fontSize: 9, fill: "#5b6470" }} interval={0} angle={-25} textAnchor="end" height={48} tickLine={false} axisLine={{ stroke: "#e6e8ec" }} />
-                <YAxis tick={{ fontSize: 10, fill: "#5b6470" }} tickLine={false} axisLine={false} />
+                <CartesianGrid strokeDasharray="2 4" stroke="#eef2f8" vertical={false} />
+                <XAxis dataKey="material" tick={{ fontSize: 9, fill: "#5d6b85" }} interval={0} angle={-25} textAnchor="end" height={48} tickLine={false} axisLine={{ stroke: "#e4e9f1" }} />
+                <YAxis tick={{ fontSize: 10, fill: "#5d6b85" }} tickLine={false} axisLine={false} />
                 <RTooltip contentStyle={tip} cursor={{ fill: "rgba(39,78,100,0.04)" }} />
                 <Legend wrapperStyle={{ fontSize: 10, paddingTop: 4 }} />
                 <Bar dataKey="apso" name="APSO" fill={PALETTE[0]} radius={[2, 2, 0, 0]} maxBarSize={20} />
@@ -255,7 +255,7 @@ export default function StockInsightsPanel({ qs = "" }: { qs?: string }) {
               </BarChart>
             </ResponsiveContainer>
           </Box>
-        ) : <Box sx={{ py: 6, textAlign: "center", color: "#9aa1ab", fontSize: "0.8rem" }}>No coverage data.</Box>}
+        ) : <Box sx={{ py: 6, textAlign: "center", color: "#8b97ac", fontSize: "0.8rem" }}>No coverage data.</Box>}
       </Panel>
       </Box>
     </Box>
@@ -270,7 +270,7 @@ function RadarSvg({ data }: { data: { material: string; apso: number; comp: numb
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="250">
       {[0.25, 0.5, 0.75, 1].map((rr, j) => <polygon key={j} points={data.map((_, i) => pt(i, R * rr).join(",")).join(" ")} fill="none" stroke="#e6eaee" />)}
-      {data.map((row, i) => { const [x, y] = pt(i, R + 14); return <text key={i} x={x} y={y} fontSize={9} fill="#5b6470" textAnchor="middle">{ml(row.material)}</text>; })}
+      {data.map((row, i) => { const [x, y] = pt(i, R + 14); return <text key={i} x={x} y={y} fontSize={9} fill="#5d6b85" textAnchor="middle">{ml(row.material)}</text>; })}
       <polygon points={poly("comp")} fill={RED} fillOpacity={0.12} stroke={RED} strokeWidth={1.6} />
       <polygon points={poly("apso")} fill={NAVY} fillOpacity={0.18} stroke={NAVY} strokeWidth={1.8} />
     </svg>
@@ -294,12 +294,12 @@ function ScatterSvg({ points, diagonal, xlab, ylab, height = 250, wide }: { poin
         {diagonal && <polygon points={`${sx(0)},${sy(0)} ${sx(max)},${sy(max)} ${sx(0)},${sy(max)}`} fill="#e7f4ea" fillOpacity={0.6} />}
         <line x1={m} y1={H - m} x2={W - 6} y2={H - m} stroke="#d6dce1" /><line x1={m} y1={8} x2={m} y2={H - m} stroke="#d6dce1" />
         {diagonal && <line x1={sx(0)} y1={sy(0)} x2={sx(max)} y2={sy(max)} stroke="#b7c2cb" strokeDasharray="4 3" />}
-        {points.map((p, i) => { const d2 = (p.y || 0) - (p.x || 0); const c = Math.abs(d2) < max * 0.12 ? "#9aa1ab" : d2 > 0 ? GOOD : WARN; const cx = sx(p.x || 0), cy = sy(p.y || 0); const on = hov?.label === p.label; return <g key={i} style={{ cursor: "pointer" }} onMouseMove={e => onEnter(e, p)} onMouseLeave={() => setHov(null)}><circle cx={cx} cy={cy} r={on ? 5 : 3.2} fill={c} fillOpacity={on ? 1 : 0.72} stroke={on ? "#fff" : "none"} strokeWidth={1} /><circle cx={cx} cy={cy} r={8} fill="transparent" /></g>; })}
-        <text x={(W) / 2} y={H - 4} fontSize={9} fill="#5b6470" textAnchor="middle">{xlab} →</text>
-        <text x={9} y={H / 2} fontSize={9} fill="#5b6470" textAnchor="middle" transform={`rotate(-90 9 ${H / 2})`}>{ylab} →</text>
+        {points.map((p, i) => { const d2 = (p.y || 0) - (p.x || 0); const c = Math.abs(d2) < max * 0.12 ? "#8b97ac" : d2 > 0 ? GOOD : WARN; const cx = sx(p.x || 0), cy = sy(p.y || 0); const on = hov?.label === p.label; return <g key={i} style={{ cursor: "pointer" }} onMouseMove={e => onEnter(e, p)} onMouseLeave={() => setHov(null)}><circle cx={cx} cy={cy} r={on ? 5 : 3.2} fill={c} fillOpacity={on ? 1 : 0.72} stroke={on ? "#fff" : "none"} strokeWidth={1} /><circle cx={cx} cy={cy} r={8} fill="transparent" /></g>; })}
+        <text x={(W) / 2} y={H - 4} fontSize={9} fill="#5d6b85" textAnchor="middle">{xlab} →</text>
+        <text x={9} y={H / 2} fontSize={9} fill="#5d6b85" textAnchor="middle" transform={`rotate(-90 9 ${H / 2})`}>{ylab} →</text>
       </svg>
       {hov && (
-        <Box sx={{ position: "absolute", left: Math.min(hov.x + 12, (wrap.current?.clientWidth || 0) - 150), top: Math.max(hov.y - 44, 0), pointerEvents: "none", bgcolor: "#1a1d21", color: "#fff", px: 1, py: 0.6, borderRadius: 1, fontSize: "0.7rem", lineHeight: 1.35, boxShadow: "0 4px 14px rgba(0,0,0,.25)", whiteSpace: "nowrap", zIndex: 5 }}>
+        <Box sx={{ position: "absolute", left: Math.min(hov.x + 12, (wrap.current?.clientWidth || 0) - 150), top: Math.max(hov.y - 44, 0), pointerEvents: "none", bgcolor: "#15223a", color: "#fff", px: 1, py: 0.6, borderRadius: 1, fontSize: "0.7rem", lineHeight: 1.35, boxShadow: "0 4px 14px rgba(0,0,0,.25)", whiteSpace: "nowrap", zIndex: 5 }}>
           <Box sx={{ fontWeight: 800 }}>{hov.label}</Box>
           <Box sx={{ opacity: 0.85 }}>APSO {hov.vx} &nbsp;·&nbsp; Anyseals {hov.vy}</Box>
         </Box>
@@ -324,16 +324,16 @@ function QuadrantSvg({ points }: { points: { material: string; diff_pct: number;
         <rect x={0} y={0} width={cx} height={midY} fill="#fcfcfc" /><rect x={cx} y={0} width={cx} height={midY} fill="#fff6f6" />
         <rect x={0} y={midY} width={cx} height={midY} fill="#f1f9f2" /><rect x={cx} y={midY} width={cx} height={midY} fill="#fffaf0" />
         <line x1={cx} y1={6} x2={cx} y2={H - 6} stroke="#cfd6dd" /><line x1={6} y1={midY} x2={W - 6} y2={midY} stroke="#cfd6dd" />
-        <text x={10} y={18} fontSize={fs} fill="#9aa1ab" fontWeight={700}>CHEAP · but OUT</text>
+        <text x={10} y={18} fontSize={fs} fill="#8b97ac" fontWeight={700}>CHEAP · but OUT</text>
         <text x={W - 10} y={18} fontSize={fs} fill={BAD} fontWeight={700} textAnchor="end">EXPENSIVE &amp; OUT · LOSE</text>
         <text x={10} y={H - 24} fontSize={fs} fill={GOOD} fontWeight={700}>CHEAP &amp; IN STOCK · WIN</text>
         <text x={W - 10} y={H - 24} fontSize={fs} fill={WARN} fontWeight={700} textAnchor="end">IN STOCK · but PRICIER</text>
         {points.map((p, i) => { const cy = p.in_stock ? midY + (midY - 18) * (0.2 + (i % 9) / 14) : midY - (midY - 18) * (0.2 + (i % 9) / 14); const on = hov?.i === i; return <g key={i} style={{ cursor: "pointer" }} onMouseMove={e => onMove(e, p, i)} onMouseLeave={() => setHov(null)}><circle cx={sx(p.diff_pct)} cy={cy} r={on ? 5 : 3} fill={p.in_stock ? (p.diff_pct <= 0 ? GOOD : WARN) : (p.diff_pct <= 0 ? "#1565c0" : BAD)} fillOpacity={on ? 1 : 0.65} stroke={on ? "#fff" : "none"} strokeWidth={1} /><circle cx={sx(p.diff_pct)} cy={cy} r={8} fill="transparent" /></g>; })}
-        <text x={cx + 6} y={midY + 14} fontSize={fs} fill="#5b6470">→ APSO pricier</text>
-        <text x={cx - 6} y={midY + 14} fontSize={fs} fill="#5b6470" textAnchor="end">cheaper ←</text>
+        <text x={cx + 6} y={midY + 14} fontSize={fs} fill="#5d6b85">→ APSO pricier</text>
+        <text x={cx - 6} y={midY + 14} fontSize={fs} fill="#5d6b85" textAnchor="end">cheaper ←</text>
       </svg>
       {hov && (
-        <Box sx={{ position: "absolute", left: Math.min(hov.x + 12, (wrap.current?.clientWidth || 0) - 160), top: Math.max(hov.y - 44, 0), pointerEvents: "none", bgcolor: "#1a1d21", color: "#fff", px: 1, py: 0.6, borderRadius: 1, fontSize: "0.7rem", lineHeight: 1.35, boxShadow: "0 4px 14px rgba(0,0,0,.25)", whiteSpace: "nowrap", zIndex: 5 }}>
+        <Box sx={{ position: "absolute", left: Math.min(hov.x + 12, (wrap.current?.clientWidth || 0) - 160), top: Math.max(hov.y - 44, 0), pointerEvents: "none", bgcolor: "#15223a", color: "#fff", px: 1, py: 0.6, borderRadius: 1, fontSize: "0.7rem", lineHeight: 1.35, boxShadow: "0 4px 14px rgba(0,0,0,.25)", whiteSpace: "nowrap", zIndex: 5 }}>
           <Box sx={{ fontWeight: 800 }}>{ml(hov.material)}</Box>
           <Box sx={{ opacity: 0.85 }}>{hov.diff > 0 ? "+" : ""}{hov.diff}% vs competitor · {hov.inStock ? "in stock" : "out of stock"}</Box>
         </Box>

@@ -137,6 +137,9 @@ test("a tile's or a view's page key leads to its report", () => {
 // SARCLA 13.11.2026: the PricingHub's pages move into the hub as the app Pricing
 test("Pricing: its pages are its sub-apps, under the PricingHub's own groups; the report is the Prices page's", () => {
   assert.equal(nodeFor("pricing", "/pricing")?.key, "pricing");
+  // the front page is the section menu (SARCLA 14.11.2026); the Overview is a page of Pricing intelligence
+  assert.equal(nodeFor("pricing", "/pricing/overview")?.name, "Overview");
+  assert.equal(nodeFor("pricing", "/pricing/overview")?.parent, "pricing#Pricing intelligence");
   assert.equal(nodeFor("pricing", "/pricing/matches/pending")?.name, "Pending review");
   assert.equal(nodeFor("pricing", "/pricing/matches/pending")?.parent, "pricing#Product matching");
   assert.equal(nodeFor("pricing", "/pricing/matches")?.name, "Match overview");

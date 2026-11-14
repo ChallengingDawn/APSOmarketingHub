@@ -232,15 +232,15 @@ export default function StockPage() {
       )}
 
       {debugInfo !== null && (
-        <Card sx={{ mb: 2, bgcolor: "#fafbfc", border: "1px solid #ececec", borderRadius: 2 }}>
+        <Card sx={{ mb: 2, bgcolor: "#fafbfc", border: "1px solid #e4e9f1", borderRadius: 2 }}>
           <CardContent sx={{ "&:last-child": { pb: 2 } }}>
             <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#5f6368" }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#5d6b85" }}>
                 Debug — last pickup
               </Typography>
               <Button size="small" onClick={() => setDebugInfo(null)} sx={{ minWidth: "auto", fontSize: 11 }}>Hide</Button>
             </Box>
-            <Box sx={{ fontFamily: "monospace", fontSize: 11.5, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 320, color: "#1f1f1f" }}>
+            <Box sx={{ fontFamily: "monospace", fontSize: 11.5, whiteSpace: "pre-wrap", overflow: "auto", maxHeight: 320, color: "#15223a" }}>
               {JSON.stringify(debugInfo, null, 2)}
             </Box>
           </CardContent>
@@ -341,15 +341,15 @@ export default function StockPage() {
                       ml: m === "M100" ? 0 : "-1px",
                       ...(stockMandant === m
                         ? {
-                            bgcolor: "#ed1b2f",
+                            bgcolor: "#c8463a",
                             color: "#fff",
                             "&:hover": { bgcolor: "#c8121f" },
                           }
                         : {
-                            color: "#ed1b2f",
-                            borderColor: "#ed1b2f",
+                            color: "#c8463a",
+                            borderColor: "#c8463a",
                             "&:hover": {
-                              borderColor: "#ed1b2f",
+                              borderColor: "#c8463a",
                               bgcolor: "rgba(237, 27, 47, 0.06)",
                             },
                           }),
@@ -393,9 +393,9 @@ export default function StockPage() {
                     fontWeight: 600,
                     fontSize: "0.72rem",
                     height: 26,
-                    bgcolor: active ? "#ed1b2f" : "transparent",
-                    color: active ? "#fff" : "#ed1b2f",
-                    border: "1px solid #ed1b2f",
+                    bgcolor: active ? "#c8463a" : "transparent",
+                    color: active ? "#fff" : "#c8463a",
+                    border: "1px solid #c8463a",
                     "&:hover": {
                       bgcolor: active ? "#c8121f" : "rgba(237, 27, 47, 0.06)",
                     },
@@ -416,19 +416,19 @@ export default function StockPage() {
               <TableContainer>
                 <Table size="small">
                   <TableHead>
-                    <TableRow sx={{ bgcolor: "#f8f9fa" }}>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>HubSpot ID</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Article No.</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Description</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mandant</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Article Anyseals</TableCell>
+                    <TableRow sx={{ bgcolor: "#f5f7fb" }}>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>HubSpot ID</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Article No.</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Description</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Mandant</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Article Anyseals</TableCell>
                       {/* Stock columns sit side-by-side so the visual
                           comparison reads at a glance. Both render
                           integer + unit; APSO column renamed from
                           'Stock (A+P)'. */}
-                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stock Anyseals</TableCell>
-                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stock APSO</TableCell>
-                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase", letterSpacing: "0.05em" }}>Status</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stock Anyseals</TableCell>
+                      <TableCell align="right" sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Stock APSO</TableCell>
+                      <TableCell sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase", letterSpacing: "0.05em" }}>Status</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -437,10 +437,10 @@ export default function StockPage() {
                       const sa = toNum(r.stock_anyseals);
                       const sap = toNum(r.stock);
                       const colorFor = (n: number | null) =>
-                        n == null ? "#bdc1c6" : n > 0 ? "#34a853" : n < 0 ? "#ed1b2f" : "#5f6368";
+                        n == null ? "#b5bfcf" : n > 0 ? "#34a853" : n < 0 ? "#c8463a" : "#5d6b85";
                       return (
                         <TableRow key={`${r.article_number}-${r.mandant}`} hover>
-                          <TableCell sx={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#5f6368" }}>{r.hubspot_id || "—"}</TableCell>
+                          <TableCell sx={{ fontFamily: "monospace", fontSize: "0.65rem", color: "#5d6b85" }}>{r.hubspot_id || "—"}</TableCell>
                           <TableCell sx={{ fontFamily: "monospace", fontSize: "0.72rem", fontWeight: 600, color: "#274e64" }}>{r.article_number}</TableCell>
                           <TableCell sx={{ fontSize: "0.72rem", maxWidth: 280, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description || "—"}</TableCell>
                           <TableCell>
@@ -450,7 +450,7 @@ export default function StockPage() {
                               sx={{ fontSize: "0.62rem", height: 20, bgcolor: r.mandant === "M100" ? "#e8f0f4" : "#fef7e0", color: r.mandant === "M100" ? "#274e64" : "#854d0e", fontWeight: 600 }}
                             />
                           </TableCell>
-                          <TableCell sx={{ fontFamily: "monospace", fontSize: "0.72rem", color: r.article_anyseals ? "#274e64" : "#bdc1c6", fontWeight: 600 }}>
+                          <TableCell sx={{ fontFamily: "monospace", fontSize: "0.72rem", color: r.article_anyseals ? "#274e64" : "#b5bfcf", fontWeight: 600 }}>
                             {r.article_anyseals || "—"}
                           </TableCell>
                           <TableCell align="right" sx={{
@@ -461,7 +461,7 @@ export default function StockPage() {
                           }}>
                             {fmtInt(sa)}
                             {sa != null && (
-                              <Typography component="span" sx={{ fontSize: "0.6rem", color: "#9aa0a6", ml: 0.5 }}>
+                              <Typography component="span" sx={{ fontSize: "0.6rem", color: "#8b97ac", ml: 0.5 }}>
                                 {unit}
                               </Typography>
                             )}
@@ -474,12 +474,12 @@ export default function StockPage() {
                           }}>
                             {fmtInt(sap)}
                             {sap != null && (
-                              <Typography component="span" sx={{ fontSize: "0.6rem", color: "#9aa0a6", ml: 0.5 }}>
+                              <Typography component="span" sx={{ fontSize: "0.6rem", color: "#8b97ac", ml: 0.5 }}>
                                 {unit}
                               </Typography>
                             )}
                           </TableCell>
-                          <TableCell sx={{ fontSize: "0.7rem", color: "#5f6368" }}>{r.article_status || "—"}</TableCell>
+                          <TableCell sx={{ fontSize: "0.7rem", color: "#5d6b85" }}>{r.article_status || "—"}</TableCell>
                         </TableRow>
                       );
                     })}

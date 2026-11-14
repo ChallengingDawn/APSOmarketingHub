@@ -1,4 +1,6 @@
 "use client";
+import { usePathname } from "next/navigation";
+import { PRICING_SECTIONS } from "@/app/hubApps";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
@@ -56,106 +58,57 @@ interface PageHeaderProps {
   icon?: PageIconKey;
 }
 
+/** The section a Pricing page belongs to (PRICING_SECTIONS), for its colours - Pricing's own red where none answers. */
+function toneHere(path: string): { fg: string; tint: string } {
+  const s = PRICING_SECTIONS.find((x) => x.pages.some((p) => path === p.href || path.startsWith(`${p.href}/`)));
+  return s ? { fg: s.fg, tint: s.tint } : { fg: "#c8463a", tint: "#fde9e6" };
+}
+
+/**
+ * The page's header in the hub's own look (SARCLA 14.11.2026: "design is nothing alike the platform yet"): the glyph in
+ * its section's colours, the section named above the title in the same colour, the title as every hub page sets it, one
+ * line of context - and the page's controls on the right, on the title's baseline. The same props as the PricingHub's
+ * header, so every page took it without a change.
+ */
 export default function PageHeader({ title, subtitle, rightSlot, badge, eyebrow, icon }: PageHeaderProps) {
   const Icon = icon ? ICONS[icon] : null;
+  const { fg, tint } = toneHere(usePathname() ?? "");
   return (
-    <Box className="animate-fade-in-up" sx={{ mb: 3.5 }}>
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "flex-end",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 2,
-          pb: 2.25,
-          borderBottom: "1px solid #e6e8ec",
-        }}
-      >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
-          {Icon ? (
-            <Box
-              sx={{
-                width: 48,
-                height: 48,
-                borderRadius: 1,
-                bgcolor: "#ed1b2f",
-                color: "#fff",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                boxShadow: "0 1px 2px rgba(237,27,47,0.25), 0 6px 16px rgba(237,27,47,0.18)",
-                "& svg": { fontSize: 25 },
-              }}
-            >
-              <Icon />
-            </Box>
-          ) : (
-            <Box
-              sx={{ width: 4, alignSelf: "stretch", minHeight: 38, borderRadius: 0.5, bgcolor: "#ed1b2f", flexShrink: 0 }}
-            />
-          )}
-          <Box sx={{ minWidth: 0 }}>
-            {eyebrow && (
-              <Typography
-                sx={{
-                  mb: 0.4,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.14em",
-                  color: "#ed1b2f",
-                  lineHeight: 1,
-                }}
-              >
-                {eyebrow}
-              </Typography>
-            )}
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
-              <Typography
-                component="h1"
-                sx={{
-                  fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                  fontWeight: 600,
-                  color: "#1a1d21",
-                  letterSpacing: "-0.035em",
-                  fontSize: { xs: "1.6rem", md: "1.9rem" },
-                  lineHeight: 1.05,
-                }}
-              >
-                {title}
-              </Typography>
-              {badge && (
-                <Chip
-                  label={badge}
-                  size="small"
-                  sx={{
-                    height: 22,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
-                    bgcolor: "#ed1b2f",
-                    color: "#fff",
-                    border: "none",
-                  }}
-                />
-              )}
-            </Box>
-            <Typography
-              sx={{
-                color: "#5b6470",
-                mt: 0.6,
-                fontSize: "0.9rem",
-                lineHeight: 1.45,
-                maxWidth: 720,
-              }}
-            >
-              {subtitle}
+    <Box className="animate-fade-in-up" sx={{
+      display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 2, mb: { xs: 2.5, md: 3 },
+    }}>
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.75, minWidth: 0 }}>
+        {Icon && (
+          <Box sx={{
+            width: 52, height: 52, borderRadius: "16px", flexShrink: 0, display: "grid", placeItems: "center",
+            background: `linear-gradient(140deg, ${fg}b3, ${fg})`, color: "#fff", boxShadow: `0 10px 22px ${tint}`,
+            "& svg": { fontSize: 27 },
+          }}><Icon /></Box>
+        )}
+        <Box sx={{ minWidth: 0 }}>
+          {eyebrow && (
+            <Typography sx={{ mb: 0.35, fontSize: 11.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em", color: fg, lineHeight: 1.2 }}>
+              {eyebrow}
             </Typography>
+          )}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, flexWrap: "wrap" }}>
+            <Typography component="h1" sx={{
+              fontFamily: "var(--font-outfit), var(--font-inter), sans-serif", fontWeight: 600, color: "#15223a",
+              letterSpacing: "-0.03em", fontSize: { xs: "1.6rem", md: "1.85rem" }, lineHeight: 1.1,
+            }}>{title}</Typography>
+            {badge && (
+              <Chip label={badge} size="small" sx={{
+                height: 22, fontSize: 10.5, fontWeight: 700, letterSpacing: "0.04em",
+                bgcolor: tint, color: fg, border: `1px solid ${fg}33`,
+              }} />
+            )}
           </Box>
+          {subtitle && (
+            <Typography sx={{ color: "#5d6b85", mt: 0.6, fontSize: "0.92rem", lineHeight: 1.5, maxWidth: 760 }}>{subtitle}</Typography>
+          )}
         </Box>
-        {rightSlot && <Box sx={{ flexShrink: 0, pb: 0.25 }}>{rightSlot}</Box>}
       </Box>
+      {rightSlot && <Box sx={{ flexShrink: 0, pb: 0.25 }}>{rightSlot}</Box>}
     </Box>
   );
 }

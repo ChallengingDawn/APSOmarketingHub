@@ -260,8 +260,8 @@ export default function UnmatchedPage() {
           {a.product_type_normalized && <Chip label={a.product_type_normalized} size="small" sx={{ fontSize: "0.55rem", height: 18, bgcolor: "#e8f0f4", color: "#274e64" }} />}
           {a.profit_center && <Chip label={a.profit_center} size="small" sx={{ fontSize: "0.55rem", height: 18, bgcolor: "#fef2f2", color: "#c62828" }} />}
         </Box>
-        <Typography sx={{ fontSize: "0.78rem", color: "#1f1f1f", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description}</Typography>
-        <Typography sx={{ fontSize: "0.65rem", color: "#5f6368" }}>
+        <Typography sx={{ fontSize: "0.78rem", color: "#15223a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.description}</Typography>
+        <Typography sx={{ fontSize: "0.65rem", color: "#5d6b85" }}>
           {a.listprice ? `${a.currency} ${Number(a.listprice).toFixed(2)}` : "no list price"}
           {a.sub_group_number && <> · SG {a.sub_group_number}</>}
         </Typography>
@@ -282,8 +282,8 @@ export default function UnmatchedPage() {
         subtitle="Competitor rows with no APSO match — pick one and link it to an APSO article"
         rightSlot={
           <Button component={Link} href="/pricing/matches" variant="outlined"
-            sx={{ fontSize: "0.75rem", borderColor: "#ed1b2f", color: "#ed1b2f", fontWeight: 600,
-              "&:hover": { borderColor: "#c41527", color: "#c41527", bgcolor: "#fff5f5" } }}>
+            sx={{ fontSize: "0.75rem", borderColor: "#c8463a", color: "#c8463a", fontWeight: 600,
+              "&:hover": { borderColor: "#a8372c", color: "#a8372c", bgcolor: "#fff5f5" } }}>
             Match Overview
           </Button>
         }
@@ -294,7 +294,7 @@ export default function UnmatchedPage() {
       {result && <Alert severity={result.error ? "error" : "success"} onClose={() => setResult(null)} sx={{ mb: 2 }}>{result.msg}</Alert>}
 
       {/* Filters */}
-      <Card sx={{ mb: 2, border: "1px solid #ececec", borderRadius: 2 }}>
+      <Card sx={{ mb: 2, border: "1px solid #e4e9f1", borderRadius: 2 }}>
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Box sx={{ display: "flex", gap: 1.5, alignItems: "center", flexWrap: "wrap" }}>
             <TextField size="small" placeholder="Search product name / ref..." value={search}
@@ -328,7 +328,7 @@ export default function UnmatchedPage() {
             </FormControl>
             {(search || filterCompetitor || filterMarket || filterBU) && (
               <Button size="small" onClick={() => { sf.reset(); setPage(0); }}
-                sx={{ color: "#ed1b2f", fontSize: 12, fontWeight: 600 }}>Clear all</Button>
+                sx={{ color: "#c8463a", fontSize: 12, fontWeight: 600 }}>Clear all</Button>
             )}
             <Box sx={{ flex: 1 }} />
             <Chip label={`${total.toLocaleString()} unmatched`} size="small"
@@ -337,23 +337,23 @@ export default function UnmatchedPage() {
         </CardContent>
       </Card>
 
-      {loading && <LinearProgress sx={{ mb: 1, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#ed1b2f" } }} />}
+      {loading && <LinearProgress sx={{ mb: 1, height: 2, "& .MuiLinearProgress-bar": { bgcolor: "#c8463a" } }} />}
 
       {/* Table */}
-      <Card sx={{ border: "1px solid #ececec", borderRadius: 2 }}>
+      <Card sx={{ border: "1px solid #e4e9f1", borderRadius: 2 }}>
         <CardContent sx={{ p: 0 }}>
           <TableContainer sx={{ maxHeight: "72vh" }}>
             <Table size="small" stickyHeader>
               <TableHead>
-                <TableRow sx={{ bgcolor: "#f8f9fa" }}>
+                <TableRow sx={{ bgcolor: "#f5f7fb" }}>
                   {["Competitor", "Ref", "Competitor Article", "Material", "Type", "Specifications", "Certs / Stock", "Price (qty 1)", "Action"].map(h => (
-                    <TableCell key={h} sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5f6368", textTransform: "uppercase" }}>{h}</TableCell>
+                    <TableCell key={h} sx={{ fontWeight: 700, fontSize: "0.7rem", color: "#5d6b85", textTransform: "uppercase" }}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {items.length === 0 && !loading && (
-                  <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6, color: "#5f6368" }}>
+                  <TableRow><TableCell colSpan={9} align="center" sx={{ py: 6, color: "#5d6b85" }}>
                     No unmatched competitor products in this filter — full coverage!
                   </TableCell></TableRow>
                 )}
@@ -368,7 +368,7 @@ export default function UnmatchedPage() {
                       </TableCell>
                       <TableCell>
                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.3 }}>
-                          <Typography sx={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#5f6368" }}>{p.external_ref}</Typography>
+                          <Typography sx={{ fontSize: "0.7rem", fontFamily: "monospace", color: "#5d6b85" }}>{p.external_ref}</Typography>
                           {p.source_url && (
                             <Tooltip title="Open competitor product page">
                               <IconButton size="small" component="a" href={p.source_url} target="_blank" rel="noopener noreferrer"
@@ -383,8 +383,8 @@ export default function UnmatchedPage() {
                         </Tooltip>
                       </TableCell>
                       <TableCell><Chip label={(p.material_normalized || "—").toUpperCase()} size="small" sx={{ fontSize: "0.55rem", height: 18 }} /></TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.68rem", color: "#5f6368" }}>{p.product_type || "—"}</Typography></TableCell>
-                      <TableCell><Typography sx={{ fontSize: "0.68rem", fontFamily: "monospace", color: "#1f1f1f", whiteSpace: "nowrap" }}>{specLine(p)}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.68rem", color: "#5d6b85" }}>{p.product_type || "—"}</Typography></TableCell>
+                      <TableCell><Typography sx={{ fontSize: "0.68rem", fontFamily: "monospace", color: "#15223a", whiteSpace: "nowrap" }}>{specLine(p)}</Typography></TableCell>
                       <TableCell>
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.3, alignItems: "center", maxWidth: 190 }}>
                           {certs.map(cert => (
@@ -392,7 +392,7 @@ export default function UnmatchedPage() {
                               sx={{ fontSize: "0.5rem", height: 16, bgcolor: "#e8f5e9", color: "#2e7d32", "& .MuiChip-icon": { color: "#2e7d32" } }} />
                           ))}
                           {p.in_stock === true && <Chip icon={<InventoryIcon sx={{ fontSize: "10px !important" }} />} label="in stock" size="small" sx={{ fontSize: "0.5rem", height: 16, bgcolor: "#e3f2fd", color: "#1565c0", "& .MuiChip-icon": { color: "#1565c0" } }} />}
-                          {p.in_stock !== true && p.stock_raw && p.stock_raw !== "price not available" && <Chip label={p.stock_raw} size="small" sx={{ fontSize: "0.5rem", height: 16, bgcolor: "#f1f3f4", color: "#5f6368" }} />}
+                          {p.in_stock !== true && p.stock_raw && p.stock_raw !== "price not available" && <Chip label={p.stock_raw} size="small" sx={{ fontSize: "0.5rem", height: 16, bgcolor: "#eef2f8", color: "#5d6b85" }} />}
                           {certs.length === 0 && p.in_stock !== true && (!p.stock_raw || p.stock_raw === "price not available") && <Typography sx={{ fontSize: "0.62rem", color: "#c4c9ce" }}>—</Typography>}
                         </Box>
                       </TableCell>
@@ -406,8 +406,8 @@ export default function UnmatchedPage() {
                       </TableCell>
                       <TableCell>
                         <Button size="small" variant="contained" startIcon={<LinkIcon />} onClick={() => openLinkDialog(p)}
-                          sx={{ bgcolor: "#ed1b2f", color: "#fff", boxShadow: "none", fontSize: "0.65rem", fontWeight: 700,
-                            "&:hover": { bgcolor: "#c41527", boxShadow: "none" } }}>
+                          sx={{ bgcolor: "#c8463a", color: "#fff", boxShadow: "none", fontSize: "0.65rem", fontWeight: 700,
+                            "&:hover": { bgcolor: "#a8372c", boxShadow: "none" } }}>
                           Link APSO
                         </Button>
                       </TableCell>
@@ -424,7 +424,7 @@ export default function UnmatchedPage() {
       {/* Manual Link Dialog — pick APSO product for this competitor row */}
       <Dialog open={linkDialog.open} onClose={() => !linking && setLinkDialog({ open: false, comp: null })}
         maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3, overflow: "hidden" } }}>
-        <Box sx={{ bgcolor: "#ed1b2f", px: 3, py: 2 }}>
+        <Box sx={{ bgcolor: "#c8463a", px: 3, py: 2 }}>
           <Typography sx={{ fontFamily: "var(--font-outfit), sans-serif", fontSize: "1.1rem", fontWeight: 700, color: "#fff" }}>
             Link Competitor ↔ APSO Product
           </Typography>
@@ -447,7 +447,7 @@ export default function UnmatchedPage() {
               <Card variant="outlined" sx={{ borderRadius: 2, bgcolor: "#fafbfc" }}>
                 <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
                   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.5 }}>
-                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#5f6368", textTransform: "uppercase" }}>Competitor article</Typography>
+                    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#5d6b85", textTransform: "uppercase" }}>Competitor article</Typography>
                     {c.source_url && (
                       <Button size="small" component="a" href={c.source_url} target="_blank" rel="noopener noreferrer"
                         startIcon={<OpenInNewIcon sx={{ fontSize: 13 }} />}
@@ -468,7 +468,7 @@ export default function UnmatchedPage() {
                       {c.in_stock === true && <Chip icon={<InventoryIcon sx={{ fontSize: "11px !important" }} />} label="in stock" size="small" sx={{ fontSize: "0.55rem", height: 18, bgcolor: "#e3f2fd", color: "#1565c0", "& .MuiChip-icon": { color: "#1565c0" } }} />}
                       {tiers.map(t => (
                         <Chip key={t.tier} label={`qty ${t.tier}: ${c.currency} ${Number(t.price).toFixed(2)}`} size="small"
-                          sx={{ fontSize: "0.55rem", height: 18, bgcolor: "#fff", border: "1px solid #e0e0e0", color: "#5f6368", fontFamily: "monospace" }} />
+                          sx={{ fontSize: "0.55rem", height: 18, bgcolor: "#fff", border: "1px solid #dfe5ee", color: "#5d6b85", fontFamily: "monospace" }} />
                       ))}
                     </Box>
                   )}
@@ -492,7 +492,7 @@ export default function UnmatchedPage() {
                   {suggestions.map(a => apsoRow(a, true))}
                 </Box>
               ) : !suggesting && (
-                <Typography sx={{ fontSize: "0.72rem", color: "#9aa1ab", fontStyle: "italic" }}>No close-dimension suggestions — use the search below.</Typography>
+                <Typography sx={{ fontSize: "0.72rem", color: "#8b97ac", fontStyle: "italic" }}>No close-dimension suggestions — use the search below.</Typography>
               )}
             </Box>
           )}
@@ -522,10 +522,10 @@ export default function UnmatchedPage() {
           <TextField size="small" type="email" label="Your Email (optional — saved in browser)"
             value={userEmail} onChange={(e) => saveEmail(e.target.value)} />
 
-          <Box sx={{ border: "1px solid #ececec", borderRadius: 2, maxHeight: 320, overflow: "auto" }}>
+          <Box sx={{ border: "1px solid #e4e9f1", borderRadius: 2, maxHeight: 320, overflow: "auto" }}>
             {searching && <Box sx={{ p: 2, textAlign: "center" }}><CircularProgress size={20} /></Box>}
             {!searching && apsoCandidates.length === 0 && (
-              <Box sx={{ p: 3, textAlign: "center", color: "#5f6368", fontSize: "0.78rem" }}>
+              <Box sx={{ p: 3, textAlign: "center", color: "#5d6b85", fontSize: "0.78rem" }}>
                 No APSO candidates yet — try searching by article number, description, or change the mandant.
               </Box>
             )}
@@ -533,7 +533,7 @@ export default function UnmatchedPage() {
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setLinkDialog({ open: false, comp: null })} disabled={linking} sx={{ color: "#5f6368" }}>Cancel</Button>
+          <Button onClick={() => setLinkDialog({ open: false, comp: null })} disabled={linking} sx={{ color: "#5d6b85" }}>Cancel</Button>
         </DialogActions>
       </Dialog>
     </Box>
