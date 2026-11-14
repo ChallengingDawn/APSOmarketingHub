@@ -154,6 +154,9 @@ test("Pricing: nobody has it until it is given; an admin edits; a sales leader v
   assert.equal(appOpen("pricing", levelsOf("user", { datatracker: "read" })), false);
   assert.equal(accessAt("/pricing/repricing", levelsOf("admin", {})).level, "write");
   assert.equal(accessAt("/pricing/repricing", levelsOf("sales_leader", {})).level, "read");
+  // a sales leader can be given Edit there, as on Advanced reporting - Pricing's people are named one by one
+  assert.equal(accessAt("/pricing/repricing", levelsOf("sales_leader", { pricing: "write" })).level, "write");
+  assert.equal(accessAt("/uc/personas", levelsOf("sales_leader", { uc: "write" })).level, "read");
   assert.equal(accessAt("/pricing/repricing", levelsOf("user", { pricing: "write" })).level, "write");
 });
 

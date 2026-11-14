@@ -18,7 +18,7 @@
 
 import { APPS } from "../../app/hubApps"; // relative: the unit tests compile this file
 import { REPORT_CATEGORIES } from "../reporting/categories";
-import { APP_KEYS, CROSS_FULL_APPS, CROSS_HIDDEN_CATEGORIES, appForPath, roleDefault, type AppKey, type Cross, type Level, type Role } from "./access";
+import { APP_KEYS, CROSS_FULL_APPS, CROSS_HIDDEN_CATEGORIES, SALES_LEADER_EDITS, appForPath, roleDefault, type AppKey, type Cross, type Level, type Role } from "./access";
 
 export type AccessNode = {
   key: string;
@@ -144,7 +144,8 @@ export function levelsOf(role: Role, grants: Grants, cross: Cross | null = null)
     let l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : roleDefault(role));
     // a sales leader views everything not taken from them, and edits only the Advanced reports given to them
     // (SARCLA 01.11.2026: "i can't deny one of the reports - that's the point")
-    if (role === "sales_leader" && n.app !== "reporting" && l === "write") l = "read";
+    // - and in Pricing where given (access.ts SALES_LEADER_EDITS)
+    if (role === "sales_leader" && !SALES_LEADER_EDITS.includes(n.app) && l === "write") l = "read";
     out[n.key] = l;
   }
   return out;

@@ -9,7 +9,7 @@ import { z } from "zod";
 import { getOptionalUser } from "@/lib/auth/guard";
 import { ensureSchema } from "@/lib/db/init";
 import { query } from "@/lib/db/client";
-import { asCross, asRole, roleDefault, type Cross, type Level, type Role } from "@/lib/auth/access";
+import { SALES_LEADER_EDITS, asCross, asRole, roleDefault, type Cross, type Level, type Role } from "@/lib/auth/access";
 import { isNodeKey, nodeByKey } from "@/lib/auth/tree";
 
 export const runtime = "nodejs";
@@ -94,11 +94,12 @@ export async function PUT(req: NextRequest) {
       error: "An admin already has every app. Change the role instead.",
     }, { status: 400 });
   }
-  // A sales leader views what is not taken from them; Edit can be given in Advanced reporting only (SARCLA 01.11.2026)
-  if (role === "sales_leader" && node.app !== "reporting" && level === "write") {
+  // A sales leader views what is not taken from them; Edit can be given in Advanced reporting (SARCLA 01.11.2026) and in
+  // Pricing (14.11.2026) only - access.ts SALES_LEADER_EDITS
+  if (role === "sales_leader" && !SALES_LEADER_EDITS.includes(node.app) && level === "write") {
     return NextResponse.json({
       ok: false,
-      error: "A sales leader can be given Edit on Advanced reporting only.",
+      error: "A sales leader can be given Edit on Advanced reporting and Pricing only.",
     }, { status: 400 });
   }
 
