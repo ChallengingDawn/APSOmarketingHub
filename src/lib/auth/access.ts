@@ -45,7 +45,7 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 export const ROLE_NOTE: Record<Role, string> = {
   admin: "Every app and sub-app, and the parts of Settings that govern other people.",
-  sales_leader: "Every app and sub-app to view, but those taken from them - and edit on the Advanced reports given to them.",
+  sales_leader: "Every app and sub-app to view, but those taken from them - and edit on the Advanced reports and in Pricing where given.",
   user: "The Datatracker to start with; any other app or sub-app given to them, to view or to edit.",
 };
 
@@ -62,6 +62,12 @@ export function ceiling(role: Role): Level {
   // a sales leader edits only in Advanced reporting, and only there where given (tree.ts)
   return "read";
 }
+
+/**
+ * Where a sales leader can be given Edit: Advanced reporting (SARCLA 01.11.2026), and Pricing - its people are named one
+ * by one (SARCLA 14.11.2026: "enrico and admin full access, the others I will select"), whatever their role.
+ */
+export const SALES_LEADER_EDITS: readonly AppKey[] = ["reporting", "pricing"];
 
 /** What a role has where nothing was granted: a sales leader views everything, a user nothing. */
 export function roleDefault(role: Role): Level {
@@ -250,7 +256,7 @@ export const LEVELS: { value: Level; label: string }[] = [
  */
 export function levelsFor(role: Role, app?: string): { value: Level; label: string }[] {
   if (role === "admin") return [];
-  if (role === "sales_leader") return app === "reporting" ? LEVELS : LEVELS.filter((l) => l.value !== "write");
+  if (role === "sales_leader") return SALES_LEADER_EDITS.includes(app as AppKey) ? LEVELS : LEVELS.filter((l) => l.value !== "write");
   return LEVELS;
 }
 
