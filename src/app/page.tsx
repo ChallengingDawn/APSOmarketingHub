@@ -23,6 +23,7 @@ import InsightsIcon from "@mui/icons-material/Insights";
 import HubIcon from "@mui/icons-material/Hub";
 import CableIcon from "@mui/icons-material/Cable";
 import ScienceOutlinedIcon from "@mui/icons-material/ScienceOutlined";
+import PriceChangeOutlinedIcon from "@mui/icons-material/PriceChangeOutlined";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 
@@ -45,6 +46,7 @@ const ACCENT = "#3b7df6";
 const APP_ICON: Record<HubApp["icon"], React.ReactNode> = {
   store: <StorefrontIcon />, globe: <PublicIcon />, campaign: <CampaignIcon />,
   trend: <TrendingUpIcon />, hub: <HubIcon />, chart: <InsightsIcon />, cable: <CableIcon />, science: <ScienceOutlinedIcon />,
+  price: <PriceChangeOutlinedIcon />,
 };
 
 const glass = {
@@ -165,7 +167,8 @@ export default function FrontPage() {
 
   return (
     <Box sx={{
-      minHeight: "100vh", position: "relative", overflowX: "hidden", bgcolor: MESH_BASE,
+      // clip, not hidden: "hidden" makes this box a scroll container, and the quick-links column could no longer stay in view
+      minHeight: "100vh", position: "relative", overflowX: "clip", bgcolor: MESH_BASE,
       // One rule for the whole page: somebody who asked their system for less
       // motion gets none, and no component has to remember to opt out.
       "@media (prefers-reduced-motion: reduce)": {
@@ -195,8 +198,14 @@ export default function FrontPage() {
             of its own. Below three the tiles stop stretching and take a sensible
             width instead, because a single card spanning the window is not a
             launch pad, it is a billboard. */}
+        {/* The quick links are a column of mini apps right against the apps (SARCLA 13.11.2026: "put the quick actions
+            on the left side in vertical like mini apps"; 14.11.2026: "really next to apps so apps are still visible"):
+            narrow, so the tiles keep their width, and in view while the page scrolls. On a phone, a strip on top. */}
+        <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "stretch", md: "flex-start" }, gap: 2, mt: { xs: 2.5, md: 3 } }}>
+        {panel("quickLinks") && <QuickLinks glass={glass} mayOpen={mayOpen} />}
+        <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box id="applications" sx={{
-          display: "grid", gap: { xs: 2, md: 2 }, alignItems: "stretch", mt: { xs: 2.5, md: 3 },
+          display: "grid", gap: { xs: 2, md: 2 }, alignItems: "stretch",
           justifyContent: "start",
           gridTemplateColumns: {
             xs: "1fr",
@@ -329,11 +338,8 @@ export default function FrontPage() {
         <Box id="resources" sx={{
           display: "grid", gap: 2, mt: 2,
           gridTemplateColumns: { xs: "1fr", md: "1.15fr 1fr" },
-          "@media (min-width:1280px)": { gridTemplateColumns: "1.15fr 1fr 1fr" },
           ...rise(6),
         }}>
-          {panel("quickLinks") && <QuickLinks glass={glass} mayOpen={mayOpen} />}
-
           {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
 
           {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
@@ -342,6 +348,8 @@ export default function FrontPage() {
           {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
             ? <LockedPlanCard glass={glass} />
             : <ActionPlanCard glass={glass} focusRing={focusRing} />)}
+        </Box>
+        </Box>
         </Box>
 
       </Box>

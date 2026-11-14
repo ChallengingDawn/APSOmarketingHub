@@ -18,7 +18,7 @@
 
 import { APPS } from "../../app/hubApps"; // relative: the unit tests compile this file
 import { REPORT_CATEGORIES } from "../reporting/categories";
-import { APP_KEYS, CROSS_HIDDEN_CATEGORIES, appForPath, roleDefault, type AppKey, type Cross, type Level, type Role } from "./access";
+import { APP_KEYS, CROSS_FULL_APPS, CROSS_HIDDEN_CATEGORIES, appForPath, roleDefault, type AppKey, type Cross, type Level, type Role } from "./access";
 
 export type AccessNode = {
   key: string;
@@ -132,8 +132,10 @@ export function levelsOf(role: Role, grants: Grants, cross: Cross | null = null)
   if (cross === "user" && role !== "admin") {
     for (const n of ACCESS_TREE) {
       if (underHidden(n)) { out[n.key] = "none"; continue; }
-      const l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : "read");
-      out[n.key] = l === "write" ? "read" : l;
+      // Pricing is theirs in full (access.ts CROSS_FULL_APPS): edit, unless a grant takes it away
+      const full = CROSS_FULL_APPS.includes(n.app);
+      const l: Level = grants[n.key] ?? (n.parent ? out[n.parent] : full ? "write" : "read");
+      out[n.key] = l === "write" && !full ? "read" : l;
     }
     return out;
   }

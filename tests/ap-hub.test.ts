@@ -69,6 +69,10 @@ test("cross access: a cross-user sends nothing but reads and their own account",
   assert.equal(crossUserMaySend("POST", "/api/uc/map-assignment"), false);
   assert.equal(crossUserMaySend("PATCH", "/api/admin/users/3"), false);
   assert.equal(crossUserMaySend("DELETE", "/api/content/projects/1"), false);
+  // but Pricing, theirs in full (SARCLA 14.11.2026) - its data and their saved filters
+  assert.equal(crossUserMaySend("POST", "/api/pricing/api/matches/approve-group"), true);
+  assert.equal(crossUserMaySend("PUT", "/api/pricing/prefs"), true);
+  assert.equal(crossUserMaySend("POST", "/api/pricingx"), false);
   assert.equal(crossUserMaySend("POST", "/uc/some-page"), false); // a server action on a page
   assert.equal(crossUserMaySend("POST", "/api/me/prefs"), true);
   assert.equal(crossUserMaySend("POST", "/api/auth/logout"), true);
@@ -87,9 +91,11 @@ test("cross access: the hidden reports' data by address", () => {
   }
 });
 
-test("cross access: a cross-user views everything else, edits nothing", () => {
+test("cross access: a cross-user views everything else, edits nothing - but Pricing", () => {
   const lv = levelsOf("user", { datatracker: "write", uc: "write" }, "user");
-  assert.ok(Object.values(lv).every((l) => l !== "write"), "nothing at Edit");
+  // Pricing is theirs in full (SARCLA 14.11.2026: "full access to pricing hub goes to AP member" - access.ts CROSS_FULL_APPS)
+  assert.ok(Object.entries(lv).every(([k, l]) => l !== "write" || k === "pricing" || k.startsWith("pricing:") || k.startsWith("pricing#")), "nothing at Edit but Pricing");
+  assert.equal(lv["pricing"], "write");
   assert.equal(lv["datatracker"], "read");
   assert.equal(lv["website"], "read"); // never granted, still viewed
   for (const slug of ["marketing", "tsa", "eso", "back-office", "sales-leader", "my-sales"]) {

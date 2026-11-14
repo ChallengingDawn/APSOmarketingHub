@@ -48,7 +48,8 @@ export default function AccessTree({ role, access, cross = null, busy, onSet }: 
     const parent = n.parent ? nodeByKey(n.parent) : null;
     // an app not set is at the role's own (nothing for a user, View for a sales leader); a grant the role cannot hold -
     // a user's Edit kept from before they became a sales leader - shows as what it comes to
-    const value: Choice = own === undefined ? (parent ? "inherit" : roleDefault(role))
+    // a cross-user's app not set is what levelsOf gives them (View; Edit in Pricing - access.ts CROSS_FULL_APPS)
+    const value: Choice = own === undefined ? (parent ? "inherit" : cross === "user" && role !== "admin" ? levels[n.key] : roleDefault(role))
       : offered.some((l) => l.value === own) ? own : levels[n.key];
     return (
       <Fragment key={n.key}>

@@ -33,7 +33,7 @@ export function asRole(stored: string | null | undefined): Role {
 /** What a person may do in an app they have been granted. */
 export type Level = "none" | "read" | "write";
 
-export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc", "connectors"] as const;
+export const APP_KEYS = ["datatracker", "website", "reporting", "marketing", "journey", "uc", "connectors", "pricing"] as const;
 export type AppKey = (typeof APP_KEYS)[number];
 
 /** What each role is called on screen. */
@@ -132,9 +132,17 @@ export function asCross(stored: string | null | undefined): Cross | null {
 export const CROSS_LABEL: Record<Cross, string> = { user: "Cross-user", admin: "Cross-admin" };
 
 export const CROSS_NOTE: Record<Cross, string> = {
-  user: "Starts on the Angst+Pfister hub. Views the APSOparts hub and changes nothing; no Digital Growth, TSA, ESO or Back-Office Reports.",
+  user: "Starts on the Angst+Pfister hub. Views the APSOparts hub and changes nothing but Pricing, theirs in full; no Digital Growth, TSA, ESO or Back-Office Reports.",
   admin: "Starts on the Angst+Pfister hub. An admin of both hubs.",
 };
+
+/**
+ * The apps a cross-user of Angst+Pfister has IN FULL - to view and to change, unlike the rest of the APSOparts hub (SARCLA
+ * 14.11.2026: "full access to pricing hub goes to AP member"). A grant can still take a page or the whole app away from
+ * one person; without one they edit. Their APIs are what the middleware lets a cross-user send (CROSS_USER_MAY_SEND).
+ */
+export const CROSS_FULL_APPS: readonly AppKey[] = ["pricing"];
+const CROSS_FULL_API = ["/api/pricing/"];
 
 /** Advanced reporting's categories (src/lib/reporting/categories.ts slugs) a cross-user never sees. */
 export const CROSS_HIDDEN_CATEGORIES = ["marketing", "tsa", "eso", "back-office", "sales-leader", "my-sales"] as const;
@@ -178,7 +186,7 @@ export function homeFor(cross: Cross | null): string {
  * body of a POST. Everything else that is not GET is refused at the door (src/middleware.ts), so a button that forgot
  * its guard changes nothing either. A read that turns out to be a POST shows "View only" and is added here.
  */
-const CROSS_USER_MAY_SEND = ["/api/auth/", "/api/me/", "/api/reporting/customer-kpis"];
+const CROSS_USER_MAY_SEND = ["/api/auth/", "/api/me/", "/api/reporting/customer-kpis", ...CROSS_FULL_API];
 
 export function crossUserMaySend(method: string, pathname: string): boolean {
   if (method === "GET" || method === "HEAD" || method === "OPTIONS") return true;
@@ -304,6 +312,10 @@ const ROUTES: [string, AppKey][] = [
   // into the hub, and what every connection writes. Configuration, so nobody
   // has it until an admin grants it.
   ["/connectors", "connectors"],
+
+  // The PricingHub's pages, moved into the hub (SARCLA 13.11.2026); its data stays on the PricingHub backend, read
+  // through /api/pricing/api/* (src/app/api/pricing/api/[...path]/route.ts)
+  ["/pricing", "pricing"],
 ];
 
 /**
