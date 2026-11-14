@@ -32,6 +32,7 @@ export function Donut({
   maxRows = 7,
   onSelect,
   selected,
+  whole,
   emptyMessage = "Nothing to split for this window.",
 }: {
   parts: DonutPart[];
@@ -46,6 +47,8 @@ export function Donut({
   onSelect?: (label: string) => void;
   /** the parts picked - the others fade */
   selected?: string[] | null;
+  /** the whole in the middle when a part too small to draw is left out of the ring (it stays in the table) */
+  whole?: number;
   emptyMessage?: string;
 }) {
   const [hover, setHover] = useState<string | null>(null);
@@ -185,7 +188,7 @@ export function Donut({
         </svg>
         <Box sx={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", textAlign: "center", px: `${band + 6}px` }}>
           <Typography sx={{ fontSize: ring < 200 ? "1.02rem" : "1.3rem", fontWeight: 700, color: CHROME.ink, fontVariantNumeric: "tabular-nums", lineHeight: 1.15, letterSpacing: "-0.02em" }}>
-            {format(shown ? shown.value : total)}
+            {format(shown ? shown.value : whole ?? total)}
           </Typography>
           <Typography sx={{ fontSize: "0.74rem", color: CHROME.muted, lineHeight: 1.25, mt: 0.4, overflowWrap: "anywhere" }}>
             {shown ? `${shown.label} · ${percent(shown.value / total)}` : centerLabel}
