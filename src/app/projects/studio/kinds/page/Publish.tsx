@@ -646,16 +646,23 @@ export function ToMagento({ api, doc, d, setView, canEdit, lang, initial, abPart
     setBusy(`all:${env.env}`); setSaid(null);
     const results: Result[] = [];
     const records: MagentoRecord[] = [];
+    // the A/B tests production closed (their version made the page here - PublishAb's "Make C the page", Content v19)
+    const ab: { closed: string[]; kept: { testId: string; why: string }[] } = { closed: [], kept: [] };
     for (let i = 0; i < views.length; i++) {
       const v = views[i];
       setRun({ env: env.env, line: progressLine(label(v), env.label, i + 1, views.length), results: [...results], records: [...records], done: false });
-      const r = await api.act<{ env: Env; results: Result[]; records: MagentoRecord[] }>("magento_publish", { env: env.env, views: [v] });
+      const r = await api.act<{ env: Env; results: Result[]; records: MagentoRecord[]; ab?: typeof ab }>("magento_publish", { env: env.env, views: [v] });
       if (!r.ok) { results.push({ view: v, ok: false, error: r.error }); if (i === 0) break; continue; }
       results.push(...r.result.results);
       records.push(...r.result.records);
+      if (r.result.ab) { ab.closed.push(...r.result.ab.closed); ab.kept.push(...r.result.ab.kept); }
     }
     const okN = results.filter((r) => r.ok).length;
-    setRun({ env: env.env, line: `${okN} of ${results.length} written into ${env.label}${okN < results.length ? ` - ${results.length - okN} not` : ""}.`, results, records, done: true });
+    const abLine = [
+      ab.closed.length ? ` A/B testing: test${ab.closed.length === 1 ? "" : "s"} ${ab.closed.map((x) => `#${x}`).join(", ")} closed as published - the winner is on the shop.` : "",
+      ...ab.kept.map((k) => ` A/B testing: test #${k.testId} not closed - ${k.why.replace(/\.+$/, "")}.`),
+    ].join("");
+    setRun({ env: env.env, line: `${okN} of ${results.length} written into ${env.label}${okN < results.length ? ` - ${results.length - okN} not` : ""}.${abLine}`, results, records, done: true });
     setBusy(null);
     await api.reload();
     await load();

@@ -18,6 +18,7 @@ import { share } from "@/lib/content/sharing";
 import { createTodoTicket, movePlace, planPlaces, syncPieceTasks, ticketDraft } from "@/lib/content/todos";
 import { addEvent, addPiece, cleanBrief, setBrief, setPlanItem, setSource } from "@/lib/content/workflow";
 import { markIdeas } from "@/lib/content/ideas";
+import { campaignFacts } from "@/lib/content/campaignFacts";
 
 export type IdeaRef = { key?: string; source: string; title: string; why?: string; url?: string };
 export type Line = { contentType: string; title: string; language: string | null; writer: string | null; reviewer: string | null; dueDate: string | null; why?: string };
@@ -28,7 +29,7 @@ const LANG_CODES = LANGUAGES.map((l) => l.code);
 
 const ideasText = (ideas: IdeaRef[]) => ideas.map((i) => `- [${i.source}] ${i.title}${i.why ? ` - ${i.why}` : ""}${i.url ? ` (${i.url})` : ""}`).join("\n");
 
-export async function proposeProject(p: { goal: string; ideas: IdeaRef[]; languages: string[] }): Promise<Proposal | null> {
+export async function proposeProject(p: { ask?: string; goal: string; ideas: IdeaRef[]; languages: string[] }): Promise<Proposal | null> {
   const client = getAnthropic();
   if (!client) return null;
   const brain = await readBrain();
@@ -51,8 +52,20 @@ export async function proposeProject(p: { goal: string; ideas: IdeaRef[]; langua
   };
   const r = await claudeText({
     client,
-    system: [{ type: "text", text: `${brandSystemPrompt(brain)}\n\nYou plan content projects for the APSOparts marketing team. From a goal and the ideas it comes from, propose ONE project: a short name (at most 8 words), its goal (one sentence), who it is for, its key message, and the to-dos that make it - each a content type from the list, or "${TASK_KIND}" for a plain action around them (brief the agency, get product photos, check with product management...). Between 3 and 8 lines; one line per language only where the languages asked need it. Titles are short and concrete (what it is, not its type). "why" = one sentence. English. Never invent product facts or figures.\n\nContent types:\n${kinds}\n${TASK_KIND}: an action (no content of its own)` }],
-    user: [`Goal: ${p.goal || "(none given - read the ideas)"}`, p.ideas.length ? `Ideas it comes from:\n${ideasText(p.ideas)}` : "", `Languages wanted: ${p.languages.length ? p.languages.join(", ") : "DE"}`].filter(Boolean).join("\n\n"),
+    system: [{ type: "text", text: `${brandSystemPrompt(brain)}\n\nYou plan content projects for the APSOparts marketing team. From what the person wants (their own words) and the ideas it comes from, propose ONE project:
+- "title": a short name, at most 8 words;
+- "goal": ONE sentence saying what should change because of it - a result for the business or its buyers. Never the name, never the person's words repeated;
+- "audience": who it is for;
+- "message": the ONE message of THIS project, in a buyer's words - what it brings them. The brand facts above are background: the message never argues against what the person asked for (a campaign the person names IS the project), and never names a discount figure or a price;
+- "lines": the to-dos that make it - each a content type from the list, or "${TASK_KIND}" for a plain action around them (brief the agency, get product photos, check with product management...). Between 3 and 8 lines; one line per language only where the languages asked need it. Titles are short and concrete (what it is, not its type). "why" = one sentence.
+English. Never invent product facts or figures.\n\nContent types:\n${kinds}\n${TASK_KIND}: an action (no content of its own)` }],
+    user: [
+      `What the person wants: ${p.ask || p.goal || "(nothing written - read the ideas)"}`,
+      p.goal && p.ask && p.goal.trim().toLowerCase() !== p.ask.trim().toLowerCase() ? `Their goal so far: ${p.goal}` : "",
+      p.ideas.length ? `Ideas it comes from:\n${ideasText(p.ideas)}` : "",
+      `Languages wanted: ${p.languages.length ? p.languages.join(", ") : "DE"}`,
+      campaignFacts([p.ask ?? "", p.goal, ...p.ideas.map((i) => i.title)].join(" ")),
+    ].filter(Boolean).join("\n\n"),
     budget: { maxTokens: 2500, effort: "low" },
     outputFormat: { type: "json_schema", schema },
   });

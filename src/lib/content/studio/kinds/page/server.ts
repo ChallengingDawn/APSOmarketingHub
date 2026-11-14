@@ -66,7 +66,8 @@ import {
   type AiChange, type MagentoRecord, type PageChange, type PageDoc,
   lettersOf, openVersion, withView,
 } from "./model";
-import { blocksChanged, pageVariant } from "./abFlow";
+import { blocksChanged, pageVariant, wonDue, wonHow } from "./abFlow";
+import { markPublished } from "@/lib/convert/tests";
 import { variantChanges, type ChangeLite } from "./publishView";
 import { BLOCK_SCHEMA, BLOCK_SYSTEM, KIT_EXAMPLES, SHOP_TOKENS, blockAsk, blockChange, blockRules, cleanBlock, prefixIn, prefixOf, type BlockMode } from "./block";
 import { blockOfPath, blocksOf, itemOfPath } from "./outline";
@@ -83,7 +84,9 @@ import { planActions, planTask } from "./plan/server";
 import { findsOnPage } from "./plan/places";
 import { envFilter, publishTargets, targetWhy } from "./env";
 import { runningOn } from "./abState";
-import { NEWPAGE_SCHEMA, cleanNewPageModules, factKeys, factsBlock, guardFill, guardText, newPageAddresses, newPageSystem, newPageUser, ownPoints, subjectOf } from "./plan/newpage";
+import {
+  NEWPAGE_SCHEMA, accountLinks, campaignLibrary, campaignOf, campaignUser, cleanNewPageModules, factKeys, factsBlock, guardFill, guardText, newPageAddresses, newPageLibrary, newPageSystem, newPageUser, ownPoints, subjectOf,
+} from "./plan/newpage";
 import { readStore, treeFor } from "./plan/fill";
 import { categoryFacts, type CategoryFacts } from "./modules/source";
 import { readBrain } from "@/lib/brain";
@@ -435,6 +438,11 @@ function decides(d: PageDoc, input: Record<string, unknown>): boolean {
   return typeof input.decide === "boolean" ? input.decide : d.source === "new" && !blockOrder(d.fields).length;
 }
 
+/** The words that say what a page is about - a campaign named in them brings its own modules (./plan/newpage.ts
+ * campaignOf: the project, the to-do, its brief's words, the person's ask). */
+const campaignContext = (ctx: StudioCtx, input: Record<string, unknown>) =>
+  [ctx.projectTitle, ctx.piece.title, ...ctx.brief.keywords, s(input.request, 600)].join(" ");
+
 const fillPage: AiTask = {
   label: "Write the page",
   schema: NEWPAGE_SCHEMA,
@@ -445,7 +453,9 @@ const fillPage: AiTask = {
     const d = viewFor(ctx, raw, input);
     const tree = await treeFor(d.store).catch(() => []);
     const facts = factsBlock(await subjectFacts(ctx, d, input, tree));
-    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts, decide: decides(d, input) })}`;
+    const camp = campaignOf(campaignContext(ctx, input));
+    const campaign = camp ? campaignUser(camp.name, campaignLibrary(campaignContext(ctx, input)), d.store) : "";
+    return `${fillUser("all")(ctx, raw, input)}\n\n${newPageUser({ tree, candidates: candidatesOf(input), language: langOf(d), store: d.store, facts, decide: decides(d, input) })}${campaign ? `\n\n${campaign}` : ""}`;
   },
   clean: async (raw, docRaw, ctx, input) => {
     const d = viewFor(ctx, docRaw, input);
@@ -453,6 +463,10 @@ const fillPage: AiTask = {
     const base = cleanFill(raw, cands);
     const tree = await treeFor(d.store).catch(() => []);
     const store = d.store.split("/")[0];
+    // a campaign's page: its modules taken too, and its buttons may go to the store view's account pages
+    const camp = campaignLibrary(campaignContext(ctx, input));
+    const addr = newPageAddresses(tree, cands);
+    if (camp.length) for (const a of accountLinks(store)) { addr.links.push(a.url); addr.linkNames[a.url] = a.name; }
     const subject = factsBlock(await subjectFacts(ctx, d, input, tree));
     // what a word may name: the brief, the brand facts, the shop's pages, the subject's own facts - and the shop's own
     // points the library's modules show (a norm such as ISO 3601 is the shop's own words there)
@@ -463,7 +477,7 @@ const fillPage: AiTask = {
     const lang = d.store.slice(0, 2);
     // the text blocks' words under the shop's word rules too
     const g = guardFill(base.answer, pageText, lang, facts);
-    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...newPageAddresses(tree, cands), pageText, lang, store, facts });
+    const mods = cleanNewPageModules((raw as { modules?: unknown } | null)?.modules, { ...addr, pageText, lang, store, facts, ...(camp.length ? { lib: [...newPageLibrary(), ...camp] } : {}) });
     return { answer: g.answer, leftovers: base.leftovers, modules: mods.modules, problems: [...new Set([...g.problems, ...mods.problems, ...mods.modules.flatMap((m) => m.problems.filter((p) => / left out/.test(p)))])].slice(0, 12) };
   },
 };
@@ -1210,9 +1224,40 @@ const magentoPublish: ServerAction = async (ctx, raw, input) => {
       }
     }
   }
-  if (records.length) await write(ctx, [{ op: "set", path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }, ...moved]);
-  return { env, results, records };
+  // a test whose version was made the page here (doc.abWon): production written for its store view = its winner is on
+  // the shop - closed in A/B testing (Content v19, dev-eb's "published"), its mark taken off in the same save
+  const ab = env === "prod" && doc.abWon.length ? await closeWonTests(doc, results, ctx.me.username) : null;
+  const ops: Op[] = [...(records.length ? [{ op: "set" as const, path: ["magento"], value: [...records, ...doc.magento].slice(0, 40) }, ...moved] : []), ...(ab?.changed ? [{ op: "set" as const, path: ["abWon"], value: ab.left }] : [])];
+  if (ops.length) await write(ctx, ops);
+  return { env, results, records, ...(ab && (ab.closed.length || ab.kept.length) ? { ab: { closed: ab.closed, kept: ab.kept } } : {}) };
 };
+
+/** The waiting tests a production write put live, closed in A/B testing as published (lib/convert/tests.ts markPublished -
+ * the same as its {action:"published"}, with that page's own write level): closed or gone = the mark off; refused ("decide
+ * it first", "still live") = kept, with A/B testing's words. */
+const AB_TESTS_PAGE = "/website/ab-testing/pages";
+async function closeWonTests(doc: PageDoc, results: readonly { view: string; ok: boolean }[], by: string) {
+  const due = wonDue(doc.abWon, results, (v) => storesOfView(doc, v));
+  const closed: string[] = [];
+  const kept: { testId: string; why: string }[] = [];
+  if (!due.length) return { left: doc.abWon, closed, kept, changed: false };
+  const acc = await myAccess().catch(() => null);
+  const may = !!acc && acc.levelAt(AB_TESTS_PAGE) === "write";
+  const off = new Set<string>();
+  for (const m of due) {
+    if (!may) { kept.push({ testId: m.testId, why: "closing it needs the write level of A/B testing > Page tests - close it there" }); continue; }
+    try {
+      await markPublished(m.testId, by, wonHow(m, storesOfView(doc, m.view)));
+      closed.push(m.testId); off.add(m.testId);
+    } catch (e) {
+      const why = (e as Error).message;
+      if (/no such test/i.test(why)) off.add(m.testId);
+      kept.push({ testId: m.testId, why });
+    }
+  }
+  const left = doc.abWon.filter((m) => !off.has(m.testId));
+  return { left, closed, kept, changed: left.length !== doc.abWon.length };
+}
 
 /**
  * A version's change list for an A/B test (Content v15, SARCLA 11.11.2026: "in one click create, with the same content,

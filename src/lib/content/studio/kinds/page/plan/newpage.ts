@@ -37,6 +37,44 @@ export const NEWPAGE_SKIP_CATEGORIES = ["heroes", "campaigns", "references", "me
  * offered, so never picked (a table of figures, the shop's quote pictures). */
 export const newPageLibrary = (lib: LibModule[] = library()): LibModule[] => lib.filter((m) => !(NEWPAGE_SKIP_CATEGORIES as readonly string[]).includes(m.category) && isPlannable(m.id));
 
+/** A CAMPAIGN'S OWN MODULES on a page about it (14.11.2026, SARCLA building the Black Friday page from a prompt: "where are
+ * the black friday modules?"). A new page takes no campaign module in general (above) - but a page whose to-do names the
+ * campaign (its project, its title, its brief's words or the person's ask) is offered that campaign's modules, by their
+ * ids' prefix, never another campaign's. */
+export const CAMPAIGN_SETS = [{ name: "Black Friday", test: /black[\s-]?friday/i, prefix: "campaign-bf-" }] as const;
+export const campaignOf = (context: string) => CAMPAIGN_SETS.find((c) => c.test.test(context)) ?? null;
+export function campaignLibrary(context: string, lib: LibModule[] = library()): LibModule[] {
+  const c = campaignOf(context);
+  return c ? lib.filter((m) => m.id.startsWith(c.prefix) && isPlannable(m.id)) : [];
+}
+/** Modules that bring the campaign's own words in every language (the voucher: its title, its small print, its two
+ * account buttons) - placed by the AI, never written by it. */
+export const KEEPS_OWN_WORDS = new Set(["campaign-bf-voucher"]);
+/** The store view's account pages - where a campaign's buttons go (register, sign in), named in the shop's languages so a
+ * button's words say it (plan.ts buttonSays). */
+export function accountLinks(store: string): { url: string; name: string }[] {
+  const s = store.split("/")[0];
+  return [
+    { url: `${BASE}/${s}/customer/account/create/`, name: "Register registrieren Konto erstellen create account sign up créer un compte inscrivez inscription registrati registreren registrer zarejestruj rejestracja crear cuenta" },
+    { url: `${BASE}/${s}/customer/account/login/`, name: "Sign in login log in anmelden einloggen connexion connecter accedi accesso inloggen aanmelden zaloguj logowanie iniciar sesión" },
+  ];
+}
+/** What the whole-page write is told on a campaign's page: its modules first, where each goes, what they keep. */
+export function campaignUser(name: string, lib: LibModule[], store: string): string {
+  if (!lib.length) return "";
+  const acc = accountLinks(store);
+  const own = lib.filter((m) => KEEPS_OWN_WORDS.has(m.id)).map((m) => `"${m.id}"`);
+  return `THIS IS A ${name.toUpperCase()} PAGE. Its campaign has modules of its own - the campaign's real photos and look. Build the
+page around them: 2 to 4 of THE CAMPAIGN'S MODULES below among your modules (they count in the 6), the poster right after
+the hero, the others between the sections, then the shop's own modules (products, a tool) as usual.${own.length ? `
+${own.join(", ")} bring${own.length === 1 ? "s" : ""} the campaign's own words, buttons and small print in every language: give ${own.length === 1 ? "it" : "them"} NO words (all "", items [], fill "none", count 0) - only "module", "at", "how", "why".` : ""}
+The others' words you write for this page, in its language, under the same rules (never a discount figure, a "%" or a
+price - the campaign's offer is each company's own code, shown after login). Their buttons go to the account pages:
+register = ${acc[0].url} · sign in = ${acc[1].url}
+THE CAMPAIGN'S MODULES:
+${libraryText(lib)}`;
+}
+
 /** The blocks a module stands after (or takes the place of), as the AI names them. */
 export const MODULE_AT = ["hero", "intro", "benefits", "section 1", "section 2", "section 3", "section 4", "section 5", "section 6", "links", "faq", "cta"] as const;
 export type ModuleAt = (typeof MODULE_AT)[number];
@@ -317,6 +355,8 @@ export function cleanNewPageModules(raw: unknown, ctx: NewPageCtx): { modules: N
     if (how === "instead" && !INSTEAD_OK.has(at)) { how = "after"; said.push(`${blockName(at)} stays (${at === "hero" ? "it holds the page's title" : "a section is not replaced"}) - the module goes after it`); }
     if (how === "instead" && instead.has(at)) { how = "after"; said.push(`${blockName(at)} was replaced already - the module goes after it`); }
     const words = wordsIn(x.words, ctx.pageText, said, ctx.lang);
+    // a campaign's module that brings its own words (the voucher): placed, never written
+    if (KEEPS_OWN_WORDS.has(id)) { Object.assign(words, emptyWords()); x.link = ""; x.link2 = ""; x.extras = []; }
     // a module whose points are the shop's own (each with its page or its picture) keeps them: words by index would put
     // one tool's name on another's link
     // (a store view where the module has none of its own: the AI's points stand, without pages)

@@ -66,10 +66,12 @@ export async function POST(req: NextRequest) {
   if (action === "propose") return keepAlive(async () => {
     const ideas = ideasOf(b.ideas);
     const goal = str(b.goal, 1200);
-    if (!goal && !ideas.length) return fail("Say what the project should achieve, or start from ideas.");
+    // what the person wants, in their words (the form's first box, 14.11.2026)
+    const ask = str(b.ask, 1500);
+    if (!ask && !goal && !ideas.length) return fail("Say what the project is, or start from ideas.");
     const languages = (Array.isArray(b.languages) ? b.languages : []).map(String).filter((l) => LANGS.has(l));
     try {
-      const proposal = await proposeProject({ goal, ideas, languages });
+      const proposal = await proposeProject({ ask, goal, ideas, languages });
       if (!proposal) return fail("The AI is not set up on this hub.", 503);
       return NextResponse.json({ ok: true, proposal });
     } catch (e) {

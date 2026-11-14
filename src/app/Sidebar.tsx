@@ -54,7 +54,6 @@ import LightbulbOutlinedIcon from "@mui/icons-material/LightbulbOutlined";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ShareOutlinedIcon from "@mui/icons-material/ShareOutlined";
 import WebOutlinedIcon from "@mui/icons-material/WebOutlined";
-import ViewQuiltOutlinedIcon from "@mui/icons-material/ViewQuiltOutlined";
 import ViewDayOutlinedIcon from "@mui/icons-material/ViewDayOutlined";
 import MovieOutlinedIcon from "@mui/icons-material/MovieOutlined";
 import PhotoLibraryOutlinedIcon from "@mui/icons-material/PhotoLibraryOutlined";
@@ -293,27 +292,21 @@ const MARKETING_NAV: Record<string, NavSection["items"]> = {
     { label: "Ideas", href: "/projects/ideas", icon: <LightbulbOutlinedIcon fontSize="small" /> },
     { label: "Projects", href: "/projects", icon: <FolderOpenIcon fontSize="small" /> },
     { label: "New project", href: "/projects/new", icon: <AddCircleOutlineIcon fontSize="small" /> },
-    { group: "Make", label: "Social post", href: "/projects/make/social-post", icon: <ShareOutlinedIcon fontSize="small" /> },
-    // a new page, or a page already on the webshop (SARCLA 09.11.2026: "Page refresh becomes only Page builder")
-    { group: "Make", label: "SEO landing page", href: "/projects/make/landing-page", icon: <WebOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Page builder", href: "/projects/make/page-refresh", icon: <ViewQuiltOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Blog article", href: "/projects/make/blog-article", icon: <ArticleIcon fontSize="small" /> },
-    { group: "Make", label: "Newsletter", href: "/projects/make/newsletter", icon: <MailOutlineIcon fontSize="small" /> },
-    { group: "Make", label: "Banner", href: "/projects/make/banner", icon: <ViewDayOutlinedIcon fontSize="small" /> },
-    { group: "Make", label: "Video", href: "/projects/make/video", icon: <MovieOutlinedIcon fontSize="small" /> },
-    // the content library, one page per kind (SARCLA 11.11.2026: "one page per type of content, and content should really
-    // display, and in one click back to edit") - lib/content/library.ts LIBRARY_KINDS; then the pictures, and every text
-    // and version (the older Content Library page, /library, kept as it is)
-    { group: "Content library", label: "Pages", href: "/projects/library/pages", icon: <WebOutlinedIcon fontSize="small" /> },
-    { group: "Content library", label: "Banners", href: "/projects/library/banners", icon: <ViewDayOutlinedIcon fontSize="small" /> },
-    { group: "Content library", label: "Blog posts", href: "/projects/library/blog", icon: <ArticleIcon fontSize="small" /> },
-    { group: "Content library", label: "Newsletters", href: "/projects/library/newsletters", icon: <MailOutlineIcon fontSize="small" /> },
-    { group: "Content library", label: "Social posts", href: "/projects/library/social", icon: <ShareOutlinedIcon fontSize="small" /> },
-    { group: "Content library", label: "Videos", href: "/projects/library/videos", icon: <MovieOutlinedIcon fontSize="small" /> },
-    { group: "Content library", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
-    { group: "Content library", label: "Texts & versions", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
+    // ONE ROW PER KIND OF CONTENT (SARCLA 14.11.2026: "side bar makes no sense at all" - each kind was listed twice, under
+    // Make and under Content library; his pick: "One row per kind"): each opens its library - one page per kind, as it
+    // shows on the shop, one click back to edit (lib/content/library.ts LIBRARY_KINDS) - with its "+ New" at the top (the
+    // studio made at once, /projects/make/<kind>; Pages also offers an SEO landing page); then the pictures
+    { group: "Content", label: "Pages", href: "/projects/library/pages", icon: <WebOutlinedIcon fontSize="small" /> },
+    { group: "Content", label: "Banners", href: "/projects/library/banners", icon: <ViewDayOutlinedIcon fontSize="small" /> },
+    { group: "Content", label: "Blog posts", href: "/projects/library/blog", icon: <ArticleIcon fontSize="small" /> },
+    { group: "Content", label: "Newsletters", href: "/projects/library/newsletters", icon: <MailOutlineIcon fontSize="small" /> },
+    { group: "Content", label: "Social posts", href: "/projects/library/social", icon: <ShareOutlinedIcon fontSize="small" /> },
+    { group: "Content", label: "Videos", href: "/projects/library/videos", icon: <MovieOutlinedIcon fontSize="small" /> },
+    { group: "Content", label: "Pictures", href: "/projects/pictures", icon: <PhotoLibraryOutlinedIcon fontSize="small" /> },
     { group: "How we write", label: "Personality", href: "/personality", icon: <PsychologyIcon fontSize="small" />, badge: "Brain" },
     { group: "How we write", label: "Templates", href: "/templates", icon: <DashboardCustomizeIcon fontSize="small" /> },
+    // every text and version (the older Content Library page, /library, kept as it is)
+    { group: "How we write", label: "Texts & versions", href: "/library", icon: <LibraryBooksOutlinedIcon fontSize="small" /> },
   ],
   // from SEO_NAV, the one list the SEO pages' own tabs read too
   seo: SEO_NAV.map((e) => ({ label: e.label, href: e.href, icon: SEO_ICON[e.id] })),

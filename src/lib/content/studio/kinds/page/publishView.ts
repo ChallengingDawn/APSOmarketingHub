@@ -107,6 +107,19 @@ export function testsOfPage<T extends AbTestLite>(tests: readonly T[], records: 
   return tests.filter((t) => (t.piece != null && String(t.piece) === String(pieceId)) || (paths[t.env]?.size && t.pages.some((p) => paths[t.env].has(pathOf(p)))));
 }
 
+/** What the A/B section asks A/B testing for (Content v19, 14.11.2026, dev-eb's page filter): every test of the to-do OR on
+ * any page it is published on, in one query - `?piece=N&page=acc:/de-CH/x.html&page=prod:/fr-CH/y.html` (40 pages at most,
+ * each once). An A/B testing without that filter answers the to-do's tests alone, as before. */
+export function pageTestsQuery(pieceId: number | string, records: readonly WrittenRecord[]): string {
+  const pages = [...new Set((["acc", "prod"] as const).flatMap((env) => liveOn(records, env).map((p) => `${env}:${p.path}`)))]
+    .filter((x) => /^(acc|prod):\/\S*$/.test(x)).slice(0, 40);
+  return `?piece=${encodeURIComponent(String(pieceId))}${pages.map((p) => `&page=${encodeURIComponent(p)}`).join("")}`;
+}
+
+/** The to-do's own test (made from this page) - the only kind whose version is one of this page's letters, and so the only
+ * kind made the page from here; a test of the same page made elsewhere is followed here, never promoted. */
+export const isOwnTest = (t: { piece?: number | string | null }, pieceId: number | string) => t.piece != null && String(t.piece) === String(pieceId);
+
 /** A published store view and its A/B state on one shop: the test that holds it (live first, then a draft, then the
  * newest ended one), or none. */
 export type AbRow = { env: ShopEnv; store: string; path: string; url: string; test: AbTestLite | null };
