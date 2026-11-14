@@ -9,6 +9,7 @@ import { myAccess } from "@/lib/auth/appAccess";
 import { body, who } from "@/lib/convert/api";
 import { ExpError, createManual, experimentByKey, listExperiments, logOf, removeManual, savePerson } from "@/lib/experiments/store";
 import { lastSync, syncLocked } from "@/lib/experiments/sync";
+import { placeOf } from "@/lib/experiments/model";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ const APP = "/website/ab-testing";
 const ok = (data: unknown) => NextResponse.json({ configured: true, ok: true, data });
 const fail = (e: unknown) => NextResponse.json({ configured: true, ok: false, error: String((e as Error)?.message ?? e) },
   { status: e instanceof ExpError ? e.status : 500 });
-const KEY = /^(convert|webyn|chat|manual)-[A-Za-z0-9_-]{1,80}$/;
+const KEY = /^(convert|webyn|chat|pagebuilder|manual)-[A-Za-z0-9_-]{1,80}$/;
 let syncing = false;
 
 export async function GET(req: NextRequest) {
@@ -32,7 +33,12 @@ export async function GET(req: NextRequest) {
       if (!KEY.test(key)) return fail(new ExpError("Which test?"));
       const e = await experimentByKey(key);
       if (!e) return fail(new ExpError("No such test - it may still be waiting for the next sync.", 404));
-      return ok({ experiment: e, log: await logOf(key), canEdit });
+      // the other tests on the same page or service, oldest first - the page walks from one to the next (14.11.2026)
+      const [log, all] = await Promise.all([logOf(key), listExperiments()]);
+      const siblings = all.filter((x) => placeOf(x) === placeOf(e))
+        .sort((a, b) => Date.parse(a.startedAt ?? a.createdAt) - Date.parse(b.startedAt ?? b.createdAt))
+        .map((x) => ({ key: x.key, name: x.name, status: x.status, startedAt: x.startedAt }));
+      return ok({ experiment: e, log, siblings, canEdit });
     }
     const [experiments, sync] = await Promise.all([listExperiments(), lastSync()]);
     // stale: refreshed in the background, the page shows what it has meanwhile

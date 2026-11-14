@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MIN_ARM, clashes, daysOf, fromChatRound, fromWebynPage, iceScore, needsDecision, readArms, type Arm, type Experiment } from "../src/lib/experiments/model";
+import { MIN_ARM, SERVICES, clashes, daysOf, fromChatRound, fromPlanned, fromWebynPage, iceScore, needsDecision, readArms, type Arm, type Experiment } from "../src/lib/experiments/model";
 
 const arm = (key: string, control: boolean, visitors: number, conversions: number): Arm => ({ key, name: key, control, visitors, conversions });
 const exp = (over: Partial<Experiment>): Experiment => ({
@@ -49,6 +49,7 @@ test("the chat's round 2 as a test: three arms in order, e-mails the metric, the
   assert.equal(e.key, "chat-2");
   assert.equal(e.status, "ended");
   assert.equal(e.endedAt, "2026-11-13T18:00:00Z");
+  assert.equal(e.link, "/website/ab-testing/chat?round=2");          // the chat's page opens on that round
   assert.deepEqual(e.arms.map((a) => [a.key, a.control, a.conversions]), [["later", true, 25], ["first", false, 71]]);
   assert.deepEqual(e.secondary!.arms.map((a) => a.conversions), [92, 66]);
   assert.equal(readArms(e.arms).outcome, "won");
@@ -73,4 +74,25 @@ test("days and the score of an idea", () => {
   assert.equal(daysOf({ startedAt: null, endedAt: null }), null);
   assert.equal(iceScore({ impact: 8, confidence: 5, ease: 6 }), 6.3);
   assert.equal(iceScore(null), null);
+});
+
+test("the microservices are the hub's own list (Website > Microservices), the chat among them", () => {
+  const ids = SERVICES.map((s) => s.id);
+  assert.ok(SERVICES.length >= 10, `${SERVICES.length} services`);
+  for (const id of ["chat", "search-bar", "directup", "3d"]) assert.ok(ids.includes(id), id);
+  assert.equal(new Set(ids).size, ids.length, "each id once");
+  assert.equal(SERVICES.find((s) => s.id === "chat")!.href, "/website/chat");
+});
+
+test("a page under building in the Page builder: planned, never started here, its to-do as the link", () => {
+  const e = fromPlanned({ pieceId: 42, title: "Home page hero", project: "Home", path: "/de-CH/", env: "prod", versions: ["A", "B"],
+    tested: "Version B", against: "The page as it is", plan: "50% see version B · Add to cart decides", todo: "In review", owner: "x", updatedAt: "2026-11-14T07:00:00Z", href: "/content/42" });
+  assert.equal(e.key, "pagebuilder-42");
+  assert.equal(e.source, "pagebuilder");
+  assert.equal(e.status, "planned");
+  assert.equal(e.host, "www.apsoparts.com");
+  assert.equal(e.link, "/content/42");
+  assert.deepEqual(e.arms, []);
+  assert.equal(fromPlanned({ pieceId: 7, title: "", project: "New page", path: "", env: "acc", versions: [], tested: "Version B", against: "Version A",
+    plan: "", todo: "", owner: null, updatedAt: "", href: "/content/7" }).surface, "A new page (not on the shop yet)");
 });

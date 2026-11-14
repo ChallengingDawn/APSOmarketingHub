@@ -32,10 +32,14 @@ import {
 import type { SyncRun } from "@/lib/experiments/sync";
 
 export type ListData = { experiments: Experiment[]; sync: SyncRun | null; syncing: boolean; canEdit: boolean };
-export type OneData = { experiment: Experiment; log: { at: string; by: string | null; action: string; detail: string }[]; canEdit: boolean };
+export type OneData = {
+  experiment: Experiment; log: { at: string; by: string | null; action: string; detail: string }[]; canEdit: boolean;
+  /** every test on the same page or service, oldest first (this one among them) */
+  siblings?: { key: string; name: string; status: Status; startedAt: string | null }[];
+};
 export const API = "/api/website/ab-testing/experiments";
 
-export const SOURCE_COLOR: Record<Source, string> = { apsoconvert: "#2a78d6", webyn: "#eb6834", chat: "#1baf7a", manual: "#6250d6" };
+export const SOURCE_COLOR: Record<Source, string> = { apsoconvert: "#2a78d6", webyn: "#eb6834", chat: "#1baf7a", manual: "#6250d6", pagebuilder: "#e87ba4" };
 const CONTROL_COLOR = "#9aa5b8";
 const STATUS_TINT: Record<Status, Tint> = { idea: "slate", planned: "blue", running: "green", paused: "amber", ended: "purple" };
 const OUTCOME_TINT: Record<Outcome, Tint> = { won: "green", lost: "pink", flat: "slate", "too-early": "amber", "no-data": "slate" };
@@ -213,7 +217,7 @@ export function SyncLine({ d, reload }: { d: ListData; reload: () => void }) {
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
       <Typography sx={{ fontSize: "0.76rem", color: MUTED }}>
-        {s ? `Refreshed ${new Date(s.at).toLocaleString("de-CH", { dateStyle: "short", timeStyle: "short" })} from APSOconvert ${s.sources.apsoconvert.n}, the shop chat ${s.sources.chat.n}, Webyn ${s.sources.webyn.n}` : "Never refreshed yet"}
+        {s ? `Refreshed ${new Date(s.at).toLocaleString("de-CH", { dateStyle: "short", timeStyle: "short" })} from APSOconvert ${s.sources.apsoconvert.n}, the shop chat ${s.sources.chat.n}, Webyn ${s.sources.webyn.n}${s.sources.pagebuilder ? `, the Page builder ${s.sources.pagebuilder.n}` : ""}` : "Never refreshed yet"}
         {d.syncing ? " · refreshing now…" : ""}
       </Typography>
       {d.canEdit && <Button size="small" variant="text" onClick={() => void run()} disabled={busy} startIcon={busy ? <CircularProgress size={12} /> : <RefreshIcon sx={{ fontSize: 16 }} />} sx={{ textTransform: "none", fontSize: "0.76rem" }}>Refresh now</Button>}
