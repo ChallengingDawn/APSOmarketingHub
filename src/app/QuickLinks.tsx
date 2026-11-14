@@ -62,18 +62,18 @@ type Custom = { label: string; href: string };
 const isExternal = (href: string) => /^https?:/i.test(href);
 
 /** One mini app: the icon square, its name under it. */
-function Tile({ href, name, note, tint, fg, icon, external }: {
-  href: string; name: string; note: string; tint: string; fg: string; icon: React.ReactNode; external: boolean;
+function Tile({ href, name, note, tint, fg, icon, external, rail }: {
+  href: string; name: string; note: string; tint: string; fg: string; icon: React.ReactNode; external: boolean; rail: boolean;
 }) {
   return (
-    <Tooltip title={note} placement="right" disableInteractive>
+    <Tooltip title={note} placement={rail ? "right" : "bottom"} disableInteractive>
       <Box
         component={external ? "a" : Link}
         href={href}
         {...(external ? { target: "_blank", rel: "noopener" } : {})}
         sx={{
           display: "grid", justifyItems: "center", alignContent: "start", gap: 0.6,
-          width: { xs: 76, md: "100%" }, flexShrink: 0, py: 0.9, px: 0.5, borderRadius: "14px",
+          width: rail ? "100%" : 84, flexShrink: 0, py: 0.9, px: 0.5, borderRadius: "14px",
           textDecoration: "none", transition: "background-color .15s ease",
           "&:hover": { bgcolor: "rgba(255,255,255,.95)" },
           "&:focus-visible": { outline: `2px solid ${ACCENT}`, outlineOffset: 1 },
@@ -96,10 +96,14 @@ function Tile({ href, name, note, tint, fg, icon, external }: {
  * person's role and grants. Without it a viewer was offered Integrations and
  * Audit here — two tiles that exist only to turn them away.
  */
-export default function QuickLinks({ glass, mayOpen }: {
+export default function QuickLinks({ glass, mayOpen, variant = "rail" }: {
   glass: Record<string, unknown>;
   mayOpen?: (href: string) => boolean;
+  /** rail: the column in the page's left margin, under the hub switch (page.tsx); strip: a row above the apps, where the
+   *  window leaves no margin for the column (a laptop at a large zoom, a phone). */
+  variant?: "rail" | "strip";
 }) {
+  const isRail = variant === "rail";
   const [hidden, setHidden] = useState<string[]>([]);
   const [custom, setCustom] = useState<Custom[]>([]);
   const [editing, setEditing] = useState(false);
@@ -173,28 +177,29 @@ export default function QuickLinks({ glass, mayOpen }: {
         aria-label="Quick links"
         sx={{
           ...glass, borderRadius: "22px", p: 0.75,
-          // a phone: a strip across the top; wider: the column beside the apps, in view while the page scrolls
-          display: "flex", flexDirection: { xs: "row", md: "column" }, alignItems: "stretch", gap: 0.25,
-          width: { xs: "100%", md: 96 }, flexShrink: 0,
-          overflowX: { xs: "auto", md: "visible" }, overflowY: { xs: "hidden", md: "auto" },
-          position: { md: "sticky" }, top: { md: 16 }, maxHeight: { md: "calc(100vh - 32px)" },
+          display: "flex", flexDirection: isRail ? "column" : "row", alignItems: "stretch", gap: 0.25,
+          width: "100%",
+          // the rail stays in view while the page scrolls; the strip scrolls sideways when the links are many
+          ...(isRail
+            ? { position: "sticky", top: 16, maxHeight: "calc(100vh - 32px)", overflowY: "auto" }
+            : { overflowX: "auto", overflowY: "hidden" }),
         }}
       >
         <Typography sx={{
-          display: { xs: "none", md: "block" }, textAlign: "center", fontSize: "0.6rem", fontWeight: 700,
+          display: isRail ? "block" : "none", textAlign: "center", fontSize: "0.6rem", fontWeight: 700,
           letterSpacing: "0.08em", textTransform: "uppercase", color: FAINT, pt: 0.75, pb: 0.25,
         }}>Quick links</Typography>
 
-        {shown.map((b) => <Tile key={b.id} {...b} />)}
+        {shown.map((b) => <Tile key={b.id} {...b} rail={isRail} />)}
         {custom.map((c, i) => (
           <Tile key={`${c.href}-${i}`} href={c.href} name={c.label} note={`Yours: ${c.href}`} tint="#e9eef5" fg="#4a5a70"
-            icon={<LinkIcon />} external={isExternal(c.href)} />
+            icon={<LinkIcon />} external={isExternal(c.href)} rail={isRail} />
         ))}
 
-        <Tooltip title="Choose your quick links" placement="right" disableInteractive>
+        <Tooltip title="Choose your quick links" placement={isRail ? "right" : "bottom"} disableInteractive>
           <Box component="button" type="button" onClick={() => { setEditing(true); setError(null); }}
             sx={{
-              display: "grid", justifyItems: "center", alignContent: "start", gap: 0.6, width: { xs: 76, md: "100%" }, flexShrink: 0,
+              display: "grid", justifyItems: "center", alignContent: "start", gap: 0.6, width: isRail ? "100%" : 84, flexShrink: 0,
               py: 0.9, px: 0.5, border: 0, borderRadius: "14px", background: "none", cursor: "pointer", fontFamily: "inherit",
               transition: "background-color .15s ease",
               "&:hover": { bgcolor: "rgba(255,255,255,.95)" },
