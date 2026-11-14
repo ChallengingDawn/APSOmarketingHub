@@ -14,6 +14,8 @@ import { claudeText, getAnthropic } from "@/lib/ai/claude";
 import { buildPageFlow } from "@/lib/journeys/read";
 import { ENVS, classify, storeCase, type Env, type PageKind } from "./model";
 import { outline, type Outline } from "./preview";
+import { isRework } from "./blockRules";
+import { leadTest, type TestBrief } from "./testState";
 import { validateChanges, type Change } from "./versions";
 import { cleanChangeType, typeOfBlock, typeOfIdea, type ChangeType } from "./changeTypes";
 import { SAFETY_RULES, qualityOf, riskOf, safePart } from "./safety";
@@ -255,7 +257,31 @@ export function pageKeyOf(path: string): string {
   return c.kind === "product" && c.product ? `product:${c.product}` : `page:${path}`;
 }
 
-export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[]; analysis: Analysis | null }> {
+/**
+ * EACH OPTIMIZATION'S TEST (13.11.2026 - the loop as one product): the tests made from its own versions, and those
+ * Content's Page builder made for its to-do (its piece); the live one, else the latest (./testState.ts). None when the
+ * tests' table is not there yet.
+ */
+export async function testsOfIdeas(ideas: Pick<Idea, "id" | "piece">[]): Promise<Record<string, TestBrief>> {
+  const num = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  const ids = num(ideas.map((i) => i.id));
+  const pieces = num(ideas.map((i) => i.piece));
+  if (!ids.length && !pieces.length) return {};
+  type Row = { id: string; idea_id: string | null; piece_id: string | null; status: TestBrief["status"]; winner: TestBrief["winner"]; updated_at: Date };
+  const r = await query<Row>(
+    `SELECT id, idea_id, piece_id, status, winner, updated_at FROM apsomh_convert_tests
+      WHERE kind = 'test' AND (idea_id = ANY($1::bigint[]) OR piece_id = ANY($2::bigint[]))`, [ids, pieces]).catch(() => ({ rows: [] as Row[] }));
+  const out: Record<string, TestBrief> = {};
+  for (const i of ideas) {
+    const mine = r.rows.filter((t) => String(t.idea_id) === i.id || (!!i.piece && String(t.piece_id) === i.piece))
+      .map((t) => ({ id: String(t.id), status: t.status, winner: t.winner, updatedAt: iso(t.updated_at)! }));
+    const lead = leadTest(mine);
+    if (lead) out[i.id] = lead;
+  }
+  return out;
+}
+
+export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[]; versions: Version[]; analysis: Analysis | null; tests: Record<string, TestBrief> }> {
   await ensureStudioSchema();
   const [ideas, versions, analysis] = await Promise.all([
     query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 ORDER BY (status = 'dropped'), id DESC`, [env, path]),
@@ -263,10 +289,20 @@ export async function pageWork(env: Env, path: string): Promise<{ ideas: Idea[];
     query<{ text: string; by_whom: string | null; at: Date }>(`SELECT text, by_whom, at FROM apsomh_convert_analyses WHERE env = $1 AND path = $2`, [env, path]),
   ]);
   const a = analysis.rows[0];
-  return { ideas: ideas.rows.map(toIdea), versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null };
+  const all = ideas.rows.map(toIdea);
+  const tests = await testsOfIdeas(all).catch(() => ({}));
+  return { ideas: all, versions: versions.rows.map(toVersion), analysis: a && a.text ? { text: a.text, by: a.by_whom, at: iso(a.at)! } : null, tests };
 }
 
-export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number };
+export type BoardRow = Idea & { version: Pick<Version, "id" | "rev" | "status" | "updatedAt"> | null; versions: number; test?: TestBrief | null };
+/**
+ * AN OPTIMIZATION CONTENT MADE ITSELF (13.11.2026): the Page builder's own test version (versionFromChanges - the person's,
+ * with its piece) is not one of the AI's proposals - kept out of Insights, the Pages counts and the Preview's slider; its
+ * test shows in Page tests with its to-do. An AI optimization sent to Content keeps source 'ai', whatever piece it gets.
+ */
+export const FROM_CONTENT_SQL = "(source = 'person' AND piece_id IS NOT NULL AND sent_at IS NULL)";
+export const fromContent = (i: Pick<Idea, "source" | "piece" | "sentAt">) => i.source === "person" && !!i.piece && !i.sentAt;
+
 export async function board(): Promise<BoardRow[]> {
   await ensureStudioSchema();
   // an idea once, with its first version (A) and how many it has
@@ -275,9 +311,12 @@ export async function board(): Promise<BoardRow[]> {
             (SELECT count(*)::int FROM apsomh_convert_versions x WHERE x.idea_id = i.id) AS v_n
        FROM apsomh_convert_ideas i
        LEFT JOIN LATERAL (SELECT * FROM apsomh_convert_versions y WHERE y.idea_id = i.id ORDER BY y.letter LIMIT 1) v ON true
+      WHERE NOT (i.source = 'person' AND i.piece_id IS NOT NULL AND i.sent_at IS NULL)
       ORDER BY COALESCE(v.updated_at, i.decided_at, i.created_at) DESC LIMIT 500`,
   );
-  return r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
+  const rows = r.rows.map((x) => ({ ...toIdea(x), version: x.v_id ? { id: String(x.v_id), rev: x.v_rev ?? 1, status: x.v_status ?? "draft", updatedAt: iso(x.v_updated)! } : null, versions: Number(x.v_n ?? 0) }));
+  const tests = await testsOfIdeas(rows).catch(() => ({} as Record<string, TestBrief>));
+  return rows.map((x) => ({ ...x, test: tests[x.id] ?? null }));
 }
 
 export async function setIdeaStatus(id: string, status: IdeaStatus, by: string): Promise<Idea | null> {
@@ -349,6 +388,21 @@ export async function setAsideExtraNewPages(): Promise<number> {
   return r.rows.length;
 }
 
+/**
+ * THE HOME PAGE REWORKED AS A WHOLE (SARCLA 13.11.2026: "the home page needs to be reworked completely; a recommendation
+ * of blocks makes no sense"): once, the AI's block optimizations of home pages still waiting for a yes or no are set aside
+ * - dropped, so "Bring back" still finds them; the shop blocks' own (the home slider, the newsletter band: their "block"
+ * key) stay. The pages are read again for one whole-page rework (./blockIdeas.ts proposeRework). Returns how many.
+ */
+export const HOME_REWORK_BY = "set aside: the home page is reworked as a whole (13.11.2026)";
+export async function setAsideHomeBlocks(): Promise<number> {
+  await ensureStudioSchema();
+  const r = await query<{ id: string }>(
+    `UPDATE apsomh_convert_ideas SET status = 'dropped', decided_by = $1, decided_at = now()
+      WHERE status = 'proposed' AND source = 'ai' AND scope = 'block' AND kind = 'home' AND block IS NULL RETURNING id`, [HOME_REWORK_BY]);
+  return r.rows.length;
+}
+
 /** How many optimizations each page has (Pages' rows): waiting for a yes or no, approved or sent, and of those per block. */
 export async function optimizationsOn(env: Env, paths: string[]): Promise<Record<string, { waiting: number; approved: number; blocks: number }>> {
   if (!paths.length) return {};
@@ -356,7 +410,7 @@ export async function optimizationsOn(env: Env, paths: string[]): Promise<Record
   const r = await query<{ path: string; waiting: number; approved: number; blocks: number }>(
     `SELECT path, count(*) FILTER (WHERE status = 'proposed')::int AS waiting, count(*) FILTER (WHERE status = 'approved')::int AS approved,
             count(*) FILTER (WHERE status <> 'dropped' AND scope = 'block')::int AS blocks
-       FROM apsomh_convert_ideas WHERE env = $1 AND path = ANY($2::text[]) GROUP BY path`, [env, paths.slice(0, 200)]);
+       FROM apsomh_convert_ideas WHERE env = $1 AND path = ANY($2::text[]) AND NOT ${FROM_CONTENT_SQL} GROUP BY path`, [env, paths.slice(0, 200)]);
   return Object.fromEntries(r.rows.map((x) => [x.path, { waiting: x.waiting, approved: x.approved, blocks: x.blocks }]));
 }
 
@@ -431,7 +485,7 @@ async function saveRevision(idea: Idea, changes: Change[], summary: string, requ
  * piece and page: it is the person's (approved), made once; every later call gives its Version A a new revision, back to
  * draft - "approve" again before a test. Without a piece, each call makes a new optimization.
  */
-export async function versionFromChanges(env: Env, path: string, input: { changes: unknown; title: string; summary: string; piece: string | null }, by: string): Promise<{ idea: Idea | null; version: Version | null; problems: string[] }> {
+export async function versionFromChanges(env: Env, path: string, input: { changes: unknown; title: string; summary: string; piece: string | null; letter?: string | null }, by: string): Promise<{ idea: Idea | null; version: Version | null; problems: string[] }> {
   await ensureStudioSchema();
   const { changes, problems } = validateChanges(input.changes);
   if (!changes.length) return { idea: null, version: null, problems: problems.length ? problems : ["the list is empty"] };
@@ -439,7 +493,8 @@ export async function versionFromChanges(env: Env, path: string, input: { change
   const summary = input.summary.trim().slice(0, 600) || title;
   let idea: Idea | null = null;
   if (input.piece) {
-    const r = await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 AND piece_id = $3 AND status <> 'dropped' ORDER BY id DESC LIMIT 1`, [env, path, input.piece]);
+    // Content's own optimization only - never the AI's (or a person's) sent one that carries the same to-do (review 13.11.2026)
+    const r = await query<IdeaRow>(`SELECT * FROM apsomh_convert_ideas WHERE env = $1 AND path = $2 AND piece_id = $3 AND source = 'person' AND sent_at IS NULL AND status <> 'dropped' ORDER BY id DESC LIMIT 1`, [env, path, input.piece]);
     idea = r.rows[0] ? toIdea(r.rows[0]) : null;
   }
   if (!idea) {
@@ -450,7 +505,10 @@ export async function versionFromChanges(env: Env, path: string, input: { change
       ? toIdea((await query<IdeaRow>(`UPDATE apsomh_convert_ideas SET piece_id = $2 WHERE id = $1 RETURNING *`, [made.id, input.piece])).rows[0])
       : made;
   }
-  const version = await saveRevision(idea, changes, summary, "from the Page builder", by, "A");
+  // each of the Page builder's versions keeps its own letter here (13.11.2026: sending B, then C, revised ONE version - an
+  // older test of B would have run C's changes)
+  const letter = input.letter && /^[A-D]$/.test(input.letter) ? input.letter : "A";
+  const version = await saveRevision(idea, changes, summary, "from the Page builder", by, letter);
   return { idea, version, problems };
 }
 
@@ -923,12 +981,15 @@ Expected: ${idea.expect}`,
       others: opts.another && others.length ? others.map((v) => ({ letter: v.letter || "A", summary: v.summary })) : null,
       current: !opts.another && cur && request ? cur.changes : null,
       target: idea.scope === "block" ? idea.target ?? null : null,
+      rework: isRework(idea),
     });
     if (m.ok) {
       const version = await saveRevision(idea, m.changes, m.summary, opts.another ? (request ?? "another version") : request, by, letter);
       return { ok: true, data: { version, problems: m.problems } };
     }
     if (m.budget) return { ok: false, error: m.error };
+    // the whole page reworked is modules or nothing - never loose HTML in their place
+    if (isRework(idea)) return { ok: false, error: m.error };
     planNote = m.error;
     console.warn(`[convert-version] ${idea.path}: the module plan brought nothing (${m.error}) - written the other way`);
   }
@@ -983,12 +1044,13 @@ meets it, with real short words in English; only what cannot be shown becomes ON
  * so approve is more sent to project"): the optimization and every version it has are approved by the send, and the
  * Content project made for it is kept with them. The project itself is made by the caller (Content's own API).
  */
-export async function markSent(ideaId: string, projectId: string | null, by: string): Promise<{ idea: Idea; versions: Version[] } | null> {
+export async function markSent(ideaId: string, projectId: string | null, by: string, pieceId: string | null = null): Promise<{ idea: Idea; versions: Version[] } | null> {
   await ensureStudioSchema();
   const i = await query<IdeaRow>(
     `UPDATE apsomh_convert_ideas SET status = 'approved', decided_by = COALESCE(decided_by, $2), decided_at = COALESCE(decided_at, now()),
-            sent_by = $2, sent_at = now(), project_id = COALESCE($3::bigint, project_id) WHERE id = $1 AND status <> 'dropped' RETURNING *`,
-    [ideaId, by, projectId]);
+            sent_by = $2, sent_at = now(), project_id = COALESCE($3::bigint, project_id), piece_id = COALESCE($4::bigint, piece_id)
+      WHERE id = $1 AND status <> 'dropped' RETURNING *`,
+    [ideaId, by, projectId, pieceId]);
   if (!i.rows[0]) return null;
   const v = await query<VersionRow>(
     `UPDATE apsomh_convert_versions SET status = 'approved', approved_by = COALESCE(approved_by, $2), approved_at = COALESCE(approved_at, now()), updated_at = now()

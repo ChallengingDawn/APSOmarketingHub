@@ -15,7 +15,7 @@ import { query } from "@/lib/db/client";
 import { cmsKeys, cmsPlan, cmsWrite } from "./cms";
 import { cmsTarget, cssBlock, description, jsSnippet, type ShipInfo } from "./ship";
 import { versionById } from "./studio";
-import { ConvertError, baseRateOf, gatewayState, ideaOf, markHanded, resultsOf, shipToEveryone, shippedAs, testById, type Test } from "./tests";
+import { ConvertError, baseRateOf, gatewayState, ideaOf, markHanded, resultsOf, shipToEveryone, shippedAs, testById, type Test, markPublished } from "./tests";
 import { validateChanges, type Change } from "./versions";
 import { calendarPublished } from "./calendar";
 
@@ -94,6 +94,7 @@ export async function publishFromContent(x: { testId: string; changes: unknown; 
     if (plan.canWrite && plan.chosen) {
       const w = await cmsWrite(t.id, t.env, path, plan.chosen, x.by, changes);
       await calendarPublished(t, "cms");
+      await markPublished(t.id, x.by, `Written into the Magento page from Content (backup #${w.backupId})`).catch(() => null);
       return { ok: true, way: "cms", id: w.backupId, edited };
     }
   }
@@ -111,5 +112,6 @@ export async function publishFromContent(x: { testId: string; changes: unknown; 
   };
   await markHanded(t.id, "dotsource", x.by);
   await calendarPublished(t, "dotsource");
+  await markPublished(t.id, x.by, "The code went to dotSource").catch(() => null);
   return { ok: true, way: "dotsource", edited, package: { css: cssBlock(changes, info), js: jsSnippet(changes, info), description: description(changes, info) } };
 }

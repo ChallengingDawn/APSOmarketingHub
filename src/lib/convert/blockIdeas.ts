@@ -23,9 +23,9 @@ import { query } from "@/lib/db/client";
 import { classify, type Env } from "./model";
 import { clicksOf } from "./clicks";
 import { buildSteps, keepSafe } from "./modular";
-import { BLOCK, blockPage, blocksIn, clicksPerPart, nameOf, partsWithClicks, shopPart, versionLabel, versionStep } from "./blockRules";
+import { BLOCK, REWORK_ANGLES, REWORK_PART, blockPage, blocksIn, clicksPerPart, isRework, nameOf, partsWithClicks, reworkPage, shopPart, versionLabel, versionStep, weakBlock } from "./blockRules";
 import { typeOfBlock } from "./changeTypes";
-import { VERSION_LETTERS, addIdea, ask, pageWork, saveVersionOf, shopPage, type AiResult, type BlockFocus, type Idea, type Numbers } from "./studio";
+import { VERSION_LETTERS, addIdea, ask, pageWork, saveVersionOf, setIdeaStatus, shopPage, writeVersion, type AiResult, type BlockFocus, type Idea, type Numbers } from "./studio";
 
 /** One version's schema: a step of the Content plan without what the hub sets (it REPLACES the block), with its label. */
 const STEP = (PLAN_SCHEMA.properties.steps as { items: { required: string[]; properties: Record<string, unknown> } }).items;
@@ -82,6 +82,8 @@ export async function proposeBlocks(env: Env, path: string, numbers: Numbers | n
   const page = await shopPage(env, path);
   if (page.status !== 200) return { ok: false, error: `The shop answered ${page.status} for this page.` };
   if (!blockPage(page.kind)) return { ok: false, error: "Product pages come later: their layout is the theme's code, so no optimization is proposed there for now." };
+  // a home page is reworked as a whole, never block by block (SARCLA 13.11.2026) - its shop blocks keep their own
+  if (!focus && reworkPage(page.kind)) return proposeRework(env, path, numbers, by, page);
   const store = classify(path).store ?? "de-CH";
   const language = languageOfStore(store) ?? "German";
   const view: PageDoc = { ...emptyPage(), env, path, store, changes: [] };
@@ -178,4 +180,48 @@ ${focus ? `\nTHE BLOCK TO OPTIMIZE: ${focusId} - ${focus.name}. What it is: ${fo
   if (!out.length) return { ok: false, error: problems[0] ?? "The AI proposed no block that could be built." };
   if (problems.length) console.log(`[convert-blocks] ${path}: ${out.length} optimizations; ${problems.slice(0, 4).join(" | ")}`);
   return { ok: true, data: out };
+}
+
+/**
+ * THE WHOLE HOME PAGE REWORKED (SARCLA 13.11.2026: "here the whole page needs to be reworked - the home page needs to be
+ * reworked completely; a recommendation of blocks makes no sense"): ONE optimization, its versions each the page rebuilt
+ * from the library's modules with another angle (./blockRules.ts REWORK_ANGLES) - one AI ask per version, the Content
+ * studio's way (./modular.ts, FRAME_REWORK). Nothing is proposed while the page has a rework open.
+ */
+async function proposeRework(env: Env, path: string, numbers: Numbers | null, by: string, page: Awaited<ReturnType<typeof shopPage>>): Promise<AiResult<Idea[]>> {
+  const work = await pageWork(env, path);
+  if (work.ideas.some((i) => i.status !== "dropped" && isRework(i))) return { ok: false, error: "This home page has its rework waiting already." };
+  const store = classify(path).store ?? "de-CH";
+  const view: PageDoc = { ...emptyPage(), env, path, store, changes: [] };
+  const parts = pageMap(page.html, view).parts;
+  const heat = await clicksOf(env, path).catch(() => null);
+  const clicks = heat?.heat?.list.length ? clicksPerPart(page.html, parts, heat.heat.list) : null;
+  const weak = clicks ? parts.filter((p) => weakBlock(p, clicks.parts.find((c) => c.id === p.id), clicks.total)).length : 0;
+  const why = clicks && clicks.total >= BLOCK.minClicks
+    ? `${weak} of the page's ${parts.length} blocks hold something to click and get under ${BLOCK.weakShare * 100}% of its ${clicks.total} clicks each - the page as a whole does not lead buyers into the shop.`
+    : `The shop's door: ${parts.length} blocks, mostly pictures, sliders and rows of banners a buyer cannot act on - the page as a whole does not lead buyers into the shop.`;
+  const idea = await addIdea(env, path, {
+    title: "Rework the whole home page",
+    why,
+    change: `Every block a module does better is rebuilt from the library, in the order a buyer needs them - ${REWORK_ANGLES.length} versions, each with its angle: ${REWORK_ANGLES.map((a, k) => `${VERSION_LETTERS[k]} ${a.label.toLowerCase()}`).join(", ")}.`,
+    expect: "More clicks from the first screen into the shop's ranges and products, and more add-to-carts per visit.",
+    impact: 5, confidence: 3, effort: 4, type: "page-refresh", scope: "page", part: REWORK_PART,
+  }, by, "ai", numbers);
+  const problems: string[] = [];
+  let made = 0;
+  for (let k = 0; k < REWORK_ANGLES.length; k++) {
+    const a = REWORK_ANGLES[k];
+    const r = await writeVersion(idea.id, `${a.request} (version ${VERSION_LETTERS[k]}: ${a.label})`, by, null, k === 0 ? { letter: "A" } : { another: true });
+    if (r.ok) { made++; problems.push(...r.data.problems.slice(0, 2)); continue; }
+    problems.push(`${VERSION_LETTERS[k]}: ${r.error}`);
+    if (/times today/.test(r.error)) break;
+  }
+  if (!made) {
+    await setIdeaStatus(idea.id, "dropped", "the AI's rework: no version could be built");
+    return { ok: false, error: problems[0] ?? "No version of the rework could be built." };
+  }
+  // writeVersion approves a proposed optimization - the AI's rework waits for a person's yes, as every proposal does
+  await query(`UPDATE apsomh_convert_ideas SET status = 'proposed', decided_by = NULL, decided_at = NULL WHERE id = $1 AND status = 'approved' AND source = 'ai'`, [idea.id]);
+  console.log(`[convert-blocks] ${path}: the whole page reworked - ${made} versions${problems.length ? `; ${problems.slice(0, 3).join(" | ")}` : ""}`);
+  return { ok: true, data: [idea] };
 }

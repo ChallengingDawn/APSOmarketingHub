@@ -13,6 +13,8 @@ import Button from "@mui/material/Button";
 import IconButton from "@mui/material/IconButton";
 import Tooltip from "@mui/material/Tooltip";
 import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import CircularProgress from "@mui/material/CircularProgress";
 import TablePagination from "@mui/material/TablePagination";
 import Table from "@mui/material/Table";
@@ -271,30 +273,40 @@ export default function ConvertPages() {
         </Grid>
 
         <GlassCard sx={{ p: 0, pt: { xs: 2, md: 2.5 } }}>
-          <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1.5 }}>
-            <CardTitle icon={<ListAltOutlinedIcon />} tint="green" title={`Pages · ${full(list.total)}`}
-              note="Each page once, with the date its sitemap gives on production and on ACC" />
-            {(totals.prodOnlyStores.length > 0 || totals.accOnlyStores.length > 0) && (
-              <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>
-                {totals.prodOnlyStores.length > 0 && `ACC publishes no sitemap for ${totals.prodOnlyStores.join(", ")}. `}
-                {totals.accOnlyStores.length > 0 && `Production publishes no sitemap for ${totals.accOnlyStores.join(", ")}. `}
-                Those store views are listed, not compared.
-              </Typography>
-            )}
-            <SquareChoice<PageKind | "all"> label="Kind" value={kind} onChange={(k) => { setKind(k); setPage(0); }} options={[
-              { key: "all", label: "All" },
-              ...PAGE_KINDS.filter((k) => k !== "system" && totals.byKind(k) > 0).map((k) => ({ key: k, label: KIND_LABEL[k], count: totals.byKind(k) })),
-            ]} />
-            <SquareChoice<Where> label="Where" value={where} onChange={(w) => { setWhere(w); setPage(0); }} options={[
-              { key: "all", label: "Production or ACC" },
-              { key: "both", label: "On both", count: totals.both },
-              { key: "acc", label: "ACC only", count: totals.accOnly },
-              { key: "prod", label: "Production only", count: totals.prodOnly },
-            ]} />
-            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5, alignItems: "center" }}>
-              <SquareChoice<string> label="Store view" value={store} onChange={(s) => { setStore(s); setPage(0); }} options={[{ key: "all", label: "Every store view" }, ...totals.stores.map((s) => ({ key: s, label: s }))]} />
-              <TextField size="small" value={qLive} onChange={(e) => setQLive(e.target.value)} placeholder="Address or product number"
-                inputProps={{ "aria-label": "Search the pages" }} sx={{ width: { xs: "100%", sm: 280 }, ml: { sm: "auto" } }} />
+          {/* the filters and the search in one aligned row (SARCLA 13.11.2026: "filters and search bar more aligned on top,
+              a better design here, and reduce the height") - the store view a list, the sitemap note behind an (i) */}
+          <Box sx={{ px: { xs: 2, md: 2.75 }, display: "grid", gap: 1.25 }}>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+              <Box sx={{ flex: 1, minWidth: 220 }}>
+                <CardTitle icon={<ListAltOutlinedIcon />} tint="green" title={`Pages · ${full(list.total)}`}
+                  note="Each page once, with the date its sitemap gives on production and on ACC" />
+              </Box>
+              {(totals.prodOnlyStores.length > 0 || totals.accOnlyStores.length > 0) && (
+                <Tooltip title={`${totals.prodOnlyStores.length > 0 ? `ACC publishes no sitemap for ${totals.prodOnlyStores.join(", ")}. ` : ""}${totals.accOnlyStores.length > 0 ? `Production publishes no sitemap for ${totals.accOnlyStores.join(", ")}. ` : ""}Those store views are listed, not compared.`}>
+                  <IconButton size="small" aria-label="Store views without a sitemap"><InfoOutlinedIcon sx={{ fontSize: 17, color: MUTED }} /></IconButton>
+                </Tooltip>
+              )}
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, rowGap: 1, alignItems: "center" }}>
+              <SquareChoice<PageKind | "all"> label="Kind" value={kind} onChange={(k) => { setKind(k); setPage(0); }} options={[
+                { key: "all", label: "All" },
+                ...PAGE_KINDS.filter((k) => k !== "system" && totals.byKind(k) > 0).map((k) => ({ key: k, label: KIND_LABEL[k], count: totals.byKind(k) })),
+              ]} />
+              <SquareChoice<Where> label="Where" value={where} onChange={(w) => { setWhere(w); setPage(0); }} options={[
+                { key: "all", label: "Both shops" },
+                { key: "both", label: "On both", count: totals.both },
+                { key: "acc", label: "ACC only", count: totals.accOnly },
+                { key: "prod", label: "Production only", count: totals.prodOnly },
+              ]} />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center", ml: { md: "auto" }, flexWrap: "wrap" }}>
+                <TextField select size="small" value={store} onChange={(e) => { setStore(e.target.value); setPage(0); }}
+                  inputProps={{ "aria-label": "Store view" }} sx={{ width: 170, "& .MuiInputBase-input": { fontSize: "0.84rem", py: "7px" } }}>
+                  <MenuItem value="all">Every store view</MenuItem>
+                  {totals.stores.map((s) => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+                </TextField>
+                <TextField size="small" value={qLive} onChange={(e) => setQLive(e.target.value)} placeholder="Address or product number"
+                  inputProps={{ "aria-label": "Search the pages" }} sx={{ width: { xs: "100%", sm: 260 }, "& .MuiInputBase-input": { fontSize: "0.84rem", py: "7px" } }} />
+              </Box>
             </Box>
           </Box>
           <Box sx={{ overflowX: "auto", mt: 1.5 }}>

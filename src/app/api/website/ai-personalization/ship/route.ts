@@ -12,7 +12,7 @@ import { query } from "@/lib/db/client";
 import { ENVS, isEnv } from "@/lib/convert/model";
 import { cmsBackups, cmsKeys, cmsPlan, cmsRestore, cmsWrite, CMS_OFF } from "@/lib/convert/cms";
 import { cmsTarget, cssBlock, description, jsSnippet, pageName } from "@/lib/convert/ship";
-import { ConvertError, act, gatewayState, ideaOf, listTests, markHanded, resultsOf, baseRateOf, shipToEveryone, shippedAs, testById, undoEveryone } from "@/lib/convert/tests";
+import { ConvertError, act, gatewayState, ideaOf, listTests, markHanded, originsOf, resultsOf, baseRateOf, shipToEveryone, shippedAs, testById, undoEveryone } from "@/lib/convert/tests";
 import { body, fail, failOf, figuresOf, idOf, inTurns, ok, who } from "@/lib/convert/api";
 import type { Change } from "@/lib/convert/versions";
 
@@ -65,6 +65,7 @@ export async function GET(req: NextRequest) {
         idea,
         figures: c ? { rateA: c.a.rate, rateB: c.b.rate, uplift: c.uplift, pB: c.pBest?.b ?? null, visitors: { a: c.a.visitors, b: c.b.visitors }, days: results.analysis!.days, verdict: results.analysis!.verdict.key } : null,
         content: { url: `${ENVS[t.env].base}${t.pages[0]}`, path: t.pages[0], env: t.env },
+        origin: (await originsOf([t]).catch(() => ({} as Awaited<ReturnType<typeof originsOf>>)))[t.id] ?? null,
         gateway: gatewayState(),
         canEdit,
         canContent: access.canOpen("marketing"),
@@ -75,10 +76,10 @@ export async function GET(req: NextRequest) {
     const rows = tests.map((t, i) => ({ ...t, results: undefined, figures: figures[i] }))
       // decided by a person (the version won), or the figures say the version wins and a person can decide it
       .filter((t) => t.winner === "b" || (t.winner === null && t.figures?.verdict?.key === "b-wins"));
-    const shipped = await Promise.all(rows.map((t) => shippedAs(t.id).catch(() => null)));
+    const [shipped, origins] = await Promise.all([Promise.all(rows.map((t) => shippedAs(t.id).catch(() => null))), originsOf(rows).catch(() => ({} as Awaited<ReturnType<typeof originsOf>>))]);
     const keys = cmsKeys();
     return ok({
-      tests: rows.map((t, i) => ({ ...t, shippedAs: shipped[i] ? { id: shipped[i]!.id, status: shipped[i]!.status } : null })),
+      tests: rows.map((t, i) => ({ ...t, shippedAs: shipped[i] ? { id: shipped[i]!.id, status: shipped[i]!.status } : null, origin: origins[t.id] ?? null })),
       gateway: gatewayState(),
       cms: { acc: keys.acc, prod: keys.prod, missing: keys.missing },
       canEdit,

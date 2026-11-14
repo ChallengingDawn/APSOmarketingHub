@@ -30,9 +30,11 @@ type Addable = {
 };
 
 
-export function SendDialog({ open, onClose, onSend, env, path, versions, landing = false, busy, error }: {
+export function SendDialog({ open, onClose, onSend, env, path, versions, landing = false, contentTests = true, busy, error }: {
   open: boolean; onClose: () => void; onSend: (c: SendChoice) => void;
   env: string; path: string; versions: number; landing?: boolean; busy: boolean; error: string | null;
+  /** Content tests this page itself (a content page); else the test is made here after Content built it */
+  contentTests?: boolean;
 }) {
   const [mode, setMode] = useState<"new" | "add">("new");
   const [projects, setProjects] = useState<Addable[] | null>(null);

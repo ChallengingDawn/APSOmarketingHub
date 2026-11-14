@@ -28,6 +28,7 @@ import {
 } from "./contract";
 import { DEFAULT_MDE, analyse, type Analysis } from "./stats";
 import type { Change } from "./versions";
+import { leadTest, type TestBrief } from "./testState";
 import { calendarEnded, calendarStarted } from "./calendar";
 
 const SCHEMA = `
@@ -179,6 +180,58 @@ export async function ideaOf(t: Test): Promise<IdeaBrief | null> {
   return r.rows[0] ? { ...r.rows[0], id: String(r.rows[0].id) } : null;
 }
 
+/**
+ * WHERE A TEST CAME FROM (13.11.2026 - the loop as one product: the Tests list never said which Content to-do a test came
+ * from, and "See it" opened the test's shop - ACC - for an optimization that lives on production): the Content to-do of
+ * its piece (its project and title, read from Content's table - none when Content is away) and the env of the
+ * optimization it tests.
+ */
+export type TestOrigin = { todo: { pieceId: string; projectId: number; title: string } | null; ideaEnv: Env | null; letter: string | null };
+export async function originsOf(tests: Pick<Test, "id" | "piece" | "ideaId" | "versionId">[]): Promise<Record<string, TestOrigin>> {
+  const nums = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))].map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 500);
+  const pieces = nums(tests.map((t) => t.piece));
+  const ideas = nums(tests.map((t) => t.ideaId));
+  const versions = nums(tests.map((t) => t.versionId));
+  const [p, i, v] = await Promise.all([
+    pieces.length
+      ? query<{ id: number; project_id: number; title: string }>(`SELECT id, project_id, title FROM apsomh_content_pieces WHERE id = ANY($1::int[])`, [pieces]).catch(() => ({ rows: [] as { id: number; project_id: number; title: string }[] }))
+      : Promise.resolve({ rows: [] as { id: number; project_id: number; title: string }[] }),
+    ideas.length
+      ? query<{ id: string; env: Env }>(`SELECT id, env FROM apsomh_convert_ideas WHERE id = ANY($1::bigint[])`, [ideas]).catch(() => ({ rows: [] as { id: string; env: Env }[] }))
+      : Promise.resolve({ rows: [] as { id: string; env: Env }[] }),
+    versions.length
+      ? query<{ id: string; letter: string }>(`SELECT id, letter FROM apsomh_convert_versions WHERE id = ANY($1::bigint[])`, [versions]).catch(() => ({ rows: [] as { id: string; letter: string }[] }))
+      : Promise.resolve({ rows: [] as { id: string; letter: string }[] }),
+  ]);
+  const letter = new Map(v.rows.map((x) => [String(x.id), x.letter || "A"]));
+  const todo = new Map(p.rows.map((x) => [String(x.id), { pieceId: String(x.id), projectId: Number(x.project_id), title: x.title }]));
+  const env = new Map(i.rows.map((x) => [String(x.id), x.env]));
+  return Object.fromEntries(tests.map((t) => [t.id, { todo: t.piece ? todo.get(t.piece) ?? null : null, ideaEnv: t.ideaId ? env.get(t.ideaId) ?? null : null, letter: t.versionId ? letter.get(t.versionId) ?? null : null }]));
+}
+
+/**
+ * THE TEST OF A PAGE THE HUB PUBLISHED (13.11.2026 - Pages > Published by the hub showed no test): the tests of its
+ * Content to-do (its piece) or of its address on that shop, the live one first, else the latest. Keyed "env path".
+ */
+export async function testsOfPages(pages: { env: Env; path: string; pieceId: number | string }[]): Promise<Record<string, TestBrief>> {
+  if (!pages.length) return {};
+  await ensureTestsSchema();
+  const pieces = [...new Set(pages.map((p) => Number(p.pieceId)).filter((n) => Number.isInteger(n) && n > 0))];
+  const paths = [...new Set(pages.map((p) => p.path))].slice(0, 500);
+  type Row = { id: string; env: Env; pages: string[]; piece_id: string | null; status: TestBrief["status"]; winner: TestBrief["winner"]; updated_at: Date };
+  const r = await query<Row>(
+    `SELECT id, env, pages, piece_id, status, winner, updated_at FROM apsomh_convert_tests
+      WHERE kind = 'test' AND (piece_id = ANY($1::bigint[]) OR pages && $2::text[])`, [pieces, paths]).catch(() => ({ rows: [] as Row[] }));
+  const out: Record<string, TestBrief> = {};
+  for (const p of pages) {
+    const mine = r.rows.filter((t) => String(t.piece_id) === String(p.pieceId) || (t.env === p.env && (t.pages ?? []).includes(p.path)))
+      .map((t) => ({ id: String(t.id), status: t.status, winner: t.winner, updatedAt: iso(t.updated_at)! }));
+    const lead = leadTest(mine);
+    if (lead) out[`${p.env} ${p.path}`] = lead;
+  }
+  return out;
+}
+
 export type Candidate = { versionId: string; rev: number; env: Env; path: string; kind: PageKind; summary: string; approvedBy: string | null; approvedAt: string | null; ideaId: string; title: string };
 /** Approved versions without a test (or without a personalisation) of their own yet. */
 export async function candidates(kind: TestKind): Promise<Candidate[]> {
@@ -187,6 +240,10 @@ export async function candidates(kind: TestKind): Promise<Candidate[]> {
     `SELECT v.id, v.rev, v.env, v.path, v.summary, v.approved_by, v.approved_at, i.id AS idea_id, i.title
        FROM apsomh_convert_versions v JOIN apsomh_convert_ideas i ON i.id = v.idea_id
       WHERE v.status = 'approved' AND ($1 = 'personalisation' OR NOT EXISTS (SELECT 1 FROM apsomh_convert_tests t WHERE t.version_id = v.id AND t.kind = $1))
+        -- one test path per page (13.11.2026): a content page sent to Content is tested in its A/B section; Content's own
+        -- test versions get their test from Content; home, category and product pages keep this way (Content cannot test them)
+        AND ($1 = 'personalisation' OR NOT (i.sent_at IS NOT NULL AND i.kind = 'cms'))
+        AND NOT (i.source = 'person' AND i.piece_id IS NOT NULL AND i.sent_at IS NULL)
       ORDER BY v.approved_at DESC NULLS LAST LIMIT 200`, [kind]);
   return r.rows.map((x) => ({ versionId: String(x.id), rev: x.rev, env: x.env, path: x.path, kind: classify(x.path).kind, summary: x.summary, approvedBy: x.approved_by,
     approvedAt: iso(x.approved_at), ideaId: String(x.idea_id), title: x.title }));
@@ -386,6 +443,11 @@ export async function act(id: string, action: Action, by: string, extra: { winne
     const v = await versionInfo(t.versionId);
     if (!v) throw new ConvertError("Its version is gone.");
     if (v.status !== "approved") throw new ConvertError(`The version was changed after it was approved (now revision ${v.rev}, a draft) - approve it again in the Preview.`);
+    // a test made in Content runs exactly the version it was made from (13.11.2026): the Page builder sent another one since
+    const own = t.piece && v.rev !== t.versionRev && t.ideaId
+      ? (await query<{ own: boolean }>(`SELECT (source = 'person' AND piece_id IS NOT NULL AND sent_at IS NULL) AS own FROM apsomh_convert_ideas WHERE id = $1`, [t.ideaId])).rows[0]?.own === true
+      : false;
+    if (own) throw new ConvertError(`The version was changed in Content after this test was made (revision ${t.versionRev}, now ${v.rev}) - make the test again from the Page builder's A/B section.`);
     return { changes: v.changes, rev: v.rev };
   };
 
@@ -531,6 +593,24 @@ export async function undoEveryone(testId: string, by: string): Promise<void> {
 }
 
 /** A way out that happens elsewhere (the code sent to dotSource), written down. */
+/**
+ * A WINNER PUBLISHED, THE TEST CLOSED (13.11.2026 - the loop as one product: only "on for everyone" ever set a test to
+ * shipped; a winner written into Magento, handed to dotSource, or made the page by Content's own "Make B the page" /
+ * "Update all" stayed "stopped - the version won" for ever, so Winners and Performance kept asking for it). The test whose
+ * version won is set to shipped, said in its history; Mission control reads it as ended.
+ */
+export async function markPublished(testId: string, by: string, how: string): Promise<Test> {
+  await ensureTestsSchema();
+  const t = await testById(testId);
+  if (!t) throw new ConvertError("No such test.", 404);
+  if (t.status === "shipped") return t;
+  if (t.winner !== "b") throw new ConvertError("Only a test its version won is published - decide it first.");
+  if (t.status === "running" || t.status === "paused") throw new ConvertError("The test is still live - end it first.");
+  await query(`UPDATE apsomh_convert_tests SET status = 'shipped', updated_at = now() WHERE id = $1`, [testId]);
+  await log(testId, by, "published", how.slice(0, 300));
+  return (await testById(testId))!;
+}
+
 export async function markHanded(testId: string, how: "dotsource", by: string): Promise<void> {
   const t = await testById(testId);
   if (!t) throw new ConvertError("No such test.", 404);
