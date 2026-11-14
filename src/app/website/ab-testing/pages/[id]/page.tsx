@@ -221,21 +221,20 @@ function Detailed({ d, reload }: { d: Detail; reload: () => void }) {
             {d.canEdit && t.status === "draft" && <>
               <Button size="small" onClick={() => setEditing((x) => !x)}>{editing ? "Close the settings" : "Change the settings"}</Button>
               <Button size="small" color="error" onClick={ask.del}>Delete</Button>
-              <Button size="small" variant="contained" disableElevation disabled={!d.gateway.configured} onClick={ask.start}>Start the test</Button>
+              {/* started only from Content's Page builder (SARCLA 14.11.2026: "Start test - don't allow from here, only from the content generator") */}
+              {d.origin?.todo
+                ? <Button size="small" variant="contained" disableElevation component={Link} href={todoHref(d.origin.todo)}>Start it from its to-do</Button>
+                : <Typography component="span" sx={{ fontSize: "0.8rem", color: MUTED }}>Started from Content&apos;s Page builder</Typography>}
             </>}
             {d.canEdit && t.status === "running" && <>
               <Button size="small" onClick={ask.pause}>Pause</Button>
-              <Button size="small" onClick={ask.restart}>Restart</Button>
               <Button size="small" color="error" onClick={ask.stop}>Stop</Button>
             </>}
             {d.canEdit && t.status === "paused" && <>
-              <Button size="small" onClick={ask.restart}>Restart</Button>
               <Button size="small" color="error" onClick={ask.stop}>Stop</Button>
               <Button size="small" variant="contained" disableElevation onClick={ask.resume}>Resume</Button>
             </>}
             {d.canEdit && t.status === "stopped" && <>
-              <Button size="small" onClick={ask.restart}>Restart</Button>
-              <Button size="small" onClick={() => ask.copy(t.env === "acc" ? "prod" : "acc")}>{t.env === "acc" ? "Copy to production" : "Copy to ACC"}</Button>
               <Button size="small" onClick={ask.remove}>Take it off the gateway</Button>
             </>}
             {d.canEdit && d.drift && <Button size="small" variant="outlined" onClick={ask.sync}>Send it again</Button>}

@@ -1013,7 +1013,7 @@ function ConvertPreview() {
             {idea && data.canEdit && st === "dropped" && <Button size="small" onClick={() => void act(`i:${idea.id}`, { action: "idea", id: idea.id, status: "proposed" })} sx={{ ...btn, fontWeight: 600 }}>Bring back</Button>}
             {idea?.projectId && <Button size="small" variant="outlined" href={`/projects/${idea.projectId}`} sx={btn}>Open the project</Button>}
             {/* one test path per page (13.11.2026): a content page is tested in Content's A/B section */}
-            {idea && st === "sent" && version && !contentTests && <Button size="small" variant="outlined" href={`${CONVERT}/tests?make=${version.id}`} sx={btn}>Test Version {version.letter}</Button>}
+            {/* a test is made and started only from Content's Page builder (SARCLA 14.11.2026) - no "Test Version X" here */}
             {idea && data.canEdit && st !== "dropped" && (
               <Tooltip title={!data.canContent ? "Content needs the Marketing access" : !versions.length && !landing ? "Its version comes first - the AI is making it" : landing ? "An SEO landing page project in Content with the brief to write the new page" : `A ${CHANGE_LABEL[typeOfIdea(idea)]} project in Content with a brief to rebuild it there`}>
                 <span>
