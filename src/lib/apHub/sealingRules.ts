@@ -204,8 +204,24 @@ export function shortName(name: string): string {
 /* -- an approval text read as its references (SARCLA 13.11.2026: approval texts "unreadable") --------------------- */
 
 export const PER_DATA_SHEET = "Per data sheet";
-/** "gemäss dem technischen Datenblatt", "acc. currently valid data sheet", "as per data sheet" - one reference. */
-const DATA_SHEET = /gem(?:ä|ae|a)ss?\s+(?:dem\s+)?(?:technischen\s+)?datenbla+tt|acc(?:\.|ording)?\s*(?:to\s+)?(?:the\s+)?(?:currently\s+)?(?:valid\s+)?(?:technical\s+)?data\s*-?sheet|as\s+per\s+(?:the\s+)?(?:technical\s+)?data\s*-?sheet|per\s+data\s*-?sheet/i;
+/*
+ * A data sheet named, in every wording the texts use (SARCLA 14.11.2026: "according to technical datasheet", "acc. TDS",
+ * "acc. current valid data sheet", "gemäss technischem Datenblatt" ... are all one thing): the sheet - TDS, data sheet,
+ * datasheet, Datenblatt, fiche technique, scheda tecnica - with what may come before it (acc., acc, according to, as
+ * per, per, gemäss, gem., selon, secondo, see, siehe; the, dem, current, currently valid, technical, technischem ...)
+ * and a number after it ("TDS 4711"), any case.
+ */
+const DS_NOUN = String.raw`(?:TDS|data\s*-?\s*sheets?|datenv?bla+tt|fiche\s+technique|scheda\s+tecnica|technical\s+sheet)`;
+const DS_LEAD = String.raw`(?:according\s+to|acc(?:\s+to)?|as\s+per|per|in\s+accordance\s+with|gem(?:ä|ae|a)ss?|gem|selon\s+(?:la\s+)?|secondo\s+(?:la\s+)?|see|siehe)`;
+const DS_FILL = String.raw`(?:\s*\b(?:the|our|dem|der|den|des|la|le|il|lo|currently|current|valid|latest|actual|technical|technische[mnrs]?|technique|tecnica|g(?:ü|ue)ltige[mnrs]?|aktuelle[mnrs]?)\b)*`;
+const DS_PHRASE = String.raw`(?:\b${DS_LEAD}\b\.?${DS_FILL}\s*)?(?:\b(?:technical|technische[mnrs]?)\s+)?\b${DS_NOUN}\b(?:\s+(?:no\.?\s*)?[A-Z]*\d[\w.\-/]*)?`;
+const DATA_SHEET = new RegExp(DS_PHRASE, "i");
+const DATA_SHEET_ALL = new RegExp(DS_PHRASE, "gi");
+/** The words left round a data sheet that say nothing more ("available on request", "beachten"). */
+const DS_NOISE = /^(?:available|on|upon|request|auf|anfrage|beachten|see|siehe|refer|to|please|bitte|is|are|the|valid|current|currently|latest|version|edition|rev|sur|demande|su|richiesta|disponible|disponibile|erhältlich|verfügbar|and|und|et|e)$/i;
+const dsNoise = (rest: string) => rest.split(/[\s,.;:()]+/).filter(Boolean).every((w) => DS_NOISE.test(w));
+/** Does an approval text point to a data sheet - in any of its wordings. */
+export const refersToDataSheet = (text: string): boolean => !noApproval(text) && DATA_SHEET.test(String(text ?? ""));
 
 /**
  * An approval text's separate references, in their order, each once: split at ";", a new line, ", " and " / " (a slash
@@ -224,7 +240,9 @@ export function approvalParts(text: string): string[] {
   };
   for (const raw of String(text).split(/\s*[;\n\r]+\s*|,\s+|\s+\/\s+|\s+\|\s+/)) {
     if (DATA_SHEET.test(raw)) {
-      add(raw.replace(DATA_SHEET, " ").replace(/\s+/g, " "));
+      // what the part says besides the sheet ("FDA acc. data sheet": FDA), unless only "available on request"
+      const rest = raw.replace(DATA_SHEET_ALL, " ").replace(/\s+/g, " ").trim();
+      if (!dsNoise(rest)) add(rest);
       add(PER_DATA_SHEET);
     } else add(raw);
   }
@@ -668,16 +686,56 @@ export function approvalRefs(approvals: { name: string; rev: number; gp: number 
   }).sort((a, b) => b.rev - a.rev);
 }
 
-/** The approval texts naming each approval, as pairs - what the store counts the articles of, one approval at a time. */
+/**
+ * The approvals a page charts one by one (SARCLA 14.11.2026: "this is still broken" - the texts charted raw): the
+ * pilot's, then "Per data sheet" for every text pointing to a data sheet, in whatever wording.
+ */
+export const APPROVAL_ROWS: string[] = [...APPROVAL_REFS, PER_DATA_SHEET];
+/** Does an article's approval text carry this approval - "Per data sheet": any data-sheet wording. */
+export const carriesApproval = (text: string, name: string): boolean => (name === PER_DATA_SHEET ? refersToDataSheet(text) : namesApproval(text, name));
+
+/** The approval texts carrying each approval, as pairs - what the store counts the articles of, one approval at a time. */
 export function refTexts(texts: string[]): { text: string; ref: string }[] {
-  return APPROVAL_REFS.flatMap((ref) => texts.filter((t) => namesApproval(t, ref)).map((text) => ({ text, ref })));
+  return APPROVAL_ROWS.flatMap((ref) => texts.filter((t) => carriesApproval(t, ref)).map((text) => ({ text, ref })));
+}
+
+/**
+ * Each approval charted - the pilot's and "Per data sheet" - with the net revenue and gross profit of the articles
+ * carrying it, now and a year earlier, and how many articles (`articles`, when counted). An article carrying two counts
+ * under both: they overlap and never add up. The largest first.
+ */
+export function approvalGroups(now: { name: string; rev: number; gp: number }[], before: { name: string; rev: number; gp: number }[], articles?: Map<string, number>): RefFigure[] {
+  const sum = (xs: { name: string; rev: number; gp: number }[], name: string) => xs.filter((a) => carriesApproval(a.name, name)).reduce((t, a) => ({ rev: t.rev + a.rev, gp: t.gp + a.gp }), { rev: 0, gp: 0 });
+  return APPROVAL_ROWS.map((name) => {
+    const n = sum(now, name), b = sum(before, name);
+    return { key: name, name, rev: n.rev, gp: n.gp, margin: n.rev ? n.gp / n.rev : 0, prev: b.rev, prevGp: b.gp, articles: articles ? articles.get(name) ?? 0 : null };
+  }).filter((x) => x.rev > 0 || (x.prev ?? 0) > 0).sort((x, y) => y.rev - x.rev);
+}
+
+/**
+ * The approval texts by what they mean, for a chart or a ranking (SARCLA 14.11.2026): every data-sheet wording one
+ * "Per data sheet"; a text naming approvals its first three and how many more ("3-A Sanitary Standard · ACS · ADI free
+ * +16 more"); any other text its own words. Each with the texts it gathers - its key the largest of them - and the
+ * same texts a year earlier. The largest first.
+ */
+export function meaningRows(now: Figure[], before: Figure[]): (Figure & { texts: string[] })[] {
+  const prev = new Map(before.map((x) => [x.key, x]));
+  const m = new Map<string, Figure & { texts: string[] }>();
+  for (const x of [...now].filter((a) => !noApproval(a.name)).sort((a, b) => b.rev - a.rev)) {
+    const label = approvalLabel(x.name);
+    const p = prev.get(x.key);
+    const g = m.get(label);
+    if (!g) m.set(label, { key: x.key, name: label, rev: x.rev, gp: x.gp, margin: 0, prev: p?.rev ?? 0, prevGp: p?.gp ?? 0, texts: [x.key] });
+    else { g.rev += x.rev; g.gp += x.gp; g.prev = (g.prev ?? 0) + (p?.rev ?? 0); g.prevGp = (g.prevGp ?? 0) + (p?.gp ?? 0); g.texts.push(x.key); }
+  }
+  return [...m.values()].map((g) => ({ ...g, margin: g.rev ? g.gp / g.rev : 0 })).sort((a, b) => b.rev - a.rev || a.name.localeCompare(b.name));
 }
 
 export type ApprovalKind = "none" | "datasheet" | "explicit" | "other";
 /** The pilot's indicative categories, in its order - a text's keywords, never a validated approval. */
 export const APPROVAL_KINDS: { key: ApprovalKind; name: string }[] = [
   { key: "none", name: "No approval written" },
-  { key: "datasheet", name: "Refers to a data sheet" },
+  { key: "datasheet", name: "Data sheet, no approval named" },
   { key: "explicit", name: "Names an approval" },
   { key: "other", name: "Other text" },
 ];
@@ -686,7 +744,7 @@ export const APPROVAL_KINDS: { key: ApprovalKind; name: string }[] = [
 export function approvalKind(name: string): ApprovalKind {
   if (noApproval(name)) return "none";
   if (/FDA|WRAS|NSF|ACS|DVGW|KTW|USP|1935|3-A|BfR|BFR|LFGB|EN 681|4020|W270|RoHS/i.test(name)) return "explicit";
-  if (/datasheet|data sheet|TDS|Datenblatt|Datenvblatt/i.test(name)) return "datasheet";
+  if (DATA_SHEET.test(name)) return "datasheet";
   return "other";
 }
 
@@ -724,7 +782,9 @@ export type ListKind = "customer" | "article" | "compound" | "approval";
 export const isListKind = (s: unknown): s is ListKind => s === "customer" || s === "article" || s === "compound" || s === "approval";
 
 /** What a page of a list asks: ranked by revenue or gross profit, a search, where it starts and how many, a family. */
-export type ListAsk = { kind: ListKind; by: "rev" | "gp"; q: string; offset: number; limit: number; family: string | null; unresolved: boolean };
+export type ListAsk = { kind: ListKind; by: "rev" | "gp"; q: string; offset: number; limit: number; family: string | null; unresolved: boolean;
+  /** the approval texts gathered by what they mean (meaningRows) - the charts and rankings; the raw texts otherwise (All approval texts) */
+  meaning: boolean };
 
 const intIn = (s: string | null, dflt: number, lo: number, hi: number) => {
   const n = Number(s);
@@ -746,6 +806,7 @@ export function listAskOf(p: URLSearchParams): ListAsk | null {
     limit: intIn(p.get("limit"), LIST_PAGE, 1, 100),
     family: (p.get("family") ?? "").trim().slice(0, 40) || null,
     unresolved: p.get("unresolved") === "1",
+    meaning: kind === "approval" && p.get("meaning") === "1",
   };
 }
 
@@ -820,7 +881,7 @@ export const SEALING_DEFINITIONS: { title: string; text: string }[] = [
   },
   {
     title: "Accounts and approvals",
-    text: "Customer numbers remain separate even when two accounts carry the same name; with a business unit chosen in the Filters, a ranking covers only its accounts and articles. Compound labels are shown as written on the article, and apparent mismatches need validation; a compound's customers come from the same invoices, so their totals match its own. Approvals are the texts written on the articles - not validated certification data, and no proof of what caused a sale. Each text is read as the separate approvals it names; the data-sheet phrases in any language are one \"Per data sheet\". A text names an approval when it carries FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270 or RoHS; it refers to a data sheet when it names a technical datasheet. These groups come from the words of the text and need review. An article can carry several approvals: it counts under each of them, so the approvals overlap and cannot be added; in the groups each text counts once. Rows the ERP gives without a company number are shown as \"No business unit in the ERP\".",
+    text: "Customer numbers remain separate even when two accounts carry the same name; with a business unit chosen in the Filters, a ranking covers only its accounts and articles. Compound labels are shown as written on the article, and apparent mismatches need validation; a compound's customers come from the same invoices, so their totals match its own. Approvals are the texts written on the articles - not validated certification data, and no proof of what caused a sale. Each text is read as the separate approvals it names; the data-sheet phrases in any language are one \"Per data sheet\". A text names an approval when it carries FDA, WRAS, NSF, ACS, DVGW, KTW, USP, EC 1935, 3-A, BfR, LFGB, EN 681, W270 or RoHS; a data sheet is named in any wording - TDS, data sheet, datasheet, Datenblatt, fiche technique or scheda tecnica, after acc., according to, as per, gemäss, selon or secondo, any case - and every such text is one \"Per data sheet\" (with no approval named, \"Data sheet, no approval named\"). These groups come from the words of the text and need review. An article can carry several approvals: it counts under each of them, so the approvals overlap and cannot be added; in the groups each text counts once. Rows the ERP gives without a company number are shown as \"No business unit in the ERP\".",
   },
   {
     title: "Opportunity scenarios",

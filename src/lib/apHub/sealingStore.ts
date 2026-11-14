@@ -9,7 +9,7 @@ import type { PoolClient } from "pg";
 import { getPool, query } from "@/lib/db/client";
 import { sealingCacheClear } from "./sealingCache";
 import {
-  approvalKinds, approvalRefs, refTexts, type RefFigure, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
+  approvalGroups, approvalKinds, approvalRefs, meaningRows, refTexts, type RefFigure, commercialCandidates, compoundsKept, keyMonths, materialOf, monthsBetween, noApproval, noCompound, priorities, sealingPeriod, sumBy, topShare, yearBefore,
   type CompoundCustomer, type DetailKind, type ListAsk, type ListKind, type Figure, type KeyMonth, type Priority, type SealingRow,
 } from "./sealingRules";
 
@@ -170,6 +170,8 @@ export type SealingView = {
   unresolved: Figure[];
   /** the net revenue of the articles carrying each approval the pilot ranks (FDA, WRAS ...), and how many articles - they overlap */
   approvalRefs: RefFigure[];
+  /** each approval charted (the pilot's and "Per data sheet"): its articles' figures, now and a year earlier, and how many articles */
+  approvalGroups: RefFigure[];
   /** the pilot's indicative categories of the approval texts: none written, a datasheet, explicit references, other */
   approvalKinds: Figure[];
   /** the customers and the articles with a negative gross margin (net revenue above zero, gross profit below) - a year
@@ -464,8 +466,27 @@ export async function readSealing(f: SealingFilter): Promise<SealingView> {
     },
     unresolved: withPrev(compNow.filter((c) => noCompound(c.name)), compBefore.filter((c) => noCompound(c.name))),
     approvalRefs: approvalRefs(appr, new Map(refRows.rows.map((r) => [r.ref, Number(r.n)]))),
+    approvalGroups: approvalGroups(appr, apprBefore, new Map(refRows.rows.map((r) => [r.ref, Number(r.n)]))),
     approvalKinds: approvalKinds(appr),
     negative: { customers: negCust, articles: negArt, prevCustomers: negCustBefore, prevArticles: negArtBefore },
+  };
+}
+
+/**
+ * The approval texts gathered by what they mean, a page at a time (SARCLA 14.11.2026: the same meaning "split into many
+ * rows"): every text of the period and its figures a year earlier - a few hundred - read whole, gathered (meaningRows),
+ * searched over the meaning and its texts, ranked, then the page cut. Each row's key is its largest text.
+ */
+async function readMeaningList(f: SealingFilter, a: ListAsk): Promise<SealingList> {
+  const [now, before] = await Promise.all([
+    grouped("approval", "approval", f, f.from, f.to), grouped("approval", "approval", f, yearBefore(f.from), yearBefore(f.to)),
+  ]);
+  const q = a.q.trim().toLowerCase();
+  const rows = meaningRows(now, before).filter((r) => !q || [r.name, ...r.texts].some((t) => t.toLowerCase().includes(q)));
+  if (a.by === "gp") rows.sort((x, y) => y.gp - x.gp || x.name.localeCompare(y.name));
+  return {
+    kind: a.kind, total: rows.length, offset: a.offset, limit: a.limit,
+    rows: rows.slice(a.offset, a.offset + a.limit).map((r) => ({ key: r.key, name: r.name, rev: r.rev, gp: r.gp, margin: r.margin, prev: r.prev ?? 0, prevGp: r.prevGp ?? 0, compound: "" })),
   };
 }
 
@@ -576,6 +597,7 @@ const LIST_ORDER = { rev: "SUM(rev) DESC", gp: "SUM(gp) DESC" } as const;
  */
 export async function readSealingList(f: SealingFilter, a: ListAsk): Promise<SealingList> {
   await ensureSealingTable();
+  if (a.kind === "approval" && a.meaning) return readMeaningList(f, a);
   const L = LIST[a.kind];
   const w = where(f, f.from, f.to);
   const vals: unknown[] = [...w.vals];

@@ -6,7 +6,8 @@ import { SealingSheet, buOf, isSealingHeader, keyMonths, materialOf, monthOf, mo
 import { APPROVAL_ACTIONS, approvalKind, approvalKinds, approvalRefs, familyActions, familyFigures, isDetailKind, lowMarginLead, reviewActions, type Priority } from "../src/lib/apHub/sealingRules";
 import { SEALING_DEFINITIONS, actionsCaption, leadingRefs, matchesQuery, rankBy } from "../src/lib/apHub/sealingRules";
 import { MATERIAL_RULES, PER_DATA_SHEET, approvalLabel, approvalParts, cleanName, shortName } from "../src/lib/apHub/sealingRules";
-import { APPROVAL_KINDS, NO_UNIT, namesApproval, refTexts, tinyNoUnit } from "../src/lib/apHub/sealingRules";
+import { APPROVAL_KINDS, APPROVAL_ROWS, NO_UNIT, approvalGroups, carriesApproval, meaningRows, namesApproval, refTexts, refersToDataSheet, tinyNoUnit } from "../src/lib/apHub/sealingRules";
+import { twoLineLabel } from "../src/app/charts/format";
 import { cacheKey, sealingCacheClear, sealingCacheSize, sealingCached, stableKey } from "../src/lib/apHub/sealingCache";
 import {
   LIST_PAGE, NO_COMPOUND_NAME, PRIORITY_STATUSES, STATUS_NAME, approvalCandidates, canMove, candidateKey, commercialCandidates, compoundsKept, familyCandidates, isPriorityStatus,
@@ -558,7 +559,7 @@ test("sealing: a card's status - accepted, in progress, done, refused - and thre
 
 test("sealing: a whole list a page at a time - the request kept within bounds, the compounds a list keeps, its pages", () => {
   const a = listAskOf(new URLSearchParams("kind=customer&by=gp&q=%20hilti%20&offset=60&limit=30"));
-  assert.deepEqual(a, { kind: "customer", by: "gp", q: "hilti", offset: 60, limit: 30, family: null, unresolved: false });
+  assert.deepEqual(a, { kind: "customer", by: "gp", q: "hilti", offset: 60, limit: 30, family: null, unresolved: false, meaning: false });
   assert.equal(listAskOf(new URLSearchParams("kind=bu")), null);
   assert.equal(listAskOf(new URLSearchParams("")), null);
   const b = listAskOf(new URLSearchParams("kind=article&by=x&offset=-5&limit=5000&family=FKM&unresolved=1"))!;
@@ -669,11 +670,56 @@ test("sealing: round 10 - the approvals our sold articles carry, how many articl
   assert.match(approvalCandidates(refs, 900, 1070).find((p) => p.title.includes("FDA"))!.evidence, /articles carrying FDA \(312\)/);
   assert.equal(namesApproval("fda approved", "FDA"), true);
   assert.equal(namesApproval("-", "FDA"), false);
-  assert.deepEqual(APPROVAL_KINDS.map((k) => k.name), ["No approval written", "Refers to a data sheet", "Names an approval", "Other text"]);
+  assert.deepEqual(APPROVAL_KINDS.map((k) => k.name), ["No approval written", "Data sheet, no approval named", "Names an approval", "Other text"]);
   // the rows the ERP gives no company number: plainly named, out of the rings and bars while under 0.1% of the revenue
   assert.equal(buOf(""), "");
   assert.equal(NO_UNIT, "No business unit in the ERP");
   assert.equal(tinyNoUnit("", 1_404, 77_454_786), true);
   assert.equal(tinyNoUnit("", 100_000, 77_454_786), false, "0.1% or more: drawn");
   assert.equal(tinyNoUnit("APCH", 10, 77_454_786), false, "a unit with a number is always drawn");
+});
+
+test("sealing: round 11 - every data-sheet wording one meaning; the texts charted by meaning; the approvals against a year earlier", () => {
+  const sheets = ["according to technical datasheet", "according to Technical Data Sheet", "acc. TDS", "acc TDS", "acc. current valid data sheet", "acc. currently valid data sheet",
+    "gemäss technischem Datenblatt", "gemäss dem technischen Datenblatt", "as per data sheet", "Technical datasheet TDS 4711 available on request", "selon fiche technique", "secondo scheda tecnica", "gem. TDS"];
+  for (const t of sheets) {
+    assert.deepEqual(approvalParts(t), [PER_DATA_SHEET], t);
+    assert.equal(approvalLabel(t), PER_DATA_SHEET, t);
+    assert.equal(approvalKind(t), "datasheet", t);
+    assert.equal(refersToDataSheet(t), true, t);
+  }
+  assert.deepEqual(approvalParts("FDA acc. currently valid data sheet"), ["FDA", PER_DATA_SHEET]);
+  assert.deepEqual(approvalParts("Specific el. volume resistance min. 10^10 ohm/cm"), ["Specific el. volume resistance min. 10^10 ohm/cm"]);
+  assert.equal(refersToDataSheet("Peroxide cured, STDS free"), false, "no data sheet inside a word");
+  const long = "3-A Sanitary Standard; ACS; ADI free; AS/NZS 4020; BfR XXI Category 4; D.M. 06/04/04 n?74; DVGW W534; FDA; KIWA;";
+  assert.equal(approvalLabel(long), "3-A Sanitary Standard · ACS · ADI free +6 more");
+  // the texts by meaning: the eight data-sheet wordings one row, the largest its key; a year earlier summed the same way
+  const now = sheets.slice(0, 8).map((t, i) => ({ key: t, name: t, rev: 1000 - i * 100, gp: 300, margin: 0 }));
+  const rows = meaningRows([...now, { key: long, name: long, rev: 500, gp: 100, margin: 0 }, { key: "-", name: "-", rev: 9000, gp: 1, margin: 0 }], now.map((x) => ({ ...x, rev: 50 })));
+  assert.equal(rows.length, 2, "no approval written is no row");
+  assert.equal(rows[0].name, PER_DATA_SHEET);
+  assert.equal(rows[0].texts.length, 8);
+  assert.equal(rows[0].key, "according to technical datasheet");
+  assert.equal(rows[0].rev, now.reduce((a, x) => a + x.rev, 0));
+  assert.equal(rows[0].prev, 400);
+  assert.equal(rows[1].name, "3-A Sanitary Standard · ACS · ADI free +6 more");
+  // each approval and the data sheet, against a year earlier, how many articles
+  const groups = approvalGroups([{ name: "acc. TDS", rev: 100, gp: 30 }, { name: "FDA; acc TDS", rev: 50, gp: 10 }, { name: "KTW", rev: 20, gp: 5 }], [{ name: "acc. TDS", rev: 80, gp: 20 }], new Map([[PER_DATA_SHEET, 12]]));
+  const ds = groups.find((g) => g.name === PER_DATA_SHEET)!;
+  assert.deepEqual([ds.rev, ds.prev, ds.articles], [150, 80, 12]);
+  assert.equal(groups.find((g) => g.name === "FDA")!.rev, 50);
+  assert.ok(!groups.some((g) => g.name === "WRAS"), "an approval no article carries is no row");
+  assert.ok(APPROVAL_ROWS.includes(PER_DATA_SHEET));
+  assert.equal(carriesApproval("gemäss technischem Datenblatt", PER_DATA_SHEET), true);
+  assert.ok(refTexts(["acc. TDS"]).some((p) => p.ref === PER_DATA_SHEET));
+  assert.equal(listAskOf(new URLSearchParams("kind=approval&meaning=1"))!.meaning, true);
+  assert.equal(listAskOf(new URLSearchParams("kind=customer&meaning=1"))!.meaning, false);
+  // a chart's name: two lines at most, an ellipsis where it does not end
+  const w = (s: string) => s.length * 7;
+  assert.deepEqual(twoLineLabel("acc. TDS", 140, w), ["acc. TDS"]);
+  const two = twoLineLabel(long, 140, w);
+  assert.equal(two.length, 2);
+  assert.ok(two[1].endsWith("…"));
+  assert.ok(two.every((l) => w(l) <= 140));
+  assert.deepEqual(twoLineLabel("x".repeat(50), 140, w).length, 2);
 });

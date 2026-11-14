@@ -14,6 +14,7 @@ import FilterAltOutlinedIcon from "@mui/icons-material/FilterAltOutlined";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { INK, MUTED, RED, TINT, glass } from "@/app/uc/report/ui";
 import { useChartCompanies, type CompanySource } from "@/app/reporting/CompanyList";
+import { twoLineLabel } from "@/app/charts/format";
 
 /** The first figure's colour, and the second's (the year before, the best year) - as on every tab. */
 export const THIS = "#2d6fa8", BEFORE = "#b9c0c9";
@@ -24,7 +25,7 @@ export type ChartRow = { label: string; rev?: number };
 /** a value below zero, where a chart shows it (a loss) */
 const NEGATIVE = RED;
 
-export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, pickHint = "Click bars to show only them", onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies, labelNote, negatives = false }: {
+export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, curLabel, prevLabel, fmt, selected, onPick, pickHint = "Click bars to show only them", onFilter, filterLabel, pageSize = 10, fixedOrder = false, actions, curColor = THIS, prevColor = BEFORE, single = false, curNote, labelWidth = 170, companies, labelNote, negatives = false, bounded = false }: {
   title: string; rows: T[]; cur: (r: T) => number; prev: (r: T) => number; curLabel: string; prevLabel: string;
   fmt: (n: number) => string; selected?: string[];
   /** a click on a bar picks its row - left out where the bars cannot filter (ESO's breakdowns: the read holds the reps only) */
@@ -49,6 +50,12 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   labelNote?: (r: T) => string | null | undefined;
   /** a value below zero as a short red bar with its figure (the Sealing Business Review's gross margins) - else at zero, unlabelled */
   negatives?: boolean;
+  /**
+   * every name on at most two lines, an ellipsis where it is longer, the whole of it as the name's tooltip - rows never
+   * run into each other; the scale the largest of both bars over the rows shown, so every bar and figure stays in the
+   * card (the Sealing Business Review's charts, SARCLA 14.11.2026: "this is still broken")
+   */
+  bounded?: boolean;
 }) {
   const list = useChartCompanies(companies, title);
   // a chart ranks by its own figure - companies by companies, revenue by revenue (SARCLA 16.10:
@@ -61,6 +68,8 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
   const slice = rows.slice(page * pageSize, page * pageSize + pageSize);
   const data = slice.map((r) => ({ label: r.label, cur: Math.max(0, cur(r)), prev: Math.max(0, prev(r)), note: curNote?.(r) ?? null, raw: cur(r) }));
   const notes = labelNote ? new Map(slice.map((r) => [r.label, labelNote(r) ?? ""])) : null;
+  // the scale over the rows shown: the larger of this period's and the year before's bars
+  const top = Math.max(0, ...data.map((d) => Math.max(d.cur, single ? 0 : d.prev)));
   const pick = (d: unknown) => { const l = (d as { payload?: { label?: string } })?.payload?.label; if (l) onPick?.(l); };
   const hint = [onPick ? pickHint : "", pages > 1 ? `${page * pageSize + 1}–${Math.min(rows.length, (page + 1) * pageSize)} of ${rows.length}, largest first` : ""].filter(Boolean).join(" · ");
   const tall = Math.min(rows.length, pageSize);
@@ -89,7 +98,7 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
       <ResponsiveContainer width="100%" height={Math.max(140, tall * 44 + 56)}>
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: curNote ? 190 : 120, bottom: 4, left: 4 }} barGap={2} barCategoryGap="22%">
           <CartesianGrid horizontal={false} stroke="#e6e8ec" />
-          <XAxis type="number" hide />
+          <XAxis type="number" hide {...(bounded ? { domain: [0, top > 0 ? top : 1], allowDataOverflow: false } : {})} />
           <YAxis type="category" dataKey="label" width={labelWidth} tickLine={false} axisLine={false} interval={0}
             tick={notes ? (p: { x?: number | string; y?: number | string; payload?: { value?: unknown } }) => {
               // the name, and what it means in grey under it
@@ -98,6 +107,17 @@ export function DimChart<T extends ChartRow>({ title, rows: given, cur, prev, cu
                 <g transform={`translate(${Number(p.x ?? 0)},${Number(p.y ?? 0)})`}>
                   <text textAnchor="end" fontSize={12.5} fill={INK} dy={note ? -2 : 4}>{label}</text>
                   {note && <text textAnchor="end" fontSize={11} fill={MUTED} dy={12}>{note}</text>}
+                </g>
+              );
+            } : bounded ? (p: { x?: number | string; y?: number | string; payload?: { value?: unknown } }) => {
+              // two lines at most, the whole name on hover
+              const label = String(p.payload?.value ?? ""), lines = twoLineLabel(label, labelWidth - 10);
+              return (
+                <g transform={`translate(${Number(p.x ?? 0)},${Number(p.y ?? 0)})`}>
+                  <title>{label}</title>
+                  <text textAnchor="end" fontSize={12.5} fill={INK}>
+                    {lines.map((l, i) => <tspan key={i} x={0} dy={i ? 15 : lines.length > 1 ? -3 : 4}>{l}</tspan>)}
+                  </text>
                 </g>
               );
             } : { fontSize: 12.5, fill: INK }} />
