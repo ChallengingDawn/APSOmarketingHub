@@ -10,7 +10,7 @@
 // real app list rather than pretending. Motion is held to a drift and a lift,
 // and all of it stops under prefers-reduced-motion.
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -162,12 +162,34 @@ export default function FrontPage() {
   /** Where an app's tile leads: its front page, or the first of its sub-apps that is yours when only those are. */
   const entry = (a: HubApp) => (!viewed && first[a.key]) || a.href;
 
-  // One or two apps should not stretch across the window; three or more share it.
-  const wide = visibleApps.length < 3 ? "minmax(0, 340px)" : "minmax(0, 1fr)";
+  // HOW THE APPS SIT (SARCLA 14.11.2026, the front page seen live: "screen is completely broken, you put pricing on the top
+  // line - reorganize ... give more emphasis"). Seven apps had gone into one row on a wide window, each card a seventh of
+  // it, the rows inside spilling out. Now at most four to a row, every row filling the width: seven = four + three, six =
+  // three + three, five = three + two. One or two apps keep a sensible width instead of stretching across the window.
+  const n = visibleApps.length;
+  const perRow = n <= 4 ? n : n <= 6 ? 3 : 4;
+  const spanOf = (i: number) => {
+    const row = Math.floor(i / perRow);
+    const inRow = Math.min(perRow, n - row * perRow);
+    return 12 / inRow;
+  };
+  const few = n > 0 && n <= 2;
+
+  // THE QUICK LINKS, really on the left (SARCLA 14.11.2026: "I told you quick link should be really on the left side"):
+  // in the margin left of the page, under the APSOparts / Angst+Pfister switch, as the switch hangs beside the bar - the
+  // apps keep the whole width. A window with no margin for them gets them as a strip above the apps.
+  const mainRef = useRef<HTMLDivElement | null>(null);
+  const [rail, setRail] = useState(false);
+  useIsoLayoutEffect(() => {
+    const check = () => { const el = mainRef.current; if (el) setRail(el.getBoundingClientRect().left >= RAIL_ROOM); };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   return (
     <Box sx={{
-      // clip, not hidden: "hidden" makes this box a scroll container, and the quick-links column could no longer stay in view
+      // clip, not hidden: "hidden" makes this box a scroll container, and the quick links could no longer stay in view
       minHeight: "100vh", position: "relative", overflowX: "clip", bgcolor: MESH_BASE,
       // One rule for the whole page: somebody who asked their system for less
       // motion gets none, and no component has to remember to opt out.
@@ -183,118 +205,108 @@ export default function FrontPage() {
     }}>
       <MeshBackground />
 
-      <Box sx={{ position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 } }}>
+      <Box sx={{
+        position: "relative", zIndex: 1, maxWidth: 1480, mx: "auto", px: { xs: 2, md: 3 }, py: { xs: 2, md: 2.5 },
+        // a desktop window too narrow to leave a margin keeps one on the left anyway, for the hub switch and the quick links
+        // (HomeBar.tsx, RAIL_ROOM below) - a laptop at 125 % is 1536 px wide and would otherwise lose the column
+        "@media (min-width:1200px)": { paddingLeft: "max(24px, calc(176px - max(0px, (100vw - 1480px) / 2)))" },
+      }}>
 
         {/* The bar: wordmark, the way round the hub, search, your face (src/app/HomeBar.tsx). */}
         <HomeBar on="Home" />
 
-        {/* No hero. The wordmark is in the bar, and a page whose job is to
-            hand you five doors does not need a paragraph telling you so. The
-            apps start at the top, where the eye already is. */}
-        {/* --------------------------------------------------------- applications */}
-        {/* As many columns as there are apps, never more. The count was fixed at
-            five, so somebody with one app got a tile a fifth of the width and a
-            row of white space beside it — and six apps wrapped one onto a line
-            of its own. Below three the tiles stop stretching and take a sensible
-            width instead, because a single card spanning the window is not a
-            launch pad, it is a billboard. */}
-        {/* The quick links are a column of mini apps right against the apps (SARCLA 13.11.2026: "put the quick actions
-            on the left side in vertical like mini apps"; 14.11.2026: "really next to apps so apps are still visible"):
-            narrow, so the tiles keep their width, and in view while the page scrolls. On a phone, a strip on top. */}
-        <Box sx={{ display: "flex", flexDirection: { xs: "column", md: "row" }, alignItems: { xs: "stretch", md: "flex-start" }, gap: 2, mt: { xs: 2.5, md: 3 } }}>
-        {panel("quickLinks") && <QuickLinks glass={glass} mayOpen={mayOpen} />}
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box id="applications" sx={{
-          display: "grid", gap: { xs: 2, md: 2 }, alignItems: "stretch",
-          justifyContent: "start",
-          gridTemplateColumns: {
-            xs: "1fr",
-            sm: `repeat(${Math.min(visibleApps.length, 2)}, ${wide})`,
-            md: `repeat(${Math.min(visibleApps.length, 3)}, ${wide})`,
-          },
-          // Up to six apps share one row. Past six, two even rows (seven = 4 + 3)
-          // rather than a full row and one card left alone under it; a very wide
-          // screen takes all seven in one.
-          "@media (min-width:1280px)": {
-            gridTemplateColumns: `repeat(${visibleApps.length <= 6 ? visibleApps.length : Math.ceil(visibleApps.length / 2)}, ${wide})`,
-          },
-          "@media (min-width:1800px)": {
-            gridTemplateColumns: `repeat(${Math.min(visibleApps.length, 7)}, ${wide})`,
-          },
-        }}>
-          {visibleApps.map((a, i) => {
-            const open = !!expanded[a.key];
-            // only the sub-apps that are theirs
-            const subs = (a.cards ?? a.subs).filter((x) => mayOpen(x.href));
-            const shown = open ? subs : subs.slice(0, 3);
-            return (
-              <Box key={a.key} sx={{
-                ...glass, borderRadius: "22px", p: { xs: 2, md: 2.1 },
-                display: "flex", flexDirection: "column", gap: 1.5,
-                background: `linear-gradient(170deg, ${a.wash}, rgba(255,255,255,.64) 58%)`,
-                position: "relative",
-                transition: "transform .22s cubic-bezier(.22,.8,.3,1), box-shadow .22s ease",
-                "&:hover": { transform: "translateY(-4px)", boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 24px 52px rgba(31,45,78,.12)" },
-                "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
-                ...rise(i + 1),
-              }}>
-                <Box sx={{
-                  width: 58, height: 58, borderRadius: "17px", display: "grid", placeItems: "center",
-                  background: `linear-gradient(140deg, ${a.from}, ${a.to})`, color: "#fff",
-                  boxShadow: `0 10px 22px ${a.wash}`, "& svg": { fontSize: 31 },
-                }}>{APP_ICON[a.icon]}</Box>
+        <Box ref={mainRef} sx={{ position: "relative", mt: { xs: 2.5, md: 3 } }}>
+          {panel("quickLinks") && (rail ? (
+            // the margin's full height, so the column stays in view while the page scrolls
+            <Box sx={{ position: "absolute", top: 0, bottom: 0, right: "calc(100% + 12px)", width: RAIL_WIDTH }}>
+              <QuickLinks glass={glass} mayOpen={mayOpen} variant="rail" />
+            </Box>
+          ) : (
+            <Box sx={{ mb: 2 }}><QuickLinks glass={glass} mayOpen={mayOpen} variant="strip" /></Box>
+          ))}
 
-
-
-                <Box>
+          {/* ------------------------------------------------------- applications */}
+          <Box id="applications" sx={{
+            display: "grid", gap: 2, alignItems: "stretch",
+            gridTemplateColumns: few ? { xs: "minmax(0, 1fr)", sm: `repeat(${n}, minmax(0, 380px))` } : "repeat(12, minmax(0, 1fr))",
+          }}>
+            {visibleApps.map((a, i) => {
+              const open = !!expanded[a.key];
+              // only the sub-apps that are theirs
+              const subs = (a.cards ?? a.subs).filter((x) => mayOpen(x.href));
+              const shown = open ? subs : subs.slice(0, 3);
+              // the app's colour, deepened so white reads on it
+              const deep = `color-mix(in srgb, ${a.to} 74%, #0b1424)`;
+              return (
+                <Box key={a.key} sx={{
+                  ...glass, borderRadius: "22px", overflow: "hidden", minWidth: 0,
+                  display: "flex", flexDirection: "column",
+                  gridColumn: few ? "auto" : { xs: "span 12", sm: "span 6", lg: `span ${spanOf(i)}` },
+                  // no lift on hover: a moving card is drawn on a layer of its own and Windows drops ClearType there
+                  // (the blurry text of 19.10.2026) - its shadow deepens instead
+                  transition: "box-shadow .2s ease",
+                  "&:hover": { boxShadow: "0 2px 6px rgba(31,45,78,.06), 0 22px 48px rgba(31,45,78,.13)" },
+                  ...rise(i + 1),
+                }}>
+                  {/* the app itself: its colour, its name - the way in */}
                   <Box component={Link} href={entry(a)} sx={{
-                    display: "inline-flex", alignItems: "center", gap: 0.4, textDecoration: "none",
-                    color: INK, ...focusRing,
-                    "&:hover .chev": { transform: "translateX(4px)" },
+                    display: "flex", alignItems: "center", gap: 1.75, px: 2.25, py: 2,
+                    textDecoration: "none", color: "#fff",
+                    background: `linear-gradient(135deg, ${a.to} 0%, ${deep} 100%)`,
+                    "&:focus-visible": { outline: "2px solid #fff", outlineOffset: -4, borderRadius: "18px" },
+                    "&:hover .chev": { transform: "translateX(3px)" },
                   }}>
+                    <Box sx={{
+                      width: 52, height: 52, borderRadius: "16px", flexShrink: 0, display: "grid", placeItems: "center",
+                      bgcolor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.24)", "& svg": { fontSize: 28 },
+                    }}>{APP_ICON[a.icon]}</Box>
                     <Typography component="span" sx={{
-                      fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
-                      fontSize: "1.26rem", fontWeight: 600, letterSpacing: "-0.028em", lineHeight: 1.16,
+                      flex: 1, minWidth: 0, fontFamily: "var(--font-outfit), var(--font-inter), sans-serif",
+                      fontSize: "1.32rem", fontWeight: 600, letterSpacing: "-0.028em", lineHeight: 1.15, color: "#fff",
                     }}>{a.name}</Typography>
                     <ChevronRightIcon className="chev" sx={{
-                      fontSize: 21, color: a.to, transition: "transform .18s ease",
+                      fontSize: 24, flexShrink: 0, opacity: 0.9, transition: "transform .18s ease",
                       "@media (prefers-reduced-motion: reduce)": { transition: "none" },
                     }} />
                   </Box>
-                  <Typography sx={{ fontSize: "0.875rem", color: MUTED, mt: 0.6, lineHeight: 1.45 }}>{a.line}</Typography>
-                </Box>
 
-                <Box sx={{ display: "grid", gap: 1, mt: "auto" }}>
-                  {shown.map((s) => (
-                    <Box key={s.href + s.name} component={Link} href={s.href} sx={{
-                      display: "flex", alignItems: "center", gap: 1.2, p: 1.05, borderRadius: "14px",
-                      textDecoration: "none", bgcolor: "rgba(255,255,255,.72)",
-                      border: "1px solid rgba(255,255,255,.85)", ...focusRing,
-                      transition: "background-color .18s ease, transform .18s ease",
-                      "&:hover": { bgcolor: "#fff", transform: "translateX(3px)" },
-                      "@media (prefers-reduced-motion: reduce)": { transition: "none", "&:hover": { transform: "none" } },
-                    }}>
-                      <Box sx={{
-                        width: 34, height: 34, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
-                        bgcolor: s.tint, color: s.fg,
-                      }}><HubIconGlyph name={s.icon} /></Box>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography sx={{ fontSize: "0.875rem", fontWeight: 600, color: INK, letterSpacing: "-0.01em", lineHeight: 1.25 }}>
-                          {s.name}
-                        </Typography>
-                        <Typography sx={{ fontSize: "0.735rem", color: FAINT, lineHeight: 1.3 }}>{s.note}</Typography>
+                  {/* what it is for, two lines at most, so the lists below start level across a row */}
+                  <Typography sx={{
+                    px: 2.25, pt: 1.5, fontSize: "0.86rem", color: MUTED, lineHeight: 1.45, minHeight: "calc(2.9em + 12px)",
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                  }}>{a.line}</Typography>
+
+                  {/* what is inside it: one line each, never wider than the card */}
+                  <Box sx={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 0.75, px: 1.5, pt: 1, pb: 1.5, flex: 1, alignContent: "start" }}>
+                    {shown.map((s) => (
+                      <Box key={s.href + s.name} component={Link} href={s.href} sx={{
+                        display: "flex", alignItems: "center", gap: 1.25, px: 1.1, py: 0.9, borderRadius: "14px", minWidth: 0,
+                        textDecoration: "none", bgcolor: "rgba(255,255,255,.74)", border: "1px solid rgba(21,34,58,.06)",
+                        transition: "background-color .15s ease, border-color .15s ease", ...focusRing,
+                        "&:hover": { bgcolor: "#fff", borderColor: `color-mix(in srgb, ${a.to} 35%, transparent)` },
+                      }}>
+                        <Box sx={{
+                          width: 34, height: 34, borderRadius: "11px", flexShrink: 0, display: "grid", placeItems: "center",
+                          bgcolor: s.tint, color: s.fg,
+                        }}><HubIconGlyph name={s.icon} /></Box>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography noWrap sx={{ fontSize: "0.875rem", fontWeight: 600, color: INK, letterSpacing: "-0.01em", lineHeight: 1.3 }}>
+                            {s.name}
+                          </Typography>
+                          <Typography noWrap sx={{ fontSize: "0.74rem", color: FAINT, lineHeight: 1.35 }}>{s.note}</Typography>
+                        </Box>
+                        <ChevronRightIcon sx={{ fontSize: 17, color: FAINT, flexShrink: 0 }} />
                       </Box>
-                      <ChevronRightIcon sx={{ fontSize: 17, color: FAINT, flexShrink: 0 }} />
-                    </Box>
-                  ))}
+                    ))}
 
-                  {/* An app can be empty on purpose. Saying so beats a card
-                      that trails off into white space. */}
-                  {subs.length === 0 && (
-                    <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, py: 0.5 }}>
-                      Nothing in it yet — open it to see what it is for.
-                    </Typography>
-                  )}
+                    {/* An app can be empty on purpose. Saying so beats a card
+                        that trails off into white space. */}
+                    {subs.length === 0 && (
+                      <Typography sx={{ fontSize: "0.82rem", color: FAINT, lineHeight: 1.5, px: 1, py: 0.5 }}>
+                        Nothing in it yet — open it to see what it is for.
+                      </Typography>
+                    )}
+                  </Box>
 
                   {subs.length > 3 && (
                     <Box
@@ -302,10 +314,10 @@ export default function FrontPage() {
                       onClick={() => setExpanded((e) => ({ ...e, [a.key]: !e[a.key] }))}
                       aria-expanded={open}
                       sx={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4,
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 0.4, mx: 1.5, mb: 1.5,
                         border: 0, background: "none", cursor: "pointer", p: 0.75, borderRadius: "10px",
-                        fontFamily: "inherit", fontSize: "0.78rem", fontWeight: 600, color: a.to, ...focusRing,
-                        "&:hover": { bgcolor: "rgba(255,255,255,.6)" },
+                        fontFamily: "inherit", fontSize: "0.8rem", fontWeight: 600, color: a.to, ...focusRing,
+                        "&:hover": { bgcolor: `color-mix(in srgb, ${a.to} 9%, transparent)` },
                       }}
                     >
                       {open ? "Show less" : `View all ${subs.length}`}
@@ -316,43 +328,47 @@ export default function FrontPage() {
                     </Box>
                   )}
                 </Box>
-              </Box>
-            );
-          })}
-        </Box>
-
-        {visibleApps.length === 0 && (
-          <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 3, md: 4 }, textAlign: "center" }}>
-            <Typography sx={{ fontSize: "1.1rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
-              {viewed ? `${viewed.name} has no apps yet` : "You do not have any apps yet"}
-            </Typography>
-            <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.75, maxWidth: "46ch", mx: "auto" }}>
-              {viewed
-                ? "Give them one on Settings → People and it appears here."
-                : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
-            </Typography>
+              );
+            })}
           </Box>
-        )}
 
-        {/* ------------------------------------------------------------ resources */}
-        <Box id="resources" sx={{
-          display: "grid", gap: 2, mt: 2,
-          gridTemplateColumns: { xs: "1fr", md: "1.15fr 1fr" },
-          ...rise(6),
-        }}>
-          {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
+          {visibleApps.length === 0 && (
+            <Box sx={{ ...glass, borderRadius: "22px", p: { xs: 3, md: 4 }, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "1.1rem", fontWeight: 600, color: INK, letterSpacing: "-0.02em" }}>
+                {viewed ? `${viewed.name} has no apps yet` : "You do not have any apps yet"}
+              </Typography>
+              <Typography sx={{ fontSize: "0.9rem", color: MUTED, mt: 0.75, maxWidth: "46ch", mx: "auto" }}>
+                {viewed
+                  ? "Give them one on Settings → People and it appears here."
+                  : "An admin gives each person the apps they need. Ask whoever set up your account, and they will appear here."}
+              </Typography>
+            </Box>
+          )}
 
-          {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
-              of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
-          {/* greyed for a cross-user of Angst+Pfister: shown, never opened (SARCLA 10.11.2026); a cross-admin opens it */}
-          {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
-            ? <LockedPlanCard glass={glass} />
-            : <ActionPlanCard glass={glass} focusRing={focusRing} />)}
-        </Box>
-        </Box>
-        </Box>
+          {/* ---------------------------------------------------------- resources */}
+          <Box id="resources" sx={{
+            display: "grid", gap: 2, mt: 2,
+            gridTemplateColumns: { xs: "1fr", md: "1.15fr 1fr" },
+            ...rise(6),
+          }}>
+            {panel("connectors") && openFor("connectors") && <ConnectorsPanel glass={glass} />}
 
+            {/* the action plan, and where we stand on the climb to 30 M€ - it was "Mission Control", a promise
+                of a screen that was never built (SARCLA 31.10.2026: "change the name to Action plan") */}
+            {/* greyed for a cross-user of Angst+Pfister: shown, never opened (SARCLA 10.11.2026); a cross-admin opens it */}
+            {(role === "admin" || crossNow) && panel("missionControl") && (crossNow
+              ? <LockedPlanCard glass={glass} />
+              : <ActionPlanCard glass={glass} focusRing={focusRing} />)}
+          </Box>
+        </Box>
       </Box>
     </Box>
   );
 }
+
+/** The quick links' column in the margin: the width of the hub switch above it (HomeBar.tsx SWITCH_WIDTH). */
+const RAIL_WIDTH = 132;
+/** The margin it needs: its width, the 12 px gap, a little air to the window. */
+const RAIL_ROOM = RAIL_WIDTH + 12 + 8;
+/** A layout effect in the browser (measured before the paint: no jump), a plain effect on the server. */
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
