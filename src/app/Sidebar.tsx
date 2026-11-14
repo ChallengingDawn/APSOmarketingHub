@@ -145,7 +145,19 @@ import { accessAt } from "@/lib/auth/tree";
 import { pickActiveSection } from "@/lib/nav/activeSection";
 import { useViewAs } from "@/app/ViewAs";
 import { Wordmark } from "@/app/Wordmark";
-import { APPS, MARKETING_SECTIONS, PRICING_PAGES, UC_SECTIONS, WEBSITE_SECTIONS } from "@/app/hubApps";
+import { APPS, MARKETING_SECTIONS, PRICING_PAGES, UC_SECTIONS, WEBSITE_SECTIONS, type IconKey } from "@/app/hubApps";
+
+// THE CONVERSION LOOP (SARCLA 14.11.2026: "the 3 sub apps need to be connected, they form a bigger one" - "don't have the
+// shortcut in the bottom"): AI personalization finds what stops buyers and proposes the fix, Content's Projects build the
+// page (the Page builder), A/B testing tests it. Inside any of the three the panel's foot carries all three, the one you
+// are in marked - each only for whoever may open it.
+const LOOP: { label: string; href: string; icon: IconKey; not?: string[] }[] = [
+  { label: "AI personalization", href: "/website/ai-personalization", icon: "brain" },
+  { label: "Projects", href: "/projects", icon: "template", not: ["/projects/calendar"] },
+  { label: "A/B testing", href: "/website/ab-testing", icon: "science" },
+];
+const loopAt = (path: string | null) => LOOP.find((l) => (path === l.href || !!path?.startsWith(`${l.href}/`))
+  && !(l.not ?? []).some((n) => path === n || !!path?.startsWith(`${n}/`))) ?? null;
 
 const DRAWER_WIDTH = 300;
 
@@ -858,6 +870,15 @@ export default function Sidebar({ hub }: { hub?: "ap" } = {}) {
           </Box>
         ))}
       </Box>
+
+      {loopAt(pathname) && (
+        <Box sx={{ px: 1.5, pt: 1, pb: 0.5, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
+          <Typography sx={{ px: 1.25, pb: 0.5, fontSize: "0.68rem", fontWeight: 700, color: "#8b97ac", textTransform: "uppercase", letterSpacing: "0.06em" }}>Conversion loop</Typography>
+          {LOOP.filter((l) => allowed({ href: l.href })).map((l) => (
+            <Row key={l.href} href={l.href} icon={<HubIconGlyph name={l.icon} fontSize={20} />} label={l.label} active={loopAt(pathname)?.href === l.href} tone={tone} />
+          ))}
+        </Box>
+      )}
 
       <Box sx={{ px: 1.5, py: 1.25, borderTop: "1px solid rgba(15,23,42,0.06)" }}>
         <Row href="/api/auth/signout" icon={<LogoutIcon />} label="Sign out" anchor />

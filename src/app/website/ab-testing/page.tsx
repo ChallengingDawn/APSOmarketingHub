@@ -6,14 +6,11 @@
 // decision, where two tests clash, every test on a timeline, and the ideas next in line. The chat's own test moved to
 // /website/ab-testing/chat (its setting and figures, unchanged).
 
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Grid from "@mui/material/Grid";
 import Typography from "@mui/material/Typography";
-import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import GavelOutlinedIcon from "@mui/icons-material/GavelOutlined";
 import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
@@ -24,7 +21,7 @@ import PageHeader from "@/app/PageHeader";
 import { GUTTER } from "@/app/analytics/Shell";
 import { CardTitle, FAINT, GlassCard, GREEN, INK, KpiTile, MUTED, Notice } from "@/app/uc/report/ui";
 import { SOURCE_LABEL, clashes, daysOf, iceScore, needsDecision, readArms, type Experiment } from "@/lib/experiments/model";
-import { ArmBars, OutcomeChip, SourceTag, StatusChip, SyncLine, Timeline, XpDialog, XpLoaded, XpTable, keyHref, liftText, whereOf, type ListData } from "./xp/parts";
+import { ArmBars, OutcomeChip, SourceTag, StatusChip, SyncLine, Timeline, XpLoaded, XpTable, keyHref, liftText, whereOf, type ListData } from "./xp/parts";
 
 export default function MissionControl() {
   return (
@@ -35,8 +32,6 @@ export default function MissionControl() {
 }
 
 function Body({ d, reload }: { d: ListData; reload: () => void }) {
-  const router = useRouter();
-  const [adding, setAdding] = useState(false);
   const all = d.experiments;
   const running = all.filter((e) => e.status === "running" || e.status === "paused");
   const decide = all.filter((e) => needsDecision(e));
@@ -47,8 +42,8 @@ function Body({ d, reload }: { d: ListData; reload: () => void }) {
   const byKey = new Map(all.map((e) => [e.key, e]));
   return (
     <>
-      <PageHeader title="A/B testing - Mission control" subtitle="Every test on the shop's pages and in its services: what runs, how it stands, what needs a decision, what comes next"
-        rightSlot={d.canEdit ? <Button variant="contained" disableElevation startIcon={<AddCircleOutlineIcon />} onClick={() => setAdding(true)} sx={{ textTransform: "none", borderRadius: "999px" }}>Record a test</Button> : undefined} />
+      {/* no "Record a test" here (SARCLA 14.11.2026): a page test comes from the Page builder, a past one is recorded under History */}
+      <PageHeader title="A/B testing - Mission control" subtitle="Every test on the shop's pages and in its services: what runs, how it stands, what needs a decision, what comes next" />
       <SyncLine d={d} reload={reload} />
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}><KpiTile icon={<PlayCircleOutlineIcon />} tint="green" label="Running now" value={String(running.length)}
@@ -86,7 +81,8 @@ function Body({ d, reload }: { d: ListData; reload: () => void }) {
       )}
 
       <GlassCard sx={{ display: "grid", gap: 1 }}>
-        <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="Every test of the last four months" note="One line from its start to its end - pages and microservices apart, the colour is the tool that runs it." />
+        <CardTitle icon={<TimelineOutlinedIcon />} tint="blue" title="Every test of the last four months" note="One line from its start to its end - pages and microservices apart, the colour is the tool that runs it."
+          right={<Button component={Link} href="/website/ab-testing/by-page" size="small" sx={{ textTransform: "none" }}>Each page&apos;s tests →</Button>} />
         <Timeline list={all} />
       </GlassCard>
 
@@ -96,7 +92,6 @@ function Body({ d, reload }: { d: ListData; reload: () => void }) {
         <Box><Button component={Link} href="/website/ab-testing/ideas" size="small" sx={{ textTransform: "none" }}>All ideas →</Button></Box>
       </GlassCard>
 
-      {adding && <XpDialog open onClose={() => setAdding(false)} onSaved={(k) => router.push(keyHref(k))} />}
     </>
   );
 }

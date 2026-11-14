@@ -86,11 +86,11 @@ async function syncWebyn(): Promise<SourceRun> {
     r = await gateway<{ watching?: boolean; pages: WebynPageIn[] }>("/convert/webyn", { timeoutMs: 20_000 });
   } catch (e) {
     const status = (e as { status?: number }).status;
-    return { ok: false, n: 0, error: status === 404 ? "The shop's gateway does not watch Webyn yet" : (e as Error).message };
+    return { ok: false, n: 0, error: status === 404 ? "The shop's gateway does not read the external tool's tests yet" : (e as Error).message };
   }
   const rows = (r.pages ?? []).map((p) => fromWebynPage(p)).filter((x): x is NonNullable<typeof x> => !!x);
   await upsertFromSource(rows);
-  return { ok: true, n: rows.length, error: r.watching === false ? "Watching Webyn is switched off on the gateway (CONVERT_WEBYN=off)" : null };
+  return { ok: true, n: rows.length, error: r.watching === false ? "Reading the external tool's tests is switched off on the gateway" : null };
 }
 
 /** Content's page to-dos with their A/B test switched on - until APSOconvert runs a test for that piece, then that one. */
@@ -133,7 +133,7 @@ let started = false;
 export function startExperimentsSync(): void {
   if (started || String(process.env.EXPERIMENTS_SYNC ?? "").toLowerCase() === "off") return;
   started = true;
-  console.log("[experiments] on: the A/B testing record kept up from APSOconvert, the shop chat, Webyn and the Page builder every 30 min");
+  console.log("[experiments] on: the A/B testing record kept up from APSOconvert, the shop chat, the external tool and the Page builder every 30 min");
   const tick = () => void syncLocked().then((r) => {
     if (r) console.log(`[experiments] synced: ${Object.entries(r.sources).map(([k, s]) => `${k} ${s.ok ? s.n : `failed (${s.error})`}`).join(", ")}`);
   }).catch((e) => console.warn(`[experiments] sync failed: ${(e as Error).message}`));

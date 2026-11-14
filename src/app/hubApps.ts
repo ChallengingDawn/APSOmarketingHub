@@ -135,13 +135,16 @@ export const WEBSITE_SECTIONS: WebsiteSection[] = [
     // front page is Mission control (src/lib/experiments); the chat's test (03.11.2026: "a copy of the first A/B test on
     // the chat") moved to Microservices > Chat; APSOconvert's page tests (07.11.2026) with Webyn's under Pages.
     pages: [
+      // 14.11.2026 (SARCLA: "it's still a lot confusing"): five plain entries, no headings; By page and the chat's own test
+      // are reached from inside (Mission control, Microservices). The three apps of the conversion loop - AI
+      // personalization, Projects, A/B testing - are linked at the foot of the side panel (Sidebar.tsx LOOP).
       { name: "Mission control", note: "Every test: what runs and how it stands, what needs a decision, clashes, the timeline, what's next", href: "/website/ab-testing", icon: "target", ...PINK },
-      { name: "Page tests", heading: "Pages", note: "APSOconvert's and Webyn's tests of shop pages: a version against the page as it is", href: "/website/ab-testing/pages", icon: "science", ...PINK },
-      { name: "By page", heading: "Pages", note: "What each shop page went through, test after test, whichever tool ran it", href: "/website/ab-testing/by-page", icon: "layers", ...BLUE },
-      { name: "All services", heading: "Microservices", note: "The chat, the search bar, DirectUP, the 3D gateway - each with its tests", href: "/website/ab-testing/microservices", icon: "bolt", ...PURPLE },
-      { name: "Chat: the e-mail", heading: "Microservices", note: "E-mail first, later, or the summary mid-chat: do we lose chats, do we gain e-mails", href: "/website/ab-testing/chat", icon: "chat", ...TEAL },
-      { name: "History", heading: "Record", note: "Every ended test: its result, the decision, what we learned - past tests typed in too", href: "/website/ab-testing/history", icon: "loop", ...PURPLE },
-      { name: "Ideas", heading: "Record", note: "What to test next, scored (impact, confidence, ease) and in order", href: "/website/ab-testing/ideas", icon: "bolt", ...AMBER },
+      { name: "Page tests", note: "Tests of shop pages started from the Page builder: a version against the page as it is", href: "/website/ab-testing/pages", icon: "science", ...PINK },
+      { name: "Microservices", note: "The shop's services (the chat, the search bar, DirectUP ...) and their tests", href: "/website/ab-testing/microservices", icon: "bolt", ...PURPLE },
+      { name: "History", note: "Every ended test: its result, the decision, what we learned - past tests typed in too", href: "/website/ab-testing/history", icon: "loop", ...PURPLE },
+      { name: "Ideas", note: "The pages under building in the Page builder, what is planned, the ideas in order", href: "/website/ab-testing/ideas", icon: "bolt", ...AMBER },
+      { name: "By page", note: "What each shop page went through, test after test", href: "/website/ab-testing/by-page", icon: "layers", ...BLUE, menu: false },
+      { name: "Chat: the e-mail", note: "E-mail first, later, or the summary mid-chat: do we lose chats, do we gain e-mails", href: "/website/ab-testing/chat", icon: "chat", ...TEAL, menu: false },
       { name: "A test", note: "One test's record: versions, outcome, decision, what we learned, its log", href: "/website/ab-testing/test", icon: "science", ...PINK, menu: false },
     ],
   },
