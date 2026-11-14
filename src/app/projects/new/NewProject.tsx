@@ -1,8 +1,9 @@
 "use client";
 // A NEW PROJECT (SARCLA 08.11.2026: "creating a project you should select the type of content you need and the task
 // assignment - an action - for each one"). One page, two parts, read top to bottom:
-//   1 What and why    its name and goal - or the ideas it starts from (from Ideas, each saying where it comes from); the
-//                     AI proposes the rest, and is seen at work while it does
+//   1 What is it?     one box in the person's words (or the ideas it starts from - from Ideas, each saying where it comes
+//                     from); the AI proposes the name, the brief and the lines, seen at work while it does; the brief's
+//                     fields under it stay the person's (14.11.2026, SARCLA: "new project create form makes no sense")
 //   2 What it makes   one line per piece of content or action: its kind, its words, language, owner, reviewer, day
 // Start makes it all at once (lib/content/start.ts) and opens the project. The action plan is not asked here (SARCLA
 // 08.11.2026: "Action plan should not be visible here"): a to-do's "Plan & ticket", on its line in the project, places it.
@@ -79,6 +80,9 @@ export default function NewProject() {
   const sp = useSearchParams();
   const [setup, setSetup] = useState<Setup | null>(null);
   const [ideas, setIdeas] = useState<IdeaRef[]>([]);
+  // what the person wants, in their words (SARCLA 14.11.2026: "new project create form makes no sense" - a Name and a Goal
+  // asked before the AI helped gave the brief "Goal: Black Friday Campaign"): the AI writes the name and the brief from it
+  const [ask, setAsk] = useState("");
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
   const [audience, setAudience] = useState("");
@@ -98,7 +102,7 @@ export default function NewProject() {
           if (raw) {
             const got = JSON.parse(raw) as IdeaRef[];
             setIdeas(got);
-            if (got.length === 1) { setTitle(got[0].title.replace(/^Answer: /, "").slice(0, 120)); if (got[0].why) setGoal(got[0].why.slice(0, 600)); }
+            if (got.length === 1) { setTitle(got[0].title.replace(/^Answer: /, "").slice(0, 120)); if (got[0].why) setGoal(got[0].why.slice(0, 600)); setAsk(got[0].title.replace(/^Answer: /, "").slice(0, 600)); }
             // one line per kind each idea would make (an own idea can name several)
             const offered = new Set(j.kinds.map((k) => k.key));
             setLines(got.flatMap((i) => (i.kinds?.length ? i.kinds : i.kind ? [i.kind] : []).filter((k) => offered.has(k)).map((k) => newLine(k, "DE", j, { title: i.title.slice(0, 160) }))).slice(0, 8));
@@ -119,12 +123,14 @@ export default function NewProject() {
 
   const propose = async () => {
     setBusy("propose"); setErr(null);
-    const r = await post({ action: "propose", goal, ideas, languages: langs });
+    const r = await post({ action: "propose", ask: ask.trim(), goal: goal.trim(), ideas, languages: langs });
     setBusy(null);
     if (!r.ok) return setErr(r.error ?? "The AI did not answer.");
     const p = r.proposal as { title: string; goal: string; audience: string; message: string; lines: { contentType: string; title: string; language: string | null; why: string }[] };
+    // the AI fills what is empty - and a goal that only repeats the name or the ask is replaced by its sentence
+    const echo = (v: string) => !v.trim() || [title, ask].some((x) => x.trim() && x.trim().toLowerCase() === v.trim().toLowerCase());
     if (!title.trim()) setTitle(p.title);
-    if (!goal.trim()) setGoal(p.goal);
+    if (echo(goal)) setGoal(p.goal);
     if (!audience.trim()) setAudience(p.audience);
     if (!message.trim()) setMessage(p.message);
     // the AI's lines replace the empty ones; lines a person wrote stay
@@ -134,7 +140,7 @@ export default function NewProject() {
   const start = async () => {
     setBusy("start"); setErr(null);
     const r = await post({
-      action: "start", title, goal, audience, message, ideas: ideas.map(({ key, source, title: t, why, url }) => ({ key, source, title: t, why, url })),
+      action: "start", title: title.trim() || ask.trim().slice(0, 120), goal: goal.trim() || ask.trim(), audience, message, ideas: ideas.map(({ key, source, title: t, why, url }) => ({ key, source, title: t, why, url })),
       planItem: null, tickets: false,
       lines: lines.map(({ contentType, title: t, language, writer, reviewer, dueDate }) => ({ contentType, title: t, language, writer, reviewer, dueDate: dueDate || null })),
     });
@@ -150,7 +156,7 @@ export default function NewProject() {
 
   return (
     <Box sx={{ display: "grid", gap: 2, maxWidth: 1180 }}>
-      <Step n={1} title="What and why" note="Its name and what it should achieve - the AI proposes what it makes from that">
+      <Step n={1} title="What is it?" note="Say it in a sentence or two - the AI writes the name, the brief and the to-dos from it">
         {ideas.length > 0 && (
           <Box sx={{ mb: 1.75, display: "grid", gap: 0.75 }}>
             <Typography sx={{ fontSize: "0.75rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>It starts from {ideas.length === 1 ? "this idea" : `these ${ideas.length} ideas`}</Typography>
@@ -167,8 +173,10 @@ export default function NewProject() {
             ))}
           </Box>
         )}
-        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-          <TextField size="small" label="Name" placeholder="Cut-to-size for food lines" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} />
+        <TextField fullWidth multiline minRows={3} value={ask} onChange={(e) => setAsk(e.target.value)} inputProps={{ maxLength: 1500, "aria-label": "What is it?" }}
+          placeholder={"e.g. Black Friday 2026 for our B2B buyers - each company's own code after login, a page per store view, a newsletter and LinkedIn posts"}
+          sx={{ ...field, "& .MuiInputBase-input": { fontSize: "0.95rem", lineHeight: 1.5 } }} />
+        <Box sx={{ mt: 1.25, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
             <Typography component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".04em" }}>Languages</Typography>
             <Box role="group" aria-label="Languages" sx={{ display: "inline-flex", border: `1px solid ${HAIRLINE}`, borderRadius: "6px", overflow: "hidden", bgcolor: "rgba(255,255,255,.75)" }}>
@@ -184,18 +192,25 @@ export default function NewProject() {
               })}
             </Box>
           </Box>
-          <TextField size="small" multiline minRows={2} label="Goal - what should change because of it" value={goal} onChange={(e) => setGoal(e.target.value)} sx={{ ...field, gridColumn: { md: "1 / -1" } }} />
-          <TextField size="small" label="Who it is for" value={audience} onChange={(e) => setAudience(e.target.value)} sx={field} />
-          <TextField size="small" label="The one message" value={message} onChange={(e) => setMessage(e.target.value)} sx={field} />
-        </Box>
-        <Box sx={{ mt: 1.75, display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-          <Button variant="outlined" disabled={!setup.ai || !!busy || (!goal.trim() && !ideas.length)} onClick={propose}
-            startIcon={busy === "propose" ? <CircularProgress size={14} /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />} sx={{ ...btn, borderColor: PINK, color: PINK }}>
+          <Box sx={{ flex: 1 }} />
+          <Button variant="contained" disableElevation disabled={!setup.ai || !!busy || (!ask.trim() && !goal.trim() && !ideas.length)} onClick={propose}
+            startIcon={busy === "propose" ? <CircularProgress size={14} color="inherit" /> : <AutoAwesomeOutlinedIcon sx={{ fontSize: 18 }} />} sx={mainBtn}>
             {busy === "propose" ? "Planning the project…" : lines.length ? "Propose more lines with AI" : "Propose the project with AI"}
           </Button>
-          <Typography sx={{ fontSize: "0.8rem", color: MUTED }}>{setup.ai ? "The name, the brief and the lines - you change anything after." : "The AI is not set up on this hub."}</Typography>
         </Box>
+        {!setup.ai && <Typography sx={{ mt: 0.75, fontSize: "0.8rem", color: MUTED }}>The AI is not set up on this hub - write the brief below yourself.</Typography>}
         {busy === "propose" && <Box sx={{ mt: 1.75 }}><AiWorking label="AI is planning the project…" note="its name, its brief and what it makes" lines={4} /></Box>}
+
+        {/* the brief - what everybody writes against: the AI fills it from the words above, every field stays the person's */}
+        <Typography sx={{ mt: 2.25, mb: 1, fontSize: "0.72rem", fontWeight: 700, color: MUTED, textTransform: "uppercase", letterSpacing: ".05em" }}>
+          The brief · the AI fills it, change anything
+        </Typography>
+        <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
+          <TextField size="small" label="Name" value={title} onChange={(e) => setTitle(e.target.value)} sx={field} />
+          <TextField size="small" label="Who it is for" value={audience} onChange={(e) => setAudience(e.target.value)} sx={field} />
+          <TextField size="small" multiline minRows={2} label="Goal - what should change because of it" value={goal} onChange={(e) => setGoal(e.target.value)} sx={{ ...field, gridColumn: { md: "1 / -1" } }} />
+          <TextField size="small" multiline label="The one message" value={message} onChange={(e) => setMessage(e.target.value)} sx={{ ...field, gridColumn: { md: "1 / -1" } }} />
+        </Box>
       </Step>
 
       <Step n={2} title="What it makes" note="One line per piece of content, or per action around it - each with its owner, and its day on the calendar"

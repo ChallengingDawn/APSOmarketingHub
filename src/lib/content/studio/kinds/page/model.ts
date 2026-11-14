@@ -237,6 +237,25 @@ function publishedOf(v: unknown): Published | null {
   };
 }
 
+/** A test of A/B testing whose version was made the page here ("Make C the page" - Content v19, 14.11.2026, the loop with
+ * dev-eb's A/B testing): kept until production is written for that store view, then the server closes the test there
+ * (lib/convert/tests.ts markPublished, A/B testing's {action:"published"}) - Winners, Performance and Mission control
+ * stop asking for it. */
+export type AbWon = { testId: string; letter: string; view: string; at: string; by: string };
+export function abWonOf(v: unknown): AbWon[] {
+  if (!Array.isArray(v)) return [];
+  const s = (x: unknown, n: number) => (typeof x === "string" ? x.slice(0, n) : "");
+  const out: AbWon[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+    const o = x as Record<string, unknown>;
+    const testId = s(o.testId, 20);
+    if (!/^\d+$/.test(testId) || out.some((y) => y.testId === testId)) continue;
+    out.push({ testId, letter: s(o.letter, 2), view: s(o.view, 20), at: s(o.at, 40), by: s(o.by, 255) });
+  }
+  return out.slice(0, 10);
+}
+
 export type PageDoc = {
   v: 1;
   source: PageSource;
@@ -253,6 +272,8 @@ export type PageDoc = {
   origin: { versionId: string; rev: number; status: string; summary: string; idea: string; test: WinnerTest | null; letter: string } | null;
   /** a test's winner published from here (SARCLA 08.11.2026: "content publish should go to Content") */
   published: Published | null;
+  /** the tests whose version was made the page here, waiting for production to be written (AbWon) */
+  abWon: AbWon[];
   /** an older new page: one block of HTML (kept so it still shows); new pages are `fields` */
   newPage: { title: string; urlKey: string; metaTitle: string; metaDescription: string; body: string };
   fields: Fields;
@@ -445,7 +466,7 @@ export function withView(d: PageDoc, key: string | null | undefined, view: PageD
     ...old, path: view.path, store: k, changes: view.changes, texts: view.texts, fields: view.fields, outline: view.outline,
     letter: view.letter || "A", versions: view.versions ?? [],
   };
-  return { ...d, abTest: view.abTest, publish: view.publish, notes: view.notes, inserts: view.inserts, magento: view.magento, langs: { ...d.langs, [k]: next } };
+  return { ...d, abTest: view.abTest, abWon: view.abWon, publish: view.publish, notes: view.notes, inserts: view.inserts, magento: view.magento, langs: { ...d.langs, [k]: next } };
 }
 
 /** A short stable hash of a text (FNV-1a, base 36). */
@@ -885,7 +906,7 @@ function settleStores(d: PageDoc, old: boolean): PageDoc {
 
 export function emptyPage(language?: string | null): PageDoc {
   return {
-    v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null, published: null,
+    v: 1, source: "pick", env: "prod", path: "", store: storeForLanguage(language), pageKind: null, started: false, origin: null, published: null, abWon: [],
     newPage: { title: "", urlKey: "", metaTitle: "", metaDescription: "", body: "" },
     fields: emptyFields(),
     changes: [], texts: [], letter: "A", versions: [], langs: {}, stores: storesInLanguage(langOfStore(storeForLanguage(language))), inserts: [],
@@ -1024,6 +1045,7 @@ export function pageDoc(raw: unknown, language?: string | null): PageDoc {
     started: d.started === true,
     origin: o ? { versionId: str(o.versionId, 40), rev: Number(o.rev) || 1, status: str(o.status, 20), summary: str(o.summary, 600), idea: str(o.idea, 200), test: winnerTestOf(o.test), letter: isLetter(o.letter) ? o.letter : "" } : null,
     published: publishedOf(d.published),
+    abWon: abWonOf(d.abWon),
     newPage: { title: str(np.title, 200), urlKey: str(np.urlKey, 200), metaTitle: str(np.metaTitle, 200), metaDescription: str(np.metaDescription, 400), body: str(np.body, 60_000) },
     fields: normalizeFields(d.fields),
     changes: changesOf(d.changes),

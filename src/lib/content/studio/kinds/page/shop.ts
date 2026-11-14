@@ -212,15 +212,25 @@ const hash = (s: string) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; 
 
 /** The page for the preview: one language (`lang`), as it is (before), with its changes (after), or - a new page - the
  * store's page it shows in (shell), the studio drawing the page itself into it as it is typed. */
-export async function previewOf(raw: unknown, side: "before" | "after" | "shell", fresh = false, lang: string | null = null): Promise<PreviewOut> {
+export async function previewOf(raw: unknown, side: "before" | "after" | "shell", fresh = false, lang: string | null = null, shellEnv: Env | null = null): Promise<PreviewOut> {
   const doc = pageDoc(raw);
   const d = viewOf(doc, lang);
   const inserts = side === "before" ? [] : await insertsOf(d);
+  // a new page's frame is the store's own page: known from its shop and store view alone (`shellEnv`, the store view
+  // asked) - never from the stored page, which may still be the page picked before (14.11.2026, SARCLA: "writing the page
+  // is very small" - a page started from a few words was framed before the studio's save landed: "Pick a page first", a
+  // 520 px box)
+  if (side === "shell") {
+    const store = lang && /^[a-z]{2}-[A-Z]{2,3}(\/[a-z]{3})?$/.test(lang) ? lang : d.store;
+    const shell = await shellOf(shellEnv ?? d.env, store, fresh);
+    if (!shell.ok) return shell;
+    const notes = shell.styled ? [] : ["The shop's styles could not be read - the page shows unstyled."];
+    return { ok: true, html: shell.html, url: shell.url, side, hits: [], body: null, problems: [], notes, inserts };
+  }
   if (d.source === "new") {
     const shell = await shellOf(d.env, d.store, fresh);
     if (!shell.ok) return shell;
     const notes = shell.styled ? [] : ["The shop's styles could not be read - the page shows unstyled."];
-    if (side === "shell") return { ok: true, html: shell.html, url: shell.url, side, hits: [], body: null, problems: [], notes, inserts };
     const final = finalChanges(d);
     const body = isLegacyBody(d) ? (final.changes.find((c) => c.op === "html") as { html?: string } | undefined)?.html ?? "" : (() => {
       const r = renderNewPage(d.fields, { store: d.store, inserts: inserts.filter((x) => x.ok).map((x): InsertHtml => ({ id: x.id, where: x.where, html: x.html })) });

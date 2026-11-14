@@ -238,3 +238,35 @@ export function sparkPoints(daily: readonly { rateA: number | null; rateB: numbe
   const line = (k: "rateA" | "rateB") => pts.map((d, i) => (d[k] === null ? null : `${((i / (pts.length - 1)) * w).toFixed(1)},${y(d[k]!)}`)).filter(Boolean).join(" ");
   return { a: line("rateA"), b: line("rateB") };
 }
+
+/* ── 4. the loop with A/B testing (Content v19, 14.11.2026 - dev-eb's side of it: each letter its own version, each test
+   its origin, "published" closes a won test once its winner is on the shop) ── */
+
+/** The page's letter a test's version arm is: the letter its convert version was made under (A/B testing's
+ * `origin.letter`), never the letter the studio has open now. A is always the page itself here, so an "A" or none is a
+ * test made before the letters were sent - then the page's only other version if it has exactly one, else not known. */
+export function armLetterOf(origin: { letter?: string | null } | null | undefined, versionLetters: readonly string[]): string | null {
+  const l = origin?.letter ?? null;
+  if (l && l !== "A" && /^[B-D]$/.test(l)) return l;
+  const others = [...new Set(versionLetters.filter((x) => x !== "A"))];
+  return others.length === 1 ? others[0] : null;
+}
+
+/** "Make C the page" must record C as the test's winner first - unless A/B testing has it decided for the version already. */
+export const needsDecide = (t: { status: string; winner?: string | null }) =>
+  (t.status === "running" || t.status === "paused" || t.status === "stopped") && !(t.status === "stopped" && t.winner === "b");
+
+export type WonMark = { testId: string; letter: string; view: string; at: string; by: string };
+/** The page's waiting tests with one more (the newest first, one per test, ten at most). */
+export const withWon = (list: readonly WonMark[], m: WonMark): WonMark[] => [m, ...list.filter((x) => x.testId !== m.testId)].slice(0, 10);
+
+/** The waiting tests a production write closes: each one whose store view was written - its own, or one of the store
+ * views its version goes to (`storesOf`) - without an error. */
+export function wonDue(list: readonly WonMark[], results: readonly { view: string; ok: boolean }[], storesOf: (view: string) => readonly string[]): WonMark[] {
+  const written = new Set(results.filter((r) => r.ok).map((r) => r.view));
+  return list.filter((m) => written.has(m.view) || storesOf(m.view).some((s) => written.has(s)));
+}
+
+/** What A/B testing's log says about it (300 characters at most there). */
+export const wonHow = (m: Pick<WonMark, "letter" | "view">, stores: readonly string[]) =>
+  `Made ${m.letter || "the version"} the page in the Page builder and wrote it into Magento production (${[...new Set([m.view, ...stores])].join(", ")})`.slice(0, 300);

@@ -149,16 +149,17 @@ export function useShell(api: StudioApi, d: PageDoc, fresh: number) {
   const lang = d.store;
   useEffect(() => {
     if (!isNew) return;
-    const key = `${d.store}|${fresh}`;
+    // its shop and store view go with the ask: the frame never waits for the save of the page that just became new
+    const key = `${d.env}|${d.store}|${fresh}`;
     if (shell?.key === key) return;
     let gone = false;
-    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${encodeURIComponent(lang)}${fresh ? "&fresh=1" : ""}`)
+    void fetch(`/api/content/studio/page/${pieceId}/preview?side=shell&lang=${encodeURIComponent(lang)}&env=${d.env}${fresh ? "&fresh=1" : ""}`)
       .then((r) => r.json() as Promise<PreviewOut>)
       .catch(() => ({ ok: false as const, error: "The hub did not answer - try again." }))
       .then((out) => { if (!gone) setShell({ key, out }); });
     return () => { gone = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, d.store, fresh, pieceId]);
+  }, [isNew, d.env, d.store, fresh, pieceId]);
   const insertKey = JSON.stringify(d.inserts);
   useEffect(() => {
     if (!d.inserts.length) { setInserts([]); return; }
@@ -481,8 +482,9 @@ export function Stage({ api, doc, d, lang, onLang, groups, presence, view, onVie
             {isNew ? (
               !shell ? <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1.25, color: MUTED, py: 10 }}><CircularProgress size={16} /> Opening the store&apos;s page…</Box>
                 : !shell.ok ? (
-                  <Box sx={{ maxWidth: 520, mx: "auto", my: 4 }}>
-                    <Typography sx={{ fontSize: "0.82rem", color: AMBER, textAlign: "center", mb: 1.5 }}>{shell.error} The page shows without the shop around it.</Typography>
+                  <Box>
+                    {/* the words narrow, the page at its full width (14.11.2026: "the central screen is really small") */}
+                    <Typography sx={{ maxWidth: 560, mx: "auto", fontSize: "0.82rem", color: AMBER, textAlign: "center", mb: 1.5 }}>{shell.error} The page shows without the shop around it.</Typography>
                     <Frame html={`<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;font-family:Jost,Arial,sans-serif"><div id="apx-root"></div></body></html>`} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} popup={popup} />
                   </Box>
                 ) : <Frame html={shell.html} device={device} title="The new page" select={selectOpts} patch={patch} toolbar={toolbar} fit={fit} popup={popup} />
